@@ -80,9 +80,10 @@ export const updateRoomTypeSchema = createRoomTypeSchema.omit({ hotelId: true })
 // Price Rank Validators
 // ======================================
 
+// 料金ランクは最大40段階（F-SET-02）
 export const createPriceRankSchema = z.object({
   hotelId: z.string().cuid(),
-  rank: z.number().int().min(1).max(100),
+  rank: z.number().int().min(1).max(40, '料金ランクは最大40段階です'),
   label: z.string().min(1).max(10),
   price1P: z.number().int().min(0),
   price2P: z.number().int().min(0),
@@ -181,6 +182,53 @@ export const pricingQuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100).optional(),
 })
 
+export const hotelIdQuerySchema = z.object({
+  hotelId: z.string().cuid('hotelId が不正です'),
+})
+
+export const monthQuerySchema = z.object({
+  hotelId: z.string().cuid(),
+  year: z.coerce.number().int().min(2020).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+})
+
+export const yearQuerySchema = z.object({
+  hotelId: z.string().cuid(),
+  year: z.coerce.number().int().min(2020).max(2100),
+})
+
+export const kpiComparisonQuerySchema = monthQuerySchema.extend({
+  baseDate: z.coerce.date().optional(),
+})
+
+export const aiSummaryQuerySchema = z.object({
+  hotelId: z.string().cuid(),
+  section: z.string().max(50).optional(),
+})
+
+export const bookingCurveQuerySchema = z.object({
+  hotelId: z.string().cuid(),
+  date: z.coerce.date(),
+})
+
+export const competitorPricesQuerySchema = z.object({
+  hotelId: z.string().cuid(),
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+}).refine(data => data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+// 重み付けは合計100%（F-DP-02）
+export const updateStrategySchema = z.object({
+  hotelId: z.string().cuid(),
+  weightOccupancy: z.number().int().min(0).max(100),
+  weightAdr: z.number().int().min(0).max(100),
+  weightCompetitor: z.number().int().min(0).max(100),
+}).refine(data => data.weightOccupancy + data.weightAdr + data.weightCompetitor === 100, {
+  message: '重み付けの合計は100%である必要があります',
+})
+
 // ======================================
 // Type Exports
 // ======================================
@@ -188,6 +236,7 @@ export const pricingQuerySchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type CreateHotelInput = z.infer<typeof createHotelSchema>
+export type CreatePriceRankInput = z.infer<typeof createPriceRankSchema>
 export type UpdateHotelInput = z.infer<typeof updateHotelSchema>
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>
 export type UpdateRoomTypeInput = z.infer<typeof updateRoomTypeSchema>

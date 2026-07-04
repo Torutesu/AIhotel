@@ -1,41 +1,73 @@
-import { Request, Response } from 'express'
-import { getPricingDataService, updatePricingService } from '../services/pricingService.js'
-import type { ApiResponse, PriceData } from '@hotel-revenue-system/shared/types'
+import type { Request, Response } from 'express'
+import { asyncHandler } from '../middlewares/errorHandler.js'
+import { sendSuccess } from '../utils/response.js'
+import { writeAuditLog } from '../services/auditService.js'
+import {
+  getPricingCalendarService,
+  getStrategyService,
+  updateStrategyService,
+  getSimulationService,
+} from '../services/pricingService.js'
 
-export const getPricingData = async (req: Request, res: Response) => {
-  try {
-    const { date } = req.params
-    const pricingData = await getPricingDataService(date)
-    const response: ApiResponse<typeof pricingData> = {
-      success: true,
-      data: pricingData,
-    }
-    res.json(response)
-  } catch (error) {
-    const response: ApiResponse<never> = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    }
-    res.status(500).json(response)
+/**
+ * 日別価格カレンダー
+ * GET /api/v1/pricing/calendar?hotelId=&year=&month=
+ */
+export const getCalendar = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as {
+    hotelId: string
+    year: number
+    month: number
   }
-}
+  const result = await getPricingCalendarService(hotelId, year, month)
+  sendSuccess(res, result)
+})
 
-export const updatePricing = async (req: Request, res: Response) => {
-  try {
-    const pricingData: PriceData = req.body
-    const updated = await updatePricingService(pricingData)
-    const response: ApiResponse<typeof updated> = {
-      success: true,
-      data: updated,
-      message: 'Pricing updated successfully',
-    }
-    res.json(response)
-  } catch (error) {
-    const response: ApiResponse<never> = {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    }
-    res.status(500).json(response)
+/**
+ * 価格戦略の重み付け取得
+ * GET /api/v1/pricing/strategy?hotelId=
+ */
+export const getStrategy = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const result = await getStrategyService(hotelId)
+  sendSuccess(res, result)
+})
+
+/**
+ * 価格戦略の重み付け更新（MANAGER 以上・監査対象 — F-DP-02）
+ * PUT /api/v1/pricing/strategy
+ */
+export const updateStrategy = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, weightOccupancy, weightAdr, weightCompetitor } = req.body
+  const { before, after } = await updateStrategyService(
+    hotelId,
+    { weightOccupancy, weightAdr, weightCompetitor },
+    req.user!.userId
+  )
+  await writeAuditLog({
+    tenantId: after.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'PricingStrategyConfig',
+    entityId: after.id,
+    oldValue: before,
+    newValue: after,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, after, 200, '価格戦略を更新しました')
+})
+
+/**
+ * 月間着地シミュレーション
+ * GET /api/v1/pricing/simulation?hotelId=&year=&month=
+ */
+export const getSimulation = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as {
+    hotelId: string
+    year: number
+    month: number
   }
-}
-
+  const result = await getSimulationService(hotelId, year, month)
+  sendSuccess(res, result)
+})

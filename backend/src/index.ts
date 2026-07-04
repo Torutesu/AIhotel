@@ -10,8 +10,11 @@ dotenv.config()
 // Import routes
 import { authRouter } from './routes/auth.js'
 import { hotelsRouter } from './routes/hotels.js'
+import { dashboardRouter } from './routes/dashboard.js'
 import { pricingRouter } from './routes/pricing.js'
+import { dailyRouter } from './routes/daily.js'
 import { analysisRouter } from './routes/analysis.js'
+import { settingsRouter } from './routes/settings.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -107,8 +110,11 @@ app.get('/api/health', (_req, res) => {
 // API v1 routes
 app.use('/api/v1/auth', authRouter)
 app.use('/api/v1/hotels', hotelsRouter)
+app.use('/api/v1/dashboard', dashboardRouter)
 app.use('/api/v1/pricing', pricingRouter)
+app.use('/api/v1/daily', dailyRouter)
 app.use('/api/v1/analysis', analysisRouter)
+app.use('/api/v1/settings', settingsRouter)
 
 // ======================================
 // Error Handling

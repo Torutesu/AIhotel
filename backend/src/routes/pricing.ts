@@ -1,18 +1,48 @@
 import { Router, type Router as ExpressRouter } from 'express'
-import { authenticate } from '../middlewares/auth.js'
-import { getPricingData, updatePricing } from '../controllers/pricingController.js'
+import { authenticate, requireRole, requireHotelAccess } from '../middlewares/auth.js'
+import { validate } from '../middlewares/validate.js'
+import { monthQuerySchema, hotelIdQuerySchema, updateStrategySchema } from '../lib/validators.js'
+import {
+  getCalendar,
+  getStrategy,
+  updateStrategy,
+  getSimulation,
+} from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
 
 // 全エンドポイント認証必須（C-2）
 pricingRouter.use(authenticate)
 
-// GET /api/v1/pricing
-pricingRouter.get('/', getPricingData)
+// GET /api/v1/pricing/calendar?hotelId=&year=&month=
+pricingRouter.get(
+  '/calendar',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(monthQuerySchema, 'query'),
+  getCalendar
+)
 
-// POST /api/v1/pricing
-pricingRouter.post('/', updatePricing)
+// GET /api/v1/pricing/strategy?hotelId=
+pricingRouter.get(
+  '/strategy',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getStrategy
+)
 
-// GET /api/v1/pricing/:date
-pricingRouter.get('/:date', getPricingData)
+// PUT /api/v1/pricing/strategy — 重み付け変更は MANAGER 以上（F-DP-02）
+pricingRouter.put(
+  '/strategy',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(updateStrategySchema),
+  updateStrategy
+)
 
+// GET /api/v1/pricing/simulation?hotelId=&year=&month=
+pricingRouter.get(
+  '/simulation',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(monthQuerySchema, 'query'),
+  getSimulation
+)
