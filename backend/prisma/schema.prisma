@@ -1,0 +1,309 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ======================================
+// Authentication & Users
+// ======================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String
+  role          UserRole  @default(STAFF)
+  hotelId       String?
+  hotel         Hotel?    @relation(fields: [hotelId], references: [id])
+  isActive      Boolean   @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relations
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  @@index([email])
+  @@index([hotelId])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
+
+enum UserRole {
+  ADMIN       // システム管理者
+  MANAGER     // ホテルマネージャー
+  STAFF       // スタッフ
+  READONLY    // 閲覧のみ
+}
+
+// ======================================
+// Hotel & Room Configuration
+// ======================================
+
+model Hotel {
+  id          String   @id @default(cuid())
+  name        String
+  address     String?
+  phone       String?
+  email       String?
+  totalRooms  Int
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  users         User[]
+  roomTypes     RoomType[]
+  priceRanks    PriceRank[]
+  dailyData     DailyData[]
+  campaigns     Campaign[]
+  competitors   Competitor[]
+  events        Event[]
+
+  @@index([name])
+}
+
+model RoomType {
+  id        String   @id @default(cuid())
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name      String   // スタンダードシングル、モデレートツイン、トリプル等
+  code      String   // STD_SINGLE, MOD_TWIN, TRIPLE等
+  capacity  Int      // 最大定員
+  count     Int      // 部屋数
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  dailyRoomData DailyRoomData[]
+
+  @@unique([hotelId, code])
+  @@index([hotelId])
+}
+
+// ======================================
+// Pricing Configuration
+// ======================================
+
+// 料金ランク表（65段階など）
+model PriceRank {
+  id        String   @id @default(cuid())
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  rank      Int      // 1〜65等
+  label     String   // R01, R02, ...
+  price1P   Int      // 1名料金
+  price2P   Int      // 2名料金
+  price3P   Int?     // 3名料金（オプション）
+  price4P   Int?     // 4名料金（オプション）
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hotelId, rank])
+  @@index([hotelId])
+}
+
+// ======================================
+// Daily Data & Performance
+// ======================================
+
+// ホテル全体の日別データ
+model DailyData {
+  id              String   @id @default(cuid())
+  hotelId         String
+  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date            DateTime @db.Date
+  
+  // 実績データ
+  occupancy       Float?   // 稼働率
+  adr             Float?   // ADR
+  revPar          Float?   // RevPAR
+  totalRevenue    Float?   // 室料売上
+  soldRooms       Int?     // 販売室数
+  guests          Int?     // 宿泊人数
+  
+  // 予算データ
+  budgetOccupancy Float?
+  budgetAdr       Float?
+  budgetRevenue   Float?
+  
+  // AI予測データ
+  aiPredictedOccupancy Float?
+  aiPredictedAdr       Float?
+  aiRecommendedRank    Int?   // 推奨料金ランク
+  demandLevel          String? // A, B, C, D, E
+  
+  // メタデータ
+  isHoliday       Boolean  @default(false)
+  holidayName     String?
+  eventInfo       String?  // イベント情報
+  externalFactors String?  // 外部要因情報
+  notes           String?  // コメント
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  roomData DailyRoomData[]
+
+  @@unique([hotelId, date])
+  @@index([hotelId, date])
+  @@index([date])
+}
+
+// 部屋タイプ別の日別データ
+model DailyRoomData {
+  id          String    @id @default(cuid())
+  dailyDataId String
+  dailyData   DailyData @relation(fields: [dailyDataId], references: [id], onDelete: Cascade)
+  roomTypeId  String
+  roomType    RoomType  @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  
+  // 価格設定
+  priceRank   Int?      // 適用された料金ランク
+  price1P     Int?
+  price2P     Int?
+  price3P     Int?
+  
+  // 実績
+  soldRooms   Int?
+  revenue     Float?
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([dailyDataId, roomTypeId])
+  @@index([dailyDataId])
+  @@index([roomTypeId])
+}
+
+// ======================================
+// Campaigns & Promotions
+// ======================================
+
+model Campaign {
+  id            String    @id @default(cuid())
+  hotelId       String
+  hotel         Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name          String
+  channel       String    // 楽天トラベル、じゃらん、Booking.com等
+  source        String    @default("manual") // ota, manual
+  startDate     DateTime  @db.Date
+  endDate       DateTime  @db.Date
+  description   String?
+  
+  // 効果測定
+  targetRooms   Int?      // 目標室数
+  actualRooms   Int?      // 実績室数
+  adrImpact     Float?    // ADR影響
+  revParImpact  Float?    // RevPAR影響
+  
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([hotelId])
+  @@index([startDate, endDate])
+}
+
+// ======================================
+// Competitor Analysis
+// ======================================
+
+model Competitor {
+  id          String   @id @default(cuid())
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name        String
+  address     String?
+  category    String?  // 同カテゴリ、上位カテゴリ等
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  priceData CompetitorPriceData[]
+
+  @@index([hotelId])
+}
+
+model CompetitorPriceData {
+  id           String     @id @default(cuid())
+  competitorId String
+  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  date         DateTime   @db.Date
+  price1P      Int?
+  price2P      Int?
+  dataSource   String     // スクレイピング、手動入力等
+  reliability  String?    // high, medium, low
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([competitorId, date])
+  @@index([competitorId, date])
+}
+
+// ======================================
+// Events & External Factors
+// ======================================
+
+model Event {
+  id          String   @id @default(cuid())
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name        String
+  type        String   // concert, sports, conference, festival等
+  startDate   DateTime @db.Date
+  endDate     DateTime @db.Date
+  location    String?
+  expectedImpact String? // high, medium, low
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([hotelId])
+  @@index([startDate, endDate])
+}
+
+// ======================================
+// Audit & Logging
+// ======================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String   // CREATE, UPDATE, DELETE, LOGIN, LOGOUT等
+  entity     String   // User, Hotel, DailyData等
+  entityId   String?
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([entity, entityId])
+  @@index([createdAt])
+}

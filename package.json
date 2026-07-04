@@ -1,0 +1,28 @@
+{
+  "name": "hotel-revenue-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hotel Revenue Management System - Monorepo",
+  "scripts": {
+    "dev": "concurrently \"pnpm --filter frontend dev\" \"pnpm --filter backend dev\"",
+    "dev:frontend": "pnpm --filter frontend dev",
+    "dev:backend": "pnpm --filter backend dev",
+    "build": "pnpm --filter './*' build",
+    "build:frontend": "pnpm --filter frontend build",
+    "build:backend": "pnpm --filter backend build",
+    "lint": "pnpm --filter './*' lint",
+    "type-check": "pnpm --filter './*' type-check",
+    "clean": "pnpm --filter './*' clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "dependencies": {
+    "tapable": "^2.3.0",
+    "use-sidecar": "^1.1.3"
+  }
+}

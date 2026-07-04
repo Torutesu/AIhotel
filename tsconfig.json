@@ -1,0 +1,12 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./frontend" },
+    { "path": "./backend" },
+    { "path": "./shared" }
+  ],
+  "compilerOptions": {
+    "composite": true
+  }
+}
+

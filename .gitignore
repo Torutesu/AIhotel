@@ -1,0 +1,123 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+.yarn/
+.pnpm-store/
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env*.local
+.env.production
+.env.development
+.env.test
+
+# IDE and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+logs/
+*.log.*
+
+# Testing
+coverage/
+.nyc_output/
+.jest/
+*.lcov
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Vercel
+.vercel
+
+# Prisma
+# Note: schema.prisma and migrations should be committed
+# but generated files should be ignored
+**/node_modules/.prisma/
+**/node_modules/.cache/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+.cache/
+.temp/
+tmp/
+temp/
+
+# Backup files (common pattern: filename 2.ext)
+* 2.*
+* 2.js
+* 2.ts
+* 2.tsx
+* 2.json
+* 2.css
+* 2.mjs
+* 2.yml
+* 2.yaml
+* 2.md
+
+# Misc
+*.pem
+*.key
+*.cert
+*.crt
+.ssh/
+*.bak
+*.backup
+
+# Package manager locks (optional - some teams commit these)
+# Uncomment if you don't want to commit lock files
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# Local development
+.local/
+.localhost/
