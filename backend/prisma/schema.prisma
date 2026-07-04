@@ -1,5 +1,6 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// Prisma schema — AI Revenue Management System
+// マルチテナント構成: Tenant を最上位とし、全ドメインモデルが tenantId を保持する。
+// テナント間データ分離は必須要件（要件定義書 §6）。クエリは必ず tenantId で絞り込むこと。
 
 generator client {
   provider = "prisma-client-js"
@@ -11,47 +12,89 @@ datasource db {
 }
 
 // ======================================
+// Tenant (マルチテナント最上位)
+// ======================================
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String // 例: 藤田観光
+  code      String   @unique // 例: fujita-kanko
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users                    User[]
+  hotels                   Hotel[]
+  roomTypes                RoomType[]
+  priceRanks               PriceRank[]
+  dailyData                DailyData[]
+  dailyRoomData            DailyRoomData[]
+  campaigns                Campaign[]
+  competitors              Competitor[]
+  competitorPriceData      CompetitorPriceData[]
+  events                   Event[]
+  auditLogs                AuditLog[]
+  refreshTokens            RefreshToken[]
+  monthlyBudgets           MonthlyBudget[]
+  pricingStrategyConfigs   PricingStrategyConfig[]
+  aiPriceRecommendations   AiPriceRecommendation[]
+  monthlyLandingSimulation MonthlyLandingSimulation[]
+  alerts                   Alert[]
+  aiComments               AiComment[]
+  bookingCurveData         BookingCurveData[]
+  otaChannelData           OtaChannelData[]
+  kpiSnapshots             KpiSnapshot[]
+  reviewScores             ReviewScore[]
+  groupBookings            GroupBooking[]
+}
+
+// ======================================
 // Authentication & Users
 // ======================================
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  password      String
-  name          String
-  role          UserRole  @default(STAFF)
-  hotelId       String?
-  hotel         Hotel?    @relation(fields: [hotelId], references: [id])
-  isActive      Boolean   @default(true)
-  lastLoginAt   DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  // システム提供側の ADMIN はテナント横断のため tenantId は nullable
+  tenantId    String?
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id])
+  email       String    @unique
+  password    String
+  name        String
+  role        UserRole  @default(OPERATOR)
+  hotelId     String?
+  hotel       Hotel?    @relation(fields: [hotelId], references: [id])
+  isActive    Boolean   @default(true)
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  // Relations
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
 
-  @@index([email])
+  @@index([tenantId])
   @@index([hotelId])
 }
 
 model RefreshToken {
   id        String   @id @default(cuid())
-  token     String   @unique
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  // 生トークンではなく SHA-256 ハッシュを保存する（DB漏洩時のセッション乗っ取り対策）
+  tokenHash String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   createdAt DateTime @default(now())
 
   @@index([userId])
-  @@index([token])
 }
 
+// 要件定義書 §4 のロール定義に対応:
+// ADMIN=システム提供側 / MANAGER=支配人・レベニューマネージャー / OPERATOR=現場フロント
 enum UserRole {
-  ADMIN       // システム管理者
-  MANAGER     // ホテルマネージャー
-  STAFF       // スタッフ
-  READONLY    // 閲覧のみ
+  ADMIN
+  MANAGER
+  OPERATOR
 }
 
 // ======================================
@@ -60,44 +103,61 @@ enum UserRole {
 
 model Hotel {
   id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   name        String
   address     String?
   phone       String?
   email       String?
   totalRooms  Int
+  // 週末定義（チェックイン日基準）。デフォルトは金・土（F-DAILY-02）
+  weekendDays Json     @default("[5, 6]")
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // Relations
-  users         User[]
-  roomTypes     RoomType[]
-  priceRanks    PriceRank[]
-  dailyData     DailyData[]
-  campaigns     Campaign[]
-  competitors   Competitor[]
-  events        Event[]
+  users                    User[]
+  roomTypes                RoomType[]
+  priceRanks               PriceRank[]
+  dailyData                DailyData[]
+  campaigns                Campaign[]
+  competitors              Competitor[]
+  events                   Event[]
+  monthlyBudgets           MonthlyBudget[]
+  pricingStrategyConfigs   PricingStrategyConfig[]
+  aiPriceRecommendations   AiPriceRecommendation[]
+  monthlyLandingSimulation MonthlyLandingSimulation[]
+  alerts                   Alert[]
+  aiComments               AiComment[]
+  bookingCurveData         BookingCurveData[]
+  otaChannelData           OtaChannelData[]
+  kpiSnapshots             KpiSnapshot[]
+  reviewScores             ReviewScore[]
+  groupBookings            GroupBooking[]
 
-  @@index([name])
+  @@index([tenantId])
 }
 
 model RoomType {
   id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   hotelId   String
   hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  name      String   // スタンダードシングル、モデレートツイン、トリプル等
-  code      String   // STD_SINGLE, MOD_TWIN, TRIPLE等
-  capacity  Int      // 最大定員
-  count     Int      // 部屋数
+  name      String // スタンダードシングル、モデレートツイン等
+  code      String // STD_SINGLE, MOD_TWIN 等
+  capacity  Int
+  count     Int
   isActive  Boolean  @default(true)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Relations
-  dailyRoomData DailyRoomData[]
+  dailyRoomData          DailyRoomData[]
+  aiPriceRecommendations AiPriceRecommendation[]
 
   @@unique([hotelId, code])
+  @@index([tenantId])
   @@index([hotelId])
 }
 
@@ -105,97 +165,312 @@ model RoomType {
 // Pricing Configuration
 // ======================================
 
-// 料金ランク表（65段階など）
+// 料金ランクマスタ（最大40段階 — F-SET-02）
 model PriceRank {
   id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   hotelId   String
   hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  rank      Int      // 1〜65等
-  label     String   // R01, R02, ...
-  price1P   Int      // 1名料金
-  price2P   Int      // 2名料金
-  price3P   Int?     // 3名料金（オプション）
-  price4P   Int?     // 4名料金（オプション）
+  rank      Int // 1〜40
+  label     String // R01, R02, ...
+  price1P   Int
+  price2P   Int
+  price3P   Int?
+  price4P   Int?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([hotelId, rank])
+  @@index([tenantId])
   @@index([hotelId])
+}
+
+// 価格戦略の重み付け設定（F-DP-02）
+model PricingStrategyConfig {
+  id               String   @id @default(cuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId          String   @unique // ホテルごとに1設定
+  hotel            Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  weightOccupancy  Int      @default(40) // 稼働率重視 (%)
+  weightAdr        Int      @default(40) // ADR重視 (%)
+  weightCompetitor Int      @default(20) // 競合追従度 (%)
+  updatedByUserId  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId])
 }
 
 // ======================================
 // Daily Data & Performance
 // ======================================
 
-// ホテル全体の日別データ
 model DailyData {
-  id              String   @id @default(cuid())
-  hotelId         String
-  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  date            DateTime @db.Date
-  
-  // 実績データ
-  occupancy       Float?   // 稼働率
-  adr             Float?   // ADR
-  revPar          Float?   // RevPAR
-  totalRevenue    Float?   // 室料売上
-  soldRooms       Int?     // 販売室数
-  guests          Int?     // 宿泊人数
-  
-  // 予算データ
-  budgetOccupancy Float?
-  budgetAdr       Float?
-  budgetRevenue   Float?
-  
-  // AI予測データ
-  aiPredictedOccupancy Float?
-  aiPredictedAdr       Float?
-  aiRecommendedRank    Int?   // 推奨料金ランク
-  demandLevel          String? // A, B, C, D, E
-  
-  // メタデータ
-  isHoliday       Boolean  @default(false)
-  holidayName     String?
-  eventInfo       String?  // イベント情報
-  externalFactors String?  // 外部要因情報
-  notes           String?  // コメント
-  
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id       String   @id @default(cuid())
+  tenantId String
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date     DateTime @db.Date
 
-  // Relations
+  // 実績
+  occupancy    Float?
+  adr          Float?
+  revPar       Float?
+  totalRevenue Float?
+  soldRooms    Int?
+  guests       Int?
+
+  // メタデータ
+  isHoliday       Boolean @default(false)
+  holidayName     String?
+  eventInfo       String?
+  externalFactors String?
+  notes           String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   roomData DailyRoomData[]
 
   @@unique([hotelId, date])
-  @@index([hotelId, date])
+  @@index([tenantId])
   @@index([date])
 }
 
-// 部屋タイプ別の日別データ
 model DailyRoomData {
   id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   dailyDataId String
   dailyData   DailyData @relation(fields: [dailyDataId], references: [id], onDelete: Cascade)
   roomTypeId  String
   roomType    RoomType  @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
-  
-  // 価格設定
-  priceRank   Int?      // 適用された料金ランク
-  price1P     Int?
-  price2P     Int?
-  price3P     Int?
-  
-  // 実績
-  soldRooms   Int?
-  revenue     Float?
-  
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+
+  priceRank Int?
+  price1P   Int?
+  price2P   Int?
+  price3P   Int?
+  soldRooms Int?
+  revenue   Float?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([dailyDataId, roomTypeId])
-  @@index([dailyDataId])
+  @@index([tenantId])
   @@index([roomTypeId])
+}
+
+// 月次予算・前年実績（F-SET-04 / F-DASH-02）
+model MonthlyBudget {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  year     Int
+  month    Int // 1-12
+
+  budgetRevenue   Float?
+  budgetRooms     Int?
+  budgetAdr       Float?
+  budgetOccupancy Float?
+  budgetGuests    Int?
+
+  // 前年実績（比較表示用）
+  lastYearRevenue   Float?
+  lastYearRooms     Int?
+  lastYearAdr       Float?
+  lastYearOccupancy Float?
+  lastYearGuests    Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hotelId, year, month])
+  @@index([tenantId])
+}
+
+// ブッキングカーブ用予約積上データ（F-DAILY-01）
+model BookingCurveData {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  stayDate    DateTime @db.Date // 宿泊日
+  daysBefore  Int // 宿泊日までの残日数（0 = 当日）
+  roomsBooked Int // その時点の予約積上室数
+  capturedAt  DateTime @default(now())
+
+  @@unique([hotelId, stayDate, daysBefore])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+}
+
+// OTAチャネル別実績（キャンペーンフラグ含む）
+model OtaChannelData {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date         DateTime @db.Date
+  channel      String // 楽天トラベル、じゃらん、一休、Expedia、Agoda、公式
+  roomsSold    Int?
+  revenue      Float?
+  adr          Float?
+  campaignFlag Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hotelId, date, channel])
+  @@index([tenantId])
+}
+
+// ======================================
+// AI Predictions & Simulation
+// ======================================
+
+// AI推奨価格・需要レベル（F-DP-01 / F-DP-05）
+model AiPriceRecommendation {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId    String
+  hotel      Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomTypeId String?
+  roomType   RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
+  date       DateTime  @db.Date
+
+  predictedOccupancy Float?
+  predictedAdr       Float?
+  recommendedRank    Int?
+  recommendedPrice   Int?
+  demandLevel        DemandLevel?
+  confidence         Float? // 0-1
+  modelVersion       String?
+  computedAt         DateTime     @default(now())
+
+  @@unique([hotelId, date, roomTypeId])
+  @@index([tenantId])
+  @@index([hotelId, date])
+}
+
+// 需要予測レベル5段階（F-DP-05）
+enum DemandLevel {
+  A
+  B
+  C
+  D
+  E
+}
+
+// 月間着地シミュレーション（F-DP-04）
+model MonthlyLandingSimulation {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  year     Int
+  month    Int
+
+  projectedRevenue   Float?
+  projectedAdr       Float?
+  projectedOccupancy Float?
+  projectedRevPar    Float?
+  projectedRooms     Int?
+  computedAt         DateTime @default(now())
+
+  @@unique([hotelId, year, month])
+  @@index([tenantId])
+}
+
+// ======================================
+// Alerts & AI Comments
+// ======================================
+
+// アラート（赤=即修正 / 黄=経過観察 — F-DASH-05）
+model Alert {
+  id         String        @id @default(cuid())
+  tenantId   String
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId    String
+  hotel      Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  severity   AlertSeverity
+  title      String
+  message    String
+  linkTab    String? // 遷移先タブ (dashboard/pricing/daily/analysis/reports/settings)
+  targetDate DateTime?     @db.Date
+  status     AlertStatus   @default(OPEN)
+  detectedAt DateTime      @default(now())
+  resolvedAt DateTime?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([tenantId])
+  @@index([hotelId, status])
+}
+
+enum AlertSeverity {
+  RED
+  YELLOW
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+// AIコメント・インサイト（F-DASH-06 ほか各セクション）
+model AiComment {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  section      String // dashboard-summary, pricing, daily, analysis 等
+  content      String
+  modelVersion String?
+  generatedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, section, generatedAt])
+}
+
+// ======================================
+// KPI Snapshots（月初比較・日付比較 — F-DASH-04）
+// ======================================
+
+model KpiSnapshot {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  snapshotDate DateTime @db.Date // スナップショット取得日
+  targetYear   Int // 対象月
+  targetMonth  Int
+
+  revenue   Float?
+  soldRooms Int?
+  adr       Float?
+  occupancy Float?
+  revPar    Float?
+  guests    Int?
+
+  createdAt DateTime @default(now())
+
+  @@unique([hotelId, snapshotDate, targetYear, targetMonth])
+  @@index([tenantId])
 }
 
 // ======================================
@@ -203,26 +478,28 @@ model DailyRoomData {
 // ======================================
 
 model Campaign {
-  id            String    @id @default(cuid())
-  hotelId       String
-  hotel         Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  name          String
-  channel       String    // 楽天トラベル、じゃらん、Booking.com等
-  source        String    @default("manual") // ota, manual
-  startDate     DateTime  @db.Date
-  endDate       DateTime  @db.Date
-  description   String?
-  
-  // 効果測定
-  targetRooms   Int?      // 目標室数
-  actualRooms   Int?      // 実績室数
-  adrImpact     Float?    // ADR影響
-  revParImpact  Float?    // RevPAR影響
-  
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name        String
+  channel     String
+  source      String   @default("manual") // ota, manual
+  startDate   DateTime @db.Date
+  endDate     DateTime @db.Date
+  description String?
 
+  targetRooms  Int?
+  actualRooms  Int?
+  adrImpact    Float?
+  revParImpact Float?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId])
   @@index([hotelId])
   @@index([startDate, endDate])
 }
@@ -232,36 +509,88 @@ model Campaign {
 // ======================================
 
 model Competitor {
-  id          String   @id @default(cuid())
-  hotelId     String
-  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  name        String
-  address     String?
-  category    String?  // 同カテゴリ、上位カテゴリ等
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name      String
+  address   String?
+  category  String?
+  // OTA別URL（F-SET-03）: { "rakuten": "...", "jalan": "...", "ikkyu": "...", "expedia": "...", "agoda": "..." }
+  otaUrls   Json?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  // Relations
   priceData CompetitorPriceData[]
 
+  @@index([tenantId])
   @@index([hotelId])
 }
 
 model CompetitorPriceData {
   id           String     @id @default(cuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   competitorId String
   competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
   date         DateTime   @db.Date
   price1P      Int?
   price2P      Int?
-  dataSource   String     // スクレイピング、手動入力等
-  reliability  String?    // high, medium, low
+  price3P      Int?
+  dataSource   String // scraping, manual
+  reliability  String? // high, medium, low
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   @@unique([competitorId, date])
-  @@index([competitorId, date])
+  @@index([tenantId])
+}
+
+// ======================================
+// Reviews（F-ANA-04）
+// ======================================
+
+model ReviewScore {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  source      String // google, tripadvisor, rakuten, jalan 等
+  score       Float
+  reviewCount Int?
+  capturedAt  DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, source, capturedAt])
+}
+
+// ======================================
+// Group Bookings（F-SET-05 / 課題No.53）
+// ======================================
+
+model GroupBooking {
+  id                String   @id @default(cuid())
+  tenantId          String
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId           String
+  hotel             Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name              String
+  stayStartDate     DateTime @db.Date
+  stayEndDate       DateTime @db.Date
+  rooms             Int
+  guests            Int?
+  // レベニュー影響ルール（ホテルごとに異なるため柔軟な Json で保持）
+  revenueImpactRule Json?
+  notes             String?
+  status            String   @default("confirmed") // tentative, confirmed, cancelled
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([hotelId, stayStartDate])
 }
 
 // ======================================
@@ -269,40 +598,48 @@ model CompetitorPriceData {
 // ======================================
 
 model Event {
-  id          String   @id @default(cuid())
-  hotelId     String
-  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  name        String
-  type        String   // concert, sports, conference, festival等
-  startDate   DateTime @db.Date
-  endDate     DateTime @db.Date
-  location    String?
-  expectedImpact String? // high, medium, low
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId         String
+  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name            String
+  type            String // concert, sports, conference, festival 等
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  location        String?
+  expectedImpact  String? // high, medium, low
+  description     String?
+  // オペレーター登録（F-DP-07）の記録用
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
+  @@index([tenantId])
   @@index([hotelId])
   @@index([startDate, endDate])
 }
 
 // ======================================
-// Audit & Logging
+// Audit & Logging（全設定変更を記録 — 要件定義書 §6 監査性）
 // ======================================
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String?
-  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  action     String   // CREATE, UPDATE, DELETE, LOGIN, LOGOUT等
-  entity     String   // User, Hotel, DailyData等
-  entityId   String?
-  oldValue   Json?
-  newValue   Json?
-  ipAddress  String?
-  userAgent  String?
-  createdAt  DateTime @default(now())
+  id        String   @id @default(cuid())
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String // CREATE, UPDATE, DELETE, LOGIN, LOGOUT 等
+  entity    String // User, Hotel, DailyData 等
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
 
+  @@index([tenantId])
   @@index([userId])
   @@index([entity, entityId])
   @@index([createdAt])

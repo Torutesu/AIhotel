@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import jwt, { type SignOptions } from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import type { User, UserRole } from '@prisma/client'
@@ -10,6 +11,7 @@ export interface JWTPayload {
   userId: string
   email: string
   role: UserRole
+  tenantId: string | null
   hotelId: string | null
 }
 
@@ -80,11 +82,14 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 /**
  * アクセストークンを生成する
  */
-export function generateAccessToken(user: Pick<User, 'id' | 'email' | 'role' | 'hotelId'>): string {
+export function generateAccessToken(
+  user: Pick<User, 'id' | 'email' | 'role' | 'tenantId' | 'hotelId'>
+): string {
   const payload: JWTPayload = {
     userId: user.id,
     email: user.email,
     role: user.role,
+    tenantId: user.tenantId,
     hotelId: user.hotelId,
   }
   
@@ -113,11 +118,21 @@ export function generateRefreshToken(userId: string): string {
 /**
  * トークンペアを生成する
  */
-export function generateTokenPair(user: Pick<User, 'id' | 'email' | 'role' | 'hotelId'>): TokenPair {
+export function generateTokenPair(
+  user: Pick<User, 'id' | 'email' | 'role' | 'tenantId' | 'hotelId'>
+): TokenPair {
   return {
     accessToken: generateAccessToken(user),
     refreshToken: generateRefreshToken(user.id),
   }
+}
+
+/**
+ * リフレッシュトークンのDB保存用ハッシュを計算する。
+ * 生トークンを保存しないことで、DB漏洩時のセッション乗っ取りを防ぐ。
+ */
+export function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
 }
 
 /**

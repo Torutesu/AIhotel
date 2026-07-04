@@ -32,6 +32,7 @@ export async function getHotelByIdService(id: string): Promise<Hotel> {
  * ホテルを作成
  */
 export async function createHotelService(data: {
+  tenantId: string
   name: string
   address?: string
   phone?: string

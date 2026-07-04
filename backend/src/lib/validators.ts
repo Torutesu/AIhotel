@@ -26,7 +26,8 @@ export const idParamSchema = z.object({
 
 export const loginSchema = z.object({
   email: z.string().email('有効なメールアドレスを入力してください'),
-  password: z.string().min(6, 'パスワードは6文字以上である必要があります'),
+  // パスワード強度は登録時に強制する。ログイン時は空でないことのみ検証する
+  password: z.string().min(1, 'パスワードは必須です'),
 })
 
 export const registerSchema = z.object({
@@ -37,6 +38,7 @@ export const registerSchema = z.object({
     .regex(/[a-z]/, '小文字を含める必要があります')
     .regex(/[0-9]/, '数字を含める必要があります'),
   name: z.string().min(1, '名前は必須です').max(100),
+  role: z.enum(['ADMIN', 'MANAGER', 'OPERATOR']).optional(),
   hotelId: z.string().cuid().optional(),
 })
 
