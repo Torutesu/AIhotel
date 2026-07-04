@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { LayoutDashboard, TrendingUp, Calendar, BarChart3, FileText, MessageCircle, Settings, Brain } from "lucide-react"
+import { LayoutDashboard, TrendingUp, Calendar, BarChart3, FileText, MessageCircle, Settings, Brain, LogOut, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { DashboardTab } from "@/components/tabs/dashboard-tab"
@@ -12,6 +12,8 @@ import { ReportsTab } from "@/components/tabs/reports-tab"
 import { SettingsTab } from "@/components/tabs/settings-tab"
 import { AISummaryTab } from "@/components/tabs/ai-summary-tab"
 import { ChatInterface } from "@/components/chat-interface"
+import { useAuth } from "@/components/auth-provider"
+import { LoginForm } from "@/components/login-form"
 import type { Tab } from "@shared/types"
 
 const tabs = [
@@ -26,6 +28,19 @@ const tabs = [
 export function MainLayout() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard")
   const [chatOpen, setChatOpen] = useState(false)
+  const { user, loading, logout } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <LoginForm />
+  }
 
   return (
     <div className="flex h-screen bg-background">
@@ -71,6 +86,23 @@ export function MainLayout() {
             <Settings className="w-5 h-5 flex-shrink-0" />
             <span>設定</span>
           </button>
+
+          <div className="flex items-center justify-between gap-2 rounded-lg px-2 py-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-sidebar-foreground">{user.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent"
+              onClick={() => logout()}
+              title="ログアウト"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+
           <div className="text-xs text-muted-foreground pt-2">
             <p>© 2025 Hotel Revenue System</p>
           </div>
