@@ -251,6 +251,30 @@ export const competitorPricesQuerySchema = z.object({
   message: '開始日は終了日以前である必要があります',
 })
 
+// ======================================
+// Reports Validators（F-REP-01/02）
+// ======================================
+
+export const monthlyReportQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  year: z.coerce.number().int().min(2020).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+  format: z.enum(['pdf', 'excel']),
+})
+
+// ======================================
+// Forecast Validators（F-DP-05 / F-DP-03）
+// ======================================
+
+export const recomputeForecastSchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+}).refine(
+  (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
+  { message: '開始日は終了日以前である必要があります' }
+)
+
 // 重み付けは合計100%（F-DP-02）
 export const updateStrategySchema = z.object({
   hotelId: entityIdSchema,
@@ -281,3 +305,5 @@ export type UpdateEventInput = z.infer<typeof updateEventSchema>
 export type UpdateHotelSettingsInput = z.infer<typeof updateHotelSettingsSchema>
 export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
+export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
+export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>

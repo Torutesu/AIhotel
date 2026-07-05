@@ -34,6 +34,12 @@ const envSchema = z.object({
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
+
+  // オブジェクトストレージ抽象化層（lib/storage.ts）。クラウド（S3/GCS）未確定のため
+  // 現在は 'local' のみ実装。将来 's3' / 'gcs' を追加する場合もここに列挙するだけでよい
+  STORAGE_DRIVER: z.enum(['local']).default('local'),
+  // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
+  STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
 })
 
 function loadConfig() {

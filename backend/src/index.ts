@@ -16,6 +16,7 @@ import { dailyRouter } from './routes/daily.js'
 import { analysisRouter } from './routes/analysis.js'
 import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
+import { reportsRouter } from './routes/reports.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -117,6 +118,7 @@ app.use('/api/v1/daily', dailyRouter)
 app.use('/api/v1/analysis', analysisRouter)
 app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
+app.use('/api/v1/reports', reportsRouter)
 
 // ======================================
 // Error Handling
