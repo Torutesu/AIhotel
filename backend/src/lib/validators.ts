@@ -4,6 +4,14 @@ import { z } from 'zod'
 // Common Validators
 // ======================================
 
+// エンティティID。cuid形式に固定しない（seedの固定ID 'demo-hotel-001' や、
+// 将来DB/BaaS変更でID形式が変わる場合に備え、不透明な文字列として扱う）
+export const entityIdSchema = z
+  .string()
+  .min(1, 'IDは必須です')
+  .max(64)
+  .regex(/^[A-Za-z0-9_-]+$/, 'IDの形式が不正です')
+
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -17,7 +25,7 @@ export const dateRangeSchema = z.object({
 })
 
 export const idParamSchema = z.object({
-  id: z.string().cuid(),
+  id: entityIdSchema,
 })
 
 // ======================================
@@ -39,7 +47,7 @@ export const registerSchema = z.object({
     .regex(/[0-9]/, '数字を含める必要があります'),
   name: z.string().min(1, '名前は必須です').max(100),
   role: z.enum(['ADMIN', 'MANAGER', 'OPERATOR']).optional(),
-  hotelId: z.string().cuid().optional(),
+  hotelId: entityIdSchema.optional(),
 })
 
 export const refreshTokenSchema = z.object({
@@ -51,7 +59,7 @@ export const refreshTokenSchema = z.object({
 // ======================================
 
 export const createHotelSchema = z.object({
-  tenantId: z.string().cuid('テナントIDが不正です'),
+  tenantId: entityIdSchema,
   name: z.string().min(1, 'ホテル名は必須です').max(200),
   address: z.string().max(500).optional(),
   phone: z.string().max(20).optional(),
@@ -66,7 +74,7 @@ export const updateHotelSchema = createHotelSchema.omit({ tenantId: true }).part
 // ======================================
 
 export const createRoomTypeSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   name: z.string().min(1).max(100),
   code: z.string().min(1).max(50).regex(/^[A-Z0-9_]+$/, 'コードは大文字英数字とアンダースコアのみ使用可能です'),
   capacity: z.number().int().min(1).max(10),
@@ -82,7 +90,7 @@ export const updateRoomTypeSchema = createRoomTypeSchema.omit({ hotelId: true })
 
 // 料金ランクは最大40段階（F-SET-02）
 export const createPriceRankSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   rank: z.number().int().min(1).max(40, '料金ランクは最大40段階です'),
   label: z.string().min(1).max(10),
   price1P: z.number().int().min(0),
@@ -98,7 +106,7 @@ export const updatePriceRankSchema = createPriceRankSchema.omit({ hotelId: true,
 // ======================================
 
 export const createDailyDataSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   date: z.coerce.date(),
   occupancy: z.number().min(0).max(1).optional(),
   adr: z.number().min(0).optional(),
@@ -127,7 +135,7 @@ export const bulkUpdateDailyDataSchema = z.object({
 // ======================================
 
 const campaignBaseSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   name: z.string().min(1).max(200),
   channel: z.string().min(1).max(100),
   source: z.enum(['ota', 'manual']).default('manual'),
@@ -148,7 +156,7 @@ export const updateCampaignSchema = campaignBaseSchema.omit({ hotelId: true }).p
 // ======================================
 
 const eventBaseSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   name: z.string().min(1).max(200),
   type: z.string().min(1).max(50),
   startDate: z.coerce.date(),
@@ -166,7 +174,7 @@ export const updateEventSchema = eventBaseSchema.omit({ hotelId: true }).partial
 
 // イベント一覧の検索条件（期間は任意 — F-DP-07）
 export const eventsQuerySchema = z.object({
-  hotelId: z.string().cuid('hotelId が不正です'),
+  hotelId: entityIdSchema,
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
 }).refine(
@@ -193,31 +201,31 @@ export const updateHotelSettingsSchema = z.object({
 // ======================================
 
 export const dailyDataQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
   ...paginationSchema.shape,
 })
 
 export const pricingQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   date: z.coerce.date().optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
   year: z.coerce.number().int().min(2020).max(2100).optional(),
 })
 
 export const hotelIdQuerySchema = z.object({
-  hotelId: z.string().cuid('hotelId が不正です'),
+  hotelId: entityIdSchema,
 })
 
 export const monthQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),
 })
 
 export const yearQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   year: z.coerce.number().int().min(2020).max(2100),
 })
 
@@ -226,17 +234,17 @@ export const kpiComparisonQuerySchema = monthQuerySchema.extend({
 })
 
 export const aiSummaryQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   section: z.string().max(50).optional(),
 })
 
 export const bookingCurveQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   date: z.coerce.date(),
 })
 
 export const competitorPricesQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
 }).refine(data => data.startDate <= data.endDate, {
@@ -245,7 +253,7 @@ export const competitorPricesQuerySchema = z.object({
 
 // 重み付けは合計100%（F-DP-02）
 export const updateStrategySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   weightOccupancy: z.number().int().min(0).max(100),
   weightAdr: z.number().int().min(0).max(100),
   weightCompetitor: z.number().int().min(0).max(100),
