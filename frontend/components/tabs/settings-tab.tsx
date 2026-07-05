@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -8,32 +8,162 @@ import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+
+import { useAuth } from "@/components/auth-provider"
+import { api, ApiClientError, type PriceRank } from "@/lib/api"
+import type { Hotel } from "@shared/types"
+
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
+const DEFAULT_WEEKEND_DAYS = [5, 6] // 金・土（要件定義書 §4）
+
+function parseWeekendDays(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    const days = value.filter((v): v is number => typeof v === "number" && v >= 0 && v <= 6)
+    if (days.length > 0) return days
+  }
+  return DEFAULT_WEEKEND_DAYS
+}
 
 export function SettingsTab() {
   const { toast } = useToast()
+  const { hotelId, user } = useAuth()
+  const canManageHotel = user?.role === "ADMIN" || user?.role === "MANAGER"
 
-  // ホテル情報設定
-  const [hotelName, setHotelName] = useState("サンプルホテル")
-  const [hotelAddress, setHotelAddress] = useState("東京都千代田区1-1-1")
-  const [totalRooms, setTotalRooms] = useState(1280)
-  const [contactEmail, setContactEmail] = useState("contact@hotel.example.com")
-  const [contactPhone, setContactPhone] = useState("03-1234-5678")
+  // ホテル情報設定（実データ — F-SET-01）
+  const [hotel, setHotel] = useState<Hotel | null>(null)
+  const [hotelLoading, setHotelLoading] = useState(true)
+  const [hotelError, setHotelError] = useState<string | null>(null)
+  const [savingHotel, setSavingHotel] = useState(false)
 
-  // 表示設定
+  const [hotelName, setHotelName] = useState("")
+  const [hotelAddress, setHotelAddress] = useState("")
+  const [totalRooms, setTotalRooms] = useState(0)
+  const [contactEmail, setContactEmail] = useState("")
+  const [contactPhone, setContactPhone] = useState("")
+  const [weekendDays, setWeekendDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
+
+  const loadHotel = useCallback(async () => {
+    if (!hotelId) return
+    setHotelLoading(true)
+    setHotelError(null)
+    try {
+      const hotels = await api.hotels()
+      const found = hotels.find((h) => h.id === hotelId) ?? null
+      if (!found) throw new ApiClientError(404, "ホテル情報が見つかりません")
+      setHotel(found)
+      setHotelName(found.name)
+      setHotelAddress(found.address ?? "")
+      setTotalRooms(found.totalRooms)
+      setContactEmail(found.email ?? "")
+      setContactPhone(found.phone ?? "")
+      setWeekendDays(parseWeekendDays(found.weekendDays))
+    } catch (err) {
+      setHotelError(err instanceof ApiClientError ? err.message : "ホテル情報の取得に失敗しました")
+    } finally {
+      setHotelLoading(false)
+    }
+  }, [hotelId])
+
+  useEffect(() => {
+    loadHotel()
+  }, [loadHotel])
+
+  const toggleWeekendDay = (day: number, checked: boolean) => {
+    setWeekendDays((prev) => {
+      if (checked) return prev.includes(day) ? prev : [...prev, day].sort()
+      return prev.filter((d) => d !== day)
+    })
+  }
+
+  // 料金ランク設定（実データ — F-SET-02）
+  const [priceRanks, setPriceRanks] = useState<PriceRank[]>([])
+  const [priceRanksLoading, setPriceRanksLoading] = useState(true)
+  const [priceRanksError, setPriceRanksError] = useState<string | null>(null)
+  const [editingRank, setEditingRank] = useState<PriceRank | null>(null)
+  const [editLabel, setEditLabel] = useState("")
+  const [editPrice1P, setEditPrice1P] = useState(0)
+  const [editPrice2P, setEditPrice2P] = useState(0)
+  const [editPrice3P, setEditPrice3P] = useState(0)
+  const [editPrice4P, setEditPrice4P] = useState(0)
+  const [savingRank, setSavingRank] = useState(false)
+
+  const loadPriceRanks = useCallback(async () => {
+    if (!hotelId) return
+    setPriceRanksLoading(true)
+    setPriceRanksError(null)
+    try {
+      const result = await api.priceRanks(hotelId)
+      setPriceRanks(result)
+    } catch (err) {
+      setPriceRanksError(err instanceof ApiClientError ? err.message : "料金ランクの取得に失敗しました")
+    } finally {
+      setPriceRanksLoading(false)
+    }
+  }, [hotelId])
+
+  useEffect(() => {
+    loadPriceRanks()
+  }, [loadPriceRanks])
+
+  const openEditRank = (rank: PriceRank) => {
+    setEditingRank(rank)
+    setEditLabel(rank.label)
+    setEditPrice1P(rank.price1P)
+    setEditPrice2P(rank.price2P)
+    setEditPrice3P(rank.price3P ?? 0)
+    setEditPrice4P(rank.price4P ?? 0)
+  }
+
+  const handleSaveRank = async () => {
+    if (!hotelId || !editingRank) return
+    setSavingRank(true)
+    try {
+      await api.updatePriceRank(editingRank.id, hotelId, {
+        label: editLabel,
+        price1P: editPrice1P,
+        price2P: editPrice2P,
+        price3P: editPrice3P,
+        price4P: editPrice4P,
+      })
+      toast({ title: "料金ランクを更新しました" })
+      setEditingRank(null)
+      await loadPriceRanks()
+    } catch (err) {
+      toast({
+        title: "料金ランクの更新に失敗しました",
+        description: err instanceof ApiClientError ? err.message : undefined,
+        variant: "destructive",
+      })
+    } finally {
+      setSavingRank(false)
+    }
+  }
+
+  // 表示設定（バックエンド未対応のためlocalStorageのまま）
   const [theme, setTheme] = useState<"light" | "dark" | "system">("system")
   const [language, setLanguage] = useState("ja")
   const [dateFormat, setDateFormat] = useState("YYYY/MM/DD")
   const [currency, setCurrency] = useState("JPY")
   const [numberFormat, setNumberFormat] = useState("ja-JP")
 
-  // 通知設定
+  // 通知設定（バックエンド未対応のためlocalStorageのまま）
   const [emailNotifications, setEmailNotifications] = useState(true)
   const [alertThreshold, setAlertThreshold] = useState(95)
   const [dailyReport, setDailyReport] = useState(true)
   const [weeklyReport, setWeeklyReport] = useState(true)
 
-  // システム設定
+  // システム設定（バックエンド未対応のためlocalStorageのまま）
   const [autoPriceUpdate, setAutoPriceUpdate] = useState(false)
   const [priceUpdateInterval, setPriceUpdateInterval] = useState("1")
   const [dataRetentionDays, setDataRetentionDays] = useState(365)
@@ -54,28 +184,56 @@ export function SettingsTab() {
     return false
   })
 
-  const handleSave = () => {
-    // localStorageに設定を保存
+  const handleSave = async () => {
+    // localStorageに設定を保存（バックエンド未対応の項目）
     if (typeof window !== "undefined") {
       localStorage.setItem("dashboard.showDisplayMonthsSelector", String(showDisplayMonthsSelector))
       localStorage.setItem("dashboard.showTopSitesSection", String(showTopSitesSection))
-      // 同じウィンドウ内で設定変更を通知
       window.dispatchEvent(new Event("settingsUpdated"))
     }
-    // TODO: API呼び出しで設定を保存
-    toast({
-      title: "設定を保存しました",
-      description: "変更が正常に保存されました。",
-    })
+
+    if (canManageHotel && hotelId) {
+      setSavingHotel(true)
+      try {
+        const updated = await api.updateHotelSettings(hotelId, {
+          name: hotelName,
+          address: hotelAddress,
+          phone: contactPhone,
+          email: contactEmail,
+          totalRooms,
+          weekendDays,
+        })
+        setHotel(updated)
+        toast({
+          title: "設定を保存しました",
+          description: "変更が正常に保存されました。",
+        })
+      } catch (err) {
+        toast({
+          title: "ホテル設定の保存に失敗しました",
+          description: err instanceof ApiClientError ? err.message : undefined,
+          variant: "destructive",
+        })
+      } finally {
+        setSavingHotel(false)
+      }
+    } else {
+      toast({
+        title: "設定を保存しました",
+        description: "変更が正常に保存されました。",
+      })
+    }
   }
 
   const handleReset = () => {
-    // デフォルト値にリセット
-    setHotelName("サンプルホテル")
-    setHotelAddress("東京都千代田区1-1-1")
-    setTotalRooms(1280)
-    setContactEmail("contact@hotel.example.com")
-    setContactPhone("03-1234-5678")
+    if (hotel) {
+      setHotelName(hotel.name)
+      setHotelAddress(hotel.address ?? "")
+      setTotalRooms(hotel.totalRooms)
+      setContactEmail(hotel.email ?? "")
+      setContactPhone(hotel.phone ?? "")
+      setWeekendDays(parseWeekendDays(hotel.weekendDays))
+    }
     setTheme("system")
     setLanguage("ja")
     setDateFormat("YYYY/MM/DD")
@@ -108,7 +266,10 @@ export function SettingsTab() {
           <Button variant="outline" onClick={handleReset}>
             リセット
           </Button>
-          <Button onClick={handleSave}>保存</Button>
+          <Button onClick={handleSave} disabled={savingHotel}>
+            {savingHotel ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            保存
+          </Button>
         </div>
       </div>
 
@@ -116,60 +277,239 @@ export function SettingsTab() {
       <Card>
         <CardHeader>
           <CardTitle>ホテル情報</CardTitle>
-          <CardDescription>ホテルの基本情報を設定します</CardDescription>
+          <CardDescription>
+            ホテルの基本情報を設定します
+            {!canManageHotel && "（変更にはMANAGER以上の権限が必要です）"}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="hotelName">ホテル名</Label>
-              <Input
-                id="hotelName"
-                value={hotelName}
-                onChange={(e) => setHotelName(e.target.value)}
-                placeholder="ホテル名を入力"
-              />
+          {hotelLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full" />
+              ))}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="totalRooms">総客室数</Label>
-              <Input
-                id="totalRooms"
-                type="number"
-                value={totalRooms}
-                onChange={(e) => setTotalRooms(Number.parseInt(e.target.value))}
-                placeholder="1280"
-              />
+          ) : hotelError ? (
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{hotelError}</p>
+              <Button variant="outline" size="sm" onClick={loadHotel} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
             </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="hotelAddress">住所</Label>
-              <Input
-                id="hotelAddress"
-                value={hotelAddress}
-                onChange={(e) => setHotelAddress(e.target.value)}
-                placeholder="住所を入力"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="contactEmail">連絡先メールアドレス</Label>
-              <Input
-                id="contactEmail"
-                type="email"
-                value={contactEmail}
-                onChange={(e) => setContactEmail(e.target.value)}
-                placeholder="contact@hotel.example.com"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="contactPhone">連絡先電話番号</Label>
-              <Input
-                id="contactPhone"
-                value={contactPhone}
-                onChange={(e) => setContactPhone(e.target.value)}
-                placeholder="03-1234-5678"
-              />
-            </div>
-          </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="hotelName">ホテル名</Label>
+                  <Input
+                    id="hotelName"
+                    value={hotelName}
+                    onChange={(e) => setHotelName(e.target.value)}
+                    placeholder="ホテル名を入力"
+                    disabled={!canManageHotel}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="totalRooms">総客室数</Label>
+                  <Input
+                    id="totalRooms"
+                    type="number"
+                    value={totalRooms}
+                    onChange={(e) => setTotalRooms(Number.parseInt(e.target.value) || 0)}
+                    placeholder="1280"
+                    disabled={!canManageHotel}
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="hotelAddress">住所</Label>
+                  <Input
+                    id="hotelAddress"
+                    value={hotelAddress}
+                    onChange={(e) => setHotelAddress(e.target.value)}
+                    placeholder="住所を入力"
+                    disabled={!canManageHotel}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="contactEmail">連絡先メールアドレス</Label>
+                  <Input
+                    id="contactEmail"
+                    type="email"
+                    value={contactEmail}
+                    onChange={(e) => setContactEmail(e.target.value)}
+                    placeholder="contact@hotel.example.com"
+                    disabled={!canManageHotel}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="contactPhone">連絡先電話番号</Label>
+                  <Input
+                    id="contactPhone"
+                    value={contactPhone}
+                    onChange={(e) => setContactPhone(e.target.value)}
+                    placeholder="03-1234-5678"
+                    disabled={!canManageHotel}
+                  />
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <Label>週末定義</Label>
+                <p className="text-sm text-muted-foreground">
+                  稼働率・ADR等の集計で「週末」として扱う曜日を選択します（デフォルト: 金・土）
+                </p>
+                <div className="flex flex-wrap gap-4 pt-1">
+                  {WEEKDAY_LABELS.map((label, day) => (
+                    <div key={day} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`weekend-day-${day}`}
+                        checked={weekendDays.includes(day)}
+                        onCheckedChange={(checked) => toggleWeekendDay(day, checked === true)}
+                        disabled={!canManageHotel}
+                      />
+                      <Label htmlFor={`weekend-day-${day}`} className="font-normal">
+                        {label}曜日
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
+
+      {/* 料金ランク設定 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>料金ランク設定</CardTitle>
+          <CardDescription>
+            最大40段階の料金ランクを表示します
+            {!canManageHotel && "（編集にはMANAGER以上の権限が必要です）"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {priceRanksLoading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : priceRanksError ? (
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{priceRanksError}</p>
+              <Button variant="outline" size="sm" onClick={loadPriceRanks} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : priceRanks.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">料金ランクが登録されていません。</p>
+          ) : (
+            <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-card">
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-3 font-medium">ランク</th>
+                    <th className="text-left py-2 px-3 font-medium">ラベル</th>
+                    <th className="text-right py-2 px-3 font-medium">1名</th>
+                    <th className="text-right py-2 px-3 font-medium">2名</th>
+                    <th className="text-right py-2 px-3 font-medium">3名</th>
+                    <th className="text-right py-2 px-3 font-medium">4名</th>
+                    <th className="text-center py-2 px-3 font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {priceRanks.map((rank) => (
+                    <tr key={rank.id} className="border-b hover:bg-muted/50">
+                      <td className="py-2 px-3">R{String(rank.rank).padStart(2, "0")}</td>
+                      <td className="py-2 px-3 font-medium">{rank.label}</td>
+                      <td className="text-right py-2 px-3">¥{rank.price1P.toLocaleString()}</td>
+                      <td className="text-right py-2 px-3">¥{rank.price2P.toLocaleString()}</td>
+                      <td className="text-right py-2 px-3">{rank.price3P != null ? `¥${rank.price3P.toLocaleString()}` : "-"}</td>
+                      <td className="text-right py-2 px-3">{rank.price4P != null ? `¥${rank.price4P.toLocaleString()}` : "-"}</td>
+                      <td className="text-center py-2 px-3">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canManageHotel}
+                          onClick={() => openEditRank(rank)}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 料金ランク編集ダイアログ */}
+      <Dialog open={editingRank !== null} onOpenChange={(open) => !open && setEditingRank(null)}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>料金ランク編集（R{editingRank ? String(editingRank.rank).padStart(2, "0") : ""}）</DialogTitle>
+            <DialogDescription>ラベルと人数別価格を編集します</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="edit-rank-label">ラベル</Label>
+              <Input id="edit-rank-label" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-rank-1p">1名料金</Label>
+                <Input
+                  id="edit-rank-1p"
+                  type="number"
+                  value={editPrice1P}
+                  onChange={(e) => setEditPrice1P(Number.parseInt(e.target.value) || 0)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-rank-2p">2名料金</Label>
+                <Input
+                  id="edit-rank-2p"
+                  type="number"
+                  value={editPrice2P}
+                  onChange={(e) => setEditPrice2P(Number.parseInt(e.target.value) || 0)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-rank-3p">3名料金</Label>
+                <Input
+                  id="edit-rank-3p"
+                  type="number"
+                  value={editPrice3P}
+                  onChange={(e) => setEditPrice3P(Number.parseInt(e.target.value) || 0)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-rank-4p">4名料金</Label>
+                <Input
+                  id="edit-rank-4p"
+                  type="number"
+                  value={editPrice4P}
+                  onChange={(e) => setEditPrice4P(Number.parseInt(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t">
+            <Button variant="outline" size="sm" onClick={() => setEditingRank(null)}>
+              キャンセル
+            </Button>
+            <Button size="sm" className="gap-2" disabled={savingRank} onClick={handleSaveRank}>
+              {savingRank ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              保存
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 表示設定 */}
       <Card>

@@ -10,13 +10,66 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Textarea } from "@/components/ui/textarea"
 import { Slider } from "@/components/ui/slider"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AlertCircle, Table2, Calendar, Edit2, Save, CheckCircle2, Info, RefreshCw, Loader2 } from "lucide-react"
+import { AlertCircle, Table2, Calendar, Edit2, Save, CheckCircle2, Info, RefreshCw, Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Bar, ComposedChart, Legend } from "recharts"
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type PricingCalendarDay, type PricingStrategy } from "@/lib/api"
+import { api, ApiClientError, type PricingCalendarDay, type PricingStrategy, type CreateEventInput } from "@/lib/api"
+import type { Event as HotelEvent } from "@shared/types"
+
+const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "concert", label: "コンサート" },
+  { value: "sports", label: "スポーツ" },
+  { value: "conference", label: "カンファレンス" },
+  { value: "festival", label: "祭り・催事" },
+  { value: "other", label: "その他" },
+]
+
+function eventTypeLabel(type: string): string {
+  return EVENT_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type
+}
+
+function impactBadgeClass(impact?: string | null): string {
+  switch (impact) {
+    case "high":
+      return "bg-red-500 text-white"
+    case "medium":
+      return "bg-yellow-500 text-black"
+    case "low":
+      return "bg-blue-400 text-white"
+    default:
+      return "bg-muted text-muted-foreground"
+  }
+}
+
+function impactLabel(impact?: string | null): string {
+  switch (impact) {
+    case "high":
+      return "影響度:高"
+    case "medium":
+      return "影響度:中"
+    case "low":
+      return "影響度:低"
+    default:
+      return "影響度:不明"
+  }
+}
+
+function formatEventDate(d: Date | string): string {
+  return new Date(d).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })
+}
+
+function formatEventRange(start: Date | string, end: Date | string): string {
+  const s = formatEventDate(start)
+  const e = formatEventDate(end)
+  return s === e ? s : `${s} 〜 ${e}`
+}
+
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
 
 const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"]
 
@@ -113,11 +166,35 @@ export function PricingTab() {
   const [selectedDay, setSelectedDay] = useState<{ monthIndex: number; day: PricingCalendarDay } | null>(null)
   const [selectedRowForAnalysis, setSelectedRowForAnalysis] = useState<{ monthIndex: number; day: PricingCalendarDay } | null>(null)
 
-  // イベント情報・外部要因情報（バックエンドに保存APIがないため画面内の一時メモとして保持）
+  // 日別のイベント情報・外部要因メモ（該当する日単位の自由記述を保存するAPIが未整備のため画面内の一時メモとして保持）
   const [eventInfoMap, setEventInfoMap] = useState<Record<string, { eventInfo?: string; externalFactors?: string }>>({})
   const [isEditingEventInfo, setIsEditingEventInfo] = useState(false)
   const [editingEventInfo, setEditingEventInfo] = useState("")
   const [editingExternalFactors, setEditingExternalFactors] = useState("")
+
+  // 当月のイベント情報管理（実API接続 — F-DP-07）
+  const [events, setEvents] = useState<HotelEvent[]>([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState<string | null>(null)
+  const [isEventDialogOpen, setIsEventDialogOpen] = useState(false)
+  const [savingEvent, setSavingEvent] = useState(false)
+  const [deletingEventId, setDeletingEventId] = useState<string | null>(null)
+  const [newEventName, setNewEventName] = useState("")
+  const [newEventType, setNewEventType] = useState("concert")
+  const [newEventStart, setNewEventStart] = useState("")
+  const [newEventEnd, setNewEventEnd] = useState("")
+  const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low">("medium")
+  const [newEventLocation, setNewEventLocation] = useState("")
+
+  const monthRange = useMemo(() => {
+    const [yearStr, monthStr] = targetMonth.split("-")
+    const baseYear = Number.parseInt(yearStr, 10)
+    const baseMonth = Number.parseInt(monthStr, 10)
+    const count = Number.parseInt(displayMonths, 10)
+    const start = new Date(baseYear, baseMonth - 1, 1)
+    const end = new Date(baseYear, baseMonth - 1 + count, 0)
+    return { startDate: toDateStr(start), endDate: toDateStr(end) }
+  }, [targetMonth, displayMonths])
 
   // 価格戦略の重み付け
   const [strategy, setStrategy] = useState<PricingStrategy | null>(null)
@@ -165,6 +242,83 @@ export function PricingTab() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  const loadEvents = useCallback(async () => {
+    if (!hotelId) return
+    setEventsLoading(true)
+    setEventsError(null)
+    try {
+      const result = await api.events(hotelId, monthRange.startDate, monthRange.endDate)
+      setEvents(result)
+    } catch (err) {
+      setEventsError(err instanceof ApiClientError ? err.message : "イベント情報の取得に失敗しました")
+    } finally {
+      setEventsLoading(false)
+    }
+  }, [hotelId, monthRange])
+
+  useEffect(() => {
+    loadEvents()
+  }, [loadEvents])
+
+  const resetNewEventForm = useCallback(() => {
+    setNewEventName("")
+    setNewEventType("concert")
+    setNewEventStart("")
+    setNewEventEnd("")
+    setNewEventImpact("medium")
+    setNewEventLocation("")
+  }, [])
+
+  const handleCreateEvent = useCallback(async () => {
+    if (!hotelId) return
+    if (!newEventName.trim() || !newEventType || !newEventStart || !newEventEnd) {
+      toast.error("イベント名・種別・期間を入力してください")
+      return
+    }
+    if (newEventStart > newEventEnd) {
+      toast.error("開始日は終了日以前にしてください")
+      return
+    }
+    setSavingEvent(true)
+    try {
+      const payload: CreateEventInput = {
+        hotelId,
+        name: newEventName.trim(),
+        type: newEventType,
+        startDate: newEventStart,
+        endDate: newEventEnd,
+        expectedImpact: newEventImpact,
+        ...(newEventLocation.trim() && { location: newEventLocation.trim() }),
+      }
+      await api.createEvent(payload)
+      toast.success("イベントを登録しました")
+      setIsEventDialogOpen(false)
+      resetNewEventForm()
+      await loadEvents()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "イベントの登録に失敗しました")
+    } finally {
+      setSavingEvent(false)
+    }
+  }, [hotelId, newEventName, newEventType, newEventStart, newEventEnd, newEventImpact, newEventLocation, resetNewEventForm, loadEvents])
+
+  const handleDeleteEvent = useCallback(
+    async (id: string) => {
+      if (!hotelId) return
+      setDeletingEventId(id)
+      try {
+        await api.deleteEvent(id, hotelId)
+        toast.success("イベントを削除しました")
+        await loadEvents()
+      } catch (err) {
+        toast.error(err instanceof ApiClientError ? err.message : "イベントの削除に失敗しました")
+      } finally {
+        setDeletingEventId(null)
+      }
+    },
+    [hotelId, loadEvents]
+  )
 
   const handleSaveWeights = useCallback(
     async (weights?: { weightOccupancy: number; weightAdr: number; weightCompetitor: number }) => {
@@ -599,6 +753,174 @@ export function PricingTab() {
                 </div>
               )
             })
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 当月のイベント情報（実API接続 — F-DP-07） */}
+      <Card>
+        <CardContent className="py-2.5 px-3">
+          <div className="flex items-center justify-between mb-2.5">
+            <div>
+              <h3 className="text-lg font-semibold">当月のイベント情報</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">近隣イベントは需要予測の参考情報として登録されます</p>
+            </div>
+            <Dialog
+              open={isEventDialogOpen}
+              onOpenChange={(open) => {
+                setIsEventDialogOpen(open)
+                if (!open) resetNewEventForm()
+              }}
+            >
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 text-xs gap-2">
+                  <Plus className="w-3.5 h-3.5" />
+                  イベントを追加
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[500px]">
+                <DialogHeader>
+                  <DialogTitle className="text-lg font-semibold">イベント登録</DialogTitle>
+                  <DialogDescription className="text-sm">
+                    近隣で開催されるイベント情報を登録します。
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-event-name">イベント名</Label>
+                    <input
+                      id="new-event-name"
+                      value={newEventName}
+                      onChange={(e) => setNewEventName(e.target.value)}
+                      placeholder="例：○○フェスティバル"
+                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="new-event-type">種別</Label>
+                      <Select value={newEventType} onValueChange={setNewEventType}>
+                        <SelectTrigger id="new-event-type" className="h-9 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {EVENT_TYPE_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-event-impact">影響度</Label>
+                      <Select value={newEventImpact} onValueChange={(v: "high" | "medium" | "low") => setNewEventImpact(v)}>
+                        <SelectTrigger id="new-event-impact" className="h-9 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="high">高</SelectItem>
+                          <SelectItem value="medium">中</SelectItem>
+                          <SelectItem value="low">低</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="new-event-start">開始日</Label>
+                      <input
+                        id="new-event-start"
+                        type="date"
+                        value={newEventStart}
+                        onChange={(e) => setNewEventStart(e.target.value)}
+                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-event-end">終了日</Label>
+                      <input
+                        id="new-event-end"
+                        type="date"
+                        value={newEventEnd}
+                        onChange={(e) => setNewEventEnd(e.target.value)}
+                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="new-event-location">開催場所（任意）</Label>
+                    <input
+                      id="new-event-location"
+                      value={newEventLocation}
+                      onChange={(e) => setNewEventLocation(e.target.value)}
+                      placeholder="例：○○ホール"
+                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <Button variant="outline" size="sm" onClick={() => setIsEventDialogOpen(false)}>
+                    キャンセル
+                  </Button>
+                  <Button size="sm" className="gap-2" disabled={savingEvent} onClick={handleCreateEvent}>
+                    {savingEvent ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    登録
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          {eventsLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : eventsError ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{eventsError}</p>
+              <Button variant="outline" size="sm" onClick={loadEvents} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : events.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">この期間のイベント情報は登録されていません。</p>
+          ) : (
+            <div className="space-y-2">
+              {events.map((ev) => (
+                <div key={ev.id} className="flex items-center justify-between gap-3 border rounded-lg px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm">{ev.name}</span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {eventTypeLabel(ev.type)}
+                      </Badge>
+                      {ev.expectedImpact && (
+                        <Badge className={`${impactBadgeClass(ev.expectedImpact)} text-[10px]`}>
+                          {impactLabel(ev.expectedImpact)}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatEventRange(ev.startDate, ev.endDate)}
+                      {ev.location ? ` ・ ${ev.location}` : ""}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteEvent(ev.id)}
+                    disabled={deletingEventId === ev.id}
+                  >
+                    {deletingEventId === ev.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

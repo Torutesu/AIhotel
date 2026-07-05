@@ -4,7 +4,10 @@
 // next.config.mjs の rewrites により /api/* はバックエンドへプロキシされる。
 // 直接バックエンドURLを叩く場合は NEXT_PUBLIC_BACKEND_URL を設定する。
 
-import type { ApiResponse, User, Hotel } from "@shared/types"
+import type { ApiResponse, User, Hotel, Event as HotelEvent, PriceRank } from "@shared/types"
+
+export type { Hotel, PriceRank }
+export type { Event as HotelEvent } from "@shared/types"
 
 const ACCESS_TOKEN_KEY = "hrms.accessToken"
 const REFRESH_TOKEN_KEY = "hrms.refreshToken"
@@ -245,6 +248,43 @@ export interface MonthlyTrend {
   }>
 }
 
+export interface CompetitorAnalysis {
+  hotelId: string
+  startDate: string
+  endDate: string
+  competitors: Array<{
+    id: string
+    name: string
+    category: string | null
+    sampleSize: number
+    minPrice: number | null
+    maxPrice: number | null
+    avgPrice: number | null
+  }>
+}
+
+export interface CreateEventInput {
+  hotelId: string
+  name: string
+  type: string
+  startDate: string
+  endDate: string
+  location?: string
+  expectedImpact?: "high" | "medium" | "low"
+  description?: string
+}
+
+export type UpdateEventInput = Partial<Omit<CreateEventInput, "hotelId">>
+
+export interface UpdateHotelSettingsInput {
+  name?: string
+  address?: string
+  phone?: string
+  email?: string
+  totalRooms?: number
+  weekendDays?: number[]
+}
+
 // ---- API surface ----
 
 export const api = {
@@ -323,5 +363,60 @@ export const api = {
 
   monthlyTrend(hotelId: string, year: number): Promise<MonthlyTrend> {
     return rawRequest(`/api/v1/analysis/monthly?hotelId=${hotelId}&year=${year}`)
+  },
+
+  competitorAnalysis(hotelId: string, startDate: string, endDate: string): Promise<CompetitorAnalysis> {
+    return rawRequest(
+      `/api/v1/analysis/competitor?hotelId=${hotelId}&startDate=${startDate}&endDate=${endDate}`
+    )
+  },
+
+  priceRanks(hotelId: string): Promise<PriceRank[]> {
+    return rawRequest(`/api/v1/settings/price-ranks?hotelId=${hotelId}`)
+  },
+
+  updatePriceRank(
+    id: string,
+    hotelId: string,
+    data: Partial<{ label: string; price1P: number; price2P: number; price3P: number; price4P: number }>
+  ): Promise<PriceRank> {
+    return rawRequest(`/api/v1/settings/price-ranks/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  updateHotelSettings(hotelId: string, data: UpdateHotelSettingsInput): Promise<Hotel> {
+    return rawRequest(`/api/v1/settings/hotel/${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  events(hotelId: string, startDate?: string, endDate?: string): Promise<HotelEvent[]> {
+    const params = new URLSearchParams({ hotelId })
+    if (startDate) params.set("startDate", startDate)
+    if (endDate) params.set("endDate", endDate)
+    return rawRequest(`/api/v1/events?${params.toString()}`)
+  },
+
+  createEvent(input: CreateEventInput): Promise<HotelEvent> {
+    return rawRequest("/api/v1/events", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateEvent(id: string, hotelId: string, input: UpdateEventInput): Promise<HotelEvent> {
+    return rawRequest(`/api/v1/events/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  deleteEvent(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/events/${id}?hotelId=${hotelId}`, {
+      method: "DELETE",
+    })
   },
 }
