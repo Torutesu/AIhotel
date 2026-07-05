@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import { config } from './config.js'
 
 // PrismaClient のシングルトンインスタンスを作成
 // 開発環境でホットリロード時に複数のインスタンスが作成されるのを防ぐ
@@ -10,12 +11,12 @@ const globalForPrisma = globalThis as unknown as {
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: process.env.NODE_ENV === 'development' 
+    log: config.isDevelopment
       ? ['query', 'info', 'warn', 'error']
       : ['error'],
   })
 
-if (process.env.NODE_ENV !== 'production') {
+if (!config.isProduction) {
   globalForPrisma.prisma = prisma
 }
 

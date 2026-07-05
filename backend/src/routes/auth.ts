@@ -1,5 +1,6 @@
 import { Router, type IRouter } from 'express'
 import rateLimit from 'express-rate-limit'
+import { config } from '../lib/config.js'
 import { validate } from '../middlewares/validate.js'
 import { authenticate, requireRole } from '../middlewares/auth.js'
 import {
@@ -22,7 +23,7 @@ const router: IRouter = Router()
 // 全体のレートリミッターより大幅に厳しい値にする
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '10', 10),
+  max: config.LOGIN_RATE_LIMIT_MAX,
   message: {
     success: false,
     error: 'ログイン試行回数の上限に達しました。しばらくしてから再度お試しください。',

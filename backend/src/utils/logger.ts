@@ -1,12 +1,9 @@
 import pino from 'pino'
+import { config } from '../lib/config.js'
 
-// ログレベル
-type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace'
-
-// 環境変数からログレベルを取得
-const LOG_LEVEL = (process.env.LOG_LEVEL as LogLevel) || 'info'
-const LOG_FORMAT = process.env.LOG_FORMAT || 'json'
-const IS_DEVELOPMENT = process.env.NODE_ENV === 'development'
+const LOG_LEVEL = config.LOG_LEVEL
+const LOG_FORMAT = config.LOG_FORMAT
+const IS_DEVELOPMENT = config.isDevelopment
 
 // Pinoロガーの設定
 const pinoOptions: pino.LoggerOptions = {
@@ -33,7 +30,7 @@ const pinoOptions: pino.LoggerOptions = {
   // ベース情報
   base: {
     service: 'hotel-revenue-backend',
-    env: process.env.NODE_ENV || 'development',
+    env: config.NODE_ENV,
   },
 }
 

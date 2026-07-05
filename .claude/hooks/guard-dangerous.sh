@@ -8,12 +8,20 @@ command=$(printf '%s' "$input" | python3 -c "import json,sys; print(json.load(sy
 
 [ -z "$command" ] && exit 0
 
-# 引用符内文字列（コミットメッセージ等）を除外し、実引数のみを判定対象にする
-stripped=$(printf '%s' "$command" | sed -E "s/\"[^\"]*\"//g; s/'[^']*'//g")
+# 引用符内文字列（コミットメッセージ等）を除外し、実引数のみを判定対象にする。
+# 複数行のコミットメッセージにも対応するため sed ではなく python の DOTALL で除去する
+stripped=$(printf '%s' "$command" | python3 -c "
+import re, sys
+s = sys.stdin.read()
+s = re.sub(r'\"[^\"]*\"', ' ', s, flags=re.S)
+s = re.sub(r\"'[^']*'\", ' ', s, flags=re.S)
+print(s)
+")
 
 # 1) .env ファイルのコミット防止（.env.example は許可）
+# トークンが .env / .env.local で「終わる」場合のみパスとみなす（dotenv 等の語を誤検知しない）
 if printf '%s' "$stripped" | grep -qE 'git (add|commit)' && \
-   printf '%s' "$stripped" | grep -oE '[^ ]*\.env[^ ]*' | grep -qvE '\.env\.example'; then
+   printf '%s' "$stripped" | tr ' \t' '\n\n' | grep -qE '(^|/)\.env(\.local)?$'; then
   echo "ブロック: .env ファイルを git add/commit しようとしています。シークレットはコミット禁止です（.env.example のみ可）。" >&2
   exit 2
 fi

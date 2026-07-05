@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import jwt, { type SignOptions } from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import type { User, UserRole } from '@prisma/client'
+import { config } from './config.js'
 
 // ======================================
 // Types
@@ -24,21 +25,10 @@ export interface TokenPair {
 // Configuration
 // ======================================
 
-// JWT_SECRET は必須。未設定のまま既知の鍵で起動するとトークン偽造が可能になるため、
-// フォールバックせず起動時に停止する。
-function requireJwtSecret(): string {
-  const secret = process.env.JWT_SECRET
-  if (!secret || secret.length < 32) {
-    throw new Error(
-      'JWT_SECRET が未設定または32文字未満です。openssl rand -base64 64 で生成した値を環境変数に設定してください。'
-    )
-  }
-  return secret
-}
-
-const JWT_SECRET: string = requireJwtSecret()
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h'
-const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d'
+// JWT_SECRET の必須検証（32文字以上・フォールバック禁止）は config.ts が起動時に行う
+const JWT_SECRET: string = config.JWT_SECRET
+const JWT_EXPIRES_IN = config.JWT_EXPIRES_IN
+const JWT_REFRESH_EXPIRES_IN = config.JWT_REFRESH_EXPIRES_IN
 
 // Convert string to seconds for JWT
 function parseExpiresIn(expiresIn: string): number {
