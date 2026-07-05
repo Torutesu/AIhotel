@@ -33,6 +33,10 @@ pnpm --filter backend build && pnpm --filter frontend build
 - シークレットのフォールバック値をコードに書かない（JWT_SECRETは32文字以上必須・未設定なら起動時throw）
 - リフレッシュトークンはSHA-256ハッシュのみDB保存（`hashToken()`）
 
+**アーキテクチャ境界**（クラウド/BaaS未確定のため。ESLintがエラーにする）:
+- backend で `process.env` を直接参照しない → `src/lib/config.ts` の `config` を使う（環境変数・シークレット読み込みの唯一の場所）
+- Prismaクライアントの import は `src/services/` と `src/lib/` のみ。controllers/routes はサービス関数を呼ぶ
+
 **スキーマ変更**: `prisma migrate dev` でマイグレーションファイルを生成しコミットする。`db:push` を使わない。`migrate reset` / `--force-reset` / `--accept-data-loss` は禁止（実行前にユーザー確認必須）
 
 **ドメイン確定値**（再議論・変更しない）:
