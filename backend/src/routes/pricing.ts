@@ -1,12 +1,18 @@
 import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireRole, requireHotelAccess } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
-import { monthQuerySchema, hotelIdQuerySchema, updateStrategySchema } from '../lib/validators.js'
+import {
+  monthQuerySchema,
+  hotelIdQuerySchema,
+  updateStrategySchema,
+  recomputeForecastSchema,
+} from '../lib/validators.js'
 import {
   getCalendar,
   getStrategy,
   updateStrategy,
   getSimulation,
+  recomputeForecast,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -45,4 +51,13 @@ pricingRouter.get(
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(monthQuerySchema, 'query'),
   getSimulation
+)
+
+// POST /api/v1/pricing/recompute — 需要予測の再計算は MANAGER 以上（F-DP-05, F-DP-03）
+pricingRouter.post(
+  '/recompute',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(recomputeForecastSchema),
+  recomputeForecast
 )
