@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - production-readiness
+
+jobs:
+  build-and-test:
+    name: Type-check, test, and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client (required for type-check)
+        run: pnpm --filter backend db:generate
+
+      - name: Type-check all packages
+        run: pnpm --filter './*' type-check
+
+      - name: Run backend tests
+        run: pnpm --filter backend test
+
+      - name: Build backend
+        run: pnpm --filter backend build
+
+      - name: Build frontend
+        run: pnpm --filter frontend build
+        env:
+          # NEXT_PUBLIC_BACKEND_URL は任意。未設定時はビルド時のデフォルト
+          # (http://localhost:3001) が使われ、実際の値は実行時に上書きされる。
+          NEXT_PUBLIC_BACKEND_URL: ${{ vars.NEXT_PUBLIC_BACKEND_URL }}

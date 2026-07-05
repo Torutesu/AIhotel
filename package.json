@@ -12,6 +12,7 @@
     "build:backend": "pnpm --filter backend build",
     "lint": "pnpm --filter './*' lint",
     "type-check": "pnpm --filter './*' type-check",
+    "test": "pnpm --filter backend test",
     "clean": "pnpm --filter './*' clean && rm -rf node_modules"
   },
   "devDependencies": {
