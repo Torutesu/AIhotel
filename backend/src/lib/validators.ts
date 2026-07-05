@@ -164,6 +164,30 @@ export const createEventSchema = eventBaseSchema.refine(data => data.startDate <
 
 export const updateEventSchema = eventBaseSchema.omit({ hotelId: true }).partial()
 
+// イベント一覧の検索条件（期間は任意 — F-DP-07）
+export const eventsQuerySchema = z.object({
+  hotelId: z.string().cuid('hotelId が不正です'),
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+}).refine(
+  (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
+  { message: '開始日は終了日以前である必要があります' }
+)
+
+// ======================================
+// Hotel Settings Validators（F-SET-01）
+// ======================================
+
+export const updateHotelSettingsSchema = z.object({
+  name: z.string().min(1, 'ホテル名は必須です').max(200).optional(),
+  address: z.string().max(500).optional(),
+  phone: z.string().max(20).optional(),
+  email: z.string().email().optional(),
+  totalRooms: z.number().int().min(1, '部屋数は1以上である必要があります').optional(),
+  // 週末定義（チェックイン日基準の曜日番号、0=日曜〜6=土曜）。デフォルトは金・土 [5, 6]
+  weekendDays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+})
+
 // ======================================
 // Query Validators
 // ======================================
@@ -246,5 +270,6 @@ export type CreateCampaignInput = z.infer<typeof createCampaignSchema>
 export type UpdateCampaignInput = z.infer<typeof updateCampaignSchema>
 export type CreateEventInput = z.infer<typeof createEventSchema>
 export type UpdateEventInput = z.infer<typeof updateEventSchema>
+export type UpdateHotelSettingsInput = z.infer<typeof updateHotelSettingsSchema>
 export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>

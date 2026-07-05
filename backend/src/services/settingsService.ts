@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError, BadRequestError } from '../middlewares/errorHandler.js'
-import type { CreatePriceRankInput } from '../lib/validators.js'
+import type { CreatePriceRankInput, UpdateHotelSettingsInput } from '../lib/validators.js'
 
 const MAX_PRICE_RANKS = 40 // F-SET-02
 
@@ -59,4 +59,17 @@ export async function deletePriceRankService(id: string, hotelId: string) {
     data: { isActive: false },
   })
   if (result.count === 0) throw new NotFoundError('料金ランク')
+}
+
+/**
+ * ホテル設定更新（名称・住所・連絡先・部屋数・週末定義 — F-SET-01）
+ */
+export async function updateHotelSettingsService(id: string, data: UpdateHotelSettingsInput) {
+  const hotel = await prisma.hotel.findUnique({ where: { id } })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  return prisma.hotel.update({
+    where: { id },
+    data,
+  })
 }

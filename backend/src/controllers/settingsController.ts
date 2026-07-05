@@ -7,6 +7,7 @@ import {
   createPriceRankService,
   updatePriceRankService,
   deletePriceRankService,
+  updateHotelSettingsService,
 } from '../services/settingsService.js'
 
 /**
@@ -74,4 +75,23 @@ export const deletePriceRank = asyncHandler(async (req: Request, res: Response) 
     userAgent: req.headers['user-agent'],
   })
   sendDeleted(res)
+})
+
+/**
+ * ホテル設定更新（MANAGER 以上・監査対象 — F-SET-01）
+ * PUT /api/v1/settings/hotel/:id
+ */
+export const updateHotelSettings = asyncHandler(async (req: Request, res: Response) => {
+  const hotel = await updateHotelSettingsService(req.params.id, req.body)
+  await writeAuditLog({
+    tenantId: hotel.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'Hotel',
+    entityId: hotel.id,
+    newValue: req.body,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, hotel, 200, 'ホテル設定を更新しました')
 })

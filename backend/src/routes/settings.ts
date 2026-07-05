@@ -5,12 +5,14 @@ import {
   hotelIdQuerySchema,
   createPriceRankSchema,
   updatePriceRankSchema,
+  updateHotelSettingsSchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
   createPriceRank,
   updatePriceRank,
   deletePriceRank,
+  updateHotelSettings,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -48,4 +50,13 @@ settingsRouter.delete(
   requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   deletePriceRank
+)
+
+// PUT /api/v1/settings/hotel/:id — ホテル設定（名称・週末定義等）変更は MANAGER 以上（F-SET-01）
+settingsRouter.put(
+  '/hotel/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.params.id),
+  validate(updateHotelSettingsSchema),
+  updateHotelSettings
 )
