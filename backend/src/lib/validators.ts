@@ -4,6 +4,14 @@ import { z } from 'zod'
 // Common Validators
 // ======================================
 
+// エンティティID。cuid形式に固定しない（seedの固定ID 'demo-hotel-001' や、
+// 将来DB/BaaS変更でID形式が変わる場合に備え、不透明な文字列として扱う）
+export const entityIdSchema = z
+  .string()
+  .min(1, 'IDは必須です')
+  .max(64)
+  .regex(/^[A-Za-z0-9_-]+$/, 'IDの形式が不正です')
+
 export const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -17,7 +25,7 @@ export const dateRangeSchema = z.object({
 })
 
 export const idParamSchema = z.object({
-  id: z.string().cuid(),
+  id: entityIdSchema,
 })
 
 // ======================================
@@ -26,7 +34,8 @@ export const idParamSchema = z.object({
 
 export const loginSchema = z.object({
   email: z.string().email('有効なメールアドレスを入力してください'),
-  password: z.string().min(6, 'パスワードは6文字以上である必要があります'),
+  // パスワード強度は登録時に強制する。ログイン時は空でないことのみ検証する
+  password: z.string().min(1, 'パスワードは必須です'),
 })
 
 export const registerSchema = z.object({
@@ -37,7 +46,8 @@ export const registerSchema = z.object({
     .regex(/[a-z]/, '小文字を含める必要があります')
     .regex(/[0-9]/, '数字を含める必要があります'),
   name: z.string().min(1, '名前は必須です').max(100),
-  hotelId: z.string().cuid().optional(),
+  role: z.enum(['ADMIN', 'MANAGER', 'OPERATOR']).optional(),
+  hotelId: entityIdSchema.optional(),
 })
 
 export const refreshTokenSchema = z.object({
@@ -49,6 +59,7 @@ export const refreshTokenSchema = z.object({
 // ======================================
 
 export const createHotelSchema = z.object({
+  tenantId: entityIdSchema,
   name: z.string().min(1, 'ホテル名は必須です').max(200),
   address: z.string().max(500).optional(),
   phone: z.string().max(20).optional(),
@@ -56,14 +67,14 @@ export const createHotelSchema = z.object({
   totalRooms: z.number().int().min(1, '部屋数は1以上である必要があります'),
 })
 
-export const updateHotelSchema = createHotelSchema.partial()
+export const updateHotelSchema = createHotelSchema.omit({ tenantId: true }).partial()
 
 // ======================================
 // Room Type Validators
 // ======================================
 
 export const createRoomTypeSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   name: z.string().min(1).max(100),
   code: z.string().min(1).max(50).regex(/^[A-Z0-9_]+$/, 'コードは大文字英数字とアンダースコアのみ使用可能です'),
   capacity: z.number().int().min(1).max(10),
@@ -77,9 +88,10 @@ export const updateRoomTypeSchema = createRoomTypeSchema.omit({ hotelId: true })
 // Price Rank Validators
 // ======================================
 
+// 料金ランクは最大40段階（F-SET-02）
 export const createPriceRankSchema = z.object({
-  hotelId: z.string().cuid(),
-  rank: z.number().int().min(1).max(100),
+  hotelId: entityIdSchema,
+  rank: z.number().int().min(1).max(40, '料金ランクは最大40段階です'),
   label: z.string().min(1).max(10),
   price1P: z.number().int().min(0),
   price2P: z.number().int().min(0),
@@ -94,7 +106,7 @@ export const updatePriceRankSchema = createPriceRankSchema.omit({ hotelId: true,
 // ======================================
 
 export const createDailyDataSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   date: z.coerce.date(),
   occupancy: z.number().min(0).max(1).optional(),
   adr: z.number().min(0).optional(),
@@ -123,7 +135,7 @@ export const bulkUpdateDailyDataSchema = z.object({
 // ======================================
 
 const campaignBaseSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   name: z.string().min(1).max(200),
   channel: z.string().min(1).max(100),
   source: z.enum(['ota', 'manual']).default('manual'),
@@ -144,7 +156,7 @@ export const updateCampaignSchema = campaignBaseSchema.omit({ hotelId: true }).p
 // ======================================
 
 const eventBaseSchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   name: z.string().min(1).max(200),
   type: z.string().min(1).max(50),
   startDate: z.coerce.date(),
@@ -160,22 +172,117 @@ export const createEventSchema = eventBaseSchema.refine(data => data.startDate <
 
 export const updateEventSchema = eventBaseSchema.omit({ hotelId: true }).partial()
 
+// イベント一覧の検索条件（期間は任意 — F-DP-07）
+export const eventsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+}).refine(
+  (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
+  { message: '開始日は終了日以前である必要があります' }
+)
+
+// ======================================
+// Hotel Settings Validators（F-SET-01）
+// ======================================
+
+export const updateHotelSettingsSchema = z.object({
+  name: z.string().min(1, 'ホテル名は必須です').max(200).optional(),
+  address: z.string().max(500).optional(),
+  phone: z.string().max(20).optional(),
+  email: z.string().email().optional(),
+  totalRooms: z.number().int().min(1, '部屋数は1以上である必要があります').optional(),
+  // 週末定義（チェックイン日基準の曜日番号、0=日曜〜6=土曜）。デフォルトは金・土 [5, 6]
+  weekendDays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+})
+
 // ======================================
 // Query Validators
 // ======================================
 
 export const dailyDataQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
   ...paginationSchema.shape,
 })
 
 export const pricingQuerySchema = z.object({
-  hotelId: z.string().cuid(),
+  hotelId: entityIdSchema,
   date: z.coerce.date().optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
   year: z.coerce.number().int().min(2020).max(2100).optional(),
+})
+
+export const hotelIdQuerySchema = z.object({
+  hotelId: entityIdSchema,
+})
+
+export const monthQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  year: z.coerce.number().int().min(2020).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+})
+
+export const yearQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  year: z.coerce.number().int().min(2020).max(2100),
+})
+
+export const kpiComparisonQuerySchema = monthQuerySchema.extend({
+  baseDate: z.coerce.date().optional(),
+})
+
+export const aiSummaryQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  section: z.string().max(50).optional(),
+})
+
+export const bookingCurveQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  date: z.coerce.date(),
+})
+
+export const competitorPricesQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+}).refine(data => data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+// ======================================
+// Reports Validators（F-REP-01/02）
+// ======================================
+
+export const monthlyReportQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  year: z.coerce.number().int().min(2020).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+  format: z.enum(['pdf', 'excel']),
+})
+
+// ======================================
+// Forecast Validators（F-DP-05 / F-DP-03）
+// ======================================
+
+export const recomputeForecastSchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+}).refine(
+  (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
+  { message: '開始日は終了日以前である必要があります' }
+)
+
+// 重み付けは合計100%（F-DP-02）
+export const updateStrategySchema = z.object({
+  hotelId: entityIdSchema,
+  weightOccupancy: z.number().int().min(0).max(100),
+  weightAdr: z.number().int().min(0).max(100),
+  weightCompetitor: z.number().int().min(0).max(100),
+}).refine(data => data.weightOccupancy + data.weightAdr + data.weightCompetitor === 100, {
+  message: '重み付けの合計は100%である必要があります',
 })
 
 // ======================================
@@ -185,6 +292,7 @@ export const pricingQuerySchema = z.object({
 export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type CreateHotelInput = z.infer<typeof createHotelSchema>
+export type CreatePriceRankInput = z.infer<typeof createPriceRankSchema>
 export type UpdateHotelInput = z.infer<typeof updateHotelSchema>
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>
 export type UpdateRoomTypeInput = z.infer<typeof updateRoomTypeSchema>
@@ -194,5 +302,8 @@ export type CreateCampaignInput = z.infer<typeof createCampaignSchema>
 export type UpdateCampaignInput = z.infer<typeof updateCampaignSchema>
 export type CreateEventInput = z.infer<typeof createEventSchema>
 export type UpdateEventInput = z.infer<typeof updateEventSchema>
+export type UpdateHotelSettingsInput = z.infer<typeof updateHotelSettingsSchema>
 export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
+export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
+export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>

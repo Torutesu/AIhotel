@@ -1,0 +1,40 @@
+# ローカル開発用の PostgreSQL コンテナのみを定義する compose ファイル。
+#
+# アプリケーション本体 (frontend / backend) はホスト側で
+#   pnpm install
+#   pnpm dev
+# を実行して起動する想定（ホットリロードのため）。
+# このファイルは DB だけをコンテナで立ち上げ、backend/.env の
+# DATABASE_URL (postgresql://postgres:password@localhost:5432/hotel_revenue_db?schema=public)
+# からホスト経由で接続する。
+#
+# 使い方:
+#   docker compose -f docker/docker-compose.dev.yml up -d
+#
+# 本番用のコンテナ構成 (backend/frontend アプリ本体) は
+# docker/backend.Dockerfile / docker/frontend.Dockerfile を参照。
+# データストア自体は本番では AWS RDS / GCP Cloud SQL など
+# 環境変数 DATABASE_URL で指定するマネージドサービスを利用する前提であり、
+# 特定クラウドの SDK には依存しない。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hotel-revenue-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: hotel_revenue_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - '5432:5432'
+    volumes:
+      - hotel_revenue_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d hotel_revenue_db']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  hotel_revenue_postgres_data:

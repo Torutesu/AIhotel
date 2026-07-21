@@ -2,16 +2,21 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import rateLimit from 'express-rate-limit'
-import dotenv from 'dotenv'
 
-// Load environment variables first
-dotenv.config()
+// 環境変数の読み込み・検証は lib/config.ts が import 時に行う
+// （ESM の import hoisting により、ここで dotenv.config() を呼んでも間に合わない）
+import { config } from './lib/config.js'
 
 // Import routes
 import { authRouter } from './routes/auth.js'
 import { hotelsRouter } from './routes/hotels.js'
+import { dashboardRouter } from './routes/dashboard.js'
 import { pricingRouter } from './routes/pricing.js'
+import { dailyRouter } from './routes/daily.js'
 import { analysisRouter } from './routes/analysis.js'
+import { settingsRouter } from './routes/settings.js'
+import { eventsRouter } from './routes/events.js'
+import { reportsRouter } from './routes/reports.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -25,14 +30,14 @@ import { logger, requestLogger } from './utils/logger.js'
 // ======================================
 
 const app: ReturnType<typeof express> = express()
-const PORT = process.env.PORT || 3001
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
-const NODE_ENV = process.env.NODE_ENV || 'development'
+const PORT = config.PORT
+const FRONTEND_URL = config.FRONTEND_URL
+const NODE_ENV = config.NODE_ENV
 
 // Rate limiter configuration
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10), // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+  windowMs: config.RATE_LIMIT_WINDOW_MS, // 15 minutes
+  max: config.RATE_LIMIT_MAX_REQUESTS,
   message: {
     success: false,
     error: 'リクエスト数の上限に達しました。しばらくしてから再度お試しください。',
@@ -81,7 +86,7 @@ app.get('/health', (_req, res) => {
       status: 'ok',
       timestamp: new Date().toISOString(),
       environment: NODE_ENV,
-      version: process.env.npm_package_version || '1.0.0',
+      version: config.appVersion,
     },
   })
 })
@@ -107,8 +112,13 @@ app.get('/api/health', (_req, res) => {
 // API v1 routes
 app.use('/api/v1/auth', authRouter)
 app.use('/api/v1/hotels', hotelsRouter)
+app.use('/api/v1/dashboard', dashboardRouter)
 app.use('/api/v1/pricing', pricingRouter)
+app.use('/api/v1/daily', dailyRouter)
 app.use('/api/v1/analysis', analysisRouter)
+app.use('/api/v1/settings', settingsRouter)
+app.use('/api/v1/events', eventsRouter)
+app.use('/api/v1/reports', reportsRouter)
 
 // ======================================
 // Error Handling

@@ -6,16 +6,27 @@
 // Authentication Types
 // ======================================
 
-export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF' | 'READONLY'
+// 要件定義書 §4: ADMIN=システム提供側 / MANAGER=支配人 / OPERATOR=現場フロント
+export type UserRole = 'ADMIN' | 'MANAGER' | 'OPERATOR'
 
 export interface User {
   id: string
+  tenantId: string | null
   email: string
   name: string
   role: UserRole
   hotelId: string | null
   isActive: boolean
   lastLoginAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface Tenant {
+  id: string
+  name: string
+  code: string
+  isActive: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -36,11 +47,14 @@ export interface LoginResponse {
 
 export interface Hotel {
   id: string
+  tenantId: string
   name: string
   address: string | null
   phone: string | null
   email: string | null
   totalRooms: number
+  /** 週末定義（チェックイン日基準の曜日番号、0=日曜）。デフォルト [5, 6] = 金・土 */
+  weekendDays?: unknown
   isActive: boolean
   createdAt: Date
   updatedAt: Date

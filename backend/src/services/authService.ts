@@ -5,9 +5,11 @@ import {
   generateTokenPair,
   verifyRefreshToken,
   getRefreshTokenExpiry,
+  hashToken,
 } from '../lib/auth.js'
 import { ApiError } from '../middlewares/errorHandler.js'
-import type { User } from '@prisma/client'
+import { writeAuditLog } from './auditService.js'
+import type { User, UserRole } from '@prisma/client'
 
 // ======================================
 // Types
@@ -22,7 +24,13 @@ interface RegisterInput {
   email: string
   password: string
   name: string
+  role?: UserRole
   hotelId?: string
+}
+
+interface RequestContext {
+  ipAddress?: string
+  userAgent?: string
 }
 
 interface AuthResult {
@@ -40,10 +48,9 @@ interface AuthResult {
 /**
  * ユーザーログイン
  */
-export async function loginService(input: LoginInput): Promise<AuthResult> {
+export async function loginService(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
   const { email, password } = input
 
-  // ユーザーを検索
   const user = await prisma.user.findUnique({
     where: { email },
   })
@@ -56,32 +63,39 @@ export async function loginService(input: LoginInput): Promise<AuthResult> {
     throw new ApiError(401, 'このアカウントは無効化されています')
   }
 
-  // パスワードを検証
   const isValidPassword = await verifyPassword(password, user.password)
 
   if (!isValidPassword) {
     throw new ApiError(401, 'メールアドレスまたはパスワードが正しくありません')
   }
 
-  // トークンを生成
   const tokens = generateTokenPair(user)
 
-  // リフレッシュトークンをDBに保存
+  // リフレッシュトークンはハッシュのみ保存する
   await prisma.refreshToken.create({
     data: {
-      token: tokens.refreshToken,
+      tokenHash: hashToken(tokens.refreshToken),
       userId: user.id,
+      tenantId: user.tenantId,
       expiresAt: getRefreshTokenExpiry(),
     },
   })
 
-  // 最終ログイン日時を更新
   await prisma.user.update({
     where: { id: user.id },
     data: { lastLoginAt: new Date() },
   })
 
-  // パスワードを除外して返す
+  await writeAuditLog({
+    tenantId: user.tenantId,
+    userId: user.id,
+    action: 'LOGIN',
+    entity: 'User',
+    entityId: user.id,
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
+  })
+
   const { password: _, ...userWithoutPassword } = user
 
   return {
@@ -91,12 +105,18 @@ export async function loginService(input: LoginInput): Promise<AuthResult> {
 }
 
 /**
- * ユーザー登録
+ * ユーザー登録（ADMIN専用）
+ *
+ * テナント分離のため公開登録は提供しない。作成されるユーザーの tenantId は
+ * hotelId の所属テナントから導出し、リクエスト側で任意指定させない。
  */
-export async function registerService(input: RegisterInput): Promise<AuthResult> {
-  const { email, password, name, hotelId } = input
+export async function registerService(
+  input: RegisterInput,
+  createdBy: { userId: string; tenantId: string | null },
+  ctx?: RequestContext
+): Promise<Omit<User, 'password'>> {
+  const { email, password, name, role, hotelId } = input
 
-  // 既存ユーザーをチェック
   const existingUser = await prisma.user.findUnique({
     where: { email },
   })
@@ -105,7 +125,8 @@ export async function registerService(input: RegisterInput): Promise<AuthResult>
     throw new ApiError(409, 'このメールアドレスは既に登録されています')
   }
 
-  // ホテルIDが指定されている場合、存在確認
+  let tenantId: string | null = null
+
   if (hotelId) {
     const hotel = await prisma.hotel.findUnique({
       where: { id: hotelId },
@@ -114,52 +135,47 @@ export async function registerService(input: RegisterInput): Promise<AuthResult>
     if (!hotel) {
       throw new ApiError(400, '指定されたホテルが見つかりません')
     }
+
+    tenantId = hotel.tenantId
   }
 
-  // パスワードをハッシュ化
   const hashedPassword = await hashPassword(password)
 
-  // ユーザーを作成
   const user = await prisma.user.create({
     data: {
       email,
       password: hashedPassword,
       name,
+      role,
       hotelId,
+      tenantId,
     },
   })
 
-  // トークンを生成
-  const tokens = generateTokenPair(user)
-
-  // リフレッシュトークンをDBに保存
-  await prisma.refreshToken.create({
-    data: {
-      token: tokens.refreshToken,
-      userId: user.id,
-      expiresAt: getRefreshTokenExpiry(),
-    },
+  await writeAuditLog({
+    tenantId,
+    userId: createdBy.userId,
+    action: 'CREATE',
+    entity: 'User',
+    entityId: user.id,
+    newValue: { email: user.email, name: user.name, role: user.role, hotelId: user.hotelId },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
   })
 
-  // パスワードを除外して返す
   const { password: _, ...userWithoutPassword } = user
 
-  return {
-    user: userWithoutPassword,
-    tokens,
-  }
+  return userWithoutPassword
 }
 
 /**
- * トークンをリフレッシュ
+ * トークンをリフレッシュ（ローテーション方式）
  */
 export async function refreshTokenService(refreshToken: string): Promise<AuthResult> {
-  // リフレッシュトークンを検証
   verifyRefreshToken(refreshToken)
 
-  // DBからリフレッシュトークンを検索
   const storedToken = await prisma.refreshToken.findUnique({
-    where: { token: refreshToken },
+    where: { tokenHash: hashToken(refreshToken) },
     include: { user: true },
   })
 
@@ -168,7 +184,6 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
   }
 
   if (storedToken.expiresAt < new Date()) {
-    // 期限切れのトークンを削除
     await prisma.refreshToken.delete({
       where: { id: storedToken.id },
     })
@@ -179,24 +194,22 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
     throw new ApiError(401, 'このアカウントは無効化されています')
   }
 
-  // 古いリフレッシュトークンを削除
+  // 使用済みトークンは失効させ、新しいペアを発行する
   await prisma.refreshToken.delete({
     where: { id: storedToken.id },
   })
 
-  // 新しいトークンを生成
   const tokens = generateTokenPair(storedToken.user)
 
-  // 新しいリフレッシュトークンをDBに保存
   await prisma.refreshToken.create({
     data: {
-      token: tokens.refreshToken,
+      tokenHash: hashToken(tokens.refreshToken),
       userId: storedToken.user.id,
+      tenantId: storedToken.user.tenantId,
       expiresAt: getRefreshTokenExpiry(),
     },
   })
 
-  // パスワードを除外して返す
   const { password: _, ...userWithoutPassword } = storedToken.user
 
   return {
@@ -209,10 +222,9 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
  * ログアウト
  */
 export async function logoutService(refreshToken: string, userId: string): Promise<void> {
-  // 指定されたリフレッシュトークンを削除
   await prisma.refreshToken.deleteMany({
     where: {
-      token: refreshToken,
+      tokenHash: hashToken(refreshToken),
       userId,
     },
   })
@@ -222,7 +234,6 @@ export async function logoutService(refreshToken: string, userId: string): Promi
  * 全デバイスからログアウト
  */
 export async function logoutAllService(userId: string): Promise<void> {
-  // ユーザーの全てのリフレッシュトークンを削除
   await prisma.refreshToken.deleteMany({
     where: { userId },
   })

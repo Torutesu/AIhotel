@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import { Prisma } from '@prisma/client'
 import { ZodError } from 'zod'
+import { config } from '../lib/config.js'
 import { logger } from '../utils/logger.js'
 
 // Type guard for Prisma errors
@@ -165,7 +166,7 @@ export function errorHandler(
     success: false,
     error: message,
     ...(errors && { errors }),
-    ...(process.env.NODE_ENV === 'development' && !isOperational && {
+    ...(config.isDevelopment && !isOperational && {
       message: err.message,
       stack: err.stack,
     }),

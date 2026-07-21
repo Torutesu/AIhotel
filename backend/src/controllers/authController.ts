@@ -11,23 +11,31 @@ import {
 } from '../services/authService.js'
 import type { LoginInput, RegisterInput } from '../lib/validators.js'
 
+function requestContext(req: Request) {
+  return {
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  }
+}
+
 /**
  * ユーザーログイン
  * POST /api/v1/auth/login
  */
 export const login = asyncHandler(async (req: Request, res: Response) => {
   const input: LoginInput = req.body
-  const result = await loginService(input)
+  const result = await loginService(input, requestContext(req))
   sendSuccess(res, result, 200, 'ログインしました')
 })
 
 /**
- * ユーザー登録
+ * ユーザー登録（ADMIN専用）
  * POST /api/v1/auth/register
  */
 export const register = asyncHandler(async (req: Request, res: Response) => {
   const input: RegisterInput = req.body
-  const result = await registerService(input)
+  const createdBy = { userId: req.user!.userId, tenantId: req.user!.tenantId }
+  const result = await registerService(input, createdBy, requestContext(req))
   sendCreated(res, result, 'ユーザーを登録しました')
 })
 

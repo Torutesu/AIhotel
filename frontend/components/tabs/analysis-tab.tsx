@@ -1,19 +1,153 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { TrendingUp } from "lucide-react"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, Area, AreaChart, Cell } from "recharts"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { TrendingUp, AlertCircle, RefreshCw } from "lucide-react"
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar } from "recharts"
 import { AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CampaignParticipationManager } from "@/components/campaign-participation-manager"
 
+import { useAuth } from "@/components/auth-provider"
+import { api, ApiClientError, type MonthlyTrend, type CompetitorAnalysis } from "@/lib/api"
+
+function toDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+}
+
 export function AnalysisTab() {
+  const { hotelId } = useAuth()
   const [targetPeriod, setTargetPeriod] = useState("2025-04")
   const [segmentViewMode, setSegmentViewMode] = useState<"guest-count" | "segment">("guest-count")
+
+  // ---- 年間推移（実データ: api.monthlyTrend — F-ANA-03） ----
+  const [trendYear, setTrendYear] = useState(() => Number.parseInt(targetPeriod.split("-")[0], 10))
+  const [monthlyTrend, setMonthlyTrend] = useState<MonthlyTrend | null>(null)
+  const [monthlyTrendLoading, setMonthlyTrendLoading] = useState(true)
+  const [monthlyTrendError, setMonthlyTrendError] = useState<string | null>(null)
+
+  const loadMonthlyTrend = useCallback(async () => {
+    if (!hotelId) return
+    setMonthlyTrendLoading(true)
+    setMonthlyTrendError(null)
+    try {
+      const result = await api.monthlyTrend(hotelId, trendYear)
+      setMonthlyTrend(result)
+    } catch (err) {
+      setMonthlyTrendError(err instanceof ApiClientError ? err.message : "年間推移データの取得に失敗しました")
+    } finally {
+      setMonthlyTrendLoading(false)
+    }
+  }, [hotelId, trendYear])
+
+  useEffect(() => {
+    loadMonthlyTrend()
+  }, [loadMonthlyTrend])
+
+  const monthlyTrendChartData = useMemo(() => {
+    if (!monthlyTrend) return []
+    return monthlyTrend.months.map((m) => ({
+      month: `${m.month}月`,
+      revenue: m.hasActuals ? m.revenue : null,
+      budget: m.budgetRevenue,
+      lastYear: m.lastYearRevenue,
+      adr: m.adr,
+      occupancy: m.occupancy != null ? Math.round(m.occupancy * 1000) / 10 : null,
+      revPar: m.revPar,
+    }))
+  }, [monthlyTrend])
+
+  const monthlyTrendInsights = useMemo(() => {
+    if (!monthlyTrend) return null
+    const actualMonths = monthlyTrend.months.filter((m) => m.hasActuals)
+    if (actualMonths.length === 0) return null
+
+    const totalRevenue = actualMonths.reduce((sum, m) => sum + m.revenue, 0)
+    const budgetedMonths = actualMonths.filter((m) => m.budgetRevenue != null)
+    const totalBudget = budgetedMonths.reduce((sum, m) => sum + (m.budgetRevenue ?? 0), 0)
+    const achievementRate = budgetedMonths.length > 0 && totalBudget > 0 ? (totalRevenue / totalBudget) * 100 : null
+
+    const bestAdrMonth = actualMonths.reduce<(typeof actualMonths)[number] | null>((best, m) => {
+      if (m.adr == null) return best
+      if (best == null || (best.adr ?? 0) < m.adr) return m
+      return best
+    }, null)
+
+    const bestOccMonth = actualMonths.reduce<(typeof actualMonths)[number] | null>((best, m) => {
+      if (m.occupancy == null) return best
+      if (best == null || (best.occupancy ?? 0) < m.occupancy) return m
+      return best
+    }, null)
+
+    return { totalRevenue, achievementRate, bestAdrMonth, bestOccMonth }
+  }, [monthlyTrend])
+
+  const MonthlyTrendTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-background border border-border rounded-lg shadow-lg p-3">
+          <p className="text-sm font-medium mb-2">{payload[0].payload.month}</p>
+          <div className="space-y-1">
+            {payload.map((entry: any, index: number) => {
+              if (entry.value == null) return null
+              const isYen = entry.dataKey !== "occupancy"
+              const formatted = isYen
+                ? entry.dataKey === "revenue" || entry.dataKey === "budget" || entry.dataKey === "lastYear"
+                  ? `¥${(entry.value / 1000000).toFixed(1)}M`
+                  : `¥${Math.round(entry.value).toLocaleString()}`
+                : `${entry.value}%`
+              return (
+                <p key={index} className="text-xs flex items-center gap-2">
+                  <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
+                  <span>
+                    {entry.name}: {formatted}
+                  </span>
+                </p>
+              )
+            })}
+          </div>
+        </div>
+      )
+    }
+    return null
+  }
+
+  // ---- 競合分析（実データ: api.competitorAnalysis — F-ANA-02） ----
+  const competitorRange = useMemo(() => {
+    const [yearStr, monthStr] = targetPeriod.split("-")
+    const year = Number.parseInt(yearStr, 10)
+    const month = Number.parseInt(monthStr, 10)
+    const start = new Date(year, month - 1, 1)
+    const end = new Date(year, month, 0)
+    return { startDate: toDateStr(start), endDate: toDateStr(end) }
+  }, [targetPeriod])
+
+  const [competitorAnalysis, setCompetitorAnalysis] = useState<CompetitorAnalysis | null>(null)
+  const [competitorAnalysisLoading, setCompetitorAnalysisLoading] = useState(true)
+  const [competitorAnalysisError, setCompetitorAnalysisError] = useState<string | null>(null)
+
+  const loadCompetitorAnalysis = useCallback(async () => {
+    if (!hotelId) return
+    setCompetitorAnalysisLoading(true)
+    setCompetitorAnalysisError(null)
+    try {
+      const result = await api.competitorAnalysis(hotelId, competitorRange.startDate, competitorRange.endDate)
+      setCompetitorAnalysis(result)
+    } catch (err) {
+      setCompetitorAnalysisError(err instanceof ApiClientError ? err.message : "競合分析データの取得に失敗しました")
+    } finally {
+      setCompetitorAnalysisLoading(false)
+    }
+  }, [hotelId, competitorRange])
+
+  useEffect(() => {
+    loadCompetitorAnalysis()
+  }, [loadCompetitorAnalysis])
 
   // フリー分析用のstate
   const [freeAnalysisAxis1, setFreeAnalysisAxis1] = useState<string>("")
@@ -267,18 +401,6 @@ export function AnalysisTab() {
         },
       ],
     }
-  }, [targetPeriod])
-
-  const comparisonChartData = useMemo(() => {
-    const months = ["1月", "2月", "3月", "4月", "5月", "6月"]
-    return months.map((month, index) => ({
-      month,
-      revenue: 45000000 + Math.random() * 10000000 + index * 2000000,
-      budget: 48000000 + index * 1500000,
-      lastYear: 42000000 + Math.random() * 8000000 + index * 1800000,
-      adr: 18000 + Math.random() * 2000 + index * 200,
-      occupancy: 75 + Math.random() * 15 + index * 1.5,
-    }))
   }, [targetPeriod])
 
   const ComparisonTooltip = ({ active, payload }: any) => {
@@ -1003,155 +1125,77 @@ export function AnalysisTab() {
             <AlertTitle className="text-sm font-semibold text-amber-900 dark:text-amber-100">データ取り扱いに関する注意事項</AlertTitle>
             <AlertDescription className="text-xs text-amber-800 dark:text-amber-200 mt-1 space-y-1">
               <p>• 競合データは参考値であり、実際の価格設定には複数の要因（立地、設備、サービス品質等）を総合的に考慮してください。</p>
-              <p>• データソース: OTA公開価格の平均値（サンプル数: 5-8ホテル）</p>
-              <p>• データ取得日時: {new Date().toLocaleString("ja-JP")}</p>
-              <p>• 誤った情報による混乱を避けるため、運用面で慎重な対応をお願いします。</p>
+              <p>• 対象期間: {competitorRange.startDate} 〜 {competitorRange.endDate}（上部の対象期間セレクタで選択した月）</p>
             </AlertDescription>
           </Alert>
 
-          {/* AI解説を一番上に */}
-          <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                <span className="text-xl">🤖</span>
-                競合分析インサイト
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="space-y-2 text-sm leading-relaxed">
-                <div className="flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2 flex-shrink-0" />
-                  <p>
-                    現在の価格設定は競合より2.5%高く、品質優位性を考慮すると適正範囲内です。
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full bg-[color:var(--chart-2)] mt-2 flex-shrink-0" />
-                  <p>
-                    週末の競合価格が上昇傾向にあり、さらなる価格最適化の機会があります。
-                  </p>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2 flex-shrink-0" />
-                  <p>
-                    平日の競合価格が低めのため、品質差を活かした価格設定が可能です。
-                  </p>
-                </div>
+          {competitorAnalysisLoading ? (
+            <Card>
+              <CardContent className="py-8">
+                <Skeleton className="h-64 w-full" />
+              </CardContent>
+            </Card>
+          ) : competitorAnalysisError ? (
+            <Card>
+              <CardContent className="py-8 flex flex-col items-center gap-3 text-center">
+                <AlertCircle className="w-8 h-8 text-destructive" />
+                <p className="text-sm text-muted-foreground">{competitorAnalysisError}</p>
+                <Button variant="outline" size="sm" onClick={loadCompetitorAnalysis} className="gap-2">
+                  <RefreshCw className="w-4 h-4" />
+                  再試行
+                </Button>
+              </CardContent>
+            </Card>
+          ) : !competitorAnalysis || competitorAnalysis.competitors.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                対象期間の競合データが登録されていません。
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">競合ホテル数</p>
+                    <div className="text-lg font-semibold mb-0.5">{competitorAnalysis.competitors.length}件</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">競合平均価格（全体）</p>
+                    <div className="text-lg font-semibold mb-0.5">
+                      {(() => {
+                        const avgs = competitorAnalysis.competitors.map((c) => c.avgPrice).filter((v): v is number => v != null)
+                        if (avgs.length === 0) return "-"
+                        return `¥${Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length).toLocaleString()}`
+                      })()}
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">対象期間</p>
+                    <div className="text-sm font-semibold mb-0.5">
+                      {competitorAnalysis.startDate} 〜 {competitorAnalysis.endDate}
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <Card>
-              <CardContent className="py-2.5 px-3">
-                <p className="text-xs font-medium text-muted-foreground mb-1">当ホテル価格</p>
-                <div className="text-lg font-semibold mb-0.5">¥18,250</div>
-                <p className="text-xs text-muted-foreground">期間</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="py-2.5 px-3">
-                <p className="text-xs font-medium text-muted-foreground mb-1">競合価格</p>
-                <div className="text-lg font-semibold mb-0.5">¥17,800</div>
-                <p className="text-xs text-muted-foreground">市場</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="py-2.5 px-3">
-                <p className="text-xs font-medium text-muted-foreground mb-1">価格差</p>
-                <div className="text-lg font-semibold mb-0.5 text-[color:var(--positive)]">+¥450</div>
-                <p className="text-xs text-muted-foreground">(+2.5%)</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="py-2.5 px-3">
-                <p className="text-xs font-medium text-muted-foreground mb-1">価格競争力スコア</p>
-                <div className="text-lg font-semibold mb-0.5">72/100</div>
-                <p className="text-xs text-muted-foreground">適正範囲</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* 価格推移グラフ（エリアチャート） */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">競合価格推移</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">期間別の価格推移を比較</p>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <ResponsiveContainer width="100%" height={320}>
-                <AreaChart data={comparisonChartData.map((d, i) => ({
-                  ...d,
-                  competitorPrice: 17800 + Math.random() * 2000 - 1000 + i * 50,
-                  ourPrice: 18250 + Math.random() * 1500 - 750 + i * 60,
-                }))} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <defs>
-                    <linearGradient id="colorOurPriceAnalysis" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorCompetitorPriceAnalysis" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    stroke="currentColor"
-                    opacity={0.5}
-                    tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
-                  />
-                  <Tooltip content={<ComparisonTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: "12px" }} />
-                  <Area
-                    type="monotone"
-                    dataKey="ourPrice"
-                    stroke="#2563eb"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#colorOurPriceAnalysis)"
-                    name="当ホテル価格"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="competitorPrice"
-                    stroke="#ef4444"
-                    strokeWidth={2}
-                    fillOpacity={1}
-                    fill="url(#colorCompetitorPriceAnalysis)"
-                    name="競合価格"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* 価格差の可視化 */}
-          {(() => {
-            const priceDiffData = comparisonChartData.map((d, i) => {
-              const ourPrice = 18250 + Math.random() * 1500 - 750 + i * 60
-              const competitorPrice = 17800 + Math.random() * 2000 - 1000 + i * 50
-              return {
-                month: d.month,
-                priceDifference: ourPrice - competitorPrice,
-              }
-            })
-            return (
               <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">価格差の可視化</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">当ホテルと競合価格の差額</p>
+                  <CardTitle className="text-base">競合ホテル別平均価格</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">対象期間中の1名料金の平均値</p>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={priceDiffData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <BarChart
+                      data={competitorAnalysis.competitors.map((c) => ({ name: c.name, avgPrice: c.avgPrice ?? 0 }))}
+                      margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                    >
                       <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                      <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
+                      <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
                       <YAxis
                         tick={{ fontSize: 11 }}
                         stroke="currentColor"
@@ -1164,255 +1208,286 @@ export function AnalysisTab() {
                             const value = payload[0].value as number
                             return (
                               <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-                                <p className="text-sm font-medium mb-2">{payload[0].payload.month}</p>
-                                <p className="text-xs">
-                                  価格差: {value >= 0 ? "+" : ""}¥{Math.abs(value).toLocaleString()}
-                                </p>
+                                <p className="text-sm font-medium mb-2">{payload[0].payload.name}</p>
+                                <p className="text-xs">平均価格: ¥{value.toLocaleString()}</p>
                               </div>
                             )
                           }
                           return null
                         }}
                       />
-                      <Bar
-                        dataKey="priceDifference"
-                        radius={[4, 4, 0, 0]}
-                        name="価格差"
-                      >
-                        {priceDiffData.map((entry, i) => (
-                          <Cell key={`cell-${i}`} fill={entry.priceDifference >= 0 ? "#2563eb" : "#ef4444"} />
-                        ))}
-                      </Bar>
+                      <Bar dataKey="avgPrice" fill="#2563eb" radius={[4, 4, 0, 0]} name="平均価格" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
-            )
-          })()}
 
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">曜日別競合価格比較</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2 px-2 font-medium">曜日</th>
-                      <th className="text-right py-2 px-2 font-medium">当ホテル</th>
-                      <th className="text-right py-2 px-2 font-medium">競合</th>
-                      <th className="text-right py-2 px-2 font-medium">価格差</th>
-                      <th className="text-right py-2 px-2 font-medium">差額率</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[
-                      { day: "月曜日", ourPrice: 15500, competitorPrice: 15200 },
-                      { day: "火曜日", ourPrice: 16900, competitorPrice: 16500 },
-                      { day: "水曜日", ourPrice: 16400, competitorPrice: 16000 },
-                      { day: "木曜日", ourPrice: 17250, competitorPrice: 16800 },
-                      { day: "金曜日", ourPrice: 21000, competitorPrice: 20500 },
-                      { day: "土曜日", ourPrice: 25750, competitorPrice: 25200 },
-                      { day: "日曜日", ourPrice: 23150, competitorPrice: 22800 },
-                    ].map((row) => {
-                      const diff = row.ourPrice - row.competitorPrice
-                      const diffPercent = ((diff / row.competitorPrice) * 100).toFixed(1)
-                      return (
-                        <tr key={row.day} className="border-b hover:bg-muted/50">
-                          <td className="py-2 px-2 font-medium">{row.day}</td>
-                          <td className="text-right py-2 px-2">¥{row.ourPrice.toLocaleString()}</td>
-                          <td className="text-right py-2 px-2">¥{row.competitorPrice.toLocaleString()}</td>
-                          <td className={`text-right py-2 px-2 font-medium ${diff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}`}>
-                            {diff >= 0 ? "+" : ""}¥{Math.abs(diff).toLocaleString()}
-                          </td>
-                          <td className={`text-right py-2 px-2 ${diff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}`}>
-                            {diff >= 0 ? "+" : ""}{diffPercent}%
-                          </td>
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">競合ホテル一覧</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-2 px-2 font-medium">ホテル名</th>
+                          <th className="text-left py-2 px-2 font-medium">カテゴリ</th>
+                          <th className="text-right py-2 px-2 font-medium">サンプル数</th>
+                          <th className="text-right py-2 px-2 font-medium">最低価格</th>
+                          <th className="text-right py-2 px-2 font-medium">最高価格</th>
+                          <th className="text-right py-2 px-2 font-medium">平均価格</th>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
+                      </thead>
+                      <tbody>
+                        {competitorAnalysis.competitors.map((c) => (
+                          <tr key={c.id} className="border-b hover:bg-muted/50">
+                            <td className="py-2 px-2 font-medium">{c.name}</td>
+                            <td className="py-2 px-2">{c.category ?? "-"}</td>
+                            <td className="text-right py-2 px-2">{c.sampleSize}件</td>
+                            <td className="text-right py-2 px-2">{c.minPrice != null ? `¥${c.minPrice.toLocaleString()}` : "-"}</td>
+                            <td className="text-right py-2 px-2">{c.maxPrice != null ? `¥${c.maxPrice.toLocaleString()}` : "-"}</td>
+                            <td className="text-right py-2 px-2 font-medium">{c.avgPrice != null ? `¥${c.avgPrice.toLocaleString()}` : "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="comparison" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>売上推移比較</CardTitle>
-                <p className="text-sm text-muted-foreground">実績 vs 予算 vs 前年</p>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={comparisonChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      stroke="currentColor"
-                      opacity={0.5}
-                      tickFormatter={(value) => `¥${(value / 1000000).toFixed(0)}M`}
-                    />
-                    <Tooltip content={<ComparisonTooltip />} />
-                    <Legend wrapperStyle={{ fontSize: "12px" }} />
-                    <Line
-                      type="monotone"
-                      dataKey="revenue"
-                      stroke="var(--positive)"
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                      name="実績"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="budget"
-                      stroke="currentColor"
-                      strokeOpacity={0.4}
-                      strokeWidth={2}
-                      strokeDasharray="5 5"
-                      dot={false}
-                      name="予算"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="lastYear"
-                      stroke="var(--chart-2)"
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
-                      name="前年"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>ADR推移</CardTitle>
-                <p className="text-sm text-muted-foreground">平均客室単価の推移</p>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={comparisonChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      stroke="currentColor"
-                      opacity={0.5}
-                      tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
-                    />
-                    <Tooltip content={<ComparisonTooltip />} />
-                    <Line
-                      type="monotone"
-                      dataKey="adr"
-                      stroke="var(--chart-3)"
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                      name="ADR"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>稼働率推移</CardTitle>
-                <p className="text-sm text-muted-foreground">客室稼働率の推移</p>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={comparisonChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      stroke="currentColor"
-                      opacity={0.5}
-                      domain={[0, 100]}
-                      tickFormatter={(value) => `${value}%`}
-                    />
-                    <Tooltip content={<ComparisonTooltip />} />
-                    <Line
-                      type="monotone"
-                      dataKey="occupancy"
-                      stroke="var(--chart-4)"
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                      name="稼働率"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>RevPAR推移</CardTitle>
-                <p className="text-sm text-muted-foreground">客室あたり収益の推移</p>
-              </CardHeader>
-              <CardContent>
-                <ResponsiveContainer width="100%" height={320}>
-                  <LineChart
-                    data={comparisonChartData.map((d) => ({
-                      ...d,
-                      revpar: (d.adr * d.occupancy) / 100,
-                    }))}
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      stroke="currentColor"
-                      opacity={0.5}
-                      tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
-                    />
-                    <Tooltip content={<ComparisonTooltip />} />
-                    <Line
-                      type="monotone"
-                      dataKey="revpar"
-                      stroke="var(--positive)"
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                      name="RevPAR"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card className="border-l-4 border-l-primary">
-            <CardHeader>
-              <CardTitle className="text-lg">比較分析インサイト</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2" />
-                <p className="text-sm leading-relaxed">
-                  4月と7月のADRが突出して高く、季節需要の波を捉えた価格設定が効果的です。
-                </p>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full bg-[color:var(--chart-2)] mt-2" />
-                <p className="text-sm leading-relaxed">
-                  10月の稼働率が前月比で5%上昇しており、需要回復の兆しが見られます。
-                </p>
-              </div>
-              <div className="flex items-start gap-3">
-                <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2" />
-                <p className="text-sm leading-relaxed">
-                  週末の価格差が平日より大きく、需要に応じた価格戦略が機能しています。
-                </p>
+          <Card>
+            <CardContent className="py-3 px-4">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="trend-year" className="text-sm whitespace-nowrap">対象年</Label>
+                <Select value={String(trendYear)} onValueChange={(v) => setTrendYear(Number.parseInt(v, 10))}>
+                  <SelectTrigger id="trend-year" className="h-9 w-32 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[trendYear - 1, trendYear, trendYear + 1].map((y) => (
+                      <SelectItem key={y} value={String(y)}>
+                        {y}年
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
+
+          {monthlyTrendLoading ? (
+            <Card>
+              <CardContent className="py-8">
+                <Skeleton className="h-64 w-full" />
+              </CardContent>
+            </Card>
+          ) : monthlyTrendError ? (
+            <Card>
+              <CardContent className="py-8 flex flex-col items-center gap-3 text-center">
+                <AlertCircle className="w-8 h-8 text-destructive" />
+                <p className="text-sm text-muted-foreground">{monthlyTrendError}</p>
+                <Button variant="outline" size="sm" onClick={loadMonthlyTrend} className="gap-2">
+                  <RefreshCw className="w-4 h-4" />
+                  再試行
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>売上推移比較</CardTitle>
+                    <p className="text-sm text-muted-foreground">実績 vs 予算 vs 前年</p>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={monthlyTrendChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
+                        <YAxis
+                          tick={{ fontSize: 11 }}
+                          stroke="currentColor"
+                          opacity={0.5}
+                          tickFormatter={(value) => `¥${(value / 1000000).toFixed(0)}M`}
+                        />
+                        <Tooltip content={<MonthlyTrendTooltip />} />
+                        <Legend wrapperStyle={{ fontSize: "12px" }} />
+                        <Line
+                          type="monotone"
+                          dataKey="revenue"
+                          stroke="var(--positive)"
+                          strokeWidth={3}
+                          dot={{ r: 4 }}
+                          name="実績"
+                          connectNulls={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="budget"
+                          stroke="currentColor"
+                          strokeOpacity={0.4}
+                          strokeWidth={2}
+                          strokeDasharray="5 5"
+                          dot={false}
+                          name="予算"
+                          connectNulls={false}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="lastYear"
+                          stroke="var(--chart-2)"
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                          name="前年"
+                          connectNulls={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>ADR推移</CardTitle>
+                    <p className="text-sm text-muted-foreground">平均客室単価の推移</p>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={monthlyTrendChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
+                        <YAxis
+                          tick={{ fontSize: 11 }}
+                          stroke="currentColor"
+                          opacity={0.5}
+                          tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
+                        />
+                        <Tooltip content={<MonthlyTrendTooltip />} />
+                        <Line
+                          type="monotone"
+                          dataKey="adr"
+                          stroke="var(--chart-3)"
+                          strokeWidth={3}
+                          dot={{ r: 4 }}
+                          name="ADR"
+                          connectNulls={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>稼働率推移</CardTitle>
+                    <p className="text-sm text-muted-foreground">客室稼働率の推移</p>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={monthlyTrendChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
+                        <YAxis
+                          tick={{ fontSize: 11 }}
+                          stroke="currentColor"
+                          opacity={0.5}
+                          domain={[0, 100]}
+                          tickFormatter={(value) => `${value}%`}
+                        />
+                        <Tooltip content={<MonthlyTrendTooltip />} />
+                        <Line
+                          type="monotone"
+                          dataKey="occupancy"
+                          stroke="var(--chart-4)"
+                          strokeWidth={3}
+                          dot={{ r: 4 }}
+                          name="稼働率"
+                          connectNulls={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>RevPAR推移</CardTitle>
+                    <p className="text-sm text-muted-foreground">客室あたり収益の推移</p>
+                  </CardHeader>
+                  <CardContent>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={monthlyTrendChartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                        <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
+                        <YAxis
+                          tick={{ fontSize: 11 }}
+                          stroke="currentColor"
+                          opacity={0.5}
+                          tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
+                        />
+                        <Tooltip content={<MonthlyTrendTooltip />} />
+                        <Line
+                          type="monotone"
+                          dataKey="revPar"
+                          stroke="var(--positive)"
+                          strokeWidth={3}
+                          dot={{ r: 4 }}
+                          name="RevPAR"
+                          connectNulls={false}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {monthlyTrendInsights && (
+                <Card className="border-l-4 border-l-primary">
+                  <CardHeader>
+                    <CardTitle className="text-lg">{trendYear}年 実績サマリー</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2" />
+                      <p className="text-sm leading-relaxed">
+                        実績のある月の累計売上は¥{Math.round(monthlyTrendInsights.totalRevenue / 1000000).toLocaleString()}Mで、
+                        {monthlyTrendInsights.achievementRate != null
+                          ? `同期間の予算比 ${monthlyTrendInsights.achievementRate.toFixed(1)}% です。`
+                          : "予算データが未登録のため予算比は算出できません。"}
+                      </p>
+                    </div>
+                    {monthlyTrendInsights.bestAdrMonth && (
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 rounded-full bg-[color:var(--chart-2)] mt-2" />
+                        <p className="text-sm leading-relaxed">
+                          ADRが最も高いのは{monthlyTrendInsights.bestAdrMonth.month}月（¥
+                          {monthlyTrendInsights.bestAdrMonth.adr?.toLocaleString()}）でした。
+                        </p>
+                      </div>
+                    )}
+                    {monthlyTrendInsights.bestOccMonth && (
+                      <div className="flex items-start gap-3">
+                        <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2" />
+                        <p className="text-sm leading-relaxed">
+                          稼働率が最も高いのは{monthlyTrendInsights.bestOccMonth.month}月（
+                          {monthlyTrendInsights.bestOccMonth.occupancy != null
+                            ? `${(monthlyTrendInsights.bestOccMonth.occupancy * 100).toFixed(1)}%`
+                            : "-"}
+                          ）でした。
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          )}
         </TabsContent>
 
         {/* Free Analysis */}

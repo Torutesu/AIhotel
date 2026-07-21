@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "Hotel Revenue Management System - Monorepo",
+  "packageManager": "pnpm@10.12.1",
   "scripts": {
     "dev": "concurrently \"pnpm --filter frontend dev\" \"pnpm --filter backend dev\"",
     "dev:frontend": "pnpm --filter frontend dev",
@@ -12,6 +13,7 @@
     "build:backend": "pnpm --filter backend build",
     "lint": "pnpm --filter './*' lint",
     "type-check": "pnpm --filter './*' type-check",
+    "test": "pnpm --filter backend test",
     "clean": "pnpm --filter './*' clean && rm -rf node_modules"
   },
   "devDependencies": {

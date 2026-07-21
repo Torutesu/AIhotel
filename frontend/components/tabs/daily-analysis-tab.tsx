@@ -1,24 +1,45 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect, useCallback, Fragment } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { CalendarIcon, TrendingUp, TrendingDown, BarChart3, Settings } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar as DatePicker } from "@/components/ui/calendar"
+import { Skeleton } from "@/components/ui/skeleton"
+import { CalendarIcon, TrendingUp, TrendingDown, BarChart3, Settings, RefreshCw, AlertCircle } from "lucide-react"
 import { SegmentCrossAnalysisSettings } from "@/components/segment-cross-analysis-settings"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar, Area, AreaChart, Cell } from "recharts"
 import { AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { format } from "date-fns"
+import { ja } from "date-fns/locale/ja"
+
+import { useAuth } from "@/components/auth-provider"
+import { api, ApiClientError, type BookingCurve, type CompetitorPrices } from "@/lib/api"
+
+function yen(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "-"
+  return `¥${Math.round(value).toLocaleString()}`
+}
+
+function occLabel(occ: number): string {
+  return occ >= 4 ? "4名以上" : `${occ}名`
+}
+
+function avgOf(rows: Array<Record<string, any>>, key: string): number | null {
+  const vals = rows.map((r) => r[key]).filter((v): v is number => v != null)
+  if (vals.length === 0) return null
+  return vals.reduce((a, b) => a + b, 0) / vals.length
+}
 
 export function DailyAnalysisTab() {
+  const { hotelId } = useAuth()
   const [targetMonth, setTargetMonth] = useState("2025-04")
   const [viewMode, setViewMode] = useState<"table" | "segment-settings">("table")
-  const [selectedDateForCurve, setSelectedDateForCurve] = useState<string | null>(null)
-  const [selectedOccupancies, setSelectedOccupancies] = useState<number[]>([1])
-  const [selectedCompetitors, setSelectedCompetitors] = useState<string[]>(["Aホテル"])
 
   // 現在の日付を取得（過去/未来判定用）
   const today = new Date()
@@ -33,36 +54,55 @@ export function DailyAnalysisTab() {
     return rowDateOnly < todayDateOnly
   }
 
-  // ブッキングカーブデータ生成（月単位）
+  // ---- ブッキングカーブ（実データ: api.bookingCurve） ----
+  const [selectedStayDate, setSelectedStayDate] = useState<Date | undefined>(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 7)
+    return d
+  })
+  const [bookingCurve, setBookingCurve] = useState<BookingCurve | null>(null)
+  const [bookingCurveLoading, setBookingCurveLoading] = useState(false)
+  const [bookingCurveError, setBookingCurveError] = useState<string | null>(null)
+
+  const loadBookingCurve = useCallback(async () => {
+    if (!hotelId || !selectedStayDate) return
+    setBookingCurveLoading(true)
+    setBookingCurveError(null)
+    try {
+      const dateStr = format(selectedStayDate, "yyyy-MM-dd")
+      const result = await api.bookingCurve(hotelId, dateStr)
+      setBookingCurve(result)
+    } catch (err) {
+      setBookingCurveError(err instanceof ApiClientError ? err.message : "ブッキングカーブの取得に失敗しました")
+    } finally {
+      setBookingCurveLoading(false)
+    }
+  }, [hotelId, selectedStayDate])
+
+  useEffect(() => {
+    loadBookingCurve()
+  }, [loadBookingCurve])
+
+  // X軸: daysBefore を右肩上がり（宿泊日に近づくほど右）に表示するため降順のまま reversed 指定
   const bookingCurveData = useMemo(() => {
-    if (!selectedDateForCurve) return []
-
-    // 選択された日付に対するブッキングカーブデータ
-    // 宿泊日の何ヶ月前に予約が入ったかを示す（月単位表示）
-    // X軸が右肩上がりになるように、過去から現在へ並べる
-    const monthlyData = [
-      { monthsBefore: 6, label: "6ヶ月前", bookings: 500, cumulative: 2000 },
-      { monthsBefore: 5, label: "5ヶ月前", bookings: 800, cumulative: 4000 },
-      { monthsBefore: 4, label: "4ヶ月前", bookings: 1200, cumulative: 7000 },
-      { monthsBefore: 3, label: "3ヶ月前", bookings: 2000, cumulative: 12000 },
-      { monthsBefore: 2, label: "2ヶ月前", bookings: 3500, cumulative: 20000 },
-      { monthsBefore: 1, label: "1ヶ月前", bookings: 5000, cumulative: 28000 },
-      { monthsBefore: 0, label: "当月", bookings: 2000, cumulative: 30000 },
-    ]
-
-    return monthlyData.map((item) => ({
-      monthsBefore: item.monthsBefore,
-      label: item.label,
-      bookings: item.bookings,
-      cumulative: item.cumulative,
+    if (!bookingCurve) return []
+    const sorted = [...bookingCurve.points].sort((a, b) => b.daysBefore - a.daysBefore)
+    return sorted.map((p, idx) => ({
+      daysBefore: p.daysBefore,
+      roomsBooked: p.roomsBooked,
+      occupancy: Math.round(p.occupancy * 1000) / 10,
+      incremental: idx > 0 ? p.roomsBooked - sorted[idx - 1].roomsBooked : p.roomsBooked,
     }))
-  }, [selectedDateForCurve])
+  }, [bookingCurve])
+
+  const maxDaysBefore = bookingCurveData.length > 0 ? bookingCurveData[0].daysBefore : 90
 
   const BookingCurveTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
+      const data = payload[0].payload
       return (
         <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">{payload[0].payload.label}</p>
+          <p className="text-sm font-medium mb-2">宿泊 {data.daysBefore}日前</p>
           <div className="space-y-1">
             {payload.map((entry: any, index: number) => (
               <p key={index} className="text-xs flex items-center gap-2">
@@ -79,64 +119,77 @@ export function DailyAnalysisTab() {
     return null
   }
 
-  // 競合比較データ生成（複数の人数とホテルに対応）
+  // ---- 競合価格比較（実データ: api.competitorPrices） ----
+  const [startDate, setStartDate] = useState(() => format(new Date(), "yyyy-MM-dd"))
+  const [endDate, setEndDate] = useState(() => {
+    const d = new Date()
+    d.setDate(d.getDate() + 13)
+    return format(d, "yyyy-MM-dd")
+  })
+  const [selectedOccupancies, setSelectedOccupancies] = useState<number[]>([1])
+  const [selectedCompetitorIds, setSelectedCompetitorIds] = useState<string[]>([])
+  const [competitorData, setCompetitorData] = useState<CompetitorPrices | null>(null)
+  const [competitorLoading, setCompetitorLoading] = useState(false)
+  const [competitorError, setCompetitorError] = useState<string | null>(null)
+
+  const loadCompetitorPrices = useCallback(async () => {
+    if (!hotelId) return
+    setCompetitorLoading(true)
+    setCompetitorError(null)
+    try {
+      const result = await api.competitorPrices(hotelId, startDate, endDate)
+      setCompetitorData(result)
+      setSelectedCompetitorIds((prev) => {
+        if (prev.length > 0) return prev.filter((id) => result.competitors.some((c) => c.id === id))
+        return result.competitors.slice(0, 3).map((c) => c.id)
+      })
+    } catch (err) {
+      setCompetitorError(err instanceof ApiClientError ? err.message : "競合価格の取得に失敗しました")
+    } finally {
+      setCompetitorLoading(false)
+    }
+  }, [hotelId, startDate, endDate])
+
+  useEffect(() => {
+    loadCompetitorPrices()
+  }, [loadCompetitorPrices])
+
+  const selectedCompetitors = useMemo(
+    () => (competitorData?.competitors ?? []).filter((c) => selectedCompetitorIds.includes(c.id)),
+    [competitorData, selectedCompetitorIds]
+  )
+
+  const priceKeyFor = (occ: number): "price1P" | "price2P" | "price3P" =>
+    occ === 1 ? "price1P" : occ === 2 ? "price2P" : "price3P"
+
+  // 各日付に対して、当ホテル価格・選択された競合の人数別価格をまとめたグラフ用データ
   const competitorComparisonData = useMemo(() => {
-    const dailyData = [
-      { date: "4/1", day: "火", ourPrice: 17200, competitorPrice: 16800 },
-      { date: "4/2", day: "水", ourPrice: 16800, competitorPrice: 16500 },
-      { date: "4/3", day: "木", ourPrice: 17500, competitorPrice: 17000 },
-      { date: "4/4", day: "金", ourPrice: 21500, competitorPrice: 21000 },
-      { date: "4/5", day: "土", ourPrice: 26500, competitorPrice: 25800 },
-      { date: "4/6", day: "日", ourPrice: 23800, competitorPrice: 23200 },
-      { date: "4/7", day: "月", ourPrice: 16200, competitorPrice: 15800 },
-      { date: "4/8", day: "火", ourPrice: 16500, competitorPrice: 16200 },
-      { date: "4/9", day: "水", ourPrice: 16000, competitorPrice: 15700 },
-      { date: "4/10", day: "木", ourPrice: 17000, competitorPrice: 16800 },
-      { date: "4/11", day: "金", ourPrice: 20500, competitorPrice: 20000 },
-      { date: "4/12", day: "土", ourPrice: 25000, competitorPrice: 24500 },
-      { date: "4/13", day: "日", ourPrice: 22500, competitorPrice: 22000 },
-      { date: "4/14", day: "月", ourPrice: 14800, competitorPrice: 14500 },
-    ]
+    if (!competitorData) return []
+    const ownByDate = new Map(competitorData.ownPrices.map((p) => [p.date, p]))
+    const compByDate = selectedCompetitors.map((c) => ({
+      id: c.id,
+      name: c.name,
+      byDate: new Map(c.prices.map((p) => [p.date, p])),
+    }))
 
-    const getPrice = (base: number, occ: number) => {
-      if (occ === 1) return base;
-      if (occ === 2) return Math.round(base * 1.8 / 100) * 100; // 2 people ~1.8x
-      if (occ === 3) return Math.round(base * 2.4 / 100) * 100; // 3 people ~2.4x
-      // 4名以上は3.0xで統一
-      if (occ >= 4) return Math.round(base * 3.0 / 100) * 100; // 4名以上 ~3.0x
-      return base;
-    };
-
-    // 各日付に対して、選択された人数とホテルの組み合わせでデータを生成
-    return dailyData.map((item) => {
-      const hotelA_base = Math.round(item.competitorPrice * 1.02 / 100) * 100;
-      const hotelB_base = Math.round(item.competitorPrice * 0.95 / 100) * 100;
-      const hotelC_base = Math.round(item.competitorPrice * 0.98 / 100) * 100;
-
+    const dates = competitorData.ownPrices.map((p) => p.date)
+    return dates.map((date) => {
+      const d = new Date(date)
+      const own = ownByDate.get(date)
       const result: any = {
-        date: item.date,
-        day: item.day,
-      };
-
-      // 選択された各人数に対して当ホテルの価格を追加
-      selectedOccupancies.forEach(occ => {
-        result[`ourPrice_${occ}名`] = getPrice(item.ourPrice, occ);
-      });
-
-      // 選択された各競合ホテルと人数の組み合わせで価格を追加
-      selectedCompetitors.forEach(competitor => {
-        const basePrice = competitor === "Aホテル" ? hotelA_base :
-          competitor === "Bホテル" ? hotelB_base : hotelC_base;
-        
-        selectedOccupancies.forEach(occ => {
-          const key = `${competitor}_${occ}名`;
-          result[key] = getPrice(basePrice, occ);
-        });
-      });
-
-      return result;
+        date: `${d.getMonth() + 1}/${d.getDate()}`,
+        day: ["日", "月", "火", "水", "木", "金", "土"][d.getDay()],
+        ourPrice: own?.price ?? null,
+      }
+      for (const comp of compByDate) {
+        const priceRow = comp.byDate.get(date)
+        for (const occ of selectedOccupancies) {
+          result[`${comp.id}_${occ}名`] = priceRow ? priceRow[priceKeyFor(occ)] : null
+        }
+      }
+      return result
     })
-  }, [targetMonth, selectedOccupancies, selectedCompetitors])
+  }, [competitorData, selectedCompetitors, selectedOccupancies])
 
   const CompetitorTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
@@ -149,7 +202,7 @@ export function DailyAnalysisTab() {
               <p key={index} className="text-xs flex items-center gap-2">
                 <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
                 <span>
-                  {entry.name}: ¥{entry.value.toLocaleString()}
+                  {entry.name}: {entry.value != null ? `¥${Math.round(entry.value).toLocaleString()}` : "-"}
                 </span>
               </p>
             ))}
@@ -528,13 +581,19 @@ export function DailyAnalysisTab() {
                   },
                 ].map((row) => {
                   const isPast = isPastDate(row.date, targetMonth)
+                  const isSelectedForCurve =
+                    !!selectedStayDate && format(selectedStayDate, "M/d") === row.date
                   return (
                     <tr
                       key={row.date}
                       className={`border-b hover:bg-muted/50 cursor-pointer ${isPast ? "opacity-60" : ""}`}
-                      onClick={() => setSelectedDateForCurve(`${targetMonth.split("-")[0]}年${targetMonth.split("-")[1]}月${row.date}`)}
+                      onClick={() => {
+                        const [monthNum, dayNum] = row.date.split("/").map(Number)
+                        const [yearNum] = targetMonth.split("-").map(Number)
+                        setSelectedStayDate(new Date(yearNum, monthNum - 1, dayNum))
+                      }}
                     >
-                      <td className={`py-2 px-2 font-medium ${selectedDateForCurve?.includes(row.date) ? "bg-blue-100 dark:bg-blue-900" : ""}`}>{row.date}</td>
+                      <td className={`py-2 px-2 font-medium ${isSelectedForCurve ? "bg-blue-100 dark:bg-blue-900" : ""}`}>{row.date}</td>
                       <td className="py-2 px-2">
                         <Badge variant={row.day === "土" || row.day === "日" ? "default" : "outline"} className="text-xs">{row.day}</Badge>
                       </td>
@@ -624,39 +683,64 @@ export function DailyAnalysisTab() {
       {/* Booking Curve Graph */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">ブッキングカーブグラフ（月単位）</CardTitle>
-          <p className="text-xs text-muted-foreground mt-1">
-            {selectedDateForCurve ? `${selectedDateForCurve}の予約状況` : "日付を選択してブッキングカーブを表示"}
-          </p>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle className="text-base">ブッキングカーブグラフ</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {selectedStayDate ? `宿泊日 ${format(selectedStayDate, "yyyy年M月d日", { locale: ja })} の予約積み上げ状況` : "宿泊日を選択してください"}
+              </p>
+            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 text-xs gap-2">
+                  <CalendarIcon className="w-3.5 h-3.5" />
+                  {selectedStayDate ? format(selectedStayDate, "yyyy/MM/dd") : "宿泊日を選択"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <DatePicker mode="single" selected={selectedStayDate} onSelect={setSelectedStayDate} initialFocus />
+              </PopoverContent>
+            </Popover>
+          </div>
         </CardHeader>
         <CardContent className="pt-0">
-          {selectedDateForCurve && bookingCurveData.length > 0 ? (
+          {bookingCurveLoading ? (
+            <Skeleton className="h-[300px] w-full" />
+          ) : bookingCurveError ? (
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{bookingCurveError}</p>
+              <Button variant="outline" size="sm" onClick={loadBookingCurve} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : bookingCurveData.length > 0 ? (
             <div className="space-y-4">
               <ResponsiveContainer width="100%" height={300}>
                 <LineChart data={bookingCurveData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
                   <XAxis
-                    dataKey="monthsBefore"
+                    dataKey="daysBefore"
                     tick={{ fontSize: 11 }}
                     stroke="currentColor"
                     opacity={0.5}
                     reversed={true}
                     type="number"
-                    domain={[0, 6]}
-                    label={{ value: '宿泊日からの月数', position: 'insideBottom', offset: -5, style: { textAnchor: 'middle', fontSize: 12 } }}
+                    domain={[0, maxDaysBefore]}
+                    label={{ value: '宿泊日までの残日数', position: 'insideBottom', offset: -5, style: { textAnchor: 'middle', fontSize: 12 } }}
                   />
                   <YAxis
                     tick={{ fontSize: 11 }}
                     stroke="currentColor"
                     opacity={0.5}
-                    domain={[0, 32000]}
                     label={{ value: '予約室数', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fontSize: 12 } }}
                   />
                   <Tooltip content={<BookingCurveTooltip />} />
                   <Legend wrapperStyle={{ fontSize: "12px" }} />
                   <Line
                     type="monotone"
-                    dataKey="cumulative"
+                    dataKey="roomsBooked"
                     stroke="#2563eb"
                     strokeWidth={3}
                     dot={{ r: 4 }}
@@ -664,18 +748,18 @@ export function DailyAnalysisTab() {
                   />
                   <Line
                     type="monotone"
-                    dataKey="bookings"
+                    dataKey="incremental"
                     stroke="#ef4444"
                     strokeWidth={2}
                     dot={{ r: 3 }}
-                    name="当月予約室数"
+                    name="区間予約室数"
                   />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           ) : (
             <div className="text-center py-8 text-sm text-muted-foreground">
-              上のテーブルから日付をクリックしてブッキングカーブを表示してください
+              選択した宿泊日のブッキングカーブデータがありません
             </div>
           )}
         </CardContent>
@@ -730,13 +814,33 @@ export function DailyAnalysisTab() {
       {/* Competitor Comparison Section */}
       <Card className="border-l-4 border-l-orange-500">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="text-base flex items-center gap-2">
               <BarChart3 className="w-4 h-4" />
               競合ホテルとの価格比較分析
             </CardTitle>
             <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="competitor-start-date" className="text-xs whitespace-nowrap">期間</Label>
+                <input
+                  id="competitor-start-date"
+                  type="date"
+                  value={startDate}
+                  max={endDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                />
+                <span className="text-xs text-muted-foreground">〜</span>
+                <input
+                  id="competitor-end-date"
+                  type="date"
+                  value={endDate}
+                  min={startDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                />
+              </div>
+              <div className="flex items-center gap-2">
                 <Label className="text-xs whitespace-nowrap">利用人数:</Label>
                 <div className="flex items-center gap-3 flex-wrap">
                   {[1, 2, 3].map((occ) => (
@@ -748,7 +852,7 @@ export function DailyAnalysisTab() {
                           if (checked) {
                             setSelectedOccupancies([...selectedOccupancies, occ].sort())
                           } else {
-                            const newOccupancies = selectedOccupancies.filter(o => o !== occ)
+                            const newOccupancies = selectedOccupancies.filter((o) => o !== occ)
                             // 少なくとも1つは選択されている必要がある
                             if (newOccupancies.length > 0) {
                               setSelectedOccupancies(newOccupancies)
@@ -764,7 +868,7 @@ export function DailyAnalysisTab() {
                   <div className="flex items-center gap-1.5">
                     <Checkbox
                       id="occupancy-4plus"
-                      checked={selectedOccupancies.some(o => o >= 4)}
+                      checked={selectedOccupancies.some((o) => o >= 4)}
                       onCheckedChange={(checked) => {
                         if (checked) {
                           // 4名以上を選択（4として扱う）
@@ -773,7 +877,7 @@ export function DailyAnalysisTab() {
                           }
                         } else {
                           // 4名以上を削除
-                          setSelectedOccupancies(selectedOccupancies.filter(o => o < 4))
+                          setSelectedOccupancies(selectedOccupancies.filter((o) => o < 4))
                         }
                       }}
                     />
@@ -785,29 +889,32 @@ export function DailyAnalysisTab() {
               </div>
               <div className="flex items-center gap-2">
                 <Label className="text-xs whitespace-nowrap">比較ホテル:</Label>
-                <div className="flex items-center gap-3">
-                  {["Aホテル", "Bホテル", "Cホテル"].map((hotel) => (
-                    <div key={hotel} className="flex items-center gap-1.5">
+                <div className="flex items-center gap-3 flex-wrap">
+                  {(competitorData?.competitors ?? []).map((c) => (
+                    <div key={c.id} className="flex items-center gap-1.5">
                       <Checkbox
-                        id={`competitor-${hotel}`}
-                        checked={selectedCompetitors.includes(hotel)}
+                        id={`competitor-${c.id}`}
+                        checked={selectedCompetitorIds.includes(c.id)}
                         onCheckedChange={(checked) => {
                           if (checked) {
-                            setSelectedCompetitors([...selectedCompetitors, hotel])
+                            setSelectedCompetitorIds([...selectedCompetitorIds, c.id])
                           } else {
-                            const newCompetitors = selectedCompetitors.filter(h => h !== hotel)
+                            const newIds = selectedCompetitorIds.filter((id) => id !== c.id)
                             // 少なくとも1つは選択されている必要がある
-                            if (newCompetitors.length > 0) {
-                              setSelectedCompetitors(newCompetitors)
+                            if (newIds.length > 0) {
+                              setSelectedCompetitorIds(newIds)
                             }
                           }
                         }}
                       />
-                      <Label htmlFor={`competitor-${hotel}`} className="text-xs cursor-pointer">
-                        {hotel}
+                      <Label htmlFor={`competitor-${c.id}`} className="text-xs cursor-pointer">
+                        {c.name}
                       </Label>
                     </div>
                   ))}
+                  {competitorData && competitorData.competitors.length === 0 && (
+                    <span className="text-xs text-muted-foreground">登録された競合ホテルがありません</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -820,255 +927,283 @@ export function DailyAnalysisTab() {
             <AlertTitle className="text-sm font-semibold text-amber-900 dark:text-amber-100">データ取り扱いに関する注意事項</AlertTitle>
             <AlertDescription className="text-xs text-amber-800 dark:text-amber-200 mt-1 space-y-1">
               <p>• 競合データは参考値であり、実際の価格設定には複数の要因（立地、設備、サービス品質等）を総合的に考慮してください。</p>
-              <p>• データソース: OTA公開価格の平均値（サンプル数: 5-8ホテル）</p>
+              <p>• 表示期間: {startDate} 〜 {endDate}</p>
               <p>• データ取得日時: {new Date().toLocaleString("ja-JP")}</p>
-              <p>• 誤った情報による混乱を避けるため、運用面で慎重な対応をお願いします。</p>
             </AlertDescription>
           </Alert>
 
-          {/* サマリーカード - ホテルごとに行を分けて表示 */}
-          <div className="space-y-3">
-            {selectedCompetitors.map(competitor => (
-              <div key={competitor} className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <h4 className="text-sm font-semibold">{competitor}</h4>
-                  <div className="flex-1 border-t border-border"></div>
-                </div>
-                <div className="flex gap-3 flex-wrap">
-                  {selectedOccupancies.map(occ => {
-                    const ourAvg = competitorComparisonData.reduce((sum, d) => sum + (d[`ourPrice_${occ}名`] || 0), 0) / competitorComparisonData.length;
-                    const compAvg = competitorComparisonData.reduce((sum, d) => sum + (d[`${competitor}_${occ}名`] || 0), 0) / competitorComparisonData.length;
-                    const diff = ourAvg - compAvg;
-                    const diffPercent = (diff / compAvg) * 100;
-                    
-                    return (
-                      <Card key={`${competitor}-${occ}`} className="min-w-[200px] flex-1 max-w-[250px]">
-                        <CardContent className="py-2.5 px-3">
-                          <p className="text-xs text-muted-foreground mb-1">{occ >= 4 ? "4名以上" : `${occ}名`}</p>
-                          <div className="text-lg font-semibold mb-0.5">
-                            ¥{Math.round(ourAvg).toLocaleString()} / ¥{Math.round(compAvg).toLocaleString()}
-                          </div>
-                          <div className={`text-sm font-medium ${diff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}`}>
-                            {diff >= 0 ? "+" : ""}¥{Math.abs(Math.round(diff)).toLocaleString()} ({diff >= 0 ? "+" : ""}{diffPercent.toFixed(1)}%)
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-1">当ホテル / {competitor}</p>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
+          {competitorLoading ? (
+            <Skeleton className="h-64 w-full" />
+          ) : competitorError ? (
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{competitorError}</p>
+              <Button variant="outline" size="sm" onClick={loadCompetitorPrices} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : selectedCompetitors.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-8 text-center">比較する競合ホテルを選択してください。</p>
+          ) : (
+            <>
+              {/* サマリーカード - ホテルごとに行を分けて表示 */}
+              <div className="space-y-3">
+                {selectedCompetitors.map((comp) => (
+                  <div key={comp.id} className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold">{comp.name}</h4>
+                      <div className="flex-1 border-t border-border"></div>
+                    </div>
+                    <div className="flex gap-3 flex-wrap">
+                      {selectedOccupancies.map((occ) => {
+                        const ourAvg = avgOf(competitorComparisonData, "ourPrice")
+                        const compAvg = avgOf(competitorComparisonData, `${comp.id}_${occ}名`)
+                        const diff = ourAvg != null && compAvg != null ? ourAvg - compAvg : null
+                        const diffPercent = diff != null && compAvg ? (diff / compAvg) * 100 : null
+
+                        return (
+                          <Card key={`${comp.id}-${occ}`} className="min-w-[200px] flex-1 max-w-[250px]">
+                            <CardContent className="py-2.5 px-3">
+                              <p className="text-xs text-muted-foreground mb-1">{occLabel(occ)}</p>
+                              <div className="text-lg font-semibold mb-0.5">
+                                {yen(ourAvg)} / {yen(compAvg)}
+                              </div>
+                              {diff != null && diffPercent != null ? (
+                                <div
+                                  className={`text-sm font-medium ${diff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}`}
+                                >
+                                  {diff >= 0 ? "+" : ""}
+                                  {yen(Math.abs(diff))} ({diff >= 0 ? "+" : ""}
+                                  {diffPercent.toFixed(1)}%)
+                                </div>
+                              ) : (
+                                <div className="text-sm text-muted-foreground">-</div>
+                              )}
+                              <p className="text-xs text-muted-foreground mt-1">当ホテル / {comp.name}</p>
+                            </CardContent>
+                          </Card>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
 
-          {/* 日別価格推移グラフ - 複数の人数とホテルに対応 */}
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">日別価格推移比較</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={competitorComparisonData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <defs>
-                    {selectedOccupancies.map((occ, idx) => (
-                      <linearGradient key={`our-${occ}`} id={`colorOurPrice_${occ}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={idx === 0 ? "#2563eb" : idx === 1 ? "#10b981" : "#8b5cf6"} stopOpacity={0.3} />
-                        <stop offset="95%" stopColor={idx === 0 ? "#2563eb" : idx === 1 ? "#10b981" : "#8b5cf6"} stopOpacity={0} />
-                    </linearGradient>
-                    ))}
-                    {selectedCompetitors.flatMap((comp, compIdx) =>
-                      selectedOccupancies.map((occ, occIdx) => (
-                        <linearGradient key={`comp-${comp}-${occ}`} id={`colorCompetitorPrice_${comp}_${occ}`} x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={compIdx === 0 ? "#ef4444" : compIdx === 1 ? "#f59e0b" : "#ec4899"} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={compIdx === 0 ? "#ef4444" : compIdx === 1 ? "#f59e0b" : "#ec4899"} stopOpacity={0} />
-                    </linearGradient>
-                      ))
-                    )}
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 10 }}
-                    stroke="currentColor"
-                    opacity={0.5}
-                    label={{ value: '日付', position: 'insideBottom', offset: -5, style: { textAnchor: 'middle', fontSize: 11 } }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    stroke="currentColor"
-                    opacity={0.5}
-                    tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
-                    label={{ value: '価格', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fontSize: 11 } }}
-                  />
-                  <Tooltip content={<CompetitorTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: "11px" }} />
-                  {selectedOccupancies.map((occ, idx) => (
-                  <Area
-                      key={`our-${occ}`}
-                    type="monotone"
-                      dataKey={`ourPrice_${occ}名`}
-                      stroke={idx === 0 ? "#2563eb" : idx === 1 ? "#10b981" : "#8b5cf6"}
-                    strokeWidth={2}
-                    fillOpacity={1}
-                      fill={`url(#colorOurPrice_${occ})`}
-                      name={`当ホテル (${occ >= 4 ? "4名以上" : `${occ}名`})`}
-                  />
-                  ))}
-                  {selectedCompetitors.flatMap((comp, compIdx) =>
-                    selectedOccupancies.map((occ, occIdx) => (
-                  <Area
-                        key={`comp-${comp}-${occ}`}
-                    type="monotone"
-                        dataKey={`${comp}_${occ}名`}
-                        stroke={compIdx === 0 ? "#ef4444" : compIdx === 1 ? "#f59e0b" : "#ec4899"}
-                    strokeWidth={2}
-                    fillOpacity={1}
-                        fill={`url(#colorCompetitorPrice_${comp}_${occ})`}
-                        name={`${comp} (${occ >= 4 ? "4名以上" : `${occ}名`})`}
-                        strokeDasharray={occIdx > 0 ? "5 5" : undefined}
-                  />
-                    ))
-                  )}
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* 価格差の可視化 - 複数の組み合わせに対応 */}
-          {selectedOccupancies.flatMap(occ =>
-            selectedCompetitors.map(competitor => {
-              const priceDiffData = competitorComparisonData.map(d => ({
-                ...d,
-                priceDifference: (d[`ourPrice_${occ}名`] || 0) - (d[`${competitor}_${occ}名`] || 0)
-              }));
-              
-              return (
-                <Card key={`diff-${competitor}-${occ}`}>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">価格差の可視化</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-1">当ホテルと{competitor}の価格差 ({occ >= 4 ? "4名以上" : `${occ}名`})</p>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <ResponsiveContainer width="100%" height={250}>
-                      <BarChart data={priceDiffData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 10 }}
-                    stroke="currentColor"
-                    opacity={0.5}
-                    angle={-45}
-                    textAnchor="end"
-                    height={60}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    stroke="currentColor"
-                    opacity={0.5}
-                    tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
-                    label={{ value: '価格差', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fontSize: 11 } }}
-                  />
-                  <Tooltip content={<CompetitorTooltip />} />
-                  <Bar
-                    dataKey="priceDifference"
-                    radius={[4, 4, 0, 0]}
-                    name="価格差"
-                  >
-                          {priceDiffData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.priceDifference >= 0 ? "#2563eb" : "#ef4444"} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-              );
-            })
-          )}
-
-          {/* 曜日別競合価格比較テーブル - 複数の人数とホテルに対応 */}
-          {selectedOccupancies.map(occ => {
-            const weekdayData = [
-                      { day: "月曜日", ourPrice: 15500, competitorPrice: 15200 },
-                      { day: "火曜日", ourPrice: 16900, competitorPrice: 16500 },
-                      { day: "水曜日", ourPrice: 16400, competitorPrice: 16000 },
-                      { day: "木曜日", ourPrice: 17250, competitorPrice: 16800 },
-                      { day: "金曜日", ourPrice: 21000, competitorPrice: 20500 },
-                      { day: "土曜日", ourPrice: 25750, competitorPrice: 25200 },
-                      { day: "日曜日", ourPrice: 23150, competitorPrice: 22800 },
-            ];
-
-                      const getPrice = (base: number, occ: number) => {
-                        if (occ === 1) return base;
-                        if (occ === 2) return Math.round(base * 1.8 / 100) * 100;
-              if (occ === 3) return Math.round(base * 2.4 / 100) * 100;
-              // 4名以上は3.0xで統一
-              if (occ >= 4) return Math.round(base * 3.0 / 100) * 100;
-              return base;
-            };
-
-            const adjustedCompBase = (base: number, competitor: string) => {
-              if (competitor === "Bホテル") return base * 0.95;
-              if (competitor === "Cホテル") return base * 0.98;
-              return base * 1.02;
-            };
-
-            return (
-              <Card key={`table-${occ}`}>
+              {/* 日別価格推移グラフ - 複数の人数とホテルに対応 */}
+              <Card>
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-sm">曜日別競合価格比較 ({occ >= 4 ? "4名以上" : `${occ}名`})</CardTitle>
+                  <CardTitle className="text-sm">日別価格推移比較</CardTitle>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2 px-2 font-medium">曜日</th>
-                          <th className="text-right py-2 px-2 font-medium">当ホテル</th>
-                          {selectedCompetitors.map(competitor => (
-                            <>
-                              <th key={`${competitor}-price`} className="text-right py-2 px-2 font-medium">{competitor}</th>
-                              <th key={`${competitor}-diff`} className="text-right py-2 px-2 font-medium">価格差</th>
-                              <th key={`${competitor}-percent`} className="text-right py-2 px-2 font-medium">差額率</th>
-                            </>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {weekdayData.map((row) => {
-                          const ourPrice = getPrice(row.ourPrice, occ);
-                          
-                      return (
-                        <tr key={row.day} className="border-b hover:bg-muted/50">
-                          <td className="py-2 px-2 font-medium">{row.day}</td>
-                              <td className="text-right py-2 px-2 font-medium">¥{ourPrice.toLocaleString()}</td>
-                              {selectedCompetitors.map(competitor => {
-                                const compPrice = getPrice(adjustedCompBase(row.competitorPrice, competitor), occ);
-                                const diff = ourPrice - compPrice;
-                                const diffPercent = ((diff / compPrice) * 100).toFixed(1);
-                                
-                                return (
-                                  <>
-                                    <td key={`${competitor}-${row.day}-price`} className="text-right py-2 px-2">¥{compPrice.toLocaleString()}</td>
-                                    <td key={`${competitor}-${row.day}-diff`} className={`text-right py-2 px-2 font-medium ${diff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}`}>
-                            {diff >= 0 ? "+" : ""}¥{Math.abs(diff).toLocaleString()}
-                          </td>
-                                    <td key={`${competitor}-${row.day}-percent`} className={`text-right py-2 px-2 ${diff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}`}>
-                            {diff >= 0 ? "+" : ""}{diffPercent}%
-                          </td>
-                                  </>
-                                );
-                              })}
-                        </tr>
-                          );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-            );
-          })}
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={competitorComparisonData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                      <defs>
+                        <linearGradient id="colorOurPrice" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#2563eb" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                        </linearGradient>
+                        {selectedCompetitors.flatMap((comp, compIdx) =>
+                          selectedOccupancies.map((occ) => (
+                            <linearGradient
+                              key={`comp-${comp.id}-${occ}`}
+                              id={`colorCompetitorPrice_${comp.id}_${occ}`}
+                              x1="0"
+                              y1="0"
+                              x2="0"
+                              y2="1"
+                            >
+                              <stop offset="5%" stopColor={compIdx === 0 ? "#ef4444" : compIdx === 1 ? "#f59e0b" : "#ec4899"} stopOpacity={0.3} />
+                              <stop offset="95%" stopColor={compIdx === 0 ? "#ef4444" : compIdx === 1 ? "#f59e0b" : "#ec4899"} stopOpacity={0} />
+                            </linearGradient>
+                          ))
+                        )}
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                      <XAxis
+                        dataKey="date"
+                        tick={{ fontSize: 10 }}
+                        stroke="currentColor"
+                        opacity={0.5}
+                        label={{ value: '日付', position: 'insideBottom', offset: -5, style: { textAnchor: 'middle', fontSize: 11 } }}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 10 }}
+                        stroke="currentColor"
+                        opacity={0.5}
+                        tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
+                        label={{ value: '価格', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fontSize: 11 } }}
+                      />
+                      <Tooltip content={<CompetitorTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: "11px" }} />
+                      <Area
+                        type="monotone"
+                        dataKey="ourPrice"
+                        stroke="#2563eb"
+                        strokeWidth={2}
+                        fillOpacity={1}
+                        fill="url(#colorOurPrice)"
+                        name="当ホテル"
+                        connectNulls
+                      />
+                      {selectedCompetitors.flatMap((comp, compIdx) =>
+                        selectedOccupancies.map((occ, occIdx) => (
+                          <Area
+                            key={`comp-${comp.id}-${occ}`}
+                            type="monotone"
+                            dataKey={`${comp.id}_${occ}名`}
+                            stroke={compIdx === 0 ? "#ef4444" : compIdx === 1 ? "#f59e0b" : "#ec4899"}
+                            strokeWidth={2}
+                            fillOpacity={1}
+                            fill={`url(#colorCompetitorPrice_${comp.id}_${occ})`}
+                            name={`${comp.name} (${occLabel(occ)})`}
+                            strokeDasharray={occIdx > 0 ? "5 5" : undefined}
+                            connectNulls
+                          />
+                        ))
+                      )}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {/* 価格差の可視化 - 複数の組み合わせに対応 */}
+              {selectedOccupancies.flatMap((occ) =>
+                selectedCompetitors.map((comp) => {
+                  const priceDiffData = competitorComparisonData.map((d) => ({
+                    date: d.date,
+                    priceDifference:
+                      d.ourPrice != null && d[`${comp.id}_${occ}名`] != null ? d.ourPrice - d[`${comp.id}_${occ}名`] : null,
+                  }))
+
+                  return (
+                    <Card key={`diff-${comp.id}-${occ}`}>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-sm">価格差の可視化</CardTitle>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          当ホテルと{comp.name}の価格差 ({occLabel(occ)})
+                        </p>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <ResponsiveContainer width="100%" height={250}>
+                          <BarChart data={priceDiffData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                            <XAxis
+                              dataKey="date"
+                              tick={{ fontSize: 10 }}
+                              stroke="currentColor"
+                              opacity={0.5}
+                              angle={-45}
+                              textAnchor="end"
+                              height={60}
+                            />
+                            <YAxis
+                              tick={{ fontSize: 10 }}
+                              stroke="currentColor"
+                              opacity={0.5}
+                              tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
+                              label={{ value: '価格差', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fontSize: 11 } }}
+                            />
+                            <Tooltip content={<CompetitorTooltip />} />
+                            <Bar dataKey="priceDifference" radius={[4, 4, 0, 0]} name="価格差">
+                              {priceDiffData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={(entry.priceDifference ?? 0) >= 0 ? "#2563eb" : "#ef4444"} />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </CardContent>
+                    </Card>
+                  )
+                })
+              )}
+
+              {/* 曜日別競合価格比較テーブル - 選択期間の実データ平均 */}
+              {selectedOccupancies.map((occ) => {
+                const weekdayRows = ["月", "火", "水", "木", "金", "土", "日"].map((dayName) => {
+                  const rows = competitorComparisonData.filter((d) => d.day === dayName)
+                  return {
+                    day: dayName,
+                    ourPrice: avgOf(rows, "ourPrice"),
+                    competitors: selectedCompetitors.map((comp) => ({
+                      id: comp.id,
+                      name: comp.name,
+                      price: avgOf(rows, `${comp.id}_${occ}名`),
+                    })),
+                  }
+                })
+
+                return (
+                  <Card key={`table-${occ}`}>
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm">曜日別競合価格比較 ({occLabel(occ)})</CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        選択期間（{startDate} 〜 {endDate}）内の実績平均
+                      </p>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b">
+                              <th className="text-left py-2 px-2 font-medium">曜日</th>
+                              <th className="text-right py-2 px-2 font-medium">当ホテル</th>
+                              {selectedCompetitors.map((comp) => (
+                                <Fragment key={comp.id}>
+                                  <th className="text-right py-2 px-2 font-medium">{comp.name}</th>
+                                  <th className="text-right py-2 px-2 font-medium">価格差</th>
+                                  <th className="text-right py-2 px-2 font-medium">差額率</th>
+                                </Fragment>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {weekdayRows.map((row) => (
+                              <tr key={row.day} className="border-b hover:bg-muted/50">
+                                <td className="py-2 px-2 font-medium">{row.day}曜日</td>
+                                <td className="text-right py-2 px-2 font-medium">{yen(row.ourPrice)}</td>
+                                {row.competitors.map((comp) => {
+                                  const diff = row.ourPrice != null && comp.price != null ? row.ourPrice - comp.price : null
+                                  const diffPercent = diff != null && comp.price ? (diff / comp.price) * 100 : null
+                                  return (
+                                    <Fragment key={comp.id}>
+                                      <td className="text-right py-2 px-2">{yen(comp.price)}</td>
+                                      <td
+                                        className={`text-right py-2 px-2 font-medium ${
+                                          diff != null && diff >= 0
+                                            ? "text-[color:var(--positive)]"
+                                            : diff != null
+                                              ? "text-[color:var(--negative)]"
+                                              : ""
+                                        }`}
+                                      >
+                                        {diff != null ? `${diff >= 0 ? "+" : ""}${yen(Math.abs(diff))}` : "-"}
+                                      </td>
+                                      <td
+                                        className={`text-right py-2 px-2 ${
+                                          diffPercent != null && diffPercent >= 0
+                                            ? "text-[color:var(--positive)]"
+                                            : diffPercent != null
+                                              ? "text-[color:var(--negative)]"
+                                              : ""
+                                        }`}
+                                      >
+                                        {diffPercent != null ? `${diffPercent >= 0 ? "+" : ""}${diffPercent.toFixed(1)}%` : "-"}
+                                      </td>
+                                    </Fragment>
+                                  )
+                                })}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )
+              })}
+            </>
+          )}
         </CardContent>
       </Card>
 

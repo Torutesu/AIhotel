@@ -3,11 +3,15 @@ import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 
 /**
- * 全ホテル一覧を取得
+ * ホテル一覧を取得。tenantId 指定時はそのテナントのみ（テナント分離）
  */
-export async function getHotelsService(): Promise<Hotel[]> {
+export async function getHotelsService(tenantId?: string | null): Promise<Hotel[]> {
   const hotels = await prisma.hotel.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      // tenantId が null のユーザー（テナント未所属）は空リストになる
+      ...(tenantId !== undefined && { tenantId: tenantId ?? '__none__' }),
+    },
     orderBy: { name: 'asc' },
   })
   return hotels
@@ -32,6 +36,7 @@ export async function getHotelByIdService(id: string): Promise<Hotel> {
  * ホテルを作成
  */
 export async function createHotelService(data: {
+  tenantId: string
   name: string
   address?: string
   phone?: string
