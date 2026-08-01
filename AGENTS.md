@@ -41,7 +41,8 @@ pnpm --filter backend build && pnpm --filter frontend build
 
 **ドメイン確定値**（再議論・変更しない）:
 - バックエンドは Express+TypeScript+Prisma（FastAPIへ移行しない）。クラウド固有SDKを追加しない
-- ロールは ADMIN / MANAGER / OPERATOR の3種
+- 現行実装のロールは ADMIN / MANAGER / OPERATOR の3種。ただし2026-08-01クライアントMTGで新体系（本部管理／管理者・オペレーター＋承認フロー／閲覧のみ＋AIチャット）への再設計が確定（Issue #11・要件定義書§5）。移行完了までは3種を維持し、勝手に第4のロールを追加しない
+- スマホ対応（レスポンシブ）は行わない（2026-08-01 MTG確定）
 - 料金ランクは最大40段階、需要レベルはA〜E、週末=金・土（`Hotel.weekendDays` を参照しハードコードしない）
 - 価格戦略の重み（稼働率/ADR/競合）は合計100%必須
 
