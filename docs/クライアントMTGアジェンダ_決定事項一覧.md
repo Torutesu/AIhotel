@@ -8,6 +8,26 @@
 
 ---
 
+## 📌 2026-08-01 MTG結果サマリー
+
+2026-08-01 のMTGで以下が決定・具体化した。詳細は `docs/議事録_2026-08-01_クライアントMTG.md`、後続タスクはGitHub Issueで管理する。
+
+| 章 | 結果 | 対応Issue |
+|----|------|-----------|
+| 1. PMS/サイトコントローラー連携 | ✅ 候補確定（NEHOPS / TAP / OPERA / アルメックス、TLリンカーン / 手間いらず / ねっぱん）。Windows端末経由でデータ吸い上げの方針 | [#6](https://github.com/Torutesu/AIhotel/issues/6) |
+| 2. 競合価格・OTA | ✅ 対象確定（楽天 / じゃらん / 一休 / 各ホテル公式HP、海外: Booking.com / Agoda / Expedia / Trip.com） | [#9](https://github.com/Torutesu/AIhotel/issues/9) |
+| 3. 団体客・テーブル条件 | 🔶 方向性確定（FITのみ集計オプション、団体種別×キャンセル率、種別識別が必要） | [#10](https://github.com/Torutesu/AIhotel/issues/10) |
+| 4. AI機能 | ⏳ 持ち越し（閲覧ロール向けAIチャットの新要望あり） | [#11](https://github.com/Torutesu/AIhotel/issues/11) |
+| 5. インフラ・セキュリティ | 🔶 一部確定（認証＋IP制限。クラウド選定は持ち越し） | [#12](https://github.com/Torutesu/AIhotel/issues/12) |
+| 6. 運用・アカウント | 🔶 新体系の要望（本部管理 / 管理者・オペレーター＋承認フロー / 閲覧のみ）※ロール3種の確定値変更を伴う | [#11](https://github.com/Torutesu/AIhotel/issues/11), [#13](https://github.com/Torutesu/AIhotel/issues/13) |
+| 7. 事業・契約 | 🔶 一部確定（代理店=かんざしクラウド・初期費用の5%。プラン別初期費用は叩き台作成へ） | [#15](https://github.com/Torutesu/AIhotel/issues/15), [#3](https://github.com/Torutesu/AIhotel/issues/3) |
+| 8. 受け入れ確認 | 🔶 モックアップ更新の要件確定（団体管理・ログイン・期間限定デモ。**スマホ対応なし**） | [#8](https://github.com/Torutesu/AIhotel/issues/8) |
+| 9. スケジュール | ✅ v1: 2026-10-01（理想）/ フルローンチ: 12月。定例は隔週・平日 | [#16](https://github.com/Torutesu/AIhotel/issues/16) |
+
+以下は当日のアジェンダ原本（記録として保持）。
+
+---
+
 ## 0. オープニング（5分）
 
 - 現在の実装ステータス共有: Phase 1〜3 完了（ダッシュボード・ダイナミックプライシング・日別/各種分析、API 28本、マルチテナント認証基盤）
