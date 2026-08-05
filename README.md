@@ -674,6 +674,7 @@ pnpm build
 | [要件定義書.md](./要件定義書.md) | 機能要件・非機能要件・未確定事項・課題トレーサビリティ |
 | [docs/クライアントMTGアジェンダ_決定事項一覧.md](./docs/クライアントMTGアジェンダ_決定事項一覧.md) | クライアントMTGで確定させる決定事項の一覧＋2026-08-01 MTG結果サマリー |
 | [docs/議事録_2026-08-01_クライアントMTG.md](./docs/議事録_2026-08-01_クライアントMTG.md) | 2026-08-01 クライアントMTG議事録（決定事項・TODO・対応Issueへのリンク） |
+| [docs/requirements/](./docs/requirements/README.md) | 詳細設計ドキュメント群（アルゴリズム・データ取得・画面設計等）。**必ずREADMEの読み替え表から読むこと** |
 | [SETUP.md](./SETUP.md) | セットアップガイド |
 | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | トラブルシューティングガイド |
 | [VERCEL_SETUP.md](./VERCEL_SETUP.md) | Vercel デプロイ設定ガイド |
