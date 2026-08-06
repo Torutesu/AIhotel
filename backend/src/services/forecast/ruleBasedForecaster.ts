@@ -1,12 +1,27 @@
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
 import type { DailyForecast, DemandForecaster, ForecastDemandLevel, ForecastInput } from './types.js'
+import {
+  OCCUPANCY_ONLY_WEIGHTS,
+  blendRanksByStrategy,
+  computeAdrRank,
+  computeCompetitorRank,
+  type AdrRecord,
+  type CompetitorPriceRecord,
+  type RankPrice,
+  type StrategyWeights,
+} from './strategyWeighting.js'
 
 // ルールベース需要予測（F-DP-05 の前段。将来 ML モデルに差し替え予定）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
 // 関数として分離し、forecast() はそれらを組み合わせて DB アクセスを行う。
-
-export const MODEL_VERSION = 'rule-based-v1'
+//
+// v2 での変更（F-DP-02 の接続）:
+// 推奨ランクを予測稼働率のみから決めるのをやめ、PricingStrategyConfig の重み
+// （稼働率 / ADR / 競合）で3観点を加重平均するようにした。需要レベル（A〜E）は
+// 「需要の大きさ」を表す指標であり価格戦略とは独立させるため、従来どおり予測
+// 稼働率のみから判定する。
+export const MODEL_VERSION = 'rule-based-v2'
 const DEFAULT_MAX_RANK = 40 // F-SET-02: 料金ランクは最大40段階（PriceRank未設定時のフォールバック）
 const MOVING_AVERAGE_WINDOW_DAYS = 28
 const YEAR_OVER_YEAR_TOLERANCE_DAYS = 3
@@ -203,14 +218,13 @@ export const ruleBasedForecaster: DemandForecaster = {
     // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得
     const historyWindowStart = addUtcDays(startDate, -400)
 
-    const [dailyData, events, priceRanks] = await Promise.all([
+    const [dailyData, events, priceRanks, strategyConfig, competitorPrices] = await Promise.all([
       prisma.dailyData.findMany({
         where: {
           hotelId,
           date: { gte: historyWindowStart, lt: startDate },
-          occupancy: { not: null },
         },
-        select: { date: true, occupancy: true },
+        select: { date: true, occupancy: true, adr: true },
         orderBy: { date: 'asc' },
       }),
       prisma.event.findMany({
@@ -221,23 +235,60 @@ export const ruleBasedForecaster: DemandForecaster = {
         where: { hotelId, isActive: true },
         orderBy: { rank: 'asc' },
       }),
+      prisma.pricingStrategyConfig.findUnique({ where: { hotelId } }),
+      // 対象期間の競合価格（競合は必ず自ホテル配下のみを対象とし、テナントを跨がない）
+      prisma.competitorPriceData.findMany({
+        where: {
+          competitor: { hotelId, isActive: true },
+          date: { gte: startDate, lte: endDate },
+        },
+        select: { date: true, price1P: true },
+      }),
     ])
 
     const history: OccupancyRecord[] = dailyData
       .filter((d): d is typeof d & { occupancy: number } => d.occupancy != null)
       .map((d) => ({ date: d.date, occupancy: d.occupancy }))
 
+    const adrHistory: AdrRecord[] = dailyData
+      .filter((d): d is typeof d & { adr: number } => d.adr != null)
+      .map((d) => ({ date: d.date, adr: d.adr }))
+
+    const competitorHistory: CompetitorPriceRecord[] = competitorPrices
+      .filter((c): c is typeof c & { price1P: number } => c.price1P != null)
+      .map((c) => ({ date: c.date, price1P: c.price1P }))
+
     const maxRank = priceRanks.length > 0 ? Math.max(...priceRanks.map((r) => r.rank)) : DEFAULT_MAX_RANK
     const priceByRank = new Map(priceRanks.map((r) => [r.rank, r.price1P]))
+    const rankPrices: RankPrice[] = priceRanks.map((r) => ({ rank: r.rank, price1P: r.price1P }))
+
+    // 戦略設定が無いホテルは従来どおり稼働率のみで決定する
+    const weights: StrategyWeights = strategyConfig
+      ? {
+          weightOccupancy: strategyConfig.weightOccupancy,
+          weightAdr: strategyConfig.weightAdr,
+          weightCompetitor: strategyConfig.weightCompetitor,
+        }
+      : OCCUPANCY_ONLY_WEIGHTS
 
     const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
     const results: DailyForecast[] = []
     for (let i = 0; i < totalDays; i++) {
       const date = addUtcDays(startDate, i)
       const core = computeDailyForecastCore(date, history, events, weekendDays, maxRank)
+
+      const blended = blendRanksByStrategy({
+        occupancyRank: core.recommendedRank ?? 1,
+        adrRank: computeAdrRank(adrHistory, date, rankPrices),
+        competitorRank: computeCompetitorRank(competitorHistory, date, rankPrices),
+        weights,
+        maxRank,
+      })
+
       results.push({
         ...core,
-        recommendedPrice: core.recommendedRank != null ? priceByRank.get(core.recommendedRank) ?? null : null,
+        recommendedRank: blended.rank,
+        recommendedPrice: priceByRank.get(blended.rank) ?? null,
         modelVersion: MODEL_VERSION,
       })
     }
