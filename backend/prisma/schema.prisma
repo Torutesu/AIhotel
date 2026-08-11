@@ -36,7 +36,6 @@ model Tenant {
   auditLogs                AuditLog[]
   refreshTokens            RefreshToken[]
   monthlyBudgets           MonthlyBudget[]
-  pricingStrategyConfigs   PricingStrategyConfig[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -52,6 +51,8 @@ model Tenant {
   onHandSnapshots          OnHandSnapshot[]
   roomInventorySnapshots   RoomInventorySnapshot[]
   ingestLogs               IngestLog[]
+  specialDays              SpecialDay[]
+  externalFactors          ExternalFactor[]
 }
 
 // ======================================
@@ -130,7 +131,6 @@ model Hotel {
   competitors              Competitor[]
   events                   Event[]
   monthlyBudgets           MonthlyBudget[]
-  pricingStrategyConfigs   PricingStrategyConfig[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -146,6 +146,8 @@ model Hotel {
   onHandSnapshots          OnHandSnapshot[]
   roomInventorySnapshots   RoomInventorySnapshot[]
   ingestLogs               IngestLog[]
+  specialDays              SpecialDay[]
+  externalFactors          ExternalFactor[]
 
   @@index([tenantId])
 }
@@ -167,6 +169,7 @@ model RoomType {
 
   dailyRoomData          DailyRoomData[]
   aiPriceRecommendations AiPriceRecommendation[]
+  priceRanks             PriceRank[]
 
   @@unique([hotelId, code])
   @@index([tenantId])
@@ -177,44 +180,43 @@ model RoomType {
 // Pricing Configuration
 // ======================================
 
-// 料金ランクマスタ（最大40段階 — F-SET-02）
+// 料金ランクマスタ（F-SET-02 — docs/drive-gap-analysis.md §2.1）
+// 販売料金表（■HG_販売料金表.xlsx）の構造をそのまま表現する:
+//   部屋タイプ × レート区分（自社/会員/株優/OTA） × ランクコード（"65"〜"0" ＋ "★1"〜"★5"）
+// ランクコードは数値でない値（★n）を含むため String で保持し、並び順は sortOrder で制御する。
+// 旧「最大40段階」制約は2026/8に撤廃。価格は100円単位の設定に対応する。
 model PriceRank {
-  id        String   @id @default(cuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId   String
-  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  rank      Int // 1〜40
-  label     String // R01, R02, ...
-  price1P   Int
-  price2P   Int
-  price3P   Int?
-  price4P   Int?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String       @id @default(cuid())
+  tenantId     String
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel        @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomTypeId   String
+  roomType     RoomType     @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  rateCategory RateCategory
+  rankCode     String // "65".."0", "★1".."★5"
+  sortOrder    Int // 高価格側ほど大きい値。ランクコードの表示・探索順に使う
+  price        Int // 宿泊税別・100円単位
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-  @@unique([hotelId, rank])
+  @@unique([hotelId, roomTypeId, rateCategory, rankCode])
   @@index([tenantId])
-  @@index([hotelId])
+  @@index([hotelId, roomTypeId, rateCategory])
 }
 
-// 価格戦略の重み付け設定（F-DP-02）
-model PricingStrategyConfig {
-  id               String   @id @default(cuid())
-  tenantId         String
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId          String   @unique // ホテルごとに1設定
-  hotel            Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  weightOccupancy  Int      @default(40) // 稼働率重視 (%)
-  weightAdr        Int      @default(40) // ADR重視 (%)
-  weightCompetitor Int      @default(20) // 競合追従度 (%)
-  updatedByUserId  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  @@index([tenantId])
+// レート区分（販売料金表の行区分）
+enum RateCategory {
+  OWN // 自社
+  MEMBER // 会員
+  SHAREHOLDER // 株優
+  OTA // OTA
 }
+
+// 価格戦略の重み付け設定（旧 F-DP-02）は 2026/8 に撤去した。
+// AI提案への介入は「料金ランクの変更」で行い、その結果を着地予測に反映する方式へ変更
+// （モックアップ修正内容.xlsx ③ / docs/drive-gap-analysis.md §3-3）。
 
 // ======================================
 // Daily Data & Performance
@@ -262,12 +264,13 @@ model DailyRoomData {
   roomTypeId  String
   roomType    RoomType  @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
 
-  priceRank Int?
-  price1P   Int?
-  price2P   Int?
-  price3P   Int?
-  soldRooms Int?
-  revenue   Float?
+  // 適用された料金ランクコード（"65".."0" / "★1".."★5" — 新ランク体系）
+  priceRankCode String?
+  price1P       Int?
+  price2P       Int?
+  price3P       Int?
+  soldRooms     Int?
+  revenue       Float?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -360,10 +363,13 @@ model AiPriceRecommendation {
   roomType   RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
   date       DateTime  @db.Date
 
-  predictedOccupancy Float?
-  predictedAdr       Float?
-  recommendedRank    Int?
-  recommendedPrice   Int?
+  predictedOccupancy  Float?
+  predictedAdr        Float?
+  // 推奨ランク。新モデルではランクコード（"65".."0"/"★1".."★5"）を正とする。
+  // recommendedRank は sortOrder ベースの数値表現（グラフ・比較用）
+  recommendedRank     Int?
+  recommendedRankCode String?
+  recommendedPrice    Int?
   demandLevel        DemandLevel?
   confidence         Float? // 0-1
   modelVersion       String?
@@ -809,6 +815,88 @@ enum IngestStatus {
   SUCCESS
   PARTIAL
   FAILED
+}
+
+// ======================================
+// 特日・外部要因（Phase 4C — F-DP-08, F-EXT-01）
+// 出典: 外部要因と旅行（宿泊）の関連付け.xlsx / モックアップ修正内容.xlsx
+// ======================================
+
+// 特日マスタ（F-DP-08）。プライシングカレンダーの曜日欄で
+// 祝日は色のみ、特日（お盆・年末年始等）は別色で表示する。
+// AIが提示した候補をオペレーターがマスタ設定画面で修正できるよう source を持つ。
+model SpecialDay {
+  id        String         @id @default(cuid())
+  tenantId  String
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId   String
+  hotel     Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date      DateTime       @db.Date
+  name      String // 年末年始 / お盆 / 中国春節 等
+  kind      SpecialDayKind
+  color     String? // カレンダー表示色（未指定ならUI既定色）
+  source    DataSource     @default(MANUAL)
+  note      String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([hotelId, date, name])
+  @@index([tenantId])
+  @@index([hotelId, date])
+}
+
+enum SpecialDayKind {
+  HOLIDAY // 祝日（色のみ）
+  TOKUJITSU // 特日（別色。お盆・年末年始・春節等）
+}
+
+enum DataSource {
+  AI // AIが提示
+  MANUAL // オペレーターが登録・修正
+}
+
+// 外部要因（F-EXT-01）。起因カテゴリ × 時間軸で分類する。
+// 需要予測への付加データおよび事実/予測コメントの根拠として使う。
+model ExternalFactor {
+  id          String         @id @default(cuid())
+  tenantId    String
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  category    FactorCategory
+  timeAxis    FactorTimeAxis
+  title       String
+  description String?
+  startDate   DateTime       @db.Date
+  endDate     DateTime       @db.Date
+  // 影響度（-1.0〜1.0 想定。マイナスは需要減）。AI学習前は未設定でよい
+  impactScore Float?
+  area        String? // 首都圏 / 区内 / 全国 等
+  source      DataSource     @default(MANUAL)
+  sourceUrl   String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([tenantId])
+  @@index([hotelId, startDate, endDate])
+}
+
+// 起因カテゴリ（外部要因xlsx ②〜⑦）
+enum FactorCategory {
+  WEATHER // 天候（気温/梅雨/台風/風水害/降雪/地震）
+  INBOUND // インバウンド動向（JNTO・海外SNS）
+  EVENT // イベント（催事・桜・紅葉・収穫）
+  ACCESS // アクセス（高速道路・航空・新幹線）
+  NEW_HOTEL // 周辺の新規ホテル
+  ECONOMY // 経済動向（物価・株価・為替・消費）
+  OTHER
+}
+
+// 時間軸の分類（外部要因xlsx a/b/c）
+enum FactorTimeAxis {
+  TOKUJITSU // a. 特日
+  PERIOD // b. 各種要因による期間
+  DAILY // c. デイリー
 }
 
 // ======================================
