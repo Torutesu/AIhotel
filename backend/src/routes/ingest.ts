@@ -6,12 +6,15 @@ import {
   ingestReservationsSchema,
   ingestInventorySchema,
   ingestLogsQuerySchema,
+  fileIngestSchema,
 } from '../lib/validators.js'
 import {
   ingestNights,
   ingestReservations,
   ingestInventory,
   getIngestLogs,
+  ingestFile,
+  getIngestProfiles,
 } from '../controllers/ingestController.js'
 
 // PMSデータ取込（Phase 4A — F-OH-01/02, F-INV-01, F-ING-01）
@@ -47,6 +50,19 @@ ingestRouter.post(
   validate(ingestInventorySchema),
   ingestInventory
 )
+
+// POST /api/v1/ingest/file — CSV/Excelの取込（プロファイル駆動・冪等）
+// 取得手段（RPA/ネイティブ自動化/SC連携/手動アップロード）を問わない共通の入口
+ingestRouter.post(
+  '/file',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(fileIngestSchema),
+  ingestFile
+)
+
+// GET /api/v1/ingest/profiles — 取込プロファイル一覧（ホテル非依存のため認証のみ）
+ingestRouter.get('/profiles', getIngestProfiles)
 
 // GET /api/v1/ingest/logs?hotelId=&limit= — 取込ログ（オペレーターも閲覧可）
 ingestRouter.get(

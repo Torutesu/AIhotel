@@ -416,6 +416,28 @@ export const ingestLogsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 })
 
+// ファイル取込（F-ING-01 — docs/pms-ingest-design.md §A-2④）
+// 取得手段（RPA/ネイティブ自動化/SC連携/手動）を問わない共通の入口。
+// 本文JSONのサイズ上限（express.json 10mb）に収まるサイズのファイルを対象とする。
+export const fileIngestSchema = z
+  .object({
+    hotelId: entityIdSchema,
+    /** lib/ingestProfiles.ts の ID */
+    profileId: z.string().trim().min(1).max(64),
+    dataset: z.enum(['nights', 'reservations', 'inventory']),
+    fileName: z.string().trim().min(1).max(255),
+    /** ファイル本体（base64）。約7MBまで */
+    contentBase64: z.string().min(1).max(10_000_000),
+    /** reservations / inventory では必須（断面の取得日） */
+    capturedDate: z.coerce.date().optional(),
+    /** true なら検証のみ行いDBへ書き込まない（導入時のマッピング確認用） */
+    dryRun: z.coerce.boolean().optional().default(false),
+  })
+  .refine((d) => d.dataset === 'nights' || d.dryRun || d.capturedDate != null, {
+    message: 'オンハンド予約・残室の取込には capturedDate が必要です',
+    path: ['capturedDate'],
+  })
+
 // セグメントマスタ（F-SET-06）
 export const segmentKindSchema = z.enum([
   'SOURCE',
@@ -651,6 +673,7 @@ export type IngestNightsInput = z.infer<typeof ingestNightsSchema>
 export type IngestReservationRow = z.infer<typeof ingestReservationRowSchema>
 export type IngestReservationsInput = z.infer<typeof ingestReservationsSchema>
 export type IngestInventoryInput = z.infer<typeof ingestInventorySchema>
+export type FileIngestInput = z.infer<typeof fileIngestSchema>
 export type UpsertSegmentsInput = z.infer<typeof upsertSegmentsSchema>
 export type CancellationQueryInput = z.infer<typeof cancellationQuerySchema>
 export type SegmentAxis = z.infer<typeof segmentAxisSchema>
