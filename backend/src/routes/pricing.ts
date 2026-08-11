@@ -5,8 +5,14 @@ import {
   monthQuerySchema,
   pricingCalendarQuerySchema,
   recomputeForecastSchema,
+  forecastAccuracyQuerySchema,
 } from '../lib/validators.js'
-import { getCalendar, getSimulation, recomputeForecast } from '../controllers/pricingController.js'
+import {
+  getCalendar,
+  getSimulation,
+  recomputeForecast,
+  getForecastAccuracy,
+} from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
 
@@ -39,4 +45,12 @@ pricingRouter.post(
   requireHotelAccess((req) => req.body?.hotelId),
   validate(recomputeForecastSchema),
   recomputeForecast
+)
+
+// GET /api/v1/pricing/accuracy — 予測精度（予測時点別）。閲覧はOPERATORも可
+pricingRouter.get(
+  '/accuracy',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(forecastAccuracyQuerySchema, 'query'),
+  getForecastAccuracy
 )

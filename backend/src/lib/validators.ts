@@ -601,6 +601,15 @@ export const upsertIngestSchedulesSchema = z.object({
     .max(10),
 })
 
+export const forecastAccuracyQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  /** 集計対象の宿泊日範囲。省略時は直近180日 */
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  /** 特定モデルだけを見る場合に指定（モデル比較用） */
+  modelVersion: z.string().trim().min(1).max(64).optional(),
+})
+
 export const runIngestSchema = z.object({
   hotelId: entityIdSchema,
   /** 省略時は該当ホテルの自動取得スケジュールすべて */
@@ -728,6 +737,7 @@ export type IngestInventoryInput = z.infer<typeof ingestInventorySchema>
 export type FileIngestInput = z.infer<typeof fileIngestSchema>
 export type UpsertIngestSchedulesInput = z.infer<typeof upsertIngestSchedulesSchema>
 export type RunIngestInput = z.infer<typeof runIngestSchema>
+export type ForecastAccuracyQueryInput = z.infer<typeof forecastAccuracyQuerySchema>
 export type UpsertSegmentsInput = z.infer<typeof upsertSegmentsSchema>
 export type CancellationQueryInput = z.infer<typeof cancellationQuerySchema>
 export type SegmentAxis = z.infer<typeof segmentAxisSchema>

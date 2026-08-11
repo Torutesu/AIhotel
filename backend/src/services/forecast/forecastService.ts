@@ -3,6 +3,7 @@ import { NotFoundError } from '../../middlewares/errorHandler.js'
 import type { DemandLevel } from '@prisma/client'
 import type { DailyForecast, DemandForecaster } from './types.js'
 import { ruleBasedForecaster } from './ruleBasedForecaster.js'
+import { recordForecastSnapshotsService, scoreForecastSnapshotsService } from './accuracyService.js'
 
 // 需要予測の再計算・DB反映（F-DP-05）。
 // F-DP-03（AI予測値へのリセット）のバックエンドとしても機能する:
@@ -85,6 +86,23 @@ export async function recomputeForecastService(
   for (const forecast of forecasts) {
     await upsertHotelWideRecommendation(hotelId, hotel.tenantId, forecast)
   }
+
+  // 予測を履歴として残す（4E-1）。AiPriceRecommendation は最新値で上書きされるため、
+  // これが無いと「いつ時点の予測がどれだけ外れたか」を後から測れない。
+  // 精度目標（エラー率±10%以内）の測定基盤なので、予測のたびに必ず記録する。
+  await recordForecastSnapshotsService({
+    hotelId,
+    predictedAt: new Date(),
+    modelVersion: forecaster.name,
+    snapshots: forecasts.map((f) => ({
+      stayDate: f.date,
+      predictedOccupancy: f.predictedOccupancy,
+      confidence: f.confidence,
+    })),
+  })
+
+  // 宿泊日が過ぎた過去の予測に実績を突き合わせる
+  await scoreForecastSnapshotsService(hotelId)
 
   return {
     count: forecasts.length,

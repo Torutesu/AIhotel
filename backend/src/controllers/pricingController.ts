@@ -5,6 +5,7 @@ import { writeAuditLog } from '../services/auditService.js'
 import { getPricingCalendarService, getSimulationService } from '../services/pricingService.js'
 import type { RateCategory } from '@prisma/client'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
+import { getForecastAccuracyService } from '../services/forecast/accuracyService.js'
 
 /**
  * 日別価格カレンダー
@@ -60,4 +61,20 @@ export const recomputeForecast = asyncHandler(async (req: Request, res: Response
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, result, 200, `需要予測を再計算しました（${result.count}件）`)
+})
+
+/**
+ * 予測精度の測定結果（予測時点別のMAE等 — 4E-1 / F-AI-01）
+ * MLOps画面と、モデル選択の事後検証に使う。
+ * GET /api/v1/pricing/accuracy?hotelId=&from=&to=&modelVersion=
+ */
+export const getForecastAccuracy = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, from, to, modelVersion } = req.query as unknown as {
+    hotelId: string
+    from?: Date
+    to?: Date
+    modelVersion?: string
+  }
+  const result = await getForecastAccuracyService({ hotelId, from, to, modelVersion })
+  sendSuccess(res, result)
 })

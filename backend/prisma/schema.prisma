@@ -52,6 +52,7 @@ model Tenant {
   roomInventorySnapshots   RoomInventorySnapshot[]
   ingestLogs               IngestLog[]
   ingestSchedules          IngestSchedule[]
+  forecastSnapshots        ForecastSnapshot[]
   specialDays              SpecialDay[]
   externalFactors          ExternalFactor[]
 }
@@ -148,6 +149,7 @@ model Hotel {
   roomInventorySnapshots   RoomInventorySnapshot[]
   ingestLogs               IngestLog[]
   ingestSchedules          IngestSchedule[]
+  forecastSnapshots        ForecastSnapshot[]
   specialDays              SpecialDay[]
   externalFactors          ExternalFactor[]
 
@@ -873,6 +875,48 @@ model IngestSchedule {
 enum IngestConnectorKind {
   LOCAL_DIR
   HTTPS
+}
+
+// 予測スナップショット（Phase 4E — docs/ai-agent-design.md §9）
+// 「いつ時点で、どのモデルが、何を予測したか」を残す。
+// AiPriceRecommendation は最新の推奨だけを保持して上書きされるため、
+// 後から精度を測れない。精度目標（エラー率±10%以内）を測定可能にするには
+// 予測時点つきの履歴が要る。
+model ForecastSnapshot {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  /** 予測対象の宿泊日 */
+  stayDate     DateTime @db.Date
+  /** いつ時点の予測か。これより後の情報を使っていないことが前提 */
+  predictedAt  DateTime @db.Date
+  /** stayDate - predictedAt。予測時点別の誤差集計に使う */
+  leadTimeDays Int
+
+  predictedOccupancy Float
+  /** 確信度スコア（0〜1 — 設計 §4） */
+  confidence         Float
+  modelVersion       String
+
+  /** 宿泊日到来後に埋める実績稼働率。未確定の間は null */
+  actualOccupancy Float?
+  /** |予測 - 実績|。集計を軽くするため保存時に計算しておく */
+  absError        Float?
+  /** 実績を埋めた時刻 */
+  scoredAt        DateTime?
+
+  /** 使用した特徴量ベクトル。学習の再現・原因調査用 */
+  features Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([hotelId, stayDate, predictedAt, modelVersion])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+  @@index([hotelId, predictedAt])
 }
 
 // ======================================
