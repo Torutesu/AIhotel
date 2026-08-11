@@ -21,7 +21,21 @@ import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type PriceRank } from "@/lib/api"
+import {
+  api,
+  ApiClientError,
+  type PriceRank,
+  type RateCategory,
+  type RoomTypeOption,
+} from "@/lib/api"
+
+// レート区分（販売料金表の行区分）
+const RATE_CATEGORIES: Array<{ value: RateCategory; label: string }> = [
+  { value: "OWN", label: "自社" },
+  { value: "MEMBER", label: "会員" },
+  { value: "SHAREHOLDER", label: "株優" },
+  { value: "OTA", label: "OTA" },
+]
 import type { Hotel } from "@shared/types"
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
@@ -87,30 +101,52 @@ export function SettingsTab() {
   }
 
   // 料金ランク設定（実データ — F-SET-02）
+  // 販売料金表と同じ「部屋タイプ × レート区分 × ランクコード」構造で表示する
+  const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([])
+  const [rankRoomTypeId, setRankRoomTypeId] = useState<string>("")
+  const [rankRateCategory, setRankRateCategory] = useState<RateCategory>("OWN")
   const [priceRanks, setPriceRanks] = useState<PriceRank[]>([])
   const [priceRanksLoading, setPriceRanksLoading] = useState(true)
   const [priceRanksError, setPriceRanksError] = useState<string | null>(null)
   const [editingRank, setEditingRank] = useState<PriceRank | null>(null)
-  const [editLabel, setEditLabel] = useState("")
-  const [editPrice1P, setEditPrice1P] = useState(0)
-  const [editPrice2P, setEditPrice2P] = useState(0)
-  const [editPrice3P, setEditPrice3P] = useState(0)
-  const [editPrice4P, setEditPrice4P] = useState(0)
+  const [editPrice, setEditPrice] = useState(0)
   const [savingRank, setSavingRank] = useState(false)
 
-  const loadPriceRanks = useCallback(async () => {
+  // 部屋タイプはマスタから取得する（選択肢のハードコード禁止）。
+  // 既定は「料金表が登録されている最初のタイプ」— マスタ先頭は料金表を持たない場合があるため。
+  useEffect(() => {
     if (!hotelId) return
+    let cancelled = false
+    Promise.all([api.roomTypes(hotelId), api.priceRanks(hotelId, { rateCategory: "OWN" })])
+      .then(([list, ranks]) => {
+        if (cancelled) return
+        setRoomTypes(list)
+        setRankRoomTypeId((prev) => prev || ranks[0]?.roomTypeId || list[0]?.id || "")
+      })
+      .catch(() => {
+        /* 料金ランク側のエラー表示に集約する */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hotelId])
+
+  const loadPriceRanks = useCallback(async () => {
+    if (!hotelId || !rankRoomTypeId) return
     setPriceRanksLoading(true)
     setPriceRanksError(null)
     try {
-      const result = await api.priceRanks(hotelId)
+      const result = await api.priceRanks(hotelId, {
+        roomTypeId: rankRoomTypeId,
+        rateCategory: rankRateCategory,
+      })
       setPriceRanks(result)
     } catch (err) {
       setPriceRanksError(err instanceof ApiClientError ? err.message : "料金ランクの取得に失敗しました")
     } finally {
       setPriceRanksLoading(false)
     }
-  }, [hotelId])
+  }, [hotelId, rankRoomTypeId, rankRateCategory])
 
   useEffect(() => {
     loadPriceRanks()
@@ -118,24 +154,14 @@ export function SettingsTab() {
 
   const openEditRank = (rank: PriceRank) => {
     setEditingRank(rank)
-    setEditLabel(rank.label)
-    setEditPrice1P(rank.price1P)
-    setEditPrice2P(rank.price2P)
-    setEditPrice3P(rank.price3P ?? 0)
-    setEditPrice4P(rank.price4P ?? 0)
+    setEditPrice(rank.price)
   }
 
   const handleSaveRank = async () => {
     if (!hotelId || !editingRank) return
     setSavingRank(true)
     try {
-      await api.updatePriceRank(editingRank.id, hotelId, {
-        label: editLabel,
-        price1P: editPrice1P,
-        price2P: editPrice2P,
-        price3P: editPrice3P,
-        price4P: editPrice4P,
-      })
+      await api.updatePriceRank(editingRank.id, hotelId, { price: editPrice })
       toast({ title: "料金ランクを更新しました" })
       setEditingRank(null)
       await loadPriceRanks()
@@ -388,11 +414,48 @@ export function SettingsTab() {
         <CardHeader>
           <CardTitle>料金ランク設定</CardTitle>
           <CardDescription>
-            最大40段階の料金ランクを表示します
+            販売料金表と同じ「部屋タイプ × レート区分 × ランクコード（65〜0＋★1〜★5）」で表示します。価格は100円単位
             {!canManageHotel && "（編集にはMANAGER以上の権限が必要です）"}
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="flex flex-wrap items-end gap-4 mb-4">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="rank-room-type" className="text-xs whitespace-nowrap">部屋タイプ</Label>
+              <Select value={rankRoomTypeId} onValueChange={setRankRoomTypeId}>
+                <SelectTrigger id="rank-room-type" className="h-8 w-56 text-xs">
+                  <SelectValue placeholder="部屋タイプを選択" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roomTypes.map((rt) => (
+                    <SelectItem key={rt.id} value={rt.id}>
+                      {rt.code}｜{rt.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="rank-rate" className="text-xs whitespace-nowrap">レート区分</Label>
+              <Select
+                value={rankRateCategory}
+                onValueChange={(v) => setRankRateCategory(v as RateCategory)}
+              >
+                <SelectTrigger id="rank-rate" className="h-8 w-28 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RATE_CATEGORIES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {priceRanks.length > 0 && (
+              <p className="text-xs text-muted-foreground">{priceRanks.length}段階</p>
+            )}
+          </div>
+
           {priceRanksLoading ? (
             <Skeleton className="h-64 w-full" />
           ) : priceRanksError ? (
@@ -405,30 +468,24 @@ export function SettingsTab() {
               </Button>
             </div>
           ) : priceRanks.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">料金ランクが登録されていません。</p>
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              この部屋タイプ・レート区分の料金ランクが登録されていません。
+            </p>
           ) : (
             <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-card">
                   <tr className="border-b">
-                    <th className="text-left py-2 px-3 font-medium">ランク</th>
-                    <th className="text-left py-2 px-3 font-medium">ラベル</th>
-                    <th className="text-right py-2 px-3 font-medium">1名</th>
-                    <th className="text-right py-2 px-3 font-medium">2名</th>
-                    <th className="text-right py-2 px-3 font-medium">3名</th>
-                    <th className="text-right py-2 px-3 font-medium">4名</th>
+                    <th className="text-left py-2 px-3 font-medium">ランクコード</th>
+                    <th className="text-right py-2 px-3 font-medium">販売価格（宿泊税別）</th>
                     <th className="text-center py-2 px-3 font-medium">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {priceRanks.map((rank) => (
                     <tr key={rank.id} className="border-b hover:bg-muted/50">
-                      <td className="py-2 px-3">R{String(rank.rank).padStart(2, "0")}</td>
-                      <td className="py-2 px-3 font-medium">{rank.label}</td>
-                      <td className="text-right py-2 px-3">¥{rank.price1P.toLocaleString()}</td>
-                      <td className="text-right py-2 px-3">¥{rank.price2P.toLocaleString()}</td>
-                      <td className="text-right py-2 px-3">{rank.price3P != null ? `¥${rank.price3P.toLocaleString()}` : "-"}</td>
-                      <td className="text-right py-2 px-3">{rank.price4P != null ? `¥${rank.price4P.toLocaleString()}` : "-"}</td>
+                      <td className="py-2 px-3 font-medium">{rank.rankCode}</td>
+                      <td className="text-right py-2 px-3">¥{rank.price.toLocaleString()}</td>
                       <td className="text-center py-2 px-3">
                         <Button
                           variant="ghost"
@@ -452,58 +509,34 @@ export function SettingsTab() {
       <Dialog open={editingRank !== null} onOpenChange={(open) => !open && setEditingRank(null)}>
         <DialogContent className="sm:max-w-[450px]">
           <DialogHeader>
-            <DialogTitle>料金ランク編集（R{editingRank ? String(editingRank.rank).padStart(2, "0") : ""}）</DialogTitle>
-            <DialogDescription>ラベルと人数別価格を編集します</DialogDescription>
+            <DialogTitle>料金ランク編集（{editingRank?.rankCode}）</DialogTitle>
+            <DialogDescription>販売価格を編集します（100円単位・宿泊税別）</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="edit-rank-label">ラベル</Label>
-              <Input id="edit-rank-label" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-rank-1p">1名料金</Label>
-                <Input
-                  id="edit-rank-1p"
-                  type="number"
-                  value={editPrice1P}
-                  onChange={(e) => setEditPrice1P(Number.parseInt(e.target.value) || 0)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-rank-2p">2名料金</Label>
-                <Input
-                  id="edit-rank-2p"
-                  type="number"
-                  value={editPrice2P}
-                  onChange={(e) => setEditPrice2P(Number.parseInt(e.target.value) || 0)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-rank-3p">3名料金</Label>
-                <Input
-                  id="edit-rank-3p"
-                  type="number"
-                  value={editPrice3P}
-                  onChange={(e) => setEditPrice3P(Number.parseInt(e.target.value) || 0)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-rank-4p">4名料金</Label>
-                <Input
-                  id="edit-rank-4p"
-                  type="number"
-                  value={editPrice4P}
-                  onChange={(e) => setEditPrice4P(Number.parseInt(e.target.value) || 0)}
-                />
-              </div>
+              <Label htmlFor="edit-rank-price">販売価格</Label>
+              <Input
+                id="edit-rank-price"
+                type="number"
+                step={100}
+                value={editPrice}
+                onChange={(e) => setEditPrice(Number.parseInt(e.target.value) || 0)}
+              />
+              {editPrice % 100 !== 0 && (
+                <p className="text-xs text-[color:var(--negative)]">価格は100円単位で入力してください</p>
+              )}
             </div>
           </div>
           <div className="flex justify-end gap-2 pt-2 border-t">
             <Button variant="outline" size="sm" onClick={() => setEditingRank(null)}>
               キャンセル
             </Button>
-            <Button size="sm" className="gap-2" disabled={savingRank} onClick={handleSaveRank}>
+            <Button
+              size="sm"
+              className="gap-2"
+              disabled={savingRank || editPrice % 100 !== 0}
+              onClick={handleSaveRank}
+            >
               {savingRank ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               保存
             </Button>
