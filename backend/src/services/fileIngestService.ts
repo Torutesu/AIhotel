@@ -18,6 +18,10 @@ import {
   ingestReservationsService,
   ingestInventoryService,
 } from './ingestService.js'
+import type { IngestProvenance } from './ingestService.js'
+import { upsertSegmentsService } from './settingsService.js'
+import type { SegmentKind } from '@prisma/client'
+import type { SegmentBlockProfile } from '../lib/ingestProfiles.js'
 import type { FileIngestInput } from '../lib/validators.js'
 
 // ======================================
@@ -143,6 +147,52 @@ export function mapRow(
   return mapped
 }
 
+/**
+ * 1シートに横並びで置かれたコードマスターを、ブロック単位で抽出する。純関数（テスト対象）。
+ * ブロックごとに行数が違う（例: マーケット140 / 地域120 / エージェント407）ため、
+ * コード列が空の行はそのブロックでは無視する。
+ */
+export function extractSegmentBlock(
+  rows: Array<Record<string, unknown>>,
+  block: SegmentBlockProfile
+): Array<{ code: string; name: string; aggregateCode?: string; attributes?: Record<string, unknown> }> {
+  const seen = new Set<string>()
+  const items: Array<{
+    code: string
+    name: string
+    aggregateCode?: string
+    attributes?: Record<string, unknown>
+  }> = []
+
+  for (const row of rows) {
+    const code = applyTransform(row[block.codeColumn], 'trim')
+    if (typeof code !== 'string' || code === '') continue
+    if (seen.has(code)) continue
+    seen.add(code)
+
+    const name = applyTransform(row[block.nameColumn], 'trim')
+    const aggregate = block.aggregateColumn
+      ? applyTransform(row[block.aggregateColumn], 'trim')
+      : undefined
+
+    const attributes: Record<string, unknown> = {}
+    for (const col of block.attributeColumns ?? []) {
+      const v = applyTransform(row[col], 'trim')
+      if (v !== undefined) attributes[col] = v
+    }
+
+    items.push({
+      code,
+      // 名称が無いコードもマスタとしては有効（コードのまま表示する）
+      name: typeof name === 'string' && name !== '' ? name : code,
+      ...(typeof aggregate === 'string' ? { aggregateCode: aggregate } : {}),
+      ...(Object.keys(attributes).length > 0 ? { attributes } : {}),
+    })
+  }
+
+  return items
+}
+
 const ROW_SCHEMAS = {
   nights: ingestNightRowSchema,
   reservations: ingestReservationRowSchema,
@@ -153,9 +203,21 @@ const ROW_SCHEMAS = {
  * ファイルを取り込み、既存の取込サービスへ流す。
  * dryRun=true なら検証だけ行い、DBには書き込まない（導入時のマッピング確認用）。
  */
-export async function ingestFileService(input: FileIngestInput, userId?: string) {
+export async function ingestFileService(
+  input: FileIngestInput,
+  userId?: string,
+  provenance?: IngestProvenance
+) {
   const profile = findProfile(input.profileId)
   if (!profile) throw new BadRequestError(`不明な取込プロファイルです: ${input.profileId}`)
+
+  const buffer = Buffer.from(input.contentBase64, 'base64')
+  if (buffer.length === 0) throw new BadRequestError('ファイルが空です')
+
+  // コードマスター取込は別経路（同一ファイル内の別シートを読む）
+  if (input.dataset === 'segments') {
+    return ingestSegmentsFromFile(input, buffer, profile)
+  }
 
   const datasetProfile = profile.datasets[input.dataset]
   if (!datasetProfile) {
@@ -163,9 +225,6 @@ export async function ingestFileService(input: FileIngestInput, userId?: string)
       `プロファイル「${profile.id}」は ${input.dataset} に対応していません`
     )
   }
-
-  const buffer = Buffer.from(input.contentBase64, 'base64')
-  if (buffer.length === 0) throw new BadRequestError('ファイルが空です')
 
   const { headers, rows } = await parseTabularFile(buffer, profile)
 
@@ -233,7 +292,8 @@ export async function ingestFileService(input: FileIngestInput, userId?: string)
   if (input.dataset === 'nights') {
     result.ingest = await ingestNightsService(
       { hotelId: input.hotelId, rows: validRows as never },
-      userId
+      userId,
+      provenance
     )
   } else if (input.dataset === 'reservations') {
     if (!input.capturedDate) {
@@ -241,7 +301,8 @@ export async function ingestFileService(input: FileIngestInput, userId?: string)
     }
     result.ingest = await ingestReservationsService(
       { hotelId: input.hotelId, capturedDate: input.capturedDate, rows: validRows as never },
-      userId
+      userId,
+      provenance
     )
   } else {
     if (!input.capturedDate) {
@@ -249,11 +310,86 @@ export async function ingestFileService(input: FileIngestInput, userId?: string)
     }
     result.ingest = await ingestInventoryService(
       { hotelId: input.hotelId, capturedDate: input.capturedDate, rows: validRows as never },
-      userId
+      userId,
+      provenance
     )
   }
 
   return result
+}
+
+/**
+ * 実績ファイルに同梱されたコードマスターを取り込む（F-SET-06 / F-ING-01）。
+ * マスタを先方から別途もらわなくても、日々の取込ファイルから自動で最新化できるようにする。
+ */
+async function ingestSegmentsFromFile(
+  input: FileIngestInput,
+  buffer: Buffer,
+  profile: ReturnType<typeof findProfile> & object
+): Promise<FileIngestResult> {
+  const spec = profile.segmentBlocks
+  if (!spec) {
+    throw new BadRequestError(
+      `プロファイル「${profile.id}」はコードマスター取込に対応していません`
+    )
+  }
+
+  // コードマスターは実績とは別シートにあるため、シート指定を差し替えて読む
+  const { headers, rows } = await parseTabularFile(buffer, { ...profile, sheet: spec.sheet })
+
+  const pii = detectPiiColumns(headers)
+  if (pii.length > 0) {
+    throw new BadRequestError(
+      `個人情報と思われる列が含まれています（${pii.join(', ')}）。PMS側の出力設定で除外してください`
+    )
+  }
+
+  const errors: FileIngestRowError[] = []
+  const missingColumns: string[] = []
+  let accepted = 0
+  const perKind: Array<{ kind: string; count: number }> = []
+
+  for (const block of spec.blocks) {
+    if (!headers.includes(block.codeColumn)) {
+      missingColumns.push(block.codeColumn)
+      continue
+    }
+    const items = extractSegmentBlock(rows, block)
+    if (items.length === 0) continue
+
+    perKind.push({ kind: block.kind, count: items.length })
+    accepted += items.length
+
+    if (!input.dryRun) {
+      // 1回のupsertは1000件までのため分割する
+      for (let i = 0; i < items.length; i += 500) {
+        await upsertSegmentsService({
+          hotelId: input.hotelId,
+          kind: block.kind as SegmentKind,
+          items: items.slice(i, i + 500),
+        })
+      }
+    }
+  }
+
+  if (missingColumns.length > 0 && accepted === 0) {
+    throw new BadRequestError(
+      `コードマスターの列が見つかりません（不足: ${missingColumns.join(', ')}）`
+    )
+  }
+
+  return {
+    profileId: profile.id,
+    dataset: 'segments',
+    fileName: input.fileName,
+    totalRows: rows.length,
+    acceptedRows: accepted,
+    rejectedRows: 0,
+    errors,
+    unmappedColumns: [],
+    missingColumns,
+    ingest: { blocks: perKind },
+  }
 }
 
 /** 取込プロファイル一覧（管理画面の選択肢用） */
@@ -263,7 +399,10 @@ export function listIngestProfiles() {
     displayName: p.displayName,
     format: p.format,
     encoding: p.encoding ?? 'utf8',
-    datasets: Object.keys(p.datasets) as IngestDataset[],
+    datasets: [
+      ...(Object.keys(p.datasets) as IngestDataset[]),
+      ...(p.segmentBlocks ? (['segments'] as IngestDataset[]) : []),
+    ],
     notes: p.notes,
   }))
 }

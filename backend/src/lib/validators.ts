@@ -424,7 +424,7 @@ export const fileIngestSchema = z
     hotelId: entityIdSchema,
     /** lib/ingestProfiles.ts の ID */
     profileId: z.string().trim().min(1).max(64),
-    dataset: z.enum(['nights', 'reservations', 'inventory']),
+    dataset: z.enum(['nights', 'reservations', 'inventory', 'segments']),
     fileName: z.string().trim().min(1).max(255),
     /** ファイル本体（base64）。約7MBまで */
     contentBase64: z.string().min(1).max(10_000_000),
@@ -433,7 +433,7 @@ export const fileIngestSchema = z
     /** true なら検証のみ行いDBへ書き込まない（導入時のマッピング確認用） */
     dryRun: z.coerce.boolean().optional().default(false),
   })
-  .refine((d) => d.dataset === 'nights' || d.dryRun || d.capturedDate != null, {
+  .refine((d) => d.dataset === 'nights' || d.dataset === 'segments' || d.dryRun || d.capturedDate != null, {
     message: 'オンハンド予約・残室の取込には capturedDate が必要です',
     path: ['capturedDate'],
   })
@@ -555,6 +555,58 @@ export const inventoryQuerySchema = z
     message: '開始日は終了日以前である必要があります',
   })
 
+// 取込スケジュール（F-ING-01 — 未着検知）
+export const ingestSourceSchema = z.enum([
+  'pms-nights',
+  'pms-reservations',
+  'pms-inventory',
+  'segments',
+])
+
+export const upsertIngestSchedulesSchema = z.object({
+  hotelId: entityIdSchema,
+  items: z
+    .array(
+      z.object({
+        source: ingestSourceSchema,
+        profileId: z.string().trim().min(1).max(64).optional(),
+        /** 期待到着時刻 HH:MM（24時間表記） */
+        expectedAt: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/, '時刻は HH:MM 形式で指定してください'),
+        /** expectedAt を解釈するタイムゾーン（IANA名）。省略時はホテル現地=東京 */
+        timeZone: z
+          .string()
+          .trim()
+          .min(1)
+          .max(64)
+          .refine((tz) => {
+            try {
+              new Intl.DateTimeFormat('en-US', { timeZone: tz })
+              return true
+            } catch {
+              return false
+            }
+          }, '不明なタイムゾーンです')
+          .optional(),
+        graceMinutes: z.number().int().min(0).max(1440).optional(),
+        enabled: z.boolean().optional(),
+        /** 自動取得の方式。null / 省略で「外部からのpushを待つ（監視のみ）」 */
+        connector: z.enum(['LOCAL_DIR', 'HTTPS']).nullable().optional(),
+        /** 方式ごとの設定。中身は lib/ingestConnectors.ts のスキーマで別途検証する */
+        connectorConfig: z.record(z.unknown()).nullable().optional(),
+      })
+    )
+    .min(1)
+    .max(10),
+})
+
+export const runIngestSchema = z.object({
+  hotelId: entityIdSchema,
+  /** 省略時は該当ホテルの自動取得スケジュールすべて */
+  source: ingestSourceSchema.optional(),
+})
+
 // ======================================
 // 特日・外部要因 Validators（Phase 4C — F-DP-08, F-EXT-01）
 // ======================================
@@ -674,6 +726,8 @@ export type IngestReservationRow = z.infer<typeof ingestReservationRowSchema>
 export type IngestReservationsInput = z.infer<typeof ingestReservationsSchema>
 export type IngestInventoryInput = z.infer<typeof ingestInventorySchema>
 export type FileIngestInput = z.infer<typeof fileIngestSchema>
+export type UpsertIngestSchedulesInput = z.infer<typeof upsertIngestSchedulesSchema>
+export type RunIngestInput = z.infer<typeof runIngestSchema>
 export type UpsertSegmentsInput = z.infer<typeof upsertSegmentsSchema>
 export type CancellationQueryInput = z.infer<typeof cancellationQuerySchema>
 export type SegmentAxis = z.infer<typeof segmentAxisSchema>

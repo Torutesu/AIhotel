@@ -123,6 +123,16 @@ interface IngestLogParams {
   rowCount?: number
   columns?: string[]
   createdByUserId?: string
+  provenance?: IngestProvenance
+}
+
+/**
+ * データの出所。自動取得（コネクタ）経由のときに埋まる。
+ * checksum は同一ファイルの二重取込を避けるための鍵として取込ログに残す。
+ */
+export interface IngestProvenance {
+  origin?: string
+  checksum?: string
 }
 
 async function writeIngestLog(
@@ -145,6 +155,8 @@ async function writeIngestLog(
         columns: params.columns ?? undefined,
         error: error ?? null,
         createdByUserId: params.createdByUserId ?? null,
+        origin: params.provenance?.origin ?? null,
+        checksum: params.provenance?.checksum ?? null,
       },
     })
   } catch {
@@ -183,7 +195,11 @@ function collectColumns(rows: Record<string, unknown>[]): string[] {
  * 宿泊実績1泊明細の取込（前日実績・過去データ移行 — F-OH-01）。
  * rows に含まれる計上日（stayDate）単位で全量置換し、再送に対して冪等とする。
  */
-export async function ingestNightsService(input: IngestNightsInput, userId?: string) {
+export async function ingestNightsService(
+  input: IngestNightsInput,
+  userId?: string,
+  provenance?: IngestProvenance
+) {
   const hotel = await resolveHotel(input.hotelId)
   const startedAt = new Date()
   const targetDates = [...new Set(input.rows.map((r) => dateKey(r.stayDate)))].map(
@@ -196,6 +212,7 @@ export async function ingestNightsService(input: IngestNightsInput, userId?: str
     startedAt,
     rowCount: input.rows.length,
     columns: collectColumns(input.rows),
+    provenance,
     createdByUserId: userId,
   }
 
@@ -244,7 +261,11 @@ export async function ingestNightsService(input: IngestNightsInput, userId?: str
  * オンハンド予約明細の取込（180日分の断面 — F-OH-01/02）。
  * capturedDate 単位で全量置換し、OnHandSnapshot（宿泊日別積上）を同時に再計算する。
  */
-export async function ingestReservationsService(input: IngestReservationsInput, userId?: string) {
+export async function ingestReservationsService(
+  input: IngestReservationsInput,
+  userId?: string,
+  provenance?: IngestProvenance
+) {
   const hotel = await resolveHotel(input.hotelId)
   const startedAt = new Date()
   const capturedDate = toUtcDate(input.capturedDate)
@@ -256,6 +277,7 @@ export async function ingestReservationsService(input: IngestReservationsInput, 
     targetDate: capturedDate,
     rowCount: input.rows.length,
     columns: collectColumns(input.rows),
+    provenance,
     createdByUserId: userId,
   }
 
@@ -321,7 +343,11 @@ export async function ingestReservationsService(input: IngestReservationsInput, 
 /**
  * 残室スナップショットの取込（日別×タイプ別 — F-INV-01）。capturedDate 単位で全量置換。
  */
-export async function ingestInventoryService(input: IngestInventoryInput, userId?: string) {
+export async function ingestInventoryService(
+  input: IngestInventoryInput,
+  userId?: string,
+  provenance?: IngestProvenance
+) {
   const hotel = await resolveHotel(input.hotelId)
   const startedAt = new Date()
   const capturedDate = toUtcDate(input.capturedDate)
@@ -333,6 +359,7 @@ export async function ingestInventoryService(input: IngestInventoryInput, userId
     targetDate: capturedDate,
     rowCount: input.rows.length,
     columns: collectColumns(input.rows),
+    provenance,
     createdByUserId: userId,
   }
 

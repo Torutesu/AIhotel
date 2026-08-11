@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mapRow, applyTransform } from './fileIngestService.js'
+import { mapRow, applyTransform, extractSegmentBlock } from './fileIngestService.js'
 import { parseCsv } from '../lib/tabularParser.js'
 import { findProfile, detectPiiColumns, INGEST_PROFILES } from '../lib/ingestProfiles.js'
 import { ingestNightRowSchema, fileIngestSchema } from '../lib/validators.js'
@@ -210,5 +210,59 @@ describe('組み込みプロファイル', () => {
     const excel = findProfile('hg-nights')!.datasets.nights!
     const csv = findProfile('hg-nights-csv')!.datasets.nights!
     expect(csv.map).toEqual(excel.map)
+  })
+})
+
+describe('extractSegmentBlock（コードマスターの自動取込）', () => {
+  // 「コードマスター7」シートは3つの表が横並びで、ブロックごとに行数が違う
+  const sheetRows = [
+    { MC: 'BF', 名称: '団体･AGT･募集外人', MC集約: '06 BF', 地域コード: '01HK', 地域名称: '001 北海道', 分割１: '801 国内', AGTCD: 'ADD', AGT名: 'ｱﾀﾞﾂｱｰｽﾞｼﾞｬﾊﾟﾝ', 種別3: '02 FIT欧米' },
+    { MC: 'BJ', 名称: '団体･AGT･募集邦人', MC集約: '05 BJ', 地域コード: '02AM', 地域名称: '002 青森県', 分割１: '801 国内', AGTCD: 'AGD', AGT名: 'AGODA', 種別3: '03 海外ネット' },
+    // マーケットと地域は尽きたが、エージェントはまだ続く行
+    { MC: null, 名称: null, MC集約: null, 地域コード: '', 地域名称: '', AGTCD: 'BKG', AGT名: 'BOOKING.COM', 種別3: '03 海外ネット' },
+  ]
+
+  it('コード列が空の行はそのブロックでは無視する（ブロック長の違いを吸収）', () => {
+    const markets = extractSegmentBlock(sheetRows, {
+      kind: 'MARKET',
+      codeColumn: 'MC',
+      nameColumn: '名称',
+      aggregateColumn: 'MC集約',
+    })
+    expect(markets).toHaveLength(2)
+    expect(markets[0]).toEqual({ code: 'BF', name: '団体･AGT･募集外人', aggregateCode: '06 BF' })
+  })
+
+  it('他ブロックが尽きても最後まで拾う', () => {
+    const agents = extractSegmentBlock(sheetRows, {
+      kind: 'AGENT',
+      codeColumn: 'AGTCD',
+      nameColumn: 'AGT名',
+      aggregateColumn: '種別3',
+    })
+    expect(agents.map((a) => a.code)).toEqual(['ADD', 'AGD', 'BKG'])
+  })
+
+  it('補助列を attributes に格納する', () => {
+    const regions = extractSegmentBlock(sheetRows, {
+      kind: 'REGION',
+      codeColumn: '地域コード',
+      nameColumn: '地域名称',
+      attributeColumns: ['分割１'],
+    })
+    expect(regions[0].attributes).toEqual({ 分割１: '801 国内' })
+  })
+
+  it('同じコードが複数行に出ても1件にまとめる', () => {
+    const dup = [...sheetRows, { MC: 'BF', 名称: '重複', MC集約: 'X' }]
+    expect(extractSegmentBlock(dup, { kind: 'MARKET', codeColumn: 'MC', nameColumn: '名称' })).toHaveLength(2)
+  })
+
+  it('名称が空のコードはコードを表示名にする（分析側で落とさないため）', () => {
+    const noName = [{ MC: 'ZZ', 名称: null }]
+    expect(extractSegmentBlock(noName, { kind: 'MARKET', codeColumn: 'MC', nameColumn: '名称' })[0]).toEqual({
+      code: 'ZZ',
+      name: 'ZZ',
+    })
   })
 })

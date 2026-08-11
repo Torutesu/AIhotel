@@ -6,7 +6,23 @@
 // 左辺（共通項目）は取込APIのzodスキーマ（lib/validators.ts の ingest*RowSchema）と1:1。
 // 右辺（ソース列名）だけを差し替えれば別ツールに対応できる。
 
-export type IngestDataset = 'nights' | 'reservations' | 'inventory'
+export type IngestDataset = 'nights' | 'reservations' | 'inventory' | 'segments'
+
+/**
+ * 1シート内に横並びで置かれたコードマスターの1ブロック。
+ * HGのCSVブックは「コードマスター7」シートに
+ * マーケット / 地域 / エージェント の3表が横に並んでいるため、ブロック単位で切り出す。
+ * → マスタを先方から別途もらわなくても、実績ファイルから自動で最新化できる。
+ */
+export interface SegmentBlockProfile {
+  /** SegmentMaster.kind に対応（'MARKET' | 'REGION' | 'AGENT' 等） */
+  kind: string
+  codeColumn: string
+  nameColumn: string
+  aggregateColumn?: string
+  /** attributes に格納する補助列（分割1〜4 / 種別1〜3 / 施策 等） */
+  attributeColumns?: string[]
+}
 
 /** 値の変換指定。ソース表現の揺れを吸収する */
 export type TransformSpec =
@@ -40,6 +56,8 @@ export interface IngestProfile {
   /** ヘッダ行の位置（1始まり） */
   headerRow: number
   datasets: Partial<Record<IngestDataset, DatasetProfile>>
+  /** コードマスター取込の定義（dataset='segments' で使う） */
+  segmentBlocks?: { sheet?: IngestProfile['sheet']; blocks: SegmentBlockProfile[] }
   notes?: string
 }
 
@@ -110,6 +128,31 @@ const HG_NIGHTS: DatasetProfile = {
   ],
 }
 
+// 実績ファイルに同梱される「コードマスター7」シート。
+// 1シートに3つの表が横並びで入っている（列が重複しないため1回のパースで全部取れる）。
+const HG_SEGMENT_BLOCKS: SegmentBlockProfile[] = [
+  {
+    kind: 'MARKET',
+    codeColumn: 'MC',
+    nameColumn: '名称',
+    aggregateColumn: 'MC集約',
+    attributeColumns: ['MC集約2'],
+  },
+  {
+    kind: 'REGION',
+    codeColumn: '地域コード',
+    nameColumn: '地域名称',
+    attributeColumns: ['分割１', '分割２', '分割３', '分割４'],
+  },
+  {
+    kind: 'AGENT',
+    codeColumn: 'AGTCD',
+    nameColumn: 'AGT名',
+    aggregateColumn: '種別3',
+    attributeColumns: ['種別1', '種別2', '施策'],
+  },
+]
+
 export const INGEST_PROFILES: IngestProfile[] = [
   {
     id: 'hg-nights',
@@ -119,8 +162,11 @@ export const INGEST_PROFILES: IngestProfile[] = [
     sheet: { namePattern: '^CSV\\d+' },
     headerRow: 1,
     datasets: { nights: HG_NIGHTS },
+    // 同じブックの「コードマスター7」シートからマーケット/地域/エージェントのマスタを自動取込する
+    segmentBlocks: { sheet: { name: 'コードマスター7' }, blocks: HG_SEGMENT_BLOCKS },
     notes:
-      'コードマスター7シートはセグメントマスタ（PUT /settings/segments）へ別途取り込む。' +
+      '実績シートとコードマスターシートが同一ブックに入っているため、' +
+      'dataset=segments で同じファイルからマスタも取り込める（先方への別途依頼が不要）。' +
       'CSV形式で出力される場合は format=csv / encoding=shift_jis のプロファイルを別途用意する。',
   },
   {
