@@ -1,5 +1,14 @@
-import { PrismaClient, UserRole, DemandLevel, AlertSeverity, SegmentKind } from '@prisma/client'
+import {
+  PrismaClient,
+  UserRole,
+  DemandLevel,
+  AlertSeverity,
+  SegmentKind,
+  SpecialDayKind,
+  type RateCategory,
+} from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { RANK_CODES, PRICE_TABLE } from './priceTableSeedData.js'
 import {
   SOURCE_SEGMENTS,
   CHANNEL_SEGMENTS,
@@ -23,7 +32,6 @@ const rng = createRng(20260704)
 
 const TENANT_CODE = 'demo-tenant'
 const HOTEL_ID = 'demo-hotel-001'
-const PRICE_RANK_COUNT = 40 // F-SET-02: 最大40段階
 
 function dateOnly(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
@@ -52,7 +60,8 @@ async function main() {
   // 2. Hotel
   const hotel = await prisma.hotel.upsert({
     where: { id: HOTEL_ID },
-    update: { tenantId: tenant.id },
+    // 既存レコードでもマスタ値（客室数等）が反映されるよう update にも渡す
+    update: { tenantId: tenant.id, totalRooms: 970, weekendDays: [5, 6] },
     create: {
       id: HOTEL_ID,
       tenantId: tenant.id,
@@ -60,49 +69,92 @@ async function main() {
       address: '東京都千代田区丸の内1-1-1',
       phone: '03-1234-5678',
       email: 'info@demo-hotel.example.com',
-      totalRooms: 200,
+      totalRooms: 970,
       weekendDays: [5, 6], // 金・土
     },
   })
   console.log(`✅ Hotel: ${hotel.name}`)
 
   // 3. Room types
+  // Drive「新宿ワシントンデータ/マスタ設定.xlsx」の部屋タイプマスタ、
+  // 客室数は同「◆HG2608残室.xlsx」の総数に合わせている（合計 = hotel.totalRooms）
   const roomTypes = [
-    { code: 'STD_SINGLE', name: 'スタンダードシングル', capacity: 1, count: 80, sortOrder: 1 },
-    { code: 'STD_DOUBLE', name: 'スタンダードダブル', capacity: 2, count: 40, sortOrder: 2 },
-    { code: 'MOD_TWIN', name: 'モデレートツイン', capacity: 2, count: 50, sortOrder: 3 },
-    { code: 'DLX_TWIN', name: 'デラックスツイン', capacity: 2, count: 20, sortOrder: 4 },
-    { code: 'TRIPLE', name: 'トリプル', capacity: 3, count: 10, sortOrder: 5 },
+    { code: 'DSN', name: 'スタンダードダブル（S）', capacity: 2, count: 26, sortOrder: 1 },
+    { code: 'DMN', name: 'スタンダードダブル', capacity: 2, count: 576, sortOrder: 2 },
+    { code: 'DGN', name: 'コンフォートダブル', capacity: 2, count: 27, sortOrder: 3 },
+    { code: 'DXN', name: 'コンフォートダブル（X）', capacity: 2, count: 26, sortOrder: 4 },
+    { code: 'TSN', name: 'スタンダードツイン（S）', capacity: 2, count: 16, sortOrder: 5 },
+    { code: 'TMN', name: 'スタンダードツイン', capacity: 2, count: 224, sortOrder: 6 },
+    { code: 'TGN', name: 'コンフォートダブルツイン', capacity: 2, count: 16, sortOrder: 7 },
+    { code: 'TPN', name: 'スタンダードトリプル', capacity: 3, count: 16, sortOrder: 8 },
+    { code: 'HCN', name: 'ユニバーサルツイン', capacity: 2, count: 1, sortOrder: 9 },
+    { code: 'GDMN', name: 'スタンダードダブル（ゴジラフロア）', capacity: 2, count: 2, sortOrder: 10 },
+    { code: 'GTSN', name: 'スタンダードツイン（ゴジラフロア・S）', capacity: 2, count: 2, sortOrder: 11 },
+    { code: 'GTMN', name: 'スタンダードツイン（ゴジラフロア）', capacity: 2, count: 28, sortOrder: 12 },
+    { code: 'GTPN', name: 'スタンダードトリプル（ゴジラフロア）', capacity: 3, count: 2, sortOrder: 13 },
+    { code: 'GDN', name: 'ゴジラビューダブル', capacity: 2, count: 6, sortOrder: 14 },
+    { code: 'GGN', name: 'ゴジラルーム', capacity: 2, count: 1, sortOrder: 15 },
+    { code: 'GKN', name: 'キングギドラルーム', capacity: 2, count: 1, sortOrder: 16 },
   ]
 
+  const roomTypeRecords = new Map<string, string>()
   for (const rt of roomTypes) {
-    await prisma.roomType.upsert({
+    const record = await prisma.roomType.upsert({
       where: { hotelId_code: { hotelId: hotel.id, code: rt.code } },
-      update: { tenantId: tenant.id },
+      update: { tenantId: tenant.id, ...rt },
       create: { hotelId: hotel.id, tenantId: tenant.id, ...rt },
     })
+    roomTypeRecords.set(rt.code, record.id)
   }
+  // マスタに無い旧タイプ（STD_SINGLE 等）は無効化する
+  await prisma.roomType.updateMany({
+    where: { hotelId: hotel.id, code: { notIn: roomTypes.map((rt) => rt.code) } },
+    data: { isActive: false },
+  })
   console.log(`✅ Room types: ${roomTypes.length}`)
 
-  // 4. Price ranks (40段階)
-  for (let i = 1; i <= PRICE_RANK_COUNT; i++) {
-    const ratio = (i - 1) / (PRICE_RANK_COUNT - 1)
-    const base1P = Math.round(6500 + ratio * 23500) // 6,500 ~ 30,000
-    await prisma.priceRank.upsert({
-      where: { hotelId_rank: { hotelId: hotel.id, rank: i } },
-      update: { tenantId: tenant.id },
-      create: {
-        hotelId: hotel.id,
-        tenantId: tenant.id,
-        rank: i,
-        label: `R${String(i).padStart(2, '0')}`,
-        price1P: base1P,
-        price2P: Math.round(base1P * 1.4),
-        price3P: Math.round(base1P * 1.8),
-      },
-    })
+  // 4. 料金ランク（販売料金表 — 部屋タイプ × レート区分 × ランクコード71段階）
+  // 旧「40段階・rank番号」構造は撤廃済み（docs/drive-gap-analysis.md §2.1）
+  let priceRankCount = 0
+  for (const [roomTypeCode, rates] of Object.entries(PRICE_TABLE)) {
+    const roomTypeId = roomTypeRecords.get(roomTypeCode)
+    // 料金表にあるがマスタに無いタイプ（SMN/GVN/GTGN）はスキップする
+    if (!roomTypeId) continue
+
+    for (const [rateCategory, prices] of Object.entries(rates)) {
+      if (!prices) continue
+      const rows = RANK_CODES.map((rankCode, sortOrder) => ({
+        rankCode,
+        sortOrder,
+        price: prices[sortOrder],
+      })).filter((r): r is { rankCode: string; sortOrder: number; price: number } => r.price != null)
+
+      for (const row of rows) {
+        await prisma.priceRank.upsert({
+          where: {
+            hotelId_roomTypeId_rateCategory_rankCode: {
+              hotelId: hotel.id,
+              roomTypeId,
+              rateCategory: rateCategory as RateCategory,
+              rankCode: row.rankCode,
+            },
+          },
+          update: { sortOrder: row.sortOrder, price: row.price, tenantId: tenant.id },
+          create: {
+            hotelId: hotel.id,
+            tenantId: tenant.id,
+            roomTypeId,
+            rateCategory: rateCategory as RateCategory,
+            rankCode: row.rankCode,
+            sortOrder: row.sortOrder,
+            price: row.price,
+          },
+        })
+        priceRankCount++
+      }
+    }
   }
-  console.log(`✅ Price ranks: ${PRICE_RANK_COUNT}`)
+  console.log(`✅ Price ranks: ${priceRankCount}（${RANK_CODES.length}段階 × 部屋タイプ × レート区分）`)
 
   // 5. Users（要件定義書 §4: ADMIN / MANAGER / OPERATOR）
   const hashedPassword = await bcrypt.hash('Admin1234', 12)
@@ -125,19 +177,7 @@ async function main() {
   }
   console.log(`✅ Users: ${users.length} (password: Admin1234)`)
 
-  // 6. Pricing strategy config
-  await prisma.pricingStrategyConfig.upsert({
-    where: { hotelId: hotel.id },
-    update: {},
-    create: {
-      hotelId: hotel.id,
-      tenantId: tenant.id,
-      weightOccupancy: 40,
-      weightAdr: 40,
-      weightCompetitor: 20,
-    },
-  })
-  console.log('✅ Pricing strategy config')
+  // 6. 価格戦略の重み付け設定は 2026/8 に撤去（docs/drive-gap-analysis.md §3-3）
 
   // 7. Competitors（冪等にするため既存を削除して再作成）
   await prisma.competitor.deleteMany({ where: { hotelId: hotel.id } })
@@ -162,12 +202,22 @@ async function main() {
 
   // 8. 日別データ: 過去90日実績 + 今後90日AI予測
   const today = dateOnly(new Date())
-  const totalRooms = 200
+  const totalRooms = 970
 
   await prisma.dailyData.deleteMany({ where: { hotelId: hotel.id } })
   await prisma.aiPriceRecommendation.deleteMany({ where: { hotelId: hotel.id } })
   await prisma.bookingCurveData.deleteMany({ where: { hotelId: hotel.id } })
   await prisma.competitorPriceData.deleteMany({ where: { tenantId: tenant.id } })
+
+  // AI推奨ランクの基準はしご: 料金表が登録されている最初の部屋タイプ × 自社レート（価格の安い順）
+  // マスタ先頭（DSN）は販売料金表に無いため、実在するタイプを探して使う
+  const baseRankRows = await prisma.priceRank.findMany({
+    where: { hotelId: hotel.id, rateCategory: 'OWN', isActive: true },
+    orderBy: [{ roomType: { sortOrder: 'asc' } }, { sortOrder: 'asc' }],
+    select: { rankCode: true, sortOrder: true, price: true, roomTypeId: true },
+  })
+  const baseRoomTypeId = baseRankRows[0]?.roomTypeId
+  const baseLadder = baseRankRows.filter((r) => r.roomTypeId === baseRoomTypeId)
 
   const dailyRows = []
   const aiRows = []
@@ -207,18 +257,21 @@ async function main() {
       predictedOcc > 0.8 ? DemandLevel.B :
       predictedOcc > 0.65 ? DemandLevel.C :
       predictedOcc > 0.5 ? DemandLevel.D : DemandLevel.E
-    const recommendedRank = Math.min(
-      PRICE_RANK_COUNT,
-      Math.max(1, Math.round(predictedOcc * PRICE_RANK_COUNT))
+    // 推奨ランクは基準タイプ（マスタ先頭）の自社レートのはしごから選ぶ
+    const rankIndex = Math.min(
+      baseLadder.length - 1,
+      Math.max(0, Math.round(predictedOcc * (baseLadder.length - 1)))
     )
+    const pickedRank = baseLadder[rankIndex]
     aiRows.push({
       hotelId: hotel.id,
       tenantId: tenant.id,
       date,
       predictedOccupancy: Math.round(predictedOcc * 1000) / 1000,
       predictedAdr: Math.round((isWeekend ? 24000 : 17000) * seasonBoost),
-      recommendedRank,
-      recommendedPrice: Math.round(6500 + ((recommendedRank - 1) / (PRICE_RANK_COUNT - 1)) * 23500),
+      recommendedRank: pickedRank?.sortOrder ?? null,
+      recommendedRankCode: pickedRank?.rankCode ?? null,
+      recommendedPrice: pickedRank?.price ?? null,
       demandLevel,
       confidence: Math.round((0.7 + rng() * 0.25) * 100) / 100,
       modelVersion: 'seed-v1',
@@ -401,6 +454,112 @@ async function main() {
     }
   }
   console.log(`✅ Segment masters: ${segmentCount}`)
+
+  // 特日マスタ（F-DP-08）
+  // 出典: Drive「ACCOMMOS共有資料/外部要因と旅行（宿泊）の関連付け.xlsx」の時間軸分類 a.特日
+  // 期間が年をまたぐもの・年により動くもの（春節等）は当年分のみ生成する。
+  const currentYear = today.getUTCFullYear()
+  const specialDayDefs: Array<{ name: string; from: [number, number]; to: [number, number] }> = [
+    { name: '年末年始', from: [12, 27], to: [12, 31] },
+    { name: '年末年始', from: [1, 1], to: [1, 5] },
+    { name: '正月明け', from: [1, 6], to: [1, 26] },
+    { name: '受験', from: [1, 15], to: [2, 15] },
+    { name: '中国春節', from: [1, 25], to: [2, 20] },
+    { name: '春休み', from: [3, 15], to: [4, 7] },
+    { name: 'ゴールデンウイーク', from: [4, 28], to: [5, 6] },
+    { name: '夏休み', from: [7, 20], to: [8, 25] },
+    { name: 'お盆', from: [8, 11], to: [8, 16] },
+    { name: 'シルバーウィーク', from: [9, 20], to: [9, 26] },
+  ]
+
+  await prisma.specialDay.deleteMany({ where: { hotelId: hotel.id } })
+  const specialDayRows: Array<{
+    hotelId: string
+    tenantId: string
+    date: Date
+    name: string
+    kind: SpecialDayKind
+    source: 'AI' | 'MANUAL'
+  }> = []
+  // 当年と翌年（カレンダーが翌年に伸びるため）
+  for (const year of [currentYear, currentYear + 1]) {
+    for (const def of specialDayDefs) {
+      const start = new Date(Date.UTC(year, def.from[0] - 1, def.from[1]))
+      const end = new Date(Date.UTC(year, def.to[0] - 1, def.to[1]))
+      for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
+        specialDayRows.push({
+          hotelId: hotel.id,
+          tenantId: tenant.id,
+          date: new Date(d),
+          name: def.name,
+          kind: SpecialDayKind.TOKUJITSU,
+          // 実運用ではAIが提示しオペレーターが修正する（同 §5.4）
+          source: 'AI',
+        })
+      }
+    }
+  }
+  await prisma.specialDay.createMany({ data: specialDayRows, skipDuplicates: true })
+  console.log(`✅ Special days: ${specialDayRows.length}`)
+
+  // 外部要因（F-EXT-01）: 起因 × 時間軸の代表例
+  await prisma.externalFactor.deleteMany({ where: { hotelId: hotel.id } })
+  const factorRows = [
+    {
+      category: 'EVENT' as const,
+      timeAxis: 'PERIOD' as const,
+      title: '桜開花（東京）',
+      description: '例年3月下旬〜4月上旬。地域差あり、天候（②）からの作用を受ける',
+      startDate: new Date(Date.UTC(currentYear + (today.getUTCMonth() >= 4 ? 1 : 0), 2, 20)),
+      endDate: new Date(Date.UTC(currentYear + (today.getUTCMonth() >= 4 ? 1 : 0), 3, 10)),
+      impactScore: 0.2,
+      area: '首都圏',
+    },
+    {
+      category: 'INBOUND' as const,
+      timeAxis: 'PERIOD' as const,
+      title: 'JNTO訪日外客数の増加傾向',
+      description: '市場別統計より。インバウンドによるマーケット上昇',
+      startDate: addDays(today, -30),
+      endDate: addDays(today, 90),
+      impactScore: 0.12,
+      area: '全国',
+    },
+    {
+      category: 'WEATHER' as const,
+      timeAxis: 'PERIOD' as const,
+      title: '台風シーズン',
+      description: '8月〜11月。発生時は短期の予約変動・キャンセル増に注意',
+      startDate: new Date(Date.UTC(currentYear, 7, 1)),
+      endDate: new Date(Date.UTC(currentYear, 10, 30)),
+      impactScore: -0.1,
+      area: '全国',
+    },
+    {
+      category: 'ECONOMY' as const,
+      timeAxis: 'PERIOD' as const,
+      title: '円安基調',
+      description: '為替動向。インバウンド需要の後押し要因',
+      startDate: addDays(today, -60),
+      endDate: addDays(today, 120),
+      impactScore: 0.08,
+      area: '全国',
+    },
+    {
+      category: 'ACCESS' as const,
+      timeAxis: 'PERIOD' as const,
+      title: '国際線の増便',
+      description: '海外路線の便数増。③インバウンド動向と関連',
+      startDate: addDays(today, -15),
+      endDate: addDays(today, 180),
+      impactScore: 0.06,
+      area: '首都圏',
+    },
+  ]
+  await prisma.externalFactor.createMany({
+    data: factorRows.map((f) => ({ ...f, hotelId: hotel.id, tenantId: tenant.id, source: 'AI' as const })),
+  })
+  console.log(`✅ External factors: ${factorRows.length}`)
 
   // オンハンド・実績明細・残室（Phase 4B — F-OH-02/03, F-CXL-01, F-TOP-01, F-INV-01）
   // 冪等: ホテル単位で全削除してから再生成する
