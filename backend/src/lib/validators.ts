@@ -286,6 +286,127 @@ export const updateStrategySchema = z.object({
 })
 
 // ======================================
+// PMS Ingest / Segment Master Validators（Phase 4A — F-OH-01, F-INV-01, F-SET-06, F-ING-01）
+// ======================================
+
+// PMSコード（部屋タイプ・マーケット・地域等）。全角を含むPMSもあるため文字種は縛らない
+const pmsCodeSchema = z.string().trim().min(1).max(32)
+const pmsCodeOptionalSchema = z.string().trim().min(1).max(32).optional()
+
+// 宿泊実績1泊明細（計上日単位 — HG月次データ形式）
+export const ingestNightRowSchema = z.object({
+  stayDate: z.coerce.date(), // 計上日
+  roomTypeCode: pmsCodeSchema,
+  rateTypeCode: pmsCodeOptionalSchema,
+  packageCode: pmsCodeOptionalSchema,
+  rooms: z.number().int().min(0),
+  guests: z.number().int().min(0).optional(),
+  guestsDetail: z.record(z.string(), z.number()).optional(), // {male, female, child} 等
+  roomRevenue: z.number().finite().optional(), // 室料NET
+  serviceFee: z.number().finite().optional(),
+  agentCode: pmsCodeOptionalSchema,
+  regionCode: pmsCodeOptionalSchema,
+  marketCode: pmsCodeOptionalSchema,
+  individualGroupType: z.string().trim().min(1).max(8).optional(), // I/G 等
+  buildingCode: pmsCodeOptionalSchema,
+  blockCode: pmsCodeOptionalSchema,
+  checkIn: z.coerce.date().optional(),
+  checkOut: z.coerce.date().optional(),
+  isDayUse: z.boolean().optional(),
+  compHuType: z.string().trim().min(1).max(16).optional(),
+})
+
+// 実績明細の取込（対象日単位で全量置換。1リクエスト最大4万行 — 月次一括はチャンク分割して送る）
+export const ingestNightsSchema = z.object({
+  hotelId: entityIdSchema,
+  rows: z.array(ingestNightRowSchema).min(1).max(40000),
+})
+
+// オンハンド予約明細（180日分の断面 — 仕様書Ⅲ章3.3）
+export const ingestReservationRowSchema = z
+  .object({
+    bookedAt: z.coerce.date().optional(), // 予約日
+    cancelledAt: z.coerce.date().optional(), // キャンセル日
+    checkIn: z.coerce.date(),
+    checkOut: z.coerce.date(),
+    roomTypeCode: pmsCodeSchema,
+    rateTypeCode: pmsCodeOptionalSchema,
+    packageCode: pmsCodeOptionalSchema,
+    rooms: z.number().int().min(1),
+    guests: z.number().int().min(0).optional(),
+    roomRevenue: z.number().finite().optional(), // 室料NET（滞在合計）
+    serviceFee: z.number().finite().optional(),
+    agentCode: pmsCodeOptionalSchema,
+    regionCode: pmsCodeOptionalSchema,
+    marketCode: pmsCodeOptionalSchema,
+    isGroup: z.boolean().optional(),
+  })
+  .refine((r) => r.checkOut > r.checkIn, {
+    message: 'チェックアウト日はチェックイン日より後である必要があります',
+  })
+
+export const ingestReservationsSchema = z.object({
+  hotelId: entityIdSchema,
+  capturedDate: z.coerce.date(), // このオンハンド断面の取得日
+  rows: z.array(ingestReservationRowSchema).min(1).max(40000),
+})
+
+// 残室スナップショット（日別×タイプ別 — F-INV-01）
+export const ingestInventoryRowSchema = z.object({
+  stayDate: z.coerce.date(),
+  roomTypeCode: pmsCodeSchema,
+  remainingRooms: z.number().int().min(0),
+  totalRooms: z.number().int().min(0).optional(),
+})
+
+export const ingestInventorySchema = z.object({
+  hotelId: entityIdSchema,
+  capturedDate: z.coerce.date(),
+  rows: z.array(ingestInventoryRowSchema).min(1).max(20000),
+})
+
+export const ingestLogsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+})
+
+// セグメントマスタ（F-SET-06）
+export const segmentKindSchema = z.enum([
+  'SOURCE',
+  'CHANNEL',
+  'MARKET',
+  'REGION',
+  'AGENT',
+  'RATE_TYPE',
+  'ROOM_GROUP',
+  'CHANNEL_GROUP',
+  'REGION_GROUP',
+])
+
+export const segmentsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  kind: segmentKindSchema.optional(),
+})
+
+export const upsertSegmentsSchema = z.object({
+  hotelId: entityIdSchema,
+  kind: segmentKindSchema,
+  items: z
+    .array(
+      z.object({
+        code: pmsCodeSchema,
+        name: z.string().trim().min(1).max(100),
+        aggregateCode: z.string().trim().min(1).max(32).optional(),
+        attributes: z.record(z.string(), z.unknown()).optional(),
+        sortOrder: z.number().int().min(0).optional(),
+        isActive: z.boolean().optional(),
+      })
+    )
+    .min(1)
+    .max(1000),
+})
+
+// ======================================
 // Type Exports
 // ======================================
 
@@ -307,3 +428,9 @@ export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
+export type IngestNightRow = z.infer<typeof ingestNightRowSchema>
+export type IngestNightsInput = z.infer<typeof ingestNightsSchema>
+export type IngestReservationRow = z.infer<typeof ingestReservationRowSchema>
+export type IngestReservationsInput = z.infer<typeof ingestReservationsSchema>
+export type IngestInventoryInput = z.infer<typeof ingestInventorySchema>
+export type UpsertSegmentsInput = z.infer<typeof upsertSegmentsSchema>

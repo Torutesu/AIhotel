@@ -8,7 +8,10 @@ import {
   updatePriceRankService,
   deletePriceRankService,
   updateHotelSettingsService,
+  getSegmentsService,
+  upsertSegmentsService,
 } from '../services/settingsService.js'
+import type { SegmentKind } from '@prisma/client'
 
 /**
  * 料金ランク一覧
@@ -94,4 +97,33 @@ export const updateHotelSettings = asyncHandler(async (req: Request, res: Respon
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, hotel, 200, 'ホテル設定を更新しました')
+})
+
+/**
+ * セグメントマスタ一覧（F-SET-06）
+ * GET /api/v1/settings/segments?hotelId=&kind=
+ */
+export const getSegments = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, kind } = req.query as unknown as { hotelId: string; kind?: SegmentKind }
+  const result = await getSegmentsService(hotelId, kind)
+  sendSuccess(res, result)
+})
+
+/**
+ * セグメントマスタ一括upsert（MANAGER 以上・監査対象 — F-SET-06）
+ * PUT /api/v1/settings/segments
+ */
+export const upsertSegments = asyncHandler(async (req: Request, res: Response) => {
+  const result = await upsertSegmentsService(req.body)
+  await writeAuditLog({
+    tenantId: result.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'SegmentMaster',
+    entityId: `${req.body.hotelId}:${req.body.kind}`,
+    newValue: { kind: req.body.kind, itemCount: req.body.items?.length },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, 'セグメントマスタを更新しました')
 })

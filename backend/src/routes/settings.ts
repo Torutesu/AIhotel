@@ -6,6 +6,8 @@ import {
   createPriceRankSchema,
   updatePriceRankSchema,
   updateHotelSettingsSchema,
+  segmentsQuerySchema,
+  upsertSegmentsSchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
@@ -13,6 +15,8 @@ import {
   updatePriceRank,
   deletePriceRank,
   updateHotelSettings,
+  getSegments,
+  upsertSegments,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -50,6 +54,23 @@ settingsRouter.delete(
   requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   deletePriceRank
+)
+
+// GET /api/v1/settings/segments?hotelId=&kind= — セグメントマスタ一覧（F-SET-06）
+settingsRouter.get(
+  '/segments',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(segmentsQuerySchema, 'query'),
+  getSegments
+)
+
+// PUT /api/v1/settings/segments — セグメントマスタ一括upsert（MANAGER 以上・監査対象 — F-SET-06）
+settingsRouter.put(
+  '/segments',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(upsertSegmentsSchema),
+  upsertSegments
 )
 
 // PUT /api/v1/settings/hotel/:id — ホテル設定（名称・週末定義等）変更は MANAGER 以上（F-SET-01）

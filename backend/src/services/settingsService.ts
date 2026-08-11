@@ -1,6 +1,11 @@
+import { Prisma, type SegmentKind } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError, BadRequestError } from '../middlewares/errorHandler.js'
-import type { CreatePriceRankInput, UpdateHotelSettingsInput } from '../lib/validators.js'
+import type {
+  CreatePriceRankInput,
+  UpdateHotelSettingsInput,
+  UpsertSegmentsInput,
+} from '../lib/validators.js'
 
 const MAX_PRICE_RANKS = 40 // F-SET-02
 
@@ -72,4 +77,56 @@ export async function updateHotelSettingsService(id: string, data: UpdateHotelSe
     where: { id },
     data,
   })
+}
+
+// ======================================
+// セグメントマスタ（F-SET-06 — Phase 4A）
+// ======================================
+
+/**
+ * セグメントマスタ一覧（kind省略時は全種別）
+ */
+export async function getSegmentsService(hotelId: string, kind?: SegmentKind) {
+  return prisma.segmentMaster.findMany({
+    where: { hotelId, ...(kind && { kind }) },
+    orderBy: [{ kind: 'asc' }, { sortOrder: 'asc' }, { code: 'asc' }],
+  })
+}
+
+/**
+ * セグメントマスタ一括upsert（kind単位）。
+ * マスタ設定.xlsx / PMSコードマスターからの取込・ツール上での編集の両方に使う。
+ */
+export async function upsertSegmentsService(input: UpsertSegmentsInput) {
+  const hotel = await prisma.hotel.findUnique({ where: { id: input.hotelId } })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  const results = await prisma.$transaction(
+    input.items.map((item, index) =>
+      prisma.segmentMaster.upsert({
+        where: {
+          hotelId_kind_code: { hotelId: input.hotelId, kind: input.kind, code: item.code },
+        },
+        create: {
+          tenantId: hotel.tenantId,
+          hotelId: input.hotelId,
+          kind: input.kind,
+          code: item.code,
+          name: item.name,
+          aggregateCode: item.aggregateCode ?? null,
+          attributes: (item.attributes as Prisma.InputJsonValue | undefined) ?? undefined,
+          sortOrder: item.sortOrder ?? index,
+          isActive: item.isActive ?? true,
+        },
+        update: {
+          name: item.name,
+          aggregateCode: item.aggregateCode ?? null,
+          attributes: (item.attributes as Prisma.InputJsonValue | undefined) ?? undefined,
+          sortOrder: item.sortOrder ?? index,
+          isActive: item.isActive ?? true,
+        },
+      })
+    )
+  )
+  return { upserted: results.length, kind: input.kind, tenantId: hotel.tenantId }
 }
