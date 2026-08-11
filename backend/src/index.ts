@@ -27,6 +27,9 @@ import { notFoundHandler } from './middlewares/notFoundHandler.js'
 // Import utilities
 import { logger, requestLogger } from './utils/logger.js'
 
+// PMSデータの自動取込（常駐スケジューラ。既定は無効）
+import { startIngestScheduler, stopIngestScheduler } from './lib/ingestScheduler.js'
+
 // ======================================
 // Configuration
 // ======================================
@@ -144,11 +147,16 @@ const server = app.listen(PORT, () => {
     env: NODE_ENV,
     frontend: FRONTEND_URL,
   }, `🚀 Backend server running on http://localhost:${PORT}`)
+
+  // 人手のアップロードに頼らず、バックエンド側で取得〜取込まで流す
+  startIngestScheduler()
 })
 
 // Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
   logger.info(`${signal} received. Starting graceful shutdown...`)
+
+  stopIngestScheduler()
   
   server.close(() => {
     logger.info('HTTP server closed')

@@ -51,6 +51,7 @@ model Tenant {
   onHandSnapshots          OnHandSnapshot[]
   roomInventorySnapshots   RoomInventorySnapshot[]
   ingestLogs               IngestLog[]
+  ingestSchedules          IngestSchedule[]
   specialDays              SpecialDay[]
   externalFactors          ExternalFactor[]
 }
@@ -146,6 +147,7 @@ model Hotel {
   onHandSnapshots          OnHandSnapshot[]
   roomInventorySnapshots   RoomInventorySnapshot[]
   ingestLogs               IngestLog[]
+  ingestSchedules          IngestSchedule[]
   specialDays              SpecialDay[]
   externalFactors          ExternalFactor[]
 
@@ -805,16 +807,72 @@ model IngestLog {
   columns         Json? // 取得したデータ項目
   error           String?
   createdByUserId String?
+  /** 取得元の識別子（ファイル名 / URL 等）。自動取得の追跡用 */
+  origin          String?
+  /** 取り込んだファイル内容のSHA-256。同一ファイルの二重取込を避ける */
+  checksum        String?
   createdAt       DateTime     @default(now())
 
   @@index([tenantId])
   @@index([hotelId, createdAt])
+  @@index([hotelId, source, checksum])
 }
 
 enum IngestStatus {
   SUCCESS
   PARTIAL
   FAILED
+}
+
+// 取込スケジュール（F-ING-01 — 仕様書Ⅲ章3.2/3.4）
+// 「毎日この時刻までにこのデータが届くはず」を宣言し、届かなければ未着として検知する。
+// 取得側（クローラ/SC連携/手動）が何であっても、届いたかどうかだけを監視する設計。
+model IngestSchedule {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  /** IngestLog.source と対応（pms-nights / pms-reservations / pms-inventory / segments） */
+  source   String
+  /** 使用する取込プロファイルID（参考情報） */
+  profileId String?
+  /** 期待到着時刻 HH:MM（timeZone基準）。PMS夜間バッチ完了後の想定時刻 */
+  expectedAt String
+  /** 判定に使うタイムゾーン。サーバのローカル時刻に依存させないため明示的に持つ */
+  timeZone   String @default("Asia/Tokyo")
+  /** 猶予分数。これを過ぎても未着ならアラート対象 */
+  graceMinutes Int @default(60)
+  enabled  Boolean @default(true)
+  /**
+   * バックエンドが自分で取りに行く方式。
+   * null は「外部からのpush（取込API直叩き・手動アップロード）を待つだけ」を意味し、
+   * 監視だけを行う。取得手段が確定していない相手でも監視から先に始められる。
+   */
+  connector       IngestConnectorKind?
+  /** コネクタ設定（方式ごとに形が違うためJSON）。秘密情報は入れず secretRef で参照する */
+  connectorConfig Json?
+  /** 直近にコネクタを実行した時刻（多重起動・過剰ポーリングの抑制用） */
+  lastRunAt       DateTime?
+  /** 通知先（メール等）。未設定ならシステム既定の通知先へ */
+  notifyTo Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hotelId, source])
+  @@index([tenantId])
+}
+
+/**
+ * 自動取得の方式。
+ * PMSの提供形態が未確定（docs/pms-ingest-design.md §A-0）でも運用を始められるよう、
+ * 「どこにファイルが出てくるか」だけを抽象化している。
+ * - LOCAL_DIR: 監視ディレクトリ。クローラ/RPA/共有フォルダ同期の投入先として今日から使える
+ * - HTTPS:     認証付きURLから直接取得（サイトコントローラーのレポートDL等）
+ */
+enum IngestConnectorKind {
+  LOCAL_DIR
+  HTTPS
 }
 
 // ======================================

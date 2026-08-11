@@ -8,6 +8,12 @@ import {
   getIngestLogsService,
 } from '../services/ingestService.js'
 import { ingestFileService, listIngestProfiles } from '../services/fileIngestService.js'
+import {
+  getIngestStatusService,
+  upsertIngestSchedulesService,
+} from '../services/ingestMonitorService.js'
+import { runIngestConnectorsService } from '../services/ingestRunnerService.js'
+import { writeAuditLog } from '../services/auditService.js'
 
 /**
  * 宿泊実績1泊明細の取込（前日実績・過去データ移行）
@@ -64,4 +70,43 @@ export const ingestFile = asyncHandler(async (req: Request, res: Response) => {
  */
 export const getIngestProfiles = asyncHandler(async (_req: Request, res: Response) => {
   sendSuccess(res, listIngestProfiles())
+})
+
+/**
+ * 取込状況（未着検知）— 自動連携の監視用
+ * GET /api/v1/ingest/status?hotelId=
+ */
+export const getIngestStatus = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const result = await getIngestStatusService(hotelId)
+  sendSuccess(res, result)
+})
+
+/**
+ * 取込スケジュール設定（MANAGER 以上・監査対象）
+ * PUT /api/v1/ingest/schedules
+ */
+export const upsertIngestSchedules = asyncHandler(async (req: Request, res: Response) => {
+  const result = await upsertIngestSchedulesService(req.body)
+  await writeAuditLog({
+    tenantId: result.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'IngestSchedule',
+    entityId: req.body.hotelId,
+    newValue: { itemCount: result.upserted },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, '取込スケジュールを更新しました')
+})
+
+/**
+ * 自動取得を今すぐ実行する（スケジューラを待たずに試す / 外部スケジューラからの呼び出し口）
+ * POST /api/v1/ingest/run
+ */
+export const runIngestConnectors = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, source } = req.body as { hotelId: string; source?: string }
+  const result = await runIngestConnectorsService({ hotelId, source })
+  sendSuccess(res, result, 200, '自動取込を実行しました')
 })

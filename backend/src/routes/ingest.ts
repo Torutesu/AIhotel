@@ -7,6 +7,9 @@ import {
   ingestInventorySchema,
   ingestLogsQuerySchema,
   fileIngestSchema,
+  hotelIdQuerySchema,
+  upsertIngestSchedulesSchema,
+  runIngestSchema,
 } from '../lib/validators.js'
 import {
   ingestNights,
@@ -15,6 +18,9 @@ import {
   getIngestLogs,
   ingestFile,
   getIngestProfiles,
+  getIngestStatus,
+  upsertIngestSchedules,
+  runIngestConnectors,
 } from '../controllers/ingestController.js'
 
 // PMSデータ取込（Phase 4A — F-OH-01/02, F-INV-01, F-ING-01）
@@ -63,6 +69,32 @@ ingestRouter.post(
 
 // GET /api/v1/ingest/profiles — 取込プロファイル一覧（ホテル非依存のため認証のみ）
 ingestRouter.get('/profiles', getIngestProfiles)
+
+// GET /api/v1/ingest/status?hotelId= — 取込状況（未着検知。自動連携の監視用）
+ingestRouter.get(
+  '/status',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getIngestStatus
+)
+
+// PUT /api/v1/ingest/schedules — 期待到着時刻の設定（MANAGER 以上・監査対象）
+ingestRouter.put(
+  '/schedules',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(upsertIngestSchedulesSchema),
+  upsertIngestSchedules
+)
+
+// POST /api/v1/ingest/run — 自動取得を即時実行（通常は常駐スケジューラが動かす）
+ingestRouter.post(
+  '/run',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(runIngestSchema),
+  runIngestConnectors
+)
 
 // GET /api/v1/ingest/logs?hotelId=&limit= — 取込ログ（オペレーターも閲覧可）
 ingestRouter.get(

@@ -40,6 +40,33 @@ const envSchema = z.object({
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
   STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
+
+  // --- PMSデータの自動取込（docs/pms-ingest-design.md §A-3） ---
+  // バックエンド常駐のスケジューラを動かすか。既定は無効（開発中に勝手に外部へ取りに行かせない）
+  INGEST_SCHEDULER_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // スケジューラの起床間隔。期待時刻の精度はこの粒度になる
+  INGEST_SCHEDULER_INTERVAL_MS: z.coerce.number().int().min(10_000).default(300_000),
+  // LOCAL_DIR コネクタが読んでよいルート。ここより外は参照させない（パストラバーサル対策）
+  INGEST_INBOX_DIR: z.string().min(1).default('ingest-inbox'),
+  // コネクタが使う資格情報。{"tl-lincoln":"Bearer xxx"} 形式のJSON。DBには secretRef のみ保存する
+  INGEST_SECRETS: z
+    .string()
+    .default('{}')
+    .transform((raw, ctx) => {
+      try {
+        const parsed: unknown = JSON.parse(raw)
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('object expected')
+        }
+        return parsed as Record<string, string>
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'JSONオブジェクトで指定してください' })
+        return z.NEVER
+      }
+    }),
 })
 
 function loadConfig() {
