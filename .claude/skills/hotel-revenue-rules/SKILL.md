@@ -38,12 +38,14 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 ## ドメイン仕様の確定値
 
 - ロールは `ADMIN / MANAGER / OPERATOR` の3種（要件定義書 §4 準拠。STAFF/READONLYは廃止済み）。
-- 料金ランクは**部屋タイプ×レート区分（自社/会員/株優/OTA）×ランクコード（65〜0＋★1〜★5）**へ再設計中
-  （`docs/drive-gap-analysis.md` §2.1）。現行コードの「最大40段階」（バリデータ `max(40)`・seed・フロント表記）は
-  新モデル移行時に撤廃する。移行完了までは既存の40制約と整合させたまま触らないこと。
+- 料金ランクは**部屋タイプ×レート区分（自社/会員/株優/OTA）×ランクコード（65〜0＋★1〜★5の71段階）**。
+  `PriceRank` の一意キーは `hotelId + roomTypeId + rateCategory + rankCode`、並びは `sortOrder`（価格の安い順に0から）。
+  価格は**100円単位**（zodで強制）。旧「最大40段階・rank番号」構造は2026/8に撤廃済み。
 - 週末定義は**金・土**（チェックイン日基準、F-DAILY-02）。`Hotel.weekendDays`（デフォルト `[5, 6]`）を参照し、ハードコードしない。
-- 価格戦略の重み付け設定は**撤去予定**（モックアップ修正指示 — gap §3-3）。撤去までは `updateStrategySchema` の合計100%制約を維持。
-- 需要レベルは A〜E の5段階（`DemandLevel` enum）。**UI表示名は「アラート」**（gap §3-5）。
+- 価格戦略の重み付け設定は**撤去済み**（モックアップ修正指示 — gap §3-3）。`PricingStrategyConfig`・関連API・UIを復活させない。
+- 需要レベルは A〜E の5段階（`DemandLevel` enum）。**UI表示名は「アラート」**（gap §3-5）。ステータス列は重複のため設けない。
+- 特日は `SpecialDay`（HOLIDAY=祝日は色のみ / TOKUJITSU=特日は別色）。AI提示（source=AI）をオペレーターが修正すると MANUAL に切り替わる。
+- 部屋タイプ・セグメントの選択肢を画面にハードコードしない（`GET /hotels/:id/room-types`・`GET /settings/segments` を使う）。
 
 ## API契約
 
@@ -52,7 +54,12 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 
 ## 未実装領域（Phase 4 — 器だけ存在）
 
-PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成、バッチジョブ、PDF/Excel出力は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータで動く。これらを「実装済み」と記述・報告しない。
+PMS取得クローラ本体（Browser Use/RPA）、OTA/競合スクレイピング、承認→サイトコントローラー書き込み、
+需要予測ML（4エージェント構成）、Claude APIによるAIコメント生成、バッチジョブは未実装。
+これらを「実装済み」と記述・報告しない。
+
+一方、PDF/Excel出力・PMS取込API・オンハンド/残室/セグメント基盤・キャンセル分析・
+セグメント別/上位下位分析・定員稼働率・料金ランク新モデル・特日/外部要因は**実装済み**。
 
 ## コミット・検証
 
