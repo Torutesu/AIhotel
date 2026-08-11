@@ -351,8 +351,8 @@ services のビジネスロジック）へのAWS SDK直接依存は引き続き�
 
 | フェーズ | 内容 | 依存 |
 |---|---|---|
-| 4A データ基盤 | Reservation/ReservationNight/OnHandSnapshot/RoomInventorySnapshot/SegmentMaster、取込API、PMSクローラ（§2.3-2.5, 5.10）。HG2024/2025年CSVで検証 | - |
-| 4B 分析拡張 | キャンセル分析・上位/下位・期間比較・定員稼働率・残室ビュー・セグメント別分析の実API接続（§5.1-5.3） | 4A |
+| 4A データ基盤 | **実装済み（2026/8/11）** — SegmentMaster/Reservation/ReservationNight/OnHandSnapshot/RoomInventorySnapshot/IngestLog、`/api/v1/ingest/pms/*` 取込API、セグメントマスタseed 304件。PMSクローラ（§5.10）のみ未着手 | - |
+| 4B 分析拡張 | **バックエンド実装済み（2026/8/11）** — キャンセル分析・セグメント別分析(7軸・上位N)・上位下位分析・オンハンドカーブ(360日/10日刻み/前年対比)・残室ビュー・定員稼働率。フロントUIの実接続は未着手 | 4A |
 | 4C DP刷新 | 料金ランク新モデル・特日/外部要因マスタ・モックアップ修正の反映・重み付け撤去（§2.1, 3, 5.4） | 4A |
 | 4D 承認・SC連携 | PriceChangeProposal・SCコネクタ層・承認画面（§2.2） | 4C |
 | 4E AIエージェント | 4エージェント設計レビュー→実装、確信度・半自動モード、MLOps画面（§5.9） | 4A-4D |
