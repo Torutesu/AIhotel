@@ -1,5 +1,12 @@
-import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
+import { PrismaClient, UserRole, DemandLevel, AlertSeverity, SegmentKind } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import {
+  SOURCE_SEGMENTS,
+  CHANNEL_SEGMENTS,
+  MARKET_SEGMENTS,
+  REGION_SEGMENTS,
+  type SegmentSeedItem,
+} from './segmentMasterSeedData.js'
 
 const prisma = new PrismaClient()
 
@@ -362,6 +369,38 @@ async function main() {
     },
   })
   console.log('✅ Landing simulation')
+
+  // セグメントマスタ（F-SET-06 — Phase 4A。冪等: hotelId×kind×code でupsert）
+  const segmentSeeds: Array<[SegmentKind, SegmentSeedItem[]]> = [
+    [SegmentKind.SOURCE, SOURCE_SEGMENTS],
+    [SegmentKind.CHANNEL, CHANNEL_SEGMENTS],
+    [SegmentKind.MARKET, MARKET_SEGMENTS],
+    [SegmentKind.REGION, REGION_SEGMENTS],
+  ]
+  let segmentCount = 0
+  for (const [kind, items] of segmentSeeds) {
+    for (const [index, item] of items.entries()) {
+      await prisma.segmentMaster.upsert({
+        where: { hotelId_kind_code: { hotelId: hotel.id, kind, code: item.code } },
+        create: {
+          tenantId: tenant.id,
+          hotelId: hotel.id,
+          kind,
+          code: item.code,
+          name: item.name,
+          aggregateCode: item.aggregateCode ?? null,
+          sortOrder: index,
+        },
+        update: {
+          name: item.name,
+          aggregateCode: item.aggregateCode ?? null,
+          sortOrder: index,
+        },
+      })
+      segmentCount++
+    }
+  }
+  console.log(`✅ Segment masters: ${segmentCount}`)
 
   console.log('✨ Seeding completed!')
 }
