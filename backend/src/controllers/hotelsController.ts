@@ -7,6 +7,7 @@ import {
   createHotelService,
   updateHotelService,
   deleteHotelService,
+  getRoomTypesService,
 } from '../services/hotelsService.js'
 import { writeAuditLog } from '../services/auditService.js'
 
@@ -88,4 +89,13 @@ export const deleteHotel = asyncHandler(async (req: Request, res: Response) => {
     userAgent: req.headers['user-agent'],
   })
   sendDeleted(res)
+})
+
+/**
+ * 部屋タイプマスタ一覧
+ * GET /api/v1/hotels/:id/room-types
+ */
+export const getRoomTypes = asyncHandler(async (req: Request, res: Response) => {
+  const result = await getRoomTypesService(req.params.id)
+  sendSuccess(res, result)
 })

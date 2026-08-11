@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
-import { Slider } from "@/components/ui/slider"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AlertCircle, Table2, Calendar, Edit2, Save, CheckCircle2, Info, RefreshCw, Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -16,7 +15,23 @@ import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Bar, C
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type PricingCalendarDay, type PricingStrategy, type CreateEventInput } from "@/lib/api"
+import {
+  api,
+  ApiClientError,
+  type PricingCalendarDay,
+  type CreateEventInput,
+  type RoomTypeOption,
+  type RateCategory,
+  type LandingSimulation,
+} from "@/lib/api"
+
+// レート区分（販売料金表の行区分）
+const RATE_CATEGORIES: Array<{ value: RateCategory; label: string }> = [
+  { value: "OWN", label: "自社" },
+  { value: "MEMBER", label: "会員" },
+  { value: "SHAREHOLDER", label: "株優" },
+  { value: "OTA", label: "OTA" },
+]
 import type { Event as HotelEvent } from "@shared/types"
 
 const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -73,14 +88,17 @@ function toDateStr(d: Date): string {
 
 const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"]
 
-// 料金ランクのバッジカラー（バックエンドは40段階でランクを管理 — backend/prisma/seed.ts の PRICE_RANK_COUNT）
-const PRICE_RANK_COUNT = 40
-function getRankBadgeColor(rank: number): string {
-  const band = Math.ceil((rank / PRICE_RANK_COUNT) * 5)
-  if (band <= 1) return "bg-blue-500 text-white"
-  if (band <= 2) return "bg-cyan-500 text-white"
-  if (band <= 3) return "bg-green-500 text-white"
-  if (band <= 4) return "bg-yellow-500 text-black"
+// 料金ランクのバッジカラー。販売料金表のランクコードは
+// 数値が小さいほど高価格（65=最安 / 0=最高）で、★1〜★5 はさらに上位。
+function getRankBadgeColor(rankCode: string | null): string {
+  if (!rankCode) return "bg-muted text-muted-foreground"
+  if (rankCode.startsWith("★")) return "bg-red-600 text-white"
+  const n = Number.parseInt(rankCode, 10)
+  if (Number.isNaN(n)) return "bg-muted text-muted-foreground"
+  if (n >= 52) return "bg-blue-500 text-white"
+  if (n >= 39) return "bg-cyan-500 text-white"
+  if (n >= 26) return "bg-green-500 text-white"
+  if (n >= 13) return "bg-yellow-500 text-black"
   return "bg-red-500 text-white"
 }
 
@@ -118,11 +136,8 @@ function demandDescription(demand: string | null): string {
   }
 }
 
-function statusLabel(demand: string | null): { label: string; variant: "default" | "secondary" | "outline" } {
-  if (demand === "A" || demand === "B") return { label: "値上推奨", variant: "secondary" }
-  if (demand === "D" || demand === "E") return { label: "需要喚起要検討", variant: "outline" }
-  return { label: "適正", variant: "outline" }
-}
+// ステータス列はアラート（需要レベル）と重複するため削除した
+// （モックアップ修正内容.xlsx ④「ステータスはアラートと同じ内容であれば削除で良いと思います」）
 
 function avg(values: Array<number | null | undefined>): number | null {
   const valid = values.filter((v): v is number => v != null)
@@ -155,8 +170,6 @@ export function PricingTab() {
 
   const now = new Date()
   const [targetMonth, setTargetMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`)
-  const [displayMonths, setDisplayMonths] = useState("1")
-  const [roomType, setRoomType] = useState("all")
   const [calendarViewMode, setCalendarViewMode] = useState<"table" | "grid">("table")
 
   const [monthsData, setMonthsData] = useState<MonthCalendar[]>([])
@@ -186,29 +199,22 @@ export function PricingTab() {
   const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low">("medium")
   const [newEventLocation, setNewEventLocation] = useState("")
 
+  // 表示は1ヶ月固定（モックアップ修正内容.xlsx ①「表示月数は1か月のみとし、表示する月を選択できるように」）
   const monthRange = useMemo(() => {
     const [yearStr, monthStr] = targetMonth.split("-")
     const baseYear = Number.parseInt(yearStr, 10)
     const baseMonth = Number.parseInt(monthStr, 10)
-    const count = Number.parseInt(displayMonths, 10)
     const start = new Date(baseYear, baseMonth - 1, 1)
-    const end = new Date(baseYear, baseMonth - 1 + count, 0)
+    const end = new Date(baseYear, baseMonth, 0)
     return { startDate: toDateStr(start), endDate: toDateStr(end) }
-  }, [targetMonth, displayMonths])
+  }, [targetMonth])
 
-  // 価格戦略の重み付け
-  const [strategy, setStrategy] = useState<PricingStrategy | null>(null)
-  const [weightOccupancy, setWeightOccupancy] = useState(40)
-  const [weightCompetitor, setWeightCompetitor] = useState(20)
-  const weightAdr = Math.max(0, 100 - weightOccupancy - weightCompetitor)
-  const [isWeightDialogOpen, setIsWeightDialogOpen] = useState(false)
-  const [savingWeights, setSavingWeights] = useState(false)
-
-  const applyStrategy = useCallback((s: PricingStrategy) => {
-    setStrategy(s)
-    setWeightOccupancy(s.weightOccupancy)
-    setWeightCompetitor(s.weightCompetitor)
-  }, [])
+  // 部屋タイプ・レート区分（マスタから取得。全タイプ表示は廃止し先頭を既定にする — 同 ②）
+  const [roomTypes, setRoomTypes] = useState<RoomTypeOption[]>([])
+  const [selectedRoomTypeId, setSelectedRoomTypeId] = useState<string>("")
+  const [rateCategory, setRateCategory] = useState<RateCategory>("OWN")
+  const [landing, setLanding] = useState<LandingSimulation | null>(null)
+  const [hasPriceTable, setHasPriceTable] = useState(true)
 
   const loadData = useCallback(async () => {
     if (!hotelId) return
@@ -216,28 +222,35 @@ export function PricingTab() {
     setError(null)
     try {
       const [yearStr, monthStr] = targetMonth.split("-")
-      const baseYear = Number.parseInt(yearStr, 10)
-      const baseMonth = Number.parseInt(monthStr, 10)
-      const count = Number.parseInt(displayMonths, 10)
+      const year = Number.parseInt(yearStr, 10)
+      const month = Number.parseInt(monthStr, 10)
 
-      const targets = Array.from({ length: count }, (_, i) => {
-        const d = new Date(baseYear, baseMonth - 1 + i, 1)
-        return { year: d.getFullYear(), month: d.getMonth() + 1 }
-      })
-
-      const [calendars, strategyResult] = await Promise.all([
-        Promise.all(targets.map((t) => api.pricingCalendar(hotelId, t.year, t.month))),
-        api.pricingStrategy(hotelId),
+      const [calendarResult, landingResult] = await Promise.all([
+        api.pricingCalendar(hotelId, year, month, {
+          roomTypeId: selectedRoomTypeId || undefined,
+          rateCategory,
+        }),
+        api.landingSimulation(hotelId, year, month).catch(() => null),
       ])
 
-      setMonthsData(calendars.map((c) => ({ year: c.year, month: c.month, calendar: c.calendar })))
-      applyStrategy(strategyResult)
+      setMonthsData([
+        { year: calendarResult.year, month: calendarResult.month, calendar: calendarResult.calendar },
+      ])
+      setLanding(landingResult)
+      setHasPriceTable(calendarResult.hasPriceTable)
+      if (calendarResult.roomTypes.length > 0) {
+        setRoomTypes(calendarResult.roomTypes)
+        // 未選択なら既定（マスタ先頭）をバックエンドの選択結果に合わせる
+        if (!selectedRoomTypeId && calendarResult.roomType) {
+          setSelectedRoomTypeId(calendarResult.roomType.id)
+        }
+      }
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "データの取得に失敗しました")
     } finally {
       setLoading(false)
     }
-  }, [hotelId, targetMonth, displayMonths, applyStrategy])
+  }, [hotelId, targetMonth, selectedRoomTypeId, rateCategory])
 
   useEffect(() => {
     loadData()
@@ -318,31 +331,6 @@ export function PricingTab() {
       }
     },
     [hotelId, loadEvents]
-  )
-
-  const handleSaveWeights = useCallback(
-    async (weights?: { weightOccupancy: number; weightAdr: number; weightCompetitor: number }) => {
-      if (!hotelId) return
-      const payload = weights ?? { weightOccupancy, weightAdr, weightCompetitor }
-      if (payload.weightOccupancy + payload.weightAdr + payload.weightCompetitor !== 100) {
-        toast.error("重み付けの合計は100%にしてください")
-        return
-      }
-      setSavingWeights(true)
-      try {
-        const result = await api.updatePricingStrategy(hotelId, payload)
-        applyStrategy(result)
-        toast.success("重み付け設定を保存しました", {
-          description: `稼働率: ${result.weightOccupancy}%, ADR: ${result.weightAdr}%, 競合価格追従: ${result.weightCompetitor}%`,
-        })
-        setIsWeightDialogOpen(false)
-      } catch (err) {
-        toast.error(err instanceof ApiClientError ? err.message : "重み付け設定の保存に失敗しました")
-      } finally {
-        setSavingWeights(false)
-      }
-    },
-    [hotelId, weightOccupancy, weightAdr, weightCompetitor, applyStrategy]
   )
 
   // 月間サマリー（実データから集計）
@@ -434,144 +422,91 @@ export function PricingTab() {
             </div>
 
             <div className="flex items-center gap-1.5">
-              <Label htmlFor="display-months" className="text-xs whitespace-nowrap">表示月数</Label>
-              <Select value={displayMonths} onValueChange={setDisplayMonths}>
-                <SelectTrigger id="display-months" className="h-8 w-28 text-xs">
-                  <SelectValue />
+              <Label htmlFor="room-type" className="text-xs whitespace-nowrap">部屋タイプ</Label>
+              <Select value={selectedRoomTypeId} onValueChange={setSelectedRoomTypeId}>
+                <SelectTrigger id="room-type" className="h-8 w-56 text-xs">
+                  <SelectValue placeholder="部屋タイプを選択" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">1ヶ月</SelectItem>
-                  <SelectItem value="2">2ヶ月</SelectItem>
-                  <SelectItem value="3">3ヶ月</SelectItem>
+                  {roomTypes.map((rt) => (
+                    <SelectItem key={rt.id} value={rt.id}>
+                      {rt.code}｜{rt.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="flex items-center gap-1.5">
-              <Label htmlFor="room-type" className="text-xs whitespace-nowrap">部屋タイプ</Label>
-              <Select value={roomType} onValueChange={setRoomType}>
-                <SelectTrigger id="room-type" className="h-8 w-28 text-xs">
+              <Label htmlFor="rate-category" className="text-xs whitespace-nowrap">レート区分</Label>
+              <Select value={rateCategory} onValueChange={(v) => setRateCategory(v as RateCategory)}>
+                <SelectTrigger id="rate-category" className="h-8 w-24 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全タイプ</SelectItem>
-                  <SelectItem value="standard">スタンダード</SelectItem>
-                  <SelectItem value="deluxe">デラックス</SelectItem>
-                  <SelectItem value="suite">スイート</SelectItem>
+                  {RATE_CATEGORIES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* 価格戦略の重み付け設定ボタン */}
-            <Dialog open={isWeightDialogOpen} onOpenChange={setIsWeightDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs gap-2">
-                  <Edit2 className="w-3 h-3" />
-                  重み付け設定
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[550px]">
-                <DialogHeader>
-                  <DialogTitle className="text-lg font-semibold">価格戦略の重み付け設定</DialogTitle>
-                  <DialogDescription className="text-sm">
-                    各要素の重視度を設定してください（3項目の合計は常に100%になります）。
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-6 py-4">
-                  <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
-                    <div className="flex justify-between items-center">
-                      <Label className="text-sm font-semibold">1. 稼働率の重視度</Label>
-                      <div className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950/20 rounded-md border border-blue-200 dark:border-blue-800">
-                        <span className="text-base font-bold text-blue-700 dark:text-blue-300">{weightOccupancy}</span>
-                        <span className="text-xs font-medium text-blue-600 dark:text-blue-400">%</span>
-                      </div>
-                    </div>
-                    <Slider
-                      value={[weightOccupancy]}
-                      onValueChange={(value) => setWeightOccupancy(Math.min(value[0], 100 - weightCompetitor))}
-                      min={0}
-                      max={100}
-                      step={1}
-                    />
-                  </div>
+            {!hasPriceTable && !loading && (
+              <p className="text-xs text-[color:var(--negative)]">
+                この部屋タイプ・レート区分の料金表が未登録のため、推奨価格を表示できません
+              </p>
+            )}
 
-                  <div className="space-y-3 p-4 bg-muted/50 rounded-lg border">
-                    <div className="flex justify-between items-center">
-                      <Label className="text-sm font-semibold">2. 競合価格追従の重視度</Label>
-                      <div className="flex items-center gap-1 px-3 py-1.5 bg-purple-50 dark:bg-purple-950/20 rounded-md border border-purple-200 dark:border-purple-800">
-                        <span className="text-base font-bold text-purple-700 dark:text-purple-300">{weightCompetitor}</span>
-                        <span className="text-xs font-medium text-purple-600 dark:text-purple-400">%</span>
-                      </div>
-                    </div>
-                    <Slider
-                      value={[weightCompetitor]}
-                      onValueChange={(value) => setWeightCompetitor(Math.min(value[0], 100 - weightOccupancy))}
-                      min={0}
-                      max={100}
-                      step={1}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between px-2">
-                    <Label className="text-sm font-medium text-muted-foreground">3. ADRの重視度（自動算出）</Label>
-                    <div className="flex items-center gap-1 px-3 py-1.5 bg-green-50 dark:bg-green-950/20 rounded-md border border-green-200 dark:border-green-800">
-                      <span className="text-base font-bold text-green-700 dark:text-green-300">{weightAdr}</span>
-                      <span className="text-xs font-medium text-green-600 dark:text-green-400">%</span>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t flex items-center justify-between gap-3">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                      disabled={!strategy}
-                      onClick={() => {
-                        if (strategy) {
-                          setWeightOccupancy(strategy.weightOccupancy)
-                          setWeightCompetitor(strategy.weightCompetitor)
-                        }
-                      }}
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      保存済みの値に戻す
-                    </Button>
-                    <Button size="sm" className="gap-2" disabled={savingWeights} onClick={() => handleSaveWeights()}>
-                      {savingWeights ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      設定を保存
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
+            {/* 価格戦略の重み付け設定は撤去（モックアップ修正内容.xlsx ③）。
+                AI提案への介入は料金ランクの変更で行い、結果を着地予測に反映する。 */}
           </div>
 
           {/* サマリーカードを横並びに */}
           {loading ? (
-            <div className="grid grid-cols-4 gap-3 border-t pt-2.5">
-              {Array.from({ length: 4 }).map((_, i) => (
+            <div className="grid grid-cols-6 gap-3 border-t pt-2.5">
+              {Array.from({ length: 6 }).map((_, i) => (
                 <Skeleton key={i} className="h-16 w-full" />
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-4 gap-3 border-t pt-2.5">
+            /* 現在のADR/稼働率/RevPer と 着地予測のADR/稼働率/RevPer の6項目
+               （モックアップ修正内容.xlsx ④⑤⑥） */
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3 border-t pt-2.5">
               <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">実績ADR平均（本日まで）</p>
-                <div className="text-lg font-semibold mb-0.5">{yen(overallSummary.currentAdr)}</div>
+                <p className="text-xs text-muted-foreground mb-0.5">現在のADR</p>
+                <div className="text-lg font-semibold">
+                  {yen(landing?.current.adr ?? overallSummary.currentAdr)}
+                </div>
               </div>
               <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">当月AI着地予測ADR</p>
-                <div className="text-lg font-semibold mb-0.5">{yen(overallSummary.landingAdr)}</div>
+                <p className="text-xs text-muted-foreground mb-0.5">現在の稼働率</p>
+                <div className="text-lg font-semibold">
+                  {pct(landing?.current.occupancy ?? overallSummary.currentOccupancy)}
+                </div>
               </div>
               <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">実績RevPAR平均（本日まで）</p>
-                <div className="text-lg font-semibold mb-0.5">{yen(overallSummary.currentRevPar)}</div>
-                <div className="text-xs text-muted-foreground">稼働率: {pct(overallSummary.currentOccupancy)}</div>
+                <p className="text-xs text-muted-foreground mb-0.5">現在のRevPer</p>
+                <div className="text-lg font-semibold">
+                  {yen(landing?.current.revPar ?? overallSummary.currentRevPar)}
+                </div>
               </div>
               <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">当月AI着地予測RevPAR</p>
-                <div className="text-lg font-semibold mb-0.5">{yen(overallSummary.landingRevPar)}</div>
-                <div className="text-xs text-muted-foreground">稼働率予測: {pct(overallSummary.landingOccupancy)}</div>
+                <p className="text-xs text-muted-foreground mb-0.5">着地予測のADR</p>
+                <div className="text-lg font-semibold text-primary">
+                  {yen(landing?.projected.adr ?? overallSummary.landingAdr)}
+                </div>
+              </div>
+              <div className="flex flex-col">
+                <p className="text-xs text-muted-foreground mb-0.5">着地予測の稼働率</p>
+                <div className="text-lg font-semibold text-primary">
+                  {pct(landing?.projected.occupancy ?? overallSummary.landingOccupancy)}
+                </div>
+              </div>
+              <div className="flex flex-col">
+                <p className="text-xs text-muted-foreground mb-0.5">着地予測のRevPer</p>
+                <div className="text-lg font-semibold text-primary">
+                  {yen(landing?.projected.revPar ?? overallSummary.landingRevPar)}
+                </div>
               </div>
             </div>
           )}
@@ -639,22 +574,30 @@ export function PricingTab() {
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent side="top" className="max-w-xs">
-                                    <p className="text-xs">推奨価格に対応する料金表ランク（R01〜R40）です。</p>
+                                    <p className="text-xs">
+                                      推奨価格に対応する販売料金表のランクコード（65〜0＋★1〜★5）です。
+                                      数値が小さいほど高価格帯になります。
+                                    </p>
                                   </TooltipContent>
                                 </UITooltip>
                               </TooltipProvider>
                             </th>
                             <th className="text-right py-3 px-4 font-medium">稼働率予測</th>
-                            <th className="text-right py-3 px-4 font-medium">需要予測</th>
+                            {/* 需要予測(A-E)は「アラート」に名称変更。ステータス列はアラートと重複のため削除
+                                （モックアップ修正内容.xlsx ④） */}
+                            <th className="text-right py-3 px-4 font-medium">アラート</th>
                             <th className="text-right py-3 px-4 font-medium">競合平均</th>
-                            <th className="text-center py-3 px-4 font-medium">ステータス</th>
+                            {/* 実績確定後に表示する結果系と推奨との差異（同 ⑤） */}
+                            <th className="text-right py-3 px-4 font-medium">ADR結果</th>
+                            <th className="text-right py-3 px-4 font-medium">稼働率結果</th>
+                            <th className="text-right py-3 px-4 font-medium">推奨ADR差異</th>
+                            <th className="text-right py-3 px-4 font-medium">推奨稼働率差異</th>
                           </tr>
                         </thead>
                         <tbody>
                           {days.map((day) => {
                             const [, , dayNum] = day.date.split("-")
                             const dow = new Date(day.date).getDay()
-                            const status = statusLabel(day.demandLevel)
                             return (
                               <tr
                                 key={day.date}
@@ -664,12 +607,36 @@ export function PricingTab() {
                                 <td className="py-3 px-4 font-medium">
                                   {monthData.month}/{Number(dayNum)}
                                 </td>
-                                <td className="py-3 px-4">{DAY_NAMES[dow]}</td>
+                                <td className="py-3 px-4">
+                                  <span
+                                    className={
+                                      dow === 0
+                                        ? "text-red-600 dark:text-red-400"
+                                        : dow === 6
+                                          ? "text-blue-600 dark:text-blue-400"
+                                          : ""
+                                    }
+                                  >
+                                    {DAY_NAMES[dow]}
+                                  </span>
+                                  {/* 特日は別色バッジで表示（F-DP-08） */}
+                                  {day.specialDay && (
+                                    <span
+                                      className={`ml-1.5 text-[10px] px-1 rounded ${
+                                        day.specialDay.kind === "TOKUJITSU"
+                                          ? "bg-amber-500 text-white"
+                                          : "bg-rose-400 text-white"
+                                      }`}
+                                    >
+                                      {day.specialDay.name}
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="text-right py-3 px-4 font-semibold">{yen(day.recommendedPrice)}</td>
                                 <td className="text-center py-3 px-4">
-                                  {day.rankLabel ? (
-                                    <Badge className={`${getRankBadgeColor(day.recommendedRank ?? 0)} text-xs font-bold px-2`}>
-                                      {day.rankLabel}
+                                  {day.recommendedRankCode ? (
+                                    <Badge className={`${getRankBadgeColor(day.recommendedRankCode)} text-xs font-bold px-2`}>
+                                      {day.recommendedRankCode}
                                     </Badge>
                                   ) : (
                                     <span className="text-muted-foreground text-xs">-</span>
@@ -684,8 +651,27 @@ export function PricingTab() {
                                   )}
                                 </td>
                                 <td className="text-right py-3 px-4">{yen(day.competitorAvgPrice)}</td>
-                                <td className="text-center py-3 px-4">
-                                  <Badge variant={status.variant}>{status.label}</Badge>
+                                <td className="text-right py-3 px-4">
+                                  {day.actualAdr != null ? yen(day.actualAdr) : "-"}
+                                </td>
+                                <td className="text-right py-3 px-4">
+                                  {day.actualOccupancy != null ? pct(day.actualOccupancy) : "-"}
+                                </td>
+                                <td
+                                  className={`text-right py-3 px-4 ${
+                                    (day.adrDiff ?? 0) < 0 ? "text-[color:var(--negative)]" : (day.adrDiff ?? 0) > 0 ? "text-green-600" : ""
+                                  }`}
+                                >
+                                  {day.adrDiff != null ? `${day.adrDiff > 0 ? "+" : ""}${day.adrDiff.toLocaleString()}` : "-"}
+                                </td>
+                                <td
+                                  className={`text-right py-3 px-4 ${
+                                    (day.occupancyDiff ?? 0) < 0 ? "text-[color:var(--negative)]" : (day.occupancyDiff ?? 0) > 0 ? "text-green-600" : ""
+                                  }`}
+                                >
+                                  {day.occupancyDiff != null
+                                    ? `${day.occupancyDiff > 0 ? "+" : ""}${(day.occupancyDiff * 100).toFixed(1)}pt`
+                                    : "-"}
                                 </td>
                               </tr>
                             )
@@ -971,16 +957,15 @@ export function PricingTab() {
                   <div className="space-y-6 mt-4">
                     <div className="border rounded-lg p-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <div className="font-medium">推奨価格（料金ランク {day.rankLabel ?? "-"}）</div>
+                        <div className="font-medium">推奨価格（料金ランク {day.recommendedRankCode ?? "-"}）</div>
                         {day.confidence != null && <Badge variant="outline" className="text-xs">信頼度 {(day.confidence * 100).toFixed(0)}%</Badge>}
                       </div>
-                      <div className="grid grid-cols-3 gap-4 text-sm">
-                        <div>1名料金：{yen(day.price1P)}</div>
-                        <div>2名料金：{yen(day.price2P)}</div>
-                        <div>3名料金：{yen(day.price3P)}</div>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>販売価格：{yen(day.recommendedPrice)}</div>
+                        <div>特日：{day.specialDay?.name ?? "-"}</div>
                       </div>
                       <div className="grid grid-cols-2 gap-4 text-sm border-t pt-3">
-                        <div>需要予測：{day.demandLevel ?? "-"}（{demandDescription(day.demandLevel)}）</div>
+                        <div>アラート：{day.demandLevel ?? "-"}（{demandDescription(day.demandLevel)}）</div>
                         <div>稼働率予測：{pct(day.predictedOccupancy)}</div>
                         <div>競合平均価格：{yen(day.competitorAvgPrice)}</div>
                         <div>AI予測ADR：{yen(day.predictedAdr)}</div>
@@ -1148,13 +1133,15 @@ export function PricingTab() {
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                       <Card className="border-primary/50 bg-primary/5">
                         <CardHeader className="pb-3">
-                          <CardTitle className="text-sm font-medium text-primary">推奨価格 & 料金ランク</CardTitle>
+                          <CardTitle className="text-sm font-medium text-primary">推奨価格 & 料金ランク（AI）</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-semibold text-primary">{yen(day.recommendedPrice)}</div>
                           <div className="flex items-center gap-2 mt-1">
-                            {day.rankLabel && (
-                              <Badge className={`${getRankBadgeColor(day.recommendedRank ?? 0)} text-sm font-bold`}>{day.rankLabel}</Badge>
+                            {day.recommendedRankCode && (
+                              <Badge className={`${getRankBadgeColor(day.recommendedRankCode)} text-sm font-bold`}>
+                                {day.recommendedRankCode}
+                              </Badge>
                             )}
                           </div>
                         </CardContent>
@@ -1296,12 +1283,27 @@ function PriceGrid({
                   ${cell.isCurrentMonth && cell.data ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}
                 `}
               >
-                <div
-                  className={`font-medium mb-1 inline-flex items-center justify-center ${
-                    cell.dayOfWeek === 0 ? "text-red-600 dark:text-red-400" : cell.dayOfWeek === 6 ? "text-blue-600 dark:text-blue-400" : ""
-                  }`}
-                >
-                  {cell.date}
+                <div className="flex items-center gap-1 mb-1">
+                  <span
+                    className={`font-medium inline-flex items-center justify-center ${
+                      cell.dayOfWeek === 0 ? "text-red-600 dark:text-red-400" : cell.dayOfWeek === 6 ? "text-blue-600 dark:text-blue-400" : ""
+                    }`}
+                  >
+                    {cell.date}
+                  </span>
+                  {/* 祝日は色のみ、特日は別色で表示（モックアップ修正内容.xlsx — F-DP-08） */}
+                  {cell.data?.specialDay && (
+                    <span
+                      title={cell.data.specialDay.name}
+                      className={`text-[9px] px-1 rounded ${
+                        cell.data.specialDay.kind === "TOKUJITSU"
+                          ? "bg-amber-500 text-white"
+                          : "bg-rose-400 text-white"
+                      }`}
+                    >
+                      {cell.data.specialDay.name}
+                    </span>
+                  )}
                 </div>
 
                 {info && (info.eventInfo || info.externalFactors) && (
@@ -1314,9 +1316,14 @@ function PriceGrid({
 
                 {cell.isCurrentMonth && cell.data ? (
                   <div className="space-y-0.5 text-[10px] leading-tight mt-1">
-                    <div>1P-{cell.data.price1P?.toLocaleString() ?? "-"}</div>
-                    <div>2P-{cell.data.price2P?.toLocaleString() ?? "-"}</div>
-                    <div>3P-{cell.data.price3P?.toLocaleString() ?? "-"}</div>
+                    <div className="font-medium">
+                      {cell.data.recommendedPrice != null
+                        ? `¥${cell.data.recommendedPrice.toLocaleString()}`
+                        : "-"}
+                    </div>
+                    <div className="text-muted-foreground">
+                      ランク {cell.data.recommendedRankCode ?? "-"}
+                    </div>
                   </div>
                 ) : cell.isCurrentMonth ? (
                   <div className="text-[10px] text-muted-foreground mt-1">データなし</div>

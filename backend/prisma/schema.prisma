@@ -36,7 +36,6 @@ model Tenant {
   auditLogs                AuditLog[]
   refreshTokens            RefreshToken[]
   monthlyBudgets           MonthlyBudget[]
-  pricingStrategyConfigs   PricingStrategyConfig[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -46,6 +45,17 @@ model Tenant {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  segmentMasters           SegmentMaster[]
+  reservations             Reservation[]
+  reservationNights        ReservationNight[]
+  onHandSnapshots          OnHandSnapshot[]
+  roomInventorySnapshots   RoomInventorySnapshot[]
+  ingestLogs               IngestLog[]
+  ingestSchedules          IngestSchedule[]
+  forecastSnapshots        ForecastSnapshot[]
+  forecastModels           ForecastModel[]
+  specialDays              SpecialDay[]
+  externalFactors          ExternalFactor[]
 }
 
 // ======================================
@@ -124,7 +134,6 @@ model Hotel {
   competitors              Competitor[]
   events                   Event[]
   monthlyBudgets           MonthlyBudget[]
-  pricingStrategyConfigs   PricingStrategyConfig[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -134,6 +143,17 @@ model Hotel {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  segmentMasters           SegmentMaster[]
+  reservations             Reservation[]
+  reservationNights        ReservationNight[]
+  onHandSnapshots          OnHandSnapshot[]
+  roomInventorySnapshots   RoomInventorySnapshot[]
+  ingestLogs               IngestLog[]
+  ingestSchedules          IngestSchedule[]
+  forecastSnapshots        ForecastSnapshot[]
+  forecastModels           ForecastModel[]
+  specialDays              SpecialDay[]
+  externalFactors          ExternalFactor[]
 
   @@index([tenantId])
 }
@@ -155,6 +175,7 @@ model RoomType {
 
   dailyRoomData          DailyRoomData[]
   aiPriceRecommendations AiPriceRecommendation[]
+  priceRanks             PriceRank[]
 
   @@unique([hotelId, code])
   @@index([tenantId])
@@ -165,44 +186,43 @@ model RoomType {
 // Pricing Configuration
 // ======================================
 
-// 料金ランクマスタ（最大40段階 — F-SET-02）
+// 料金ランクマスタ（F-SET-02 — docs/drive-gap-analysis.md §2.1）
+// 販売料金表（■HG_販売料金表.xlsx）の構造をそのまま表現する:
+//   部屋タイプ × レート区分（自社/会員/株優/OTA） × ランクコード（"65"〜"0" ＋ "★1"〜"★5"）
+// ランクコードは数値でない値（★n）を含むため String で保持し、並び順は sortOrder で制御する。
+// 旧「最大40段階」制約は2026/8に撤廃。価格は100円単位の設定に対応する。
 model PriceRank {
-  id        String   @id @default(cuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId   String
-  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  rank      Int // 1〜40
-  label     String // R01, R02, ...
-  price1P   Int
-  price2P   Int
-  price3P   Int?
-  price4P   Int?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String       @id @default(cuid())
+  tenantId     String
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel        @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomTypeId   String
+  roomType     RoomType     @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  rateCategory RateCategory
+  rankCode     String // "65".."0", "★1".."★5"
+  sortOrder    Int // 高価格側ほど大きい値。ランクコードの表示・探索順に使う
+  price        Int // 宿泊税別・100円単位
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
-  @@unique([hotelId, rank])
+  @@unique([hotelId, roomTypeId, rateCategory, rankCode])
   @@index([tenantId])
-  @@index([hotelId])
+  @@index([hotelId, roomTypeId, rateCategory])
 }
 
-// 価格戦略の重み付け設定（F-DP-02）
-model PricingStrategyConfig {
-  id               String   @id @default(cuid())
-  tenantId         String
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId          String   @unique // ホテルごとに1設定
-  hotel            Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  weightOccupancy  Int      @default(40) // 稼働率重視 (%)
-  weightAdr        Int      @default(40) // ADR重視 (%)
-  weightCompetitor Int      @default(20) // 競合追従度 (%)
-  updatedByUserId  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  @@index([tenantId])
+// レート区分（販売料金表の行区分）
+enum RateCategory {
+  OWN // 自社
+  MEMBER // 会員
+  SHAREHOLDER // 株優
+  OTA // OTA
 }
+
+// 価格戦略の重み付け設定（旧 F-DP-02）は 2026/8 に撤去した。
+// AI提案への介入は「料金ランクの変更」で行い、その結果を着地予測に反映する方式へ変更
+// （モックアップ修正内容.xlsx ③ / docs/drive-gap-analysis.md §3-3）。
 
 // ======================================
 // Daily Data & Performance
@@ -250,12 +270,13 @@ model DailyRoomData {
   roomTypeId  String
   roomType    RoomType  @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
 
-  priceRank Int?
-  price1P   Int?
-  price2P   Int?
-  price3P   Int?
-  soldRooms Int?
-  revenue   Float?
+  // 適用された料金ランクコード（"65".."0" / "★1".."★5" — 新ランク体系）
+  priceRankCode String?
+  price1P       Int?
+  price2P       Int?
+  price3P       Int?
+  soldRooms     Int?
+  revenue       Float?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -348,10 +369,13 @@ model AiPriceRecommendation {
   roomType   RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
   date       DateTime  @db.Date
 
-  predictedOccupancy Float?
-  predictedAdr       Float?
-  recommendedRank    Int?
-  recommendedPrice   Int?
+  predictedOccupancy  Float?
+  predictedAdr        Float?
+  // 推奨ランク。新モデルではランクコード（"65".."0"/"★1".."★5"）を正とする。
+  // recommendedRank は sortOrder ベースの数値表現（グラフ・比較用）
+  recommendedRank     Int?
+  recommendedRankCode String?
+  recommendedPrice    Int?
   demandLevel        DemandLevel?
   confidence         Float? // 0-1
   modelVersion       String?
@@ -618,6 +642,399 @@ model Event {
   @@index([tenantId])
   @@index([hotelId])
   @@index([startDate, endDate])
+}
+
+// ======================================
+// PMS Ingest & On-Hand — Phase 4A
+// （F-OH-01/02/03, F-INV-01, F-SET-06, F-ING-01 — docs/drive-gap-analysis.md §2.3-2.5, 5.10）
+// ======================================
+
+// セグメントマスタ（F-SET-06）。マスタ設定.xlsx / PMSコードマスターを取り込む。
+// aggregateCode は集計コード（MC集約・地域集計・ソース集計等）、attributes はPMS固有の
+// 追加属性（地域の分割1〜4、AGTの種別・施策等）を保持する。
+model SegmentMaster {
+  id            String      @id @default(cuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId       String
+  hotel         Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  kind          SegmentKind
+  code          String
+  name          String
+  aggregateCode String?
+  attributes    Json?
+  sortOrder     Int         @default(0)
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([hotelId, kind, code])
+  @@index([tenantId])
+  @@index([hotelId, kind])
+}
+
+enum SegmentKind {
+  SOURCE // 目的（ビジネス/観光等）
+  CHANNEL // 利用形態（1名利用/夫婦/家族等）
+  MARKET // 販路・個人団体区分（MCコード）
+  REGION // 地域コード（都道府県・海外）
+  AGENT // エージェント（AGTCD）
+  RATE_TYPE // 料金タイプ
+  ROOM_GROUP // 部屋タイプグループ
+  CHANNEL_GROUP // 販路グループ
+  REGION_GROUP // 地域グループ（ツール上のマスタ設定で編集可）
+}
+
+// オンハンド予約明細（F-OH-01）。PMSデータ自動取得アプリが毎日送る
+// 「当日から180日分の予約情報」の断面（capturedDate単位で全量置換）。
+// PMSの予約番号は個人情報扱いで取得しないため（仕様書Ⅲ章3.3）、明細に安定IDは無い。
+model Reservation {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  capturedDate DateTime  @db.Date // このオンハンド断面の取得日
+  bookedAt     DateTime? // 予約日
+  cancelledAt  DateTime? // キャンセル日
+  checkIn      DateTime  @db.Date
+  checkOut     DateTime  @db.Date
+  roomTypeCode String
+  rateTypeCode String?
+  packageCode  String?
+  rooms        Int
+  guests       Int?
+  roomRevenue  Float? // 室料NET（滞在合計）
+  serviceFee   Float?
+  agentCode    String?
+  regionCode   String?
+  marketCode   String?
+  isGroup      Boolean   @default(false)
+  ingestLogId  String?
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, capturedDate])
+  @@index([hotelId, checkIn])
+}
+
+// 宿泊実績1泊明細（F-OH-01）。HG月次データ（計上日単位）をそのまま保持する。
+// 計上日を持たないPMSの予約データは取込時に1泊単位へ展開して格納する（機能リスト要件）。
+model ReservationNight {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId             String
+  hotel               Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  stayDate            DateTime @db.Date // 計上日
+  roomTypeCode        String
+  rateTypeCode        String?
+  packageCode         String?
+  rooms               Int
+  guests              Int?
+  guestsDetail        Json? // 男/女/子供人数等の内訳
+  roomRevenue         Float? // 室料NET（当該泊）
+  serviceFee          Float?
+  agentCode           String?
+  regionCode          String?
+  marketCode          String?
+  individualGroupType String? // 個人団体区分（I/G等）
+  buildingCode        String? // 棟コード
+  blockCode           String?
+  checkIn             DateTime? @db.Date
+  checkOut            DateTime? @db.Date
+  isDayUse            Boolean  @default(false)
+  compHuType          String? // COMP/HU区分
+  ingestLogId         String?
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+}
+
+// オンハンド日次スナップショット（F-OH-02/03）。
+// (宿泊日, 取得日) 単位の予約積上。KPI表・ブッキングカーブ・月初/期間比較の基盤。
+// BookingCurveData（roomsBookedのみ）の後継。segments に内訳を保持する。
+model OnHandSnapshot {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  stayDate     DateTime @db.Date
+  capturedDate DateTime @db.Date
+  rooms        Int
+  revenue      Float?
+  guests       Int?
+  segments     Json? // { byRoomType: {code: {rooms, revenue}}, byMarket: {...} } 等の内訳
+  createdAt    DateTime @default(now())
+
+  @@unique([hotelId, stayDate, capturedDate])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+  @@index([hotelId, capturedDate])
+}
+
+// 残室推移スナップショット（F-INV-01 — ◆HG2608残室.xlsx の再現）。
+// PMSは過去日の残室を表示できないため、日次で取得して推移を記録する。
+model RoomInventorySnapshot {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId        String
+  hotel          Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomTypeCode   String
+  stayDate       DateTime @db.Date
+  capturedDate   DateTime @db.Date
+  remainingRooms Int
+  totalRooms     Int?
+  createdAt      DateTime @default(now())
+
+  @@unique([hotelId, roomTypeCode, stayDate, capturedDate])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+}
+
+// PMS取込ログ（F-ING-01 — 仕様書Ⅲ章3.5: 成功/失敗・開始終了時間・取得項目を記録、最低1年保持）
+model IngestLog {
+  id              String       @id @default(cuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId         String
+  hotel           Hotel        @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  source          String // pms-nights / pms-reservations / pms-inventory 等
+  status          IngestStatus
+  startedAt       DateTime
+  finishedAt      DateTime?
+  targetDate      DateTime?    @db.Date // capturedDate 等の対象日
+  rowCount        Int?
+  columns         Json? // 取得したデータ項目
+  error           String?
+  createdByUserId String?
+  /** 取得元の識別子（ファイル名 / URL 等）。自動取得の追跡用 */
+  origin          String?
+  /** 取り込んだファイル内容のSHA-256。同一ファイルの二重取込を避ける */
+  checksum        String?
+  createdAt       DateTime     @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, createdAt])
+  @@index([hotelId, source, checksum])
+}
+
+enum IngestStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+// 取込スケジュール（F-ING-01 — 仕様書Ⅲ章3.2/3.4）
+// 「毎日この時刻までにこのデータが届くはず」を宣言し、届かなければ未着として検知する。
+// 取得側（クローラ/SC連携/手動）が何であっても、届いたかどうかだけを監視する設計。
+model IngestSchedule {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  /** IngestLog.source と対応（pms-nights / pms-reservations / pms-inventory / segments） */
+  source   String
+  /** 使用する取込プロファイルID（参考情報） */
+  profileId String?
+  /** 期待到着時刻 HH:MM（timeZone基準）。PMS夜間バッチ完了後の想定時刻 */
+  expectedAt String
+  /** 判定に使うタイムゾーン。サーバのローカル時刻に依存させないため明示的に持つ */
+  timeZone   String @default("Asia/Tokyo")
+  /** 猶予分数。これを過ぎても未着ならアラート対象 */
+  graceMinutes Int @default(60)
+  enabled  Boolean @default(true)
+  /**
+   * バックエンドが自分で取りに行く方式。
+   * null は「外部からのpush（取込API直叩き・手動アップロード）を待つだけ」を意味し、
+   * 監視だけを行う。取得手段が確定していない相手でも監視から先に始められる。
+   */
+  connector       IngestConnectorKind?
+  /** コネクタ設定（方式ごとに形が違うためJSON）。秘密情報は入れず secretRef で参照する */
+  connectorConfig Json?
+  /** 直近にコネクタを実行した時刻（多重起動・過剰ポーリングの抑制用） */
+  lastRunAt       DateTime?
+  /** 通知先（メール等）。未設定ならシステム既定の通知先へ */
+  notifyTo Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hotelId, source])
+  @@index([tenantId])
+}
+
+/**
+ * 自動取得の方式。
+ * PMSの提供形態が未確定（docs/pms-ingest-design.md §A-0）でも運用を始められるよう、
+ * 「どこにファイルが出てくるか」だけを抽象化している。
+ * - LOCAL_DIR: 監視ディレクトリ。クローラ/RPA/共有フォルダ同期の投入先として今日から使える
+ * - HTTPS:     認証付きURLから直接取得（サイトコントローラーのレポートDL等）
+ */
+enum IngestConnectorKind {
+  LOCAL_DIR
+  HTTPS
+}
+
+// 予測スナップショット（Phase 4E — docs/ai-agent-design.md §9）
+// 「いつ時点で、どのモデルが、何を予測したか」を残す。
+// AiPriceRecommendation は最新の推奨だけを保持して上書きされるため、
+// 後から精度を測れない。精度目標（エラー率±10%以内）を測定可能にするには
+// 予測時点つきの履歴が要る。
+model ForecastSnapshot {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  /** 予測対象の宿泊日 */
+  stayDate     DateTime @db.Date
+  /** いつ時点の予測か。これより後の情報を使っていないことが前提 */
+  predictedAt  DateTime @db.Date
+  /** stayDate - predictedAt。予測時点別の誤差集計に使う */
+  leadTimeDays Int
+
+  predictedOccupancy Float
+  /** 確信度スコア（0〜1 — 設計 §4） */
+  confidence         Float
+  modelVersion       String
+
+  /** 宿泊日到来後に埋める実績稼働率。未確定の間は null */
+  actualOccupancy Float?
+  /** |予測 - 実績|。集計を軽くするため保存時に計算しておく */
+  absError        Float?
+  /** 実績を埋めた時刻 */
+  scoredAt        DateTime?
+
+  /** 使用した特徴量ベクトル。学習の再現・原因調査用 */
+  features Json?
+
+  createdAt DateTime @default(now())
+
+  @@unique([hotelId, stayDate, predictedAt, modelVersion])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+  @@index([hotelId, predictedAt])
+}
+
+// 学習済み需要予測モデル（Phase 4E — docs/ai-agent-design.md §2）
+// 毎日 Ridge と GBM を学習し、検証誤差の小さい方を採用して保存する。
+// 過去のモデルは履歴として残し、有効なのは isActive=true の1件のみ。
+model ForecastModel {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  /** ForecastSnapshot.modelVersion と対応 */
+  modelVersion String
+  /** ridge / gbm */
+  algorithm    String
+  sampleCount  Int
+  /** 採用の根拠となった検証誤差（MAE） */
+  validationMae Float
+
+  /** 特徴量の名前。並び順を変えたモデルを誤って読まないための照合用 */
+  featureNames      Json
+  /** 特徴量の寄与度（0〜1に正規化）。MLOps画面が読む */
+  featureImportance Json
+  /** アルゴリズム固有のパラメータ（係数 / 木構造） */
+  params            Json
+  /** 採用しなかった候補の検証誤差。選択理由を後から説明できるように残す */
+  candidates        Json?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, isActive])
+}
+
+// ======================================
+// 特日・外部要因（Phase 4C — F-DP-08, F-EXT-01）
+// 出典: 外部要因と旅行（宿泊）の関連付け.xlsx / モックアップ修正内容.xlsx
+// ======================================
+
+// 特日マスタ（F-DP-08）。プライシングカレンダーの曜日欄で
+// 祝日は色のみ、特日（お盆・年末年始等）は別色で表示する。
+// AIが提示した候補をオペレーターがマスタ設定画面で修正できるよう source を持つ。
+model SpecialDay {
+  id        String         @id @default(cuid())
+  tenantId  String
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId   String
+  hotel     Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date      DateTime       @db.Date
+  name      String // 年末年始 / お盆 / 中国春節 等
+  kind      SpecialDayKind
+  color     String? // カレンダー表示色（未指定ならUI既定色）
+  source    DataSource     @default(MANUAL)
+  note      String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  @@unique([hotelId, date, name])
+  @@index([tenantId])
+  @@index([hotelId, date])
+}
+
+enum SpecialDayKind {
+  HOLIDAY // 祝日（色のみ）
+  TOKUJITSU // 特日（別色。お盆・年末年始・春節等）
+}
+
+enum DataSource {
+  AI // AIが提示
+  MANUAL // オペレーターが登録・修正
+}
+
+// 外部要因（F-EXT-01）。起因カテゴリ × 時間軸で分類する。
+// 需要予測への付加データおよび事実/予測コメントの根拠として使う。
+model ExternalFactor {
+  id          String         @id @default(cuid())
+  tenantId    String
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel          @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  category    FactorCategory
+  timeAxis    FactorTimeAxis
+  title       String
+  description String?
+  startDate   DateTime       @db.Date
+  endDate     DateTime       @db.Date
+  // 影響度（-1.0〜1.0 想定。マイナスは需要減）。AI学習前は未設定でよい
+  impactScore Float?
+  area        String? // 首都圏 / 区内 / 全国 等
+  source      DataSource     @default(MANUAL)
+  sourceUrl   String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([tenantId])
+  @@index([hotelId, startDate, endDate])
+}
+
+// 起因カテゴリ（外部要因xlsx ②〜⑦）
+enum FactorCategory {
+  WEATHER // 天候（気温/梅雨/台風/風水害/降雪/地震）
+  INBOUND // インバウンド動向（JNTO・海外SNS）
+  EVENT // イベント（催事・桜・紅葉・収穫）
+  ACCESS // アクセス（高速道路・航空・新幹線）
+  NEW_HOTEL // 周辺の新規ホテル
+  ECONOMY // 経済動向（物価・株価・為替・消費）
+  OTHER
+}
+
+// 時間軸の分類（外部要因xlsx a/b/c）
+enum FactorTimeAxis {
+  TOKUJITSU // a. 特日
+  PERIOD // b. 各種要因による期間
+  DAILY // c. デイリー
 }
 
 // ======================================

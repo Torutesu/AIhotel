@@ -4,9 +4,17 @@
 // next.config.mjs の rewrites により /api/* はバックエンドへプロキシされる。
 // 直接バックエンドURLを叩く場合は NEXT_PUBLIC_BACKEND_URL を設定する。
 
-import type { ApiResponse, User, UserRole, Hotel, Event as HotelEvent, PriceRank } from "@shared/types"
+import type {
+  ApiResponse,
+  User,
+  UserRole,
+  Hotel,
+  Event as HotelEvent,
+  PriceRank,
+  RateCategory,
+} from "@shared/types"
 
-export type { Hotel, PriceRank }
+export type { Hotel, PriceRank, RateCategory }
 export type { Event as HotelEvent } from "@shared/types"
 
 const ACCESS_TOKEN_KEY = "hrms.accessToken"
@@ -216,8 +224,13 @@ export interface DashboardKpi {
     soldRooms: number
     adr: number
     occupancyRate: number
+    /** 定員稼働率 = 宿泊人数 / 総定員（F-KPI-01）。部屋タイプマスタ未整備時は null */
+    capacityOccupancyRate: number | null
+    /** 総定員（Σ capacity × count） */
+    totalCapacity: number
     revPar: number
     guests: number
+    /** DOR = Double Occupancy Rate（宿泊人数 / 販売室数） */
     dor: number
     guestUnitPrice: number
     actualDays: number
@@ -267,37 +280,101 @@ export interface AiSummary {
   generatedAt: string
 }
 
+export interface RoomTypeOption {
+  id: string
+  code: string
+  name: string
+  capacity: number
+}
+
+export interface SpecialDayMark {
+  name: string
+  /** HOLIDAY=祝日（色のみ）/ TOKUJITSU=特日（別色） */
+  kind: "HOLIDAY" | "TOKUJITSU"
+  color: string | null
+}
+
 export interface PricingCalendarDay {
   date: string
+  /** 需要レベルA〜E。画面表示名は「アラート」（モックアップ修正 ④） */
   demandLevel: "A" | "B" | "C" | "D" | "E" | null
-  recommendedRank: number | null
+  recommendedRankCode: string | null
   recommendedPrice: number | null
-  rankLabel: string | null
-  price1P: number | null
-  price2P: number | null
-  price3P: number | null
   predictedOccupancy: number | null
   predictedAdr: number | null
   actualOccupancy: number | null
   actualAdr: number | null
+  /** 推奨との差異（実績確定後のみ。AI学習・コメント材料） */
+  adrDiff: number | null
+  occupancyDiff: number | null
   competitorAvgPrice: number | null
   confidence: number | null
+  specialDay: SpecialDayMark | null
 }
 
 export interface PricingCalendar {
   hotelId: string
   year: number
   month: number
+  roomType: RoomTypeOption | null
+  roomTypes: RoomTypeOption[]
+  rateCategory: RateCategory
+  /** この部屋タイプ×レート区分に料金表が登録されているか */
+  hasPriceTable: boolean
   calendar: PricingCalendarDay[]
 }
 
-export interface PricingStrategy {
-  id: string
+export interface LandingSimulation {
   hotelId: string
-  weightOccupancy: number
-  weightAdr: number
-  weightCompetitor: number
+  year: number
+  month: number
+  /** 現在値（実績集計） */
+  current: {
+    adr: number | null
+    occupancy: number | null
+    revPar: number | null
+    actualDays: number
+  }
+  /** 着地予測 */
+  projected: {
+    adr: number | null
+    occupancy: number | null
+    revPar: number | null
+    revenue: number | null
+    rooms: number | null
+  }
+  budget: {
+    budgetRevenue: number | null
+    budgetAdr: number | null
+    budgetOccupancy: number | null
+  } | null
 }
+
+export interface SpecialDay {
+  id: string
+  date: string
+  name: string
+  kind: "HOLIDAY" | "TOKUJITSU"
+  color: string | null
+  source: "AI" | "MANUAL"
+  note: string | null
+}
+
+export interface ExternalFactor {
+  id: string
+  category: "WEATHER" | "INBOUND" | "EVENT" | "ACCESS" | "NEW_HOTEL" | "ECONOMY" | "OTHER"
+  timeAxis: "TOKUJITSU" | "PERIOD" | "DAILY"
+  title: string
+  description: string | null
+  startDate: string
+  endDate: string
+  impactScore: number | null
+  area: string | null
+  source: "AI" | "MANUAL"
+}
+
+// 価格戦略（重み付け設定）は2026/8に撤去した
+// （モックアップ修正内容.xlsx ③ / docs/drive-gap-analysis.md §3-3）
 
 export interface BookingCurve {
   hotelId: string
@@ -354,6 +431,194 @@ export interface CompetitorAnalysis {
     minPrice: number | null
     maxPrice: number | null
     avgPrice: number | null
+  }>
+}
+
+// ======================================
+// 分析拡張（Phase 4B — F-CXL-01, F-TOP-01, F-OH-03, F-INV-01）
+// ======================================
+
+export interface CancellationBucket {
+  period: string
+  bookedRooms: number
+  bookedCount: number
+  bookedRevenue: number
+  cancelledRooms: number
+  cancelledCount: number
+  cancelledRevenue: number
+  diffRooms: number
+  diffCount: number
+  diffRevenue: number
+  cancellationRate: number
+}
+
+export interface CancellationAnalysis {
+  hotelId: string
+  startDate: string
+  endDate: string
+  granularity: "daily" | "monthly"
+  buckets: CancellationBucket[]
+  totals: CancellationBucket
+  lastYear: { buckets: CancellationBucket[]; totals: CancellationBucket } | null
+}
+
+export type SegmentAxis =
+  | "roomType"
+  | "market"
+  | "region"
+  | "agent"
+  | "rateType"
+  | "guests"
+  | "individualGroup"
+
+export interface SegmentItem {
+  rank: number
+  code: string
+  name: string
+  aggregateCode: string | null
+  rooms: number
+  guests: number
+  revenue: number
+  adr: number
+  guestUnitPrice: number
+  roomShare: number
+  revenueShare: number
+  lastYear?: { rank: number | null; rooms: number; revenue: number } | null
+  diff?: { rank: number | null; rooms: number; revenue: number } | null
+}
+
+export interface SegmentAnalysis {
+  hotelId: string
+  axis: SegmentAxis
+  axisLabel: string
+  startDate: string
+  endDate: string
+  limit: number
+  segmentCount: number
+  totals: { rooms: number; guests: number; revenue: number }
+  items: SegmentItem[]
+}
+
+export interface DailyRanking {
+  hotelId: string
+  metric: "adr" | "occupancy"
+  startDate: string
+  endDate: string
+  dayCount: number
+  top: Array<{
+    date: string
+    value: number
+    adr: number | null
+    occupancy: number | null
+    soldRooms: number | null
+    revenue: number | null
+  }>
+  bottom: DailyRanking["top"]
+}
+
+export interface OnHandCurvePoint {
+  daysBefore: number
+  rooms: number
+  revenue: number
+  adr: number
+  occupancy: number | null
+}
+
+export interface OnHandCurve {
+  hotelId: string
+  scope: "daily" | "monthly"
+  startDate: string
+  endDate: string
+  step: number
+  maxDaysBefore: number
+  totalRooms: number
+  capacityRoomNights: number
+  points: OnHandCurvePoint[]
+  lastYear: { points: OnHandCurvePoint[]; startDate: string; endDate: string } | null
+}
+
+export interface InventoryView {
+  hotelId: string
+  capturedDate: string | null
+  previousCapturedDate: string | null
+  startDate: string
+  endDate: string
+  totalRooms?: number
+  roomTypes: string[]
+  rows: Array<{
+    stayDate: string
+    totalRemaining: number
+    byRoomType: Record<string, { remaining: number; total: number | null; diff: number | null }>
+  }>
+}
+
+export interface SegmentMasterItem {
+  id: string
+  kind: string
+  code: string
+  name: string
+  aggregateCode: string | null
+  sortOrder: number
+  isActive: boolean
+}
+
+// ---- 取込モニタリング（F-ING-01）----
+// PMSデータは原則バックエンドが自動で取りに行く（docs/pms-ingest-design.md §A-3）。
+// 画面の役割は「届いているかを見る」ことで、アップロードは復旧用の代替手段。
+
+export type IngestFreshness = "OK" | "WAITING" | "LATE" | "NEVER" | "FAILED"
+
+export interface IngestSourceStatus {
+  source: string
+  profileId: string | null
+  enabled: boolean
+  expectedAt: string
+  timeZone: string
+  /** 自動取得の方式。null は「外部からのpush待ち（監視のみ）」 */
+  connector: string | null
+  lastRunAt: string | null
+  graceMinutes: number
+  status: IngestFreshness
+  lastSuccessAt: string | null
+  lastAttemptAt: string | null
+  lastError: string | null
+  message: string
+}
+
+export interface IngestStatus {
+  hotelId: string
+  checkedAt: string
+  hasProblem: boolean
+  items: IngestSourceStatus[]
+}
+
+export interface IngestLogEntry {
+  id: string
+  source: string
+  status: "SUCCESS" | "PARTIAL" | "FAILED"
+  startedAt: string
+  finishedAt: string | null
+  targetDate: string | null
+  rowCount: number | null
+  error: string | null
+  origin: string | null
+}
+
+export interface IngestRunFileResult {
+  fileName: string
+  origin: string
+  outcome: "INGESTED" | "SKIPPED_DUPLICATE" | "NOTHING_TO_FETCH" | "PUSH_ONLY" | "FAILED"
+  rowCount?: number
+  message?: string
+}
+
+export interface IngestRunResult {
+  ranAt: string
+  results: Array<{
+    source: string
+    outcome: IngestRunFileResult["outcome"]
+    files: IngestRunFileResult[]
+    message?: string
   }>
 }
 
@@ -457,8 +722,13 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   const adr = soldRoomsSum > 0 ? Math.round(totalRevenue / soldRoomsSum) : 0
   const occupancyRate = actualDays > 0 ? soldRoomsSum / (totalRooms * actualDays) : 0
   const revPar = actualDays > 0 ? totalRevenue / (totalRooms * actualDays) : 0
-  const dor = actualDays > 0 ? Math.round((guestsSum / actualDays) * 10) / 10 : 0
+  // DOR = Double Occupancy Rate（宿泊人数 / 販売室数）
+  const dor = soldRoomsSum > 0 ? Math.round((guestsSum / soldRoomsSum) * 100) / 100 : 0
   const guestUnitPrice = guestsSum > 0 ? Math.round(totalRevenue / guestsSum) : 0
+  // 定員稼働率（F-KPI-01）。デモモードは1室あたり平均定員2名で概算する
+  const totalCapacity = totalRooms * 2
+  const capacityOccupancyRate =
+    actualDays > 0 ? Number((guestsSum / (totalCapacity * actualDays)).toFixed(3)) : null
 
   const budgetOccupancy = 0.78
   const budgetAdr = 18500
@@ -475,6 +745,8 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
       soldRooms: soldRoomsSum,
       adr,
       occupancyRate: Number(occupancyRate.toFixed(3)),
+      capacityOccupancyRate,
+      totalCapacity,
       revPar: Math.round(revPar),
       guests: guestsSum,
       dor,
@@ -563,8 +835,10 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
       Math.min(1, Math.max(0.3, (weekend ? 0.9 : 0.72) * boost + (rng() - 0.5) * 0.1)).toFixed(3)
     )
     const predictedAdr = Math.round((weekend ? 24000 : 17000) * boost)
-    const recommendedRank = Math.min(40, Math.max(1, Math.round(predictedOccupancy * 40)))
-    const price1P = mockRankToPrice1P(recommendedRank)
+    // デモモックのランクコードは実データと同じ 65〜0 の並び（数値が小さいほど高価格）
+    const rankIndex = Math.min(65, Math.max(0, Math.round(predictedOccupancy * 65)))
+    const recommendedRankCode = String(65 - rankIndex)
+    const price1P = mockRankToPrice1P(rankIndex + 1)
     const demandLevel: PricingCalendarDay["demandLevel"] =
       predictedOccupancy > 0.9 ? "A" : predictedOccupancy > 0.8 ? "B" : predictedOccupancy > 0.65 ? "C" : predictedOccupancy > 0.5 ? "D" : "E"
     const competitorAvgPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
@@ -572,30 +846,36 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
     calendar.push({
       date: toLocalDateStr(date),
       demandLevel,
-      recommendedRank,
+      recommendedRankCode,
       recommendedPrice: price1P,
-      rankLabel: `R${String(recommendedRank).padStart(2, "0")}`,
-      price1P,
-      price2P: Math.round(price1P * 1.4),
-      price3P: Math.round(price1P * 1.8),
       predictedOccupancy,
       predictedAdr,
       actualOccupancy: isPast ? Number(Math.min(1, predictedOccupancy + (rng() - 0.5) * 0.1).toFixed(3)) : null,
       actualAdr: isPast ? Math.round(predictedAdr * (1 + (rng() - 0.5) * 0.06)) : null,
+      adrDiff: null,
+      occupancyDiff: null,
       competitorAvgPrice,
       confidence: Number((0.7 + rng() * 0.25).toFixed(2)),
+      specialDay: null,
     })
   }
 
-  return { hotelId, year, month, calendar }
-}
-
-let mockStrategy: PricingStrategy = {
-  id: "mock-strategy",
-  hotelId: MOCK_HOTEL_ID,
-  weightOccupancy: 40,
-  weightAdr: 40,
-  weightCompetitor: 20,
+  const mockRoomType: RoomTypeOption = {
+    id: "mock-room-type",
+    code: "DMN",
+    name: "スタンダードダブル",
+    capacity: 2,
+  }
+  return {
+    hotelId,
+    year,
+    month,
+    roomType: mockRoomType,
+    roomTypes: [mockRoomType],
+    rateCategory: "OWN",
+    hasPriceTable: true,
+    calendar,
+  }
 }
 
 let mockEvents: HotelEvent[] | null = null
@@ -693,35 +973,55 @@ export const api = {
     )
   },
 
-  pricingCalendar(hotelId: string, year: number, month: number): Promise<PricingCalendar> {
+  /**
+   * 日別価格カレンダー（F-DP-01）。表示は1ヶ月固定＋月選択。
+   * roomTypeId 未指定時はバックエンドがマスタ先頭の部屋タイプを既定にする。
+   */
+  pricingCalendar(
+    hotelId: string,
+    year: number,
+    month: number,
+    options: { roomTypeId?: string; rateCategory?: RateCategory } = {}
+  ): Promise<PricingCalendar> {
+    const params = new URLSearchParams({
+      hotelId,
+      year: String(year),
+      month: String(month),
+    })
+    if (options.roomTypeId) params.set("roomTypeId", options.roomTypeId)
+    if (options.rateCategory) params.set("rateCategory", options.rateCategory)
     return withDemoFallback(
-      () => rawRequest(`/api/v1/pricing/calendar?hotelId=${hotelId}&year=${year}&month=${month}`),
+      () => rawRequest(`/api/v1/pricing/calendar?${params}`),
       () => mockPricingCalendar(hotelId, year, month)
     )
   },
 
-  pricingStrategy(hotelId: string): Promise<PricingStrategy> {
-    return withDemoFallback(
-      () => rawRequest(`/api/v1/pricing/strategy?hotelId=${hotelId}`),
-      () => ({ ...mockStrategy, hotelId })
-    )
+  /** 月間着地シミュレーション（現在値と着地予測をADR/稼働率/RevPerで併記 — F-DP-04） */
+  landingSimulation(hotelId: string, year: number, month: number): Promise<LandingSimulation> {
+    return rawRequest(`/api/v1/pricing/simulation?hotelId=${hotelId}&year=${year}&month=${month}`)
   },
 
-  updatePricingStrategy(
+  /** 部屋タイプマスタ（選択肢のハードコード禁止） */
+  roomTypes(hotelId: string): Promise<RoomTypeOption[]> {
+    return rawRequest(`/api/v1/hotels/${hotelId}/room-types`)
+  },
+
+  /** 特日一覧（F-DP-08） */
+  specialDays(hotelId: string, startDate: string, endDate: string): Promise<SpecialDay[]> {
+    const params = new URLSearchParams({ hotelId, startDate, endDate })
+    return rawRequest(`/api/v1/calendar/special-days?${params}`)
+  },
+
+  /** 外部要因一覧（F-EXT-01） */
+  externalFactors(
     hotelId: string,
-    weights: { weightOccupancy: number; weightAdr: number; weightCompetitor: number }
-  ): Promise<PricingStrategy> {
-    return withDemoFallback(
-      () =>
-        rawRequest("/api/v1/pricing/strategy", {
-          method: "PUT",
-          body: JSON.stringify({ hotelId, ...weights }),
-        }),
-      () => {
-        mockStrategy = { ...mockStrategy, hotelId, ...weights }
-        return mockStrategy
-      }
-    )
+    startDate: string,
+    endDate: string,
+    category?: ExternalFactor["category"]
+  ): Promise<ExternalFactor[]> {
+    const params = new URLSearchParams({ hotelId, startDate, endDate })
+    if (category) params.set("category", category)
+    return rawRequest(`/api/v1/calendar/external-factors?${params}`)
   },
 
   bookingCurve(hotelId: string, date: string): Promise<BookingCurve> {
@@ -744,14 +1044,117 @@ export const api = {
     )
   },
 
-  priceRanks(hotelId: string): Promise<PriceRank[]> {
-    return rawRequest(`/api/v1/settings/price-ranks?hotelId=${hotelId}`)
+  // ---- 分析拡張（Phase 4B） ----
+
+  /** キャンセル分析（F-CXL-01） */
+  cancellationAnalysis(
+    hotelId: string,
+    startDate: string,
+    endDate: string,
+    options: { granularity?: "daily" | "monthly"; compareLastYear?: boolean } = {}
+  ): Promise<CancellationAnalysis> {
+    const params = new URLSearchParams({ hotelId, startDate, endDate })
+    if (options.granularity) params.set("granularity", options.granularity)
+    if (options.compareLastYear) params.set("compareLastYear", "true")
+    return rawRequest(`/api/v1/analysis/cancellations?${params}`)
+  },
+
+  /** セグメント別パフォーマンス上位N（F-TOP-01） */
+  segmentAnalysis(
+    hotelId: string,
+    startDate: string,
+    endDate: string,
+    axis: SegmentAxis,
+    options: { limit?: number; compareLastYear?: boolean } = {}
+  ): Promise<SegmentAnalysis> {
+    const params = new URLSearchParams({ hotelId, startDate, endDate, axis })
+    if (options.limit != null) params.set("limit", String(options.limit))
+    if (options.compareLastYear) params.set("compareLastYear", "true")
+    return rawRequest(`/api/v1/analysis/segments?${params}`)
+  },
+
+  /** 上位・下位分析（日別ADR / 日別稼働率 — F-TOP-01） */
+  dailyRanking(
+    hotelId: string,
+    startDate: string,
+    endDate: string,
+    metric: "adr" | "occupancy" = "adr",
+    limit = 10
+  ): Promise<DailyRanking> {
+    const params = new URLSearchParams({
+      hotelId,
+      startDate,
+      endDate,
+      metric,
+      limit: String(limit),
+    })
+    return rawRequest(`/api/v1/analysis/ranking?${params}`)
+  },
+
+  /** オンハンド ブッキングカーブ（F-OH-03）。stayDate または year+month を指定する */
+  onHandCurve(
+    hotelId: string,
+    target: { stayDate?: string; year?: number; month?: number },
+    options: { step?: number; maxDaysBefore?: number; compareLastYear?: boolean } = {}
+  ): Promise<OnHandCurve> {
+    const params = new URLSearchParams({ hotelId })
+    if (target.stayDate) params.set("stayDate", target.stayDate)
+    if (target.year != null) params.set("year", String(target.year))
+    if (target.month != null) params.set("month", String(target.month))
+    if (options.step != null) params.set("step", String(options.step))
+    if (options.maxDaysBefore != null) params.set("maxDaysBefore", String(options.maxDaysBefore))
+    if (options.compareLastYear) params.set("compareLastYear", "true")
+    return rawRequest(`/api/v1/daily/onhand-curve?${params}`)
+  },
+
+  /** 残室ビュー（日別×タイプ別・前回断面との差異 — F-INV-01） */
+  inventoryView(
+    hotelId: string,
+    startDate: string,
+    endDate: string,
+    options: { capturedDate?: string; comparePrevious?: boolean } = {}
+  ): Promise<InventoryView> {
+    const params = new URLSearchParams({ hotelId, startDate, endDate })
+    if (options.capturedDate) params.set("capturedDate", options.capturedDate)
+    if (options.comparePrevious === false) params.set("comparePrevious", "false")
+    return rawRequest(`/api/v1/daily/inventory?${params}`)
+  },
+
+  /** セグメントマスタ一覧（F-SET-06） */
+  segmentMasters(hotelId: string, kind?: string): Promise<SegmentMasterItem[]> {
+    const params = new URLSearchParams({ hotelId })
+    if (kind) params.set("kind", kind)
+    return rawRequest(`/api/v1/settings/segments?${params}`)
+  },
+
+  /** 料金ランク一覧（F-SET-02。部屋タイプ×レート区分で絞り込む） */
+  priceRanks(
+    hotelId: string,
+    filter: { roomTypeId?: string; rateCategory?: RateCategory } = {}
+  ): Promise<PriceRank[]> {
+    const params = new URLSearchParams({ hotelId })
+    if (filter.roomTypeId) params.set("roomTypeId", filter.roomTypeId)
+    if (filter.rateCategory) params.set("rateCategory", filter.rateCategory)
+    return rawRequest(`/api/v1/settings/price-ranks?${params}`)
+  },
+
+  /** 料金表の一括登録（販売料金表の取込・編集 — F-SET-02） */
+  bulkUpsertPriceRanks(input: {
+    hotelId: string
+    roomTypeId: string
+    rateCategory: RateCategory
+    items: Array<{ rankCode: string; sortOrder: number; price: number; isActive?: boolean }>
+  }): Promise<{ upserted: number; roomTypeId: string; rateCategory: RateCategory }> {
+    return rawRequest(`/api/v1/settings/price-ranks/bulk`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
   },
 
   updatePriceRank(
     id: string,
     hotelId: string,
-    data: Partial<{ label: string; price1P: number; price2P: number; price3P: number; price4P: number }>
+    data: Partial<{ price: number; sortOrder: number; isActive: boolean }>
   ): Promise<PriceRank> {
     return rawRequest(`/api/v1/settings/price-ranks/${id}?hotelId=${hotelId}`, {
       method: "PUT",
@@ -818,5 +1221,25 @@ export const api = {
         mockEvents = getMockEvents(hotelId).filter((e) => e.id !== id)
       }
     )
+  },
+
+  // ---- 取込モニタリング（F-ING-01）----
+
+  ingestStatus(hotelId: string): Promise<IngestStatus> {
+    return rawRequest(`/api/v1/ingest/status?hotelId=${encodeURIComponent(hotelId)}`)
+  },
+
+  ingestLogs(hotelId: string, limit = 20): Promise<IngestLogEntry[]> {
+    return rawRequest(
+      `/api/v1/ingest/logs?hotelId=${encodeURIComponent(hotelId)}&limit=${limit}`
+    )
+  },
+
+  /** 自動取得を今すぐ実行する（通常はバックエンドのスケジューラが動かす） */
+  runIngestConnectors(hotelId: string, source?: string): Promise<IngestRunResult> {
+    return rawRequest("/api/v1/ingest/run", {
+      method: "POST",
+      body: JSON.stringify(source ? { hotelId, source } : { hotelId }),
+    })
   },
 }

@@ -48,6 +48,9 @@ importers:
       helmet:
         specifier: ^8.0.0
         version: 8.2.0
+      iconv-lite:
+        specifier: ^0.7.3
+        version: 0.7.3
       jsonwebtoken:
         specifier: ^9.0.2
         version: 9.0.3
@@ -246,7 +249,7 @@ importers:
         version: 2.1.9(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
       recharts:
         specifier: latest
-        version: 3.9.2(@types/react@19.2.5)(react-dom@19.1.2(react@19.1.2))(react-is@19.2.7)(react@19.1.2)(redux@5.0.1)
+        version: 3.10.1(@types/react@19.2.5)(react-dom@19.1.2(react@19.1.2))(react-is@19.2.7)(react@19.1.2)(redux@5.0.1)
       sonner:
         specifier: ^1.7.4
         version: 1.7.4(react-dom@19.1.2(react@19.1.2))(react@19.1.2)
@@ -2625,6 +2628,10 @@ packages:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
     engines: {node: '>=0.10.0'}
 
+  iconv-lite@0.7.3:
+    resolution: {integrity: sha512-IKXpvIzjnC9XTAUbVBcMfGS0EPaIXtW6v+zr+RRp+hqULEpo0owZax6wyRwPOJbWbzjYspQwusTsfVr0ifh4uQ==}
+    engines: {node: '>=0.10.0'}
+
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
 
@@ -3258,8 +3265,8 @@ packages:
     resolution: {integrity: sha512-57frrGM/OCTLqLOAh0mhVA9VBMHd+9U7Zb2THMGdBUoZVOtGbJzjxsYGDJ3A9AYYCP4hn6y1TVbaOfzWtm5GFg==}
     engines: {node: '>= 12.13.0'}
 
-  recharts@3.9.2:
-    resolution: {integrity: sha512-G4fy+Pk46RaXgwWMh+Nzhyo/lbFAVqXo9gtetlyehe6Ehge9CsgDuOTwQDD+i1+llaLktNBiNq4bhnGlDRXFtw==}
+  recharts@3.10.1:
+    resolution: {integrity: sha512-QXFrvt6IVcw7eeZCoyXTwkIJAX3Dv1nyVhMicXJ47GsGDDpcN8z6o644DibE9XjpBTThtsomLKnTV6lc+cVFUA==}
     engines: {node: '>=18'}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
@@ -6022,6 +6029,10 @@ snapshots:
     dependencies:
       safer-buffer: 2.1.2
 
+  iconv-lite@0.7.3:
+    dependencies:
+      safer-buffer: 2.1.2
+
   ieee754@1.2.1: {}
 
   ignore@5.3.2: {}
@@ -6594,7 +6605,7 @@ snapshots:
 
   real-require@0.2.0: {}
 
-  recharts@3.9.2(@types/react@19.2.5)(react-dom@19.1.2(react@19.1.2))(react-is@19.2.7)(react@19.1.2)(redux@5.0.1):
+  recharts@3.10.1(@types/react@19.2.5)(react-dom@19.1.2(react@19.1.2))(react-is@19.2.7)(react@19.1.2)(redux@5.0.1):
     dependencies:
       '@reduxjs/toolkit': 2.12.0(react-redux@9.3.0(@types/react@19.2.5)(react@19.1.2)(redux@5.0.1))(react@19.1.2)
       clsx: 2.1.1

@@ -14,7 +14,27 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CampaignParticipationManager } from "@/components/campaign-participation-manager"
 
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type MonthlyTrend, type CompetitorAnalysis } from "@/lib/api"
+import {
+  api,
+  ApiClientError,
+  type MonthlyTrend,
+  type CompetitorAnalysis,
+  type SegmentAnalysis,
+  type SegmentAxis,
+  type DailyRanking,
+  type CancellationAnalysis,
+} from "@/lib/api"
+
+// セグメント集計軸（F-TOP-01。機能リストの「タイプ別/人数別/販路別/地域別/団体・個人」に対応）
+const SEGMENT_AXES: Array<{ value: SegmentAxis; label: string }> = [
+  { value: "market", label: "販路（マーケット）別" },
+  { value: "roomType", label: "部屋タイプ別" },
+  { value: "region", label: "地域別" },
+  { value: "agent", label: "エージェント別" },
+  { value: "rateType", label: "料金タイプ別" },
+  { value: "guests", label: "利用人数別" },
+  { value: "individualGroup", label: "個人・団体別" },
+]
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
@@ -22,7 +42,12 @@ function toDateStr(d: Date): string {
 
 export function AnalysisTab() {
   const { hotelId } = useAuth()
-  const [targetPeriod, setTargetPeriod] = useState("2025-04")
+  // 既定は当月。実データ（実績明細・予約）は当月周辺に存在するため、
+  // 固定値だと接続済みタブが常に空表示になってしまう
+  const [targetPeriod, setTargetPeriod] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  })
   const [segmentViewMode, setSegmentViewMode] = useState<"guest-count" | "segment">("guest-count")
 
   // ---- 年間推移（実データ: api.monthlyTrend — F-ANA-03） ----
@@ -148,6 +173,114 @@ export function AnalysisTab() {
   useEffect(() => {
     loadCompetitorAnalysis()
   }, [loadCompetitorAnalysis])
+
+  // 対象期間の選択肢: 当月を中心に前後6ヶ月
+  const periodOptions = useMemo(() => {
+    const now = new Date()
+    const options: Array<{ value: string; label: string }> = []
+    for (let offset = -6; offset <= 6; offset++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+      options.push({
+        value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: `${d.getFullYear()}年${d.getMonth() + 1}月`,
+      })
+    }
+    return options
+  }, [])
+
+  // ---- セグメント別分析（実データ: api.segmentAnalysis — F-TOP-01） ----
+  const [segmentAxis, setSegmentAxis] = useState<SegmentAxis>("market")
+  const [segmentLimit, setSegmentLimit] = useState("10")
+  const [segmentAnalysis, setSegmentAnalysis] = useState<SegmentAnalysis | null>(null)
+  const [segmentLoading, setSegmentLoading] = useState(true)
+  const [segmentError, setSegmentError] = useState<string | null>(null)
+
+  const loadSegmentAnalysis = useCallback(async () => {
+    if (!hotelId) return
+    setSegmentLoading(true)
+    setSegmentError(null)
+    try {
+      const result = await api.segmentAnalysis(
+        hotelId,
+        competitorRange.startDate,
+        competitorRange.endDate,
+        segmentAxis,
+        { limit: Number.parseInt(segmentLimit, 10), compareLastYear: true }
+      )
+      setSegmentAnalysis(result)
+    } catch (err) {
+      setSegmentError(
+        err instanceof ApiClientError ? err.message : "セグメント別分析データの取得に失敗しました"
+      )
+    } finally {
+      setSegmentLoading(false)
+    }
+  }, [hotelId, competitorRange, segmentAxis, segmentLimit])
+
+  useEffect(() => {
+    loadSegmentAnalysis()
+  }, [loadSegmentAnalysis])
+
+  // ---- 上位・下位分析（実データ: api.dailyRanking — F-TOP-01） ----
+  const [rankingMetric, setRankingMetric] = useState<"adr" | "occupancy">("adr")
+  const [dailyRanking, setDailyRanking] = useState<DailyRanking | null>(null)
+  const [rankingLoading, setRankingLoading] = useState(true)
+  const [rankingError, setRankingError] = useState<string | null>(null)
+
+  const loadDailyRanking = useCallback(async () => {
+    if (!hotelId) return
+    setRankingLoading(true)
+    setRankingError(null)
+    try {
+      const result = await api.dailyRanking(
+        hotelId,
+        competitorRange.startDate,
+        competitorRange.endDate,
+        rankingMetric,
+        5
+      )
+      setDailyRanking(result)
+    } catch (err) {
+      setRankingError(err instanceof ApiClientError ? err.message : "上位・下位分析の取得に失敗しました")
+    } finally {
+      setRankingLoading(false)
+    }
+  }, [hotelId, competitorRange, rankingMetric])
+
+  useEffect(() => {
+    loadDailyRanking()
+  }, [loadDailyRanking])
+
+  // ---- キャンセル分析（実データ: api.cancellationAnalysis — F-CXL-01） ----
+  const [cancellationGranularity, setCancellationGranularity] = useState<"daily" | "monthly">("daily")
+  const [cancellation, setCancellation] = useState<CancellationAnalysis | null>(null)
+  const [cancellationLoading, setCancellationLoading] = useState(true)
+  const [cancellationError, setCancellationError] = useState<string | null>(null)
+
+  const loadCancellation = useCallback(async () => {
+    if (!hotelId) return
+    setCancellationLoading(true)
+    setCancellationError(null)
+    try {
+      const result = await api.cancellationAnalysis(
+        hotelId,
+        competitorRange.startDate,
+        competitorRange.endDate,
+        { granularity: cancellationGranularity, compareLastYear: true }
+      )
+      setCancellation(result)
+    } catch (err) {
+      setCancellationError(
+        err instanceof ApiClientError ? err.message : "キャンセル分析データの取得に失敗しました"
+      )
+    } finally {
+      setCancellationLoading(false)
+    }
+  }, [hotelId, competitorRange, cancellationGranularity])
+
+  useEffect(() => {
+    loadCancellation()
+  }, [loadCancellation])
 
   // フリー分析用のstate
   const [freeAnalysisAxis1, setFreeAnalysisAxis1] = useState<string>("")
@@ -575,10 +708,9 @@ export function AnalysisTab() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="2025-03">2025年3月</SelectItem>
-                    <SelectItem value="2025-04">2025年4月</SelectItem>
-                    <SelectItem value="2025-05">2025年5月</SelectItem>
-                    <SelectItem value="2025-06">2025年6月</SelectItem>
+                    {periodOptions.map((p) => (
+                      <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -587,6 +719,8 @@ export function AnalysisTab() {
                 <TabsTrigger value="roomtype" className="text-sm px-4 py-2">部屋タイプ分析</TabsTrigger>
                 <TabsTrigger value="booking" className="text-sm px-4 py-2">予約期間分析</TabsTrigger>
                 <TabsTrigger value="segment" className="text-sm px-4 py-2">顧客セグメント</TabsTrigger>
+                <TabsTrigger value="segment-performance" className="text-sm px-4 py-2">セグメント別実績</TabsTrigger>
+                <TabsTrigger value="cancellation" className="text-sm px-4 py-2">キャンセル分析</TabsTrigger>
                 <TabsTrigger value="competitor" className="text-sm px-4 py-2">競合価格</TabsTrigger>
                 <TabsTrigger value="comparison" className="text-sm px-4 py-2">年間推移</TabsTrigger>
                 <TabsTrigger value="free" className="text-sm px-4 py-2">フリー分析</TabsTrigger>
@@ -1115,6 +1249,415 @@ export function AnalysisTab() {
             </Card>
           )}
 
+        </TabsContent>
+
+        {/* セグメント別実績（実データ — F-TOP-01） */}
+        <TabsContent value="segment-performance" className="space-y-6">
+          <Card>
+            <CardContent className="py-4 flex flex-wrap items-end gap-4">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="segment-axis" className="text-xs whitespace-nowrap">集計軸</Label>
+                <Select value={segmentAxis} onValueChange={(v) => setSegmentAxis(v as SegmentAxis)}>
+                  <SelectTrigger id="segment-axis" className="h-8 w-48 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SEGMENT_AXES.map((a) => (
+                      <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="segment-limit" className="text-xs whitespace-nowrap">表示件数</Label>
+                <Select value={segmentLimit} onValueChange={setSegmentLimit}>
+                  <SelectTrigger id="segment-limit" className="h-8 w-24 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="5">上位5</SelectItem>
+                    <SelectItem value="10">上位10</SelectItem>
+                    <SelectItem value="20">上位20</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                対象期間: {competitorRange.startDate} 〜 {competitorRange.endDate}
+              </p>
+            </CardContent>
+          </Card>
+
+          {segmentLoading ? (
+            <Card>
+              <CardContent className="py-8">
+                <Skeleton className="h-64 w-full" />
+              </CardContent>
+            </Card>
+          ) : segmentError ? (
+            <Card>
+              <CardContent className="py-8 flex flex-col items-center gap-3 text-center">
+                <AlertCircle className="w-8 h-8 text-destructive" />
+                <p className="text-sm text-muted-foreground">{segmentError}</p>
+                <Button variant="outline" size="sm" onClick={loadSegmentAnalysis} className="gap-2">
+                  <RefreshCw className="w-4 h-4" />
+                  再試行
+                </Button>
+              </CardContent>
+            </Card>
+          ) : !segmentAnalysis || segmentAnalysis.items.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                対象期間の実績明細が登録されていません。
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">販売室数（合計）</p>
+                    <p className="text-xl font-semibold">{segmentAnalysis.totals.rooms.toLocaleString()}室</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">室料売上（合計）</p>
+                    <p className="text-xl font-semibold">¥{segmentAnalysis.totals.revenue.toLocaleString()}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">セグメント数</p>
+                    <p className="text-xl font-semibold">{segmentAnalysis.segmentCount}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">{segmentAnalysis.axisLabel} 室数構成</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart
+                      data={segmentAnalysis.items.map((i) => ({
+                        name: i.name.length > 12 ? `${i.name.slice(0, 12)}…` : i.name,
+                        rooms: i.rooms,
+                        adr: i.adr,
+                      }))}
+                      margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                      <XAxis
+                        dataKey="name"
+                        tick={{ fontSize: 11 }}
+                        stroke="currentColor"
+                        opacity={0.5}
+                        angle={-45}
+                        textAnchor="end"
+                        height={80}
+                      />
+                      <YAxis yAxisId="left" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
+                      <Tooltip
+                        formatter={(value, name) => {
+                          const n = Number(value)
+                          return name === "室数"
+                            ? [`${n.toLocaleString()}室`, name]
+                            : [`¥${n.toLocaleString()}`, name]
+                        }}
+                      />
+                      <Legend />
+                      <Bar yAxisId="left" dataKey="rooms" name="室数" fill="#3b82f6" />
+                      <Line yAxisId="right" dataKey="adr" name="ADR" stroke="#ef4444" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">上位{segmentAnalysis.limit}（前年対比）</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-3 px-4 font-medium">順位</th>
+                          <th className="text-left py-3 px-4 font-medium">{segmentAnalysis.axisLabel}</th>
+                          <th className="text-right py-3 px-4 font-medium">室数</th>
+                          <th className="text-right py-3 px-4 font-medium">構成比</th>
+                          <th className="text-right py-3 px-4 font-medium">ADR</th>
+                          <th className="text-right py-3 px-4 font-medium">客単価</th>
+                          <th className="text-right py-3 px-4 font-medium">室料売上</th>
+                          <th className="text-right py-3 px-4 font-medium">前年順位差</th>
+                          <th className="text-right py-3 px-4 font-medium">前年室数差</th>
+                          <th className="text-right py-3 px-4 font-medium">前年売上差</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {segmentAnalysis.items.map((item) => (
+                          <tr key={item.code} className="border-b hover:bg-muted/50">
+                            <td className="py-3 px-4 font-medium">{item.rank}</td>
+                            <td className="py-3 px-4">
+                              {item.name}
+                              {item.aggregateCode && (
+                                <span className="ml-2 text-xs text-muted-foreground">{item.aggregateCode}</span>
+                              )}
+                            </td>
+                            <td className="text-right py-3 px-4">{item.rooms.toLocaleString()}室</td>
+                            <td className="text-right py-3 px-4">{(item.roomShare * 100).toFixed(1)}%</td>
+                            <td className="text-right py-3 px-4">¥{item.adr.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4">¥{item.guestUnitPrice.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4 font-medium">¥{item.revenue.toLocaleString()}</td>
+                            <td className={`text-right py-3 px-4 ${(item.diff?.rank ?? 0) > 0 ? "text-green-600" : (item.diff?.rank ?? 0) < 0 ? "text-red-600" : ""}`}>
+                              {item.diff?.rank != null ? (item.diff.rank > 0 ? `+${item.diff.rank}` : item.diff.rank) : "—"}
+                            </td>
+                            <td className={`text-right py-3 px-4 ${(item.diff?.rooms ?? 0) > 0 ? "text-green-600" : (item.diff?.rooms ?? 0) < 0 ? "text-red-600" : ""}`}>
+                              {item.diff?.rooms != null ? `${item.diff.rooms > 0 ? "+" : ""}${item.diff.rooms.toLocaleString()}` : "—"}
+                            </td>
+                            <td className={`text-right py-3 px-4 ${(item.diff?.revenue ?? 0) > 0 ? "text-green-600" : (item.diff?.revenue ?? 0) < 0 ? "text-red-600" : ""}`}>
+                              {item.diff?.revenue != null ? `${item.diff.revenue > 0 ? "+" : ""}¥${Math.abs(item.diff.revenue).toLocaleString()}` : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {/* 上位・下位分析（日別ADR / 日別稼働率 — F-TOP-01） */}
+          <Card>
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
+              <CardTitle className="text-base">上位・下位分析（日別）</CardTitle>
+              <Select value={rankingMetric} onValueChange={(v) => setRankingMetric(v as "adr" | "occupancy")}>
+                <SelectTrigger className="h-8 w-32 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="adr">日別ADR</SelectItem>
+                  <SelectItem value="occupancy">日別稼働率</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {rankingLoading ? (
+                <Skeleton className="h-40 w-full" />
+              ) : rankingError ? (
+                <div className="py-6 flex flex-col items-center gap-3 text-center">
+                  <AlertCircle className="w-8 h-8 text-destructive" />
+                  <p className="text-sm text-muted-foreground">{rankingError}</p>
+                  <Button variant="outline" size="sm" onClick={loadDailyRanking} className="gap-2">
+                    <RefreshCw className="w-4 h-4" />
+                    再試行
+                  </Button>
+                </div>
+              ) : !dailyRanking || dailyRanking.dayCount === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  対象期間の日別実績がありません。
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {(["top", "bottom"] as const).map((side) => (
+                    <div key={side}>
+                      <p className="text-sm font-medium mb-2">{side === "top" ? "上位" : "下位"}</p>
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2 px-3 font-medium">日付</th>
+                            <th className="text-right py-2 px-3 font-medium">
+                              {rankingMetric === "adr" ? "ADR" : "稼働率"}
+                            </th>
+                            <th className="text-right py-2 px-3 font-medium">販売室数</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dailyRanking[side].map((d) => (
+                            <tr key={`${side}-${d.date}`} className="border-b hover:bg-muted/50">
+                              <td className="py-2 px-3">{d.date}</td>
+                              <td className="text-right py-2 px-3 font-medium">
+                                {rankingMetric === "adr"
+                                  ? `¥${Math.round(d.value).toLocaleString()}`
+                                  : `${(d.value * 100).toFixed(1)}%`}
+                              </td>
+                              <td className="text-right py-2 px-3">{d.soldRooms?.toLocaleString() ?? "—"}室</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* キャンセル分析（実データ — F-CXL-01） */}
+        <TabsContent value="cancellation" className="space-y-6">
+          <Card>
+            <CardContent className="py-4 flex flex-wrap items-end gap-4">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="cxl-granularity" className="text-xs whitespace-nowrap">集計単位</Label>
+                <Select
+                  value={cancellationGranularity}
+                  onValueChange={(v) => setCancellationGranularity(v as "daily" | "monthly")}
+                >
+                  <SelectTrigger id="cxl-granularity" className="h-8 w-28 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="daily">日別</SelectItem>
+                    <SelectItem value="monthly">月別</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                対象期間: {competitorRange.startDate} 〜 {competitorRange.endDate}（キャンセル発生日ベース）
+              </p>
+            </CardContent>
+          </Card>
+
+          {cancellationLoading ? (
+            <Card>
+              <CardContent className="py-8">
+                <Skeleton className="h-64 w-full" />
+              </CardContent>
+            </Card>
+          ) : cancellationError ? (
+            <Card>
+              <CardContent className="py-8 flex flex-col items-center gap-3 text-center">
+                <AlertCircle className="w-8 h-8 text-destructive" />
+                <p className="text-sm text-muted-foreground">{cancellationError}</p>
+                <Button variant="outline" size="sm" onClick={loadCancellation} className="gap-2">
+                  <RefreshCw className="w-4 h-4" />
+                  再試行
+                </Button>
+              </CardContent>
+            </Card>
+          ) : !cancellation || cancellation.buckets.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                対象期間の予約・キャンセルデータが登録されていません。
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">キャンセル室数</p>
+                    <p className="text-xl font-semibold">{cancellation.totals.cancelledRooms.toLocaleString()}室</p>
+                    {cancellation.lastYear && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        前年 {cancellation.lastYear.totals.cancelledRooms.toLocaleString()}室
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">キャンセル件数</p>
+                    <p className="text-xl font-semibold">{cancellation.totals.cancelledCount.toLocaleString()}件</p>
+                    {cancellation.lastYear && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        前年 {cancellation.lastYear.totals.cancelledCount.toLocaleString()}件
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">キャンセル室料</p>
+                    <p className="text-xl font-semibold">¥{cancellation.totals.cancelledRevenue.toLocaleString()}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="py-2.5 px-3">
+                    <p className="text-xs font-medium text-muted-foreground mb-1">キャンセル率</p>
+                    <p className="text-xl font-semibold">{(cancellation.totals.cancellationRate * 100).toFixed(1)}%</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">予約室数比</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">予約・キャンセル推移</CardTitle>
+                  <p className="text-sm text-muted-foreground">予約室数とキャンセル室数の対比</p>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={cancellation.buckets} margin={{ top: 5, right: 30, left: 20, bottom: 40 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                      <XAxis
+                        dataKey="period"
+                        tick={{ fontSize: 11 }}
+                        stroke="currentColor"
+                        opacity={0.5}
+                        angle={-45}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
+                      <Tooltip formatter={(value) => `${Number(value).toLocaleString()}室`} />
+                      <Legend />
+                      <Bar dataKey="bookedRooms" name="予約室数" fill="#3b82f6" />
+                      <Bar dataKey="cancelledRooms" name="キャンセル室数" fill="#ef4444" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">予約：キャンセル差異</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left py-3 px-4 font-medium">{cancellationGranularity === "daily" ? "日付" : "年月"}</th>
+                          <th className="text-right py-3 px-4 font-medium">予約室数</th>
+                          <th className="text-right py-3 px-4 font-medium">予約件数</th>
+                          <th className="text-right py-3 px-4 font-medium">キャンセル室数</th>
+                          <th className="text-right py-3 px-4 font-medium">キャンセル件数</th>
+                          <th className="text-right py-3 px-4 font-medium">キャンセル室料</th>
+                          <th className="text-right py-3 px-4 font-medium">室数差異</th>
+                          <th className="text-right py-3 px-4 font-medium">件数差異</th>
+                          <th className="text-right py-3 px-4 font-medium">キャンセル率</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {cancellation.buckets.map((b) => (
+                          <tr key={b.period} className="border-b hover:bg-muted/50">
+                            <td className="py-3 px-4 font-medium">{b.period}</td>
+                            <td className="text-right py-3 px-4">{b.bookedRooms.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4">{b.bookedCount.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4 text-red-600">{b.cancelledRooms.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4 text-red-600">{b.cancelledCount.toLocaleString()}</td>
+                            <td className="text-right py-3 px-4">¥{b.cancelledRevenue.toLocaleString()}</td>
+                            <td className={`text-right py-3 px-4 ${b.diffRooms >= 0 ? "text-green-600" : "text-red-600"}`}>
+                              {b.diffRooms > 0 ? "+" : ""}{b.diffRooms.toLocaleString()}
+                            </td>
+                            <td className={`text-right py-3 px-4 ${b.diffCount >= 0 ? "text-green-600" : "text-red-600"}`}>
+                              {b.diffCount > 0 ? "+" : ""}{b.diffCount.toLocaleString()}
+                            </td>
+                            <td className="text-right py-3 px-4">{(b.cancellationRate * 100).toFixed(1)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
         </TabsContent>
 
         {/* Competitor Price Analysis */}

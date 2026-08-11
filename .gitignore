@@ -121,3 +121,5 @@ temp/
 # Local development
 .local/
 .localhost/
+# 取込の監視ディレクトリ（クローラ/RPA/共有フォルダの投入先。実データが入るためコミットしない）
+backend/ingest-inbox/

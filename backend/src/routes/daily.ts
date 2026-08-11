@@ -1,8 +1,18 @@
 import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireHotelAccess } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
-import { bookingCurveQuerySchema, competitorPricesQuerySchema } from '../lib/validators.js'
-import { getBookingCurve, getCompetitorPrices } from '../controllers/dailyController.js'
+import {
+  bookingCurveQuerySchema,
+  competitorPricesQuerySchema,
+  onHandCurveQuerySchema,
+  inventoryQuerySchema,
+} from '../lib/validators.js'
+import {
+  getBookingCurve,
+  getCompetitorPrices,
+  getOnHandCurve,
+  getInventoryView,
+} from '../controllers/dailyController.js'
 
 export const dailyRouter: ExpressRouter = Router()
 
@@ -19,3 +29,9 @@ dailyRouter.get(
   validate(competitorPricesQuerySchema, 'query'),
   getCompetitorPrices
 )
+
+// GET /api/v1/daily/onhand-curve?hotelId=&stayDate= | &year=&month=（F-OH-03）
+dailyRouter.get('/onhand-curve', validate(onHandCurveQuerySchema, 'query'), getOnHandCurve)
+
+// GET /api/v1/daily/inventory?hotelId=&startDate=&endDate=（F-INV-01）
+dailyRouter.get('/inventory', validate(inventoryQuerySchema, 'query'), getInventoryView)

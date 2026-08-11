@@ -5,11 +5,17 @@ import {
   yearQuerySchema,
   hotelIdQuerySchema,
   competitorPricesQuerySchema,
+  cancellationQuerySchema,
+  segmentAnalysisQuerySchema,
+  rankingQuerySchema,
 } from '../lib/validators.js'
 import {
   getMonthlyTrend,
   getCompetitorAnalysis,
   getReviewScores,
+  getCancellationAnalysis,
+  getSegmentAnalysis,
+  getDailyRanking,
 } from '../controllers/analysisController.js'
 
 export const analysisRouter: ExpressRouter = Router()
@@ -30,3 +36,16 @@ analysisRouter.get(
 
 // GET /api/v1/analysis/reviews?hotelId=
 analysisRouter.get('/reviews', validate(hotelIdQuerySchema, 'query'), getReviewScores)
+
+// GET /api/v1/analysis/cancellations?hotelId=&startDate=&endDate=&granularity=（F-CXL-01）
+analysisRouter.get(
+  '/cancellations',
+  validate(cancellationQuerySchema, 'query'),
+  getCancellationAnalysis
+)
+
+// GET /api/v1/analysis/segments?hotelId=&startDate=&endDate=&axis=&limit=（F-TOP-01）
+analysisRouter.get('/segments', validate(segmentAnalysisQuerySchema, 'query'), getSegmentAnalysis)
+
+// GET /api/v1/analysis/ranking?hotelId=&startDate=&endDate=&metric=&limit=（F-TOP-01）
+analysisRouter.get('/ranking', validate(rankingQuerySchema, 'query'), getDailyRanking)

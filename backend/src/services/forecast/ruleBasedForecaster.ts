@@ -7,7 +7,6 @@ import type { DailyForecast, DemandForecaster, ForecastDemandLevel, ForecastInpu
 // 関数として分離し、forecast() はそれらを組み合わせて DB アクセスを行う。
 
 export const MODEL_VERSION = 'rule-based-v1'
-const DEFAULT_MAX_RANK = 40 // F-SET-02: 料金ランクは最大40段階（PriceRank未設定時のフォールバック）
 const MOVING_AVERAGE_WINDOW_DAYS = 28
 const YEAR_OVER_YEAR_TOLERANCE_DAYS = 3
 const FALLBACK_OCCUPANCY = 0.6
@@ -107,11 +106,33 @@ export function mapOccupancyToDemandLevel(occupancy: number): ForecastDemandLeve
 }
 
 /**
- * 予測稼働率を料金ランク（1〜maxRank）にマップする
+ * 予測稼働率を料金ランクのはしご位置（0〜rankCount-1）にマップする。
+ * はしごは価格の安い順（sortOrder昇順）に並んでいる前提で、
+ * 稼働率が高いほど高価格側のランクを選ぶ。
  */
-export function mapOccupancyToRank(occupancy: number, maxRank = DEFAULT_MAX_RANK): number {
-  const rank = Math.round(occupancy * maxRank)
-  return Math.min(maxRank, Math.max(1, rank))
+export function selectRankIndex(occupancy: number, rankCount: number): number {
+  if (rankCount <= 0) return 0
+  const index = Math.round(occupancy * (rankCount - 1))
+  return Math.min(rankCount - 1, Math.max(0, index))
+}
+
+/** 料金ランクのはしご1段分（価格の安い順に並べたもの） */
+export interface RankLadderEntry {
+  rankCode: string
+  sortOrder: number
+  price: number
+}
+
+/**
+ * 予測稼働率から推奨ランクを選ぶ（F-DP-05）。
+ * ランクマスタ未整備時は null を返し、推奨価格も出さない。
+ */
+export function selectRankByOccupancy(
+  occupancy: number,
+  ladder: RankLadderEntry[]
+): RankLadderEntry | null {
+  if (ladder.length === 0) return null
+  return ladder[selectRankIndex(occupancy, ladder.length)]
 }
 
 /**
@@ -160,9 +181,8 @@ export function computeDailyForecastCore(
   targetDate: Date,
   history: OccupancyRecord[],
   events: EventImpactRecord[],
-  weekendDays: number[],
-  maxRank = DEFAULT_MAX_RANK
-): Omit<DailyForecast, 'recommendedPrice' | 'modelVersion'> {
+  weekendDays: number[]
+): Omit<DailyForecast, 'recommendedPrice' | 'recommendedRank' | 'recommendedRankCode' | 'modelVersion'> {
   const movingAverage = computeMovingAverageBySameWeekday(history, targetDate)
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
   const eventImpact = computeEventImpact(events, targetDate)
@@ -179,7 +199,6 @@ export function computeDailyForecastCore(
     date: targetDate,
     predictedOccupancy,
     demandLevel: mapOccupancyToDemandLevel(predictedOccupancy),
-    recommendedRank: mapOccupancyToRank(predictedOccupancy, maxRank),
     confidence: computeConfidence({ movingAverage, yearOverYear }),
   }
 }
@@ -217,9 +236,12 @@ export const ruleBasedForecaster: DemandForecaster = {
         where: { hotelId, startDate: { lte: endDate }, endDate: { gte: startDate } },
         select: { startDate: true, endDate: true, expectedImpact: true },
       }),
+      // ホテル全体の推奨は「マスタ先頭の部屋タイプ × 自社レート」のはしごを基準にする
+      // （部屋タイプ別の推奨は roomTypeId 付きレコードで別途扱う）
       prisma.priceRank.findMany({
-        where: { hotelId, isActive: true },
-        orderBy: { rank: 'asc' },
+        where: { hotelId, isActive: true, rateCategory: 'OWN' },
+        orderBy: [{ roomType: { sortOrder: 'asc' } }, { sortOrder: 'asc' }],
+        select: { rankCode: true, sortOrder: true, price: true, roomTypeId: true },
       }),
     ])
 
@@ -227,17 +249,23 @@ export const ruleBasedForecaster: DemandForecaster = {
       .filter((d): d is typeof d & { occupancy: number } => d.occupancy != null)
       .map((d) => ({ date: d.date, occupancy: d.occupancy }))
 
-    const maxRank = priceRanks.length > 0 ? Math.max(...priceRanks.map((r) => r.rank)) : DEFAULT_MAX_RANK
-    const priceByRank = new Map(priceRanks.map((r) => [r.rank, r.price1P]))
+    // 先頭の部屋タイプ分だけをはしごとして使う（価格の安い順）
+    const baseRoomTypeId = priceRanks[0]?.roomTypeId
+    const ladder: RankLadderEntry[] = priceRanks
+      .filter((r) => r.roomTypeId === baseRoomTypeId)
+      .map((r) => ({ rankCode: r.rankCode, sortOrder: r.sortOrder, price: r.price }))
 
     const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
     const results: DailyForecast[] = []
     for (let i = 0; i < totalDays; i++) {
       const date = addUtcDays(startDate, i)
-      const core = computeDailyForecastCore(date, history, events, weekendDays, maxRank)
+      const core = computeDailyForecastCore(date, history, events, weekendDays)
+      const rank = selectRankByOccupancy(core.predictedOccupancy, ladder)
       results.push({
         ...core,
-        recommendedPrice: core.recommendedRank != null ? priceByRank.get(core.recommendedRank) ?? null : null,
+        recommendedRank: rank?.sortOrder ?? null,
+        recommendedRankCode: rank?.rankCode ?? null,
+        recommendedPrice: rank?.price ?? null,
         modelVersion: MODEL_VERSION,
       })
     }

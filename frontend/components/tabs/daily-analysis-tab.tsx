@@ -19,7 +19,13 @@ import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
 
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type BookingCurve, type CompetitorPrices } from "@/lib/api"
+import {
+  api,
+  ApiClientError,
+  type BookingCurve,
+  type CompetitorPrices,
+  type OnHandCurve,
+} from "@/lib/api"
 
 function yen(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "-"
@@ -38,7 +44,25 @@ function avgOf(rows: Array<Record<string, any>>, key: string): number | null {
 
 export function DailyAnalysisTab() {
   const { hotelId } = useAuth()
-  const [targetMonth, setTargetMonth] = useState("2025-04")
+  // 既定は当月（実データは当月周辺に存在するため固定値にしない）
+  const [targetMonth, setTargetMonth] = useState(() => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  })
+
+  // 対象月の選択肢: 当月を中心に前後6ヶ月
+  const monthOptions = useMemo(() => {
+    const now = new Date()
+    const options: Array<{ value: string; label: string }> = []
+    for (let offset = -6; offset <= 6; offset++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+      options.push({
+        value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+        label: `${d.getFullYear()}年${d.getMonth() + 1}月`,
+      })
+    }
+    return options
+  }, [])
   const [viewMode, setViewMode] = useState<"table" | "segment-settings">("table")
 
   // 現在の日付を取得（過去/未来判定用）
@@ -82,6 +106,52 @@ export function DailyAnalysisTab() {
   useEffect(() => {
     loadBookingCurve()
   }, [loadBookingCurve])
+
+  // ---- オンハンド ブッキングカーブ（実データ: api.onHandCurve — F-OH-03） ----
+  const [onHandStep, setOnHandStep] = useState("10")
+  const [onHandCurve, setOnHandCurve] = useState<OnHandCurve | null>(null)
+  const [onHandCurveLoading, setOnHandCurveLoading] = useState(true)
+  const [onHandCurveError, setOnHandCurveError] = useState<string | null>(null)
+
+  const loadOnHandCurve = useCallback(async () => {
+    if (!hotelId) return
+    setOnHandCurveLoading(true)
+    setOnHandCurveError(null)
+    try {
+      const [yearStr, monthStr] = targetMonth.split("-")
+      const result = await api.onHandCurve(
+        hotelId,
+        { year: Number.parseInt(yearStr, 10), month: Number.parseInt(monthStr, 10) },
+        { step: Number.parseInt(onHandStep, 10), compareLastYear: true }
+      )
+      setOnHandCurve(result)
+    } catch (err) {
+      setOnHandCurveError(
+        err instanceof ApiClientError ? err.message : "オンハンドカーブの取得に失敗しました"
+      )
+    } finally {
+      setOnHandCurveLoading(false)
+    }
+  }, [hotelId, targetMonth, onHandStep])
+
+  useEffect(() => {
+    loadOnHandCurve()
+  }, [loadOnHandCurve])
+
+  // 前年カーブを同じリードタイム軸に重ねる（進捗管理表と同じ見方）
+  const onHandCurveData = useMemo(() => {
+    if (!onHandCurve) return []
+    const lastYearByDaysBefore = new Map(
+      (onHandCurve.lastYear?.points ?? []).map((p) => [p.daysBefore, p])
+    )
+    return onHandCurve.points.map((p) => ({
+      label: `${p.daysBefore}日前`,
+      daysBefore: p.daysBefore,
+      rooms: p.rooms,
+      adr: p.adr,
+      lastYearRooms: lastYearByDaysBefore.get(p.daysBefore)?.rooms ?? null,
+    }))
+  }, [onHandCurve])
 
   // X軸: daysBefore を右肩上がり（宿泊日に近づくほど右）に表示するため降順のまま reversed 指定
   const bookingCurveData = useMemo(() => {
@@ -298,10 +368,9 @@ export function DailyAnalysisTab() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="2025-02">2025年2月</SelectItem>
-                  <SelectItem value="2025-03">2025年3月</SelectItem>
-                  <SelectItem value="2025-04">2025年4月</SelectItem>
-                  <SelectItem value="2025-05">2025年5月</SelectItem>
+                  {monthOptions.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -761,6 +830,91 @@ export function DailyAnalysisTab() {
             <div className="text-center py-8 text-sm text-muted-foreground">
               選択した宿泊日のブッキングカーブデータがありません
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* オンハンド ブッキングカーブ（月合計・リードタイム別 — F-OH-03） */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <CardTitle className="text-base">オンハンド ブッキングカーブ（月合計値）</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">
+                {onHandCurve
+                  ? `${onHandCurve.startDate} 〜 ${onHandCurve.endDate}｜${onHandCurve.maxDaysBefore}日前〜0日前を${onHandCurve.step}日刻みで表示`
+                  : "対象月の予約積上をリードタイム別に表示します"}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="onhand-step" className="text-xs whitespace-nowrap">刻み</Label>
+              <Select value={onHandStep} onValueChange={setOnHandStep}>
+                <SelectTrigger id="onhand-step" className="h-8 w-24 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="5">5日</SelectItem>
+                  <SelectItem value="10">10日</SelectItem>
+                  <SelectItem value="30">30日</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {onHandCurveLoading ? (
+            <Skeleton className="h-[300px] w-full" />
+          ) : onHandCurveError ? (
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{onHandCurveError}</p>
+              <Button variant="outline" size="sm" onClick={loadOnHandCurve} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : onHandCurveData.length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">
+              対象月のオンハンドデータがありません
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart data={onHandCurveData} margin={{ top: 5, right: 30, left: 20, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10 }}
+                  stroke="currentColor"
+                  opacity={0.5}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  yAxisId="left"
+                  tick={{ fontSize: 11 }}
+                  stroke="currentColor"
+                  opacity={0.5}
+                  label={{ value: "室数", angle: -90, position: "insideLeft", style: { fontSize: 11 } }}
+                />
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  tick={{ fontSize: 11 }}
+                  stroke="currentColor"
+                  opacity={0.5}
+                  tickFormatter={(v) => `¥${(Number(v) / 1000).toFixed(0)}k`}
+                />
+                <Tooltip
+                  formatter={(value, name) => {
+                    const n = Number(value)
+                    return name === "ADR" ? [`¥${n.toLocaleString()}`, name] : [`${n.toLocaleString()}室`, name]
+                  }}
+                />
+                <Legend />
+                <Line yAxisId="left" type="monotone" dataKey="rooms" name="稼働数" stroke="#f97316" dot={false} strokeWidth={2} />
+                <Line yAxisId="left" type="monotone" dataKey="lastYearRooms" name="前年稼働数" stroke="#94a3b8" dot={false} strokeDasharray="4 4" />
+                <Line yAxisId="right" type="monotone" dataKey="adr" name="ADR" stroke="#3b82f6" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
           )}
         </CardContent>
       </Card>

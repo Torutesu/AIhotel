@@ -18,7 +18,7 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
 
   const { start, end } = monthRange(year, month)
 
-  const [dailyData, budget, recommendations, simulation] = await Promise.all([
+  const [dailyData, budget, recommendations, simulation, roomTypes] = await Promise.all([
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: start, lt: end } },
       orderBy: { date: 'asc' },
@@ -33,6 +33,11 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
     prisma.monthlyLandingSimulation.findUnique({
       where: { hotelId_year_month: { hotelId, year, month } },
     }),
+    // 定員稼働率（F-KPI-01）用: 総定員 = Σ(capacity × count)
+    prisma.roomType.findMany({
+      where: { hotelId, isActive: true },
+      select: { capacity: true, count: true },
+    }),
   ])
 
   // 実績集計（データが存在する日 = 本日までの実績）
@@ -45,14 +50,24 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
   const occupancyRate = roomNights > 0 ? soldRooms / roomNights : 0
   const revPar = roomNights > 0 ? totalRevenue / roomNights : 0
 
+  // 定員稼働率（F-KPI-01 — 機能リストのKPI表）= 宿泊人数 / 総定員（人泊）
+  // 部屋タイプマスタが未整備なら null（0除算・誤表示を避ける）
+  const totalCapacity = roomTypes.reduce((sum, rt) => sum + rt.capacity * rt.count, 0)
+  const capacityPersonNights = totalCapacity * actualDays.length
+  const capacityOccupancyRate =
+    capacityPersonNights > 0 ? Math.round((guests / capacityPersonNights) * 1000) / 1000 : null
+
   const summary = {
     roomRevenue: Math.round(totalRevenue),
     soldRooms,
     adr: Math.round(adr),
     occupancyRate: Math.round(occupancyRate * 1000) / 1000,
+    // DOR = Double Occupancy Rate（1室あたり平均利用人数）= 宿泊人数 / 販売室数
+    capacityOccupancyRate,
+    totalCapacity,
     revPar: Math.round(revPar),
     guests,
-    dor: actualDays.length > 0 ? Math.round((guests / actualDays.length) * 10) / 10 : 0,
+    dor: soldRooms > 0 ? Math.round((guests / soldRooms) * 100) / 100 : 0,
     guestUnitPrice: guests > 0 ? Math.round(totalRevenue / guests) : 0,
     actualDays: actualDays.length,
   }

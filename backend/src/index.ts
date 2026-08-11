@@ -17,6 +17,8 @@ import { analysisRouter } from './routes/analysis.js'
 import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
 import { reportsRouter } from './routes/reports.js'
+import { ingestRouter } from './routes/ingest.js'
+import { calendarRouter } from './routes/calendar.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -24,6 +26,9 @@ import { notFoundHandler } from './middlewares/notFoundHandler.js'
 
 // Import utilities
 import { logger, requestLogger } from './utils/logger.js'
+
+// PMSデータの自動取込（常駐スケジューラ。既定は無効）
+import { startIngestScheduler, stopIngestScheduler } from './lib/ingestScheduler.js'
 
 // ======================================
 // Configuration
@@ -119,6 +124,8 @@ app.use('/api/v1/analysis', analysisRouter)
 app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/reports', reportsRouter)
+app.use('/api/v1/ingest', ingestRouter)
+app.use('/api/v1/calendar', calendarRouter)
 
 // ======================================
 // Error Handling
@@ -140,11 +147,16 @@ const server = app.listen(PORT, () => {
     env: NODE_ENV,
     frontend: FRONTEND_URL,
   }, `🚀 Backend server running on http://localhost:${PORT}`)
+
+  // 人手のアップロードに頼らず、バックエンド側で取得〜取込まで流す
+  startIngestScheduler()
 })
 
 // Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
   logger.info(`${signal} received. Starting graceful shutdown...`)
+
+  stopIngestScheduler()
   
   server.close(() => {
     logger.info('HTTP server closed')

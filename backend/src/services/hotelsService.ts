@@ -79,3 +79,18 @@ export async function deleteHotelService(id: string): Promise<void> {
     data: { isActive: false },
   })
 }
+
+/**
+ * 部屋タイプマスタ一覧（プライシング・設定画面の選択肢に使う）
+ * 並びは sortOrder → code。フロントでの選択肢ハードコードを禁止するための API。
+ */
+export async function getRoomTypesService(hotelId: string) {
+  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  return prisma.roomType.findMany({
+    where: { hotelId, isActive: true },
+    orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+    select: { id: true, code: true, name: true, capacity: true, count: true },
+  })
+}
