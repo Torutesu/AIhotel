@@ -5,6 +5,7 @@ import { createHotelSchema, updateHotelSchema } from '../lib/validators.js'
 import {
   getHotels,
   getHotelById,
+  getRoomTypes,
   createHotel,
   updateHotel,
   deleteHotel,
@@ -20,6 +21,13 @@ hotelsRouter.get('/', getHotels)
 
 // GET /api/v1/hotels/:id — 自ホテル or ADMIN のみ（C-3）
 hotelsRouter.get('/:id', requireHotelAccess((req) => req.params.id), getHotelById)
+
+// GET /api/v1/hotels/:id/room-types — 部屋タイプマスタ（選択肢のハードコード禁止）
+hotelsRouter.get(
+  '/:id/room-types',
+  requireHotelAccess((req) => req.params.id),
+  getRoomTypes
+)
 
 // 作成・更新・削除は ADMIN 専用
 hotelsRouter.post('/', requireRole('ADMIN'), validate(createHotelSchema), createHotel)

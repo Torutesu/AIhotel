@@ -5,7 +5,8 @@ import {
   computeEventImpact,
   computeWeekendAdjustment,
   mapOccupancyToDemandLevel,
-  mapOccupancyToRank,
+  selectRankIndex,
+  selectRankByOccupancy,
   computePredictedOccupancy,
   computeConfidence,
   type OccupancyRecord,
@@ -102,16 +103,38 @@ describe('mapOccupancyToDemandLevel', () => {
   })
 })
 
-describe('mapOccupancyToRank', () => {
-  it('稼働率を1〜maxRankの範囲にマップする', () => {
-    expect(mapOccupancyToRank(1, 40)).toBe(40)
-    expect(mapOccupancyToRank(0, 40)).toBe(1)
-    expect(mapOccupancyToRank(0.5, 40)).toBe(20)
+describe('selectRankIndex', () => {
+  it('稼働率をはしごの位置（0〜rankCount-1）にマップする', () => {
+    expect(selectRankIndex(1, 71)).toBe(70)
+    expect(selectRankIndex(0, 71)).toBe(0)
+    expect(selectRankIndex(0.5, 71)).toBe(35)
   })
 
-  it('maxRank が40以外でも範囲内に収める', () => {
-    expect(mapOccupancyToRank(1.5, 10)).toBe(10)
-    expect(mapOccupancyToRank(-0.5, 10)).toBe(1)
+  it('範囲外の稼働率でもはしごの内側に収める', () => {
+    expect(selectRankIndex(1.5, 10)).toBe(9)
+    expect(selectRankIndex(-0.5, 10)).toBe(0)
+  })
+
+  it('はしごが空でも例外にしない', () => {
+    expect(selectRankIndex(0.8, 0)).toBe(0)
+  })
+})
+
+describe('selectRankByOccupancy', () => {
+  const ladder = [
+    { rankCode: '65', sortOrder: 0, price: 15200 },
+    { rankCode: '30', sortOrder: 35, price: 37200 },
+    { rankCode: '★5', sortOrder: 70, price: 42200 },
+  ]
+
+  it('稼働率が高いほど高価格側のランクを選ぶ', () => {
+    expect(selectRankByOccupancy(0, ladder)?.rankCode).toBe('65')
+    expect(selectRankByOccupancy(0.5, ladder)?.rankCode).toBe('30')
+    expect(selectRankByOccupancy(1, ladder)?.rankCode).toBe('★5')
+  })
+
+  it('ランクマスタ未整備時は null を返す', () => {
+    expect(selectRankByOccupancy(0.8, [])).toBeNull()
   })
 })
 

@@ -18,6 +18,7 @@ import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
 import { reportsRouter } from './routes/reports.js'
 import { ingestRouter } from './routes/ingest.js'
+import { calendarRouter } from './routes/calendar.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -121,6 +122,7 @@ app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/reports', reportsRouter)
 app.use('/api/v1/ingest', ingestRouter)
+app.use('/api/v1/calendar', calendarRouter)
 
 // ======================================
 // Error Handling

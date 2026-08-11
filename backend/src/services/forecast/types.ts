@@ -17,7 +17,10 @@ export interface DailyForecast {
   date: Date
   predictedOccupancy: number
   demandLevel: ForecastDemandLevel
+  /** 推奨ランクの並び順（PriceRank.sortOrder）。グラフ・比較用の数値表現 */
   recommendedRank: number | null
+  /** 推奨ランクコード（"65".."0" / "★1".."★5"）。表示・SC連携はこちらが正 */
+  recommendedRankCode: string | null
   recommendedPrice: number | null
   confidence: number
   modelVersion: string

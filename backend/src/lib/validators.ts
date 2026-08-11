@@ -88,18 +88,64 @@ export const updateRoomTypeSchema = createRoomTypeSchema.omit({ hotelId: true })
 // Price Rank Validators
 // ======================================
 
-// 料金ランクは最大40段階（F-SET-02）
+// 料金ランク（F-SET-02 — 部屋タイプ×レート区分×ランクコード。旧40段階制約は撤廃）
+export const rateCategorySchema = z.enum(['OWN', 'MEMBER', 'SHAREHOLDER', 'OTA'])
+
+// ランクコードは "65".."0" の数値表記と "★1".."★5" を許容する
+export const rankCodeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(8)
+  .regex(/^(\d{1,3}|★[1-9])$/, 'ランクコードは数値または★1〜★9の形式です')
+
+// 価格は100円単位（機能リスト: 500円幅→100円単位へ）
+const rankPriceSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(10_000_000)
+  .refine((v) => v % 100 === 0, { message: '価格は100円単位で指定してください' })
+
 export const createPriceRankSchema = z.object({
   hotelId: entityIdSchema,
-  rank: z.number().int().min(1).max(40, '料金ランクは最大40段階です'),
-  label: z.string().min(1).max(10),
-  price1P: z.number().int().min(0),
-  price2P: z.number().int().min(0),
-  price3P: z.number().int().min(0).optional(),
-  price4P: z.number().int().min(0).optional(),
+  roomTypeId: entityIdSchema,
+  rateCategory: rateCategorySchema,
+  rankCode: rankCodeSchema,
+  sortOrder: z.number().int().min(0).max(1000),
+  price: rankPriceSchema,
 })
 
-export const updatePriceRankSchema = createPriceRankSchema.omit({ hotelId: true, rank: true }).partial()
+export const updatePriceRankSchema = z.object({
+  price: rankPriceSchema.optional(),
+  sortOrder: z.number().int().min(0).max(1000).optional(),
+  isActive: z.boolean().optional(),
+})
+
+// 料金ランク一覧の絞り込み
+export const priceRanksQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  roomTypeId: entityIdSchema.optional(),
+  rateCategory: rateCategorySchema.optional(),
+})
+
+// 料金表の一括登録（販売料金表の取込・編集用）
+export const bulkUpsertPriceRanksSchema = z.object({
+  hotelId: entityIdSchema,
+  roomTypeId: entityIdSchema,
+  rateCategory: rateCategorySchema,
+  items: z
+    .array(
+      z.object({
+        rankCode: rankCodeSchema,
+        sortOrder: z.number().int().min(0).max(1000),
+        price: rankPriceSchema,
+        isActive: z.boolean().optional(),
+      })
+    )
+    .min(1)
+    .max(200),
+})
 
 // ======================================
 // Daily Data Validators
@@ -224,6 +270,13 @@ export const monthQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
 })
 
+// 価格カレンダー（F-DP-01）。表示は1ヶ月固定のため year/month は必須。
+// 部屋タイプ未指定時はマスタ先頭を既定にする（モックアップ修正 ②）
+export const pricingCalendarQuerySchema = monthQuerySchema.extend({
+  roomTypeId: entityIdSchema.optional(),
+  rateCategory: z.enum(['OWN', 'MEMBER', 'SHAREHOLDER', 'OTA']).optional(),
+})
+
 export const yearQuerySchema = z.object({
   hotelId: entityIdSchema,
   year: z.coerce.number().int().min(2020).max(2100),
@@ -275,15 +328,8 @@ export const recomputeForecastSchema = z.object({
   { message: '開始日は終了日以前である必要があります' }
 )
 
-// 重み付けは合計100%（F-DP-02）
-export const updateStrategySchema = z.object({
-  hotelId: entityIdSchema,
-  weightOccupancy: z.number().int().min(0).max(100),
-  weightAdr: z.number().int().min(0).max(100),
-  weightCompetitor: z.number().int().min(0).max(100),
-}).refine(data => data.weightOccupancy + data.weightAdr + data.weightCompetitor === 100, {
-  message: '重み付けの合計は100%である必要があります',
-})
+// 価格戦略の重み付け設定（旧 updateStrategySchema）は2026/8に撤去した
+// （モックアップ修正内容.xlsx ③ / docs/drive-gap-analysis.md §3-3）
 
 // ======================================
 // PMS Ingest / Segment Master Validators（Phase 4A — F-OH-01, F-INV-01, F-SET-06, F-ING-01）
@@ -488,6 +534,88 @@ export const inventoryQuerySchema = z
   })
 
 // ======================================
+// 特日・外部要因 Validators（Phase 4C — F-DP-08, F-EXT-01）
+// ======================================
+
+export const specialDayKindSchema = z.enum(['HOLIDAY', 'TOKUJITSU'])
+export const dataSourceSchema = z.enum(['AI', 'MANUAL'])
+
+export const specialDaysQuerySchema = z
+  .object({
+    hotelId: entityIdSchema,
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
+  })
+  .refine((d) => d.startDate <= d.endDate, {
+    message: '開始日は終了日以前である必要があります',
+  })
+
+export const createSpecialDaySchema = z.object({
+  hotelId: entityIdSchema,
+  date: z.coerce.date(),
+  name: z.string().trim().min(1).max(50),
+  kind: specialDayKindSchema,
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, '色は #RRGGBB 形式で指定してください')
+    .optional(),
+  note: z.string().max(200).optional(),
+})
+
+export const updateSpecialDaySchema = createSpecialDaySchema
+  .omit({ hotelId: true, date: true })
+  .partial()
+
+export const factorCategorySchema = z.enum([
+  'WEATHER',
+  'INBOUND',
+  'EVENT',
+  'ACCESS',
+  'NEW_HOTEL',
+  'ECONOMY',
+  'OTHER',
+])
+export const factorTimeAxisSchema = z.enum(['TOKUJITSU', 'PERIOD', 'DAILY'])
+
+export const externalFactorsQuerySchema = z
+  .object({
+    hotelId: entityIdSchema,
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
+    category: factorCategorySchema.optional(),
+  })
+  .refine((d) => d.startDate <= d.endDate, {
+    message: '開始日は終了日以前である必要があります',
+  })
+
+export const createExternalFactorSchema = z
+  .object({
+    hotelId: entityIdSchema,
+    category: factorCategorySchema,
+    timeAxis: factorTimeAxisSchema,
+    title: z.string().trim().min(1).max(120),
+    description: z.string().max(1000).optional(),
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
+    impactScore: z.number().min(-1).max(1).optional(),
+    area: z.string().max(50).optional(),
+    sourceUrl: z.string().url().max(500).optional(),
+  })
+  .refine((d) => d.startDate <= d.endDate, {
+    message: '開始日は終了日以前である必要があります',
+  })
+
+export const updateExternalFactorSchema = z.object({
+  category: factorCategorySchema.optional(),
+  timeAxis: factorTimeAxisSchema.optional(),
+  title: z.string().trim().min(1).max(120).optional(),
+  description: z.string().max(1000).optional(),
+  impactScore: z.number().min(-1).max(1).optional(),
+  area: z.string().max(50).optional(),
+  sourceUrl: z.string().url().max(500).optional(),
+})
+
+// ======================================
 // Type Exports
 // ======================================
 
@@ -495,6 +623,15 @@ export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type CreateHotelInput = z.infer<typeof createHotelSchema>
 export type CreatePriceRankInput = z.infer<typeof createPriceRankSchema>
+export type UpdatePriceRankInput = z.infer<typeof updatePriceRankSchema>
+export type PriceRanksQueryInput = z.infer<typeof priceRanksQuerySchema>
+export type BulkUpsertPriceRanksInput = z.infer<typeof bulkUpsertPriceRanksSchema>
+export type CreateSpecialDayInput = z.infer<typeof createSpecialDaySchema>
+export type UpdateSpecialDayInput = z.infer<typeof updateSpecialDaySchema>
+export type SpecialDaysQueryInput = z.infer<typeof specialDaysQuerySchema>
+export type CreateExternalFactorInput = z.infer<typeof createExternalFactorSchema>
+export type UpdateExternalFactorInput = z.infer<typeof updateExternalFactorSchema>
+export type ExternalFactorsQueryInput = z.infer<typeof externalFactorsQuerySchema>
 export type UpdateHotelInput = z.infer<typeof updateHotelSchema>
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>
 export type UpdateRoomTypeInput = z.infer<typeof updateRoomTypeSchema>

@@ -3,7 +3,7 @@ import {
   loginSchema,
   registerSchema,
   createPriceRankSchema,
-  updateStrategySchema,
+  bulkUpsertPriceRanksSchema,
 } from './validators.js'
 
 describe('loginSchema', () => {
@@ -68,46 +68,59 @@ describe('registerSchema', () => {
 describe('createPriceRankSchema', () => {
   const base = {
     hotelId: 'cljk1234500000000000abcd',
-    label: 'A',
-    price1P: 5000,
-    price2P: 8000,
+    roomTypeId: 'cljk1234500000000000efgh',
+    rateCategory: 'OWN' as const,
+    sortOrder: 10,
+    price: 15200,
   }
 
-  it('rank 40 以下は受け入れる（F-SET-02: 最大40段階）', () => {
-    const result = createPriceRankSchema.safeParse({ ...base, rank: 40 })
-    expect(result.success).toBe(true)
+  it('数値ランクコードを受け入れる（F-SET-02: 65〜0）', () => {
+    expect(createPriceRankSchema.safeParse({ ...base, rankCode: '65' }).success).toBe(true)
+    expect(createPriceRankSchema.safeParse({ ...base, rankCode: '0' }).success).toBe(true)
   })
 
-  it('rank が40を超える場合は拒否する', () => {
-    const result = createPriceRankSchema.safeParse({ ...base, rank: 41 })
-    expect(result.success).toBe(false)
+  it('★付きランクコードを受け入れる（★1〜★5）', () => {
+    expect(createPriceRankSchema.safeParse({ ...base, rankCode: '★1' }).success).toBe(true)
+    expect(createPriceRankSchema.safeParse({ ...base, rankCode: '★5' }).success).toBe(true)
   })
 
-  it('rank が1未満(0以下)の場合は拒否する', () => {
-    const result = createPriceRankSchema.safeParse({ ...base, rank: 0 })
-    expect(result.success).toBe(false)
+  it('不正な形式のランクコードを拒否する', () => {
+    expect(createPriceRankSchema.safeParse({ ...base, rankCode: 'R01' }).success).toBe(false)
+    expect(createPriceRankSchema.safeParse({ ...base, rankCode: '' }).success).toBe(false)
+  })
+
+  it('100円単位でない価格を拒否する（機能リスト: 100円単位対応）', () => {
+    expect(createPriceRankSchema.safeParse({ ...base, rankCode: '30', price: 15250 }).success).toBe(false)
+    expect(createPriceRankSchema.safeParse({ ...base, rankCode: '30', price: 15200 }).success).toBe(true)
+  })
+
+  it('未知のレート区分を拒否する', () => {
+    expect(
+      createPriceRankSchema.safeParse({ ...base, rankCode: '30', rateCategory: 'UNKNOWN' }).success
+    ).toBe(false)
   })
 })
 
-describe('updateStrategySchema', () => {
-  const hotelId = 'cljk1234500000000000abcd'
-
-  it('重み付けの合計が100の場合は受け入れる（F-DP-02）', () => {
-    const result = updateStrategySchema.safeParse({
-      hotelId,
-      weightOccupancy: 40,
-      weightAdr: 30,
-      weightCompetitor: 30,
+describe('bulkUpsertPriceRanksSchema', () => {
+  it('料金表1系列の一括登録を受け入れる', () => {
+    const result = bulkUpsertPriceRanksSchema.safeParse({
+      hotelId: 'cljk1234500000000000abcd',
+      roomTypeId: 'cljk1234500000000000efgh',
+      rateCategory: 'OTA',
+      items: [
+        { rankCode: '65', sortOrder: 0, price: 16900 },
+        { rankCode: '★5', sortOrder: 70, price: 74700 },
+      ],
     })
     expect(result.success).toBe(true)
   })
 
-  it('重み付けの合計が100でない場合は拒否する', () => {
-    const result = updateStrategySchema.safeParse({
-      hotelId,
-      weightOccupancy: 40,
-      weightAdr: 30,
-      weightCompetitor: 20,
+  it('空のitemsを拒否する', () => {
+    const result = bulkUpsertPriceRanksSchema.safeParse({
+      hotelId: 'cljk1234500000000000abcd',
+      roomTypeId: 'cljk1234500000000000efgh',
+      rateCategory: 'OTA',
+      items: [],
     })
     expect(result.success).toBe(false)
   })

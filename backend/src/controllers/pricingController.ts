@@ -2,12 +2,8 @@ import type { Request, Response } from 'express'
 import { asyncHandler } from '../middlewares/errorHandler.js'
 import { sendSuccess } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
-import {
-  getPricingCalendarService,
-  getStrategyService,
-  updateStrategyService,
-  getSimulationService,
-} from '../services/pricingService.js'
+import { getPricingCalendarService, getSimulationService } from '../services/pricingService.js'
+import type { RateCategory } from '@prisma/client'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
 
 /**
@@ -15,48 +11,15 @@ import { recomputeForecastService } from '../services/forecast/forecastService.j
  * GET /api/v1/pricing/calendar?hotelId=&year=&month=
  */
 export const getCalendar = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId, year, month } = req.query as unknown as {
+  const { hotelId, year, month, roomTypeId, rateCategory } = req.query as unknown as {
     hotelId: string
     year: number
     month: number
+    roomTypeId?: string
+    rateCategory?: RateCategory
   }
-  const result = await getPricingCalendarService(hotelId, year, month)
+  const result = await getPricingCalendarService(hotelId, year, month, { roomTypeId, rateCategory })
   sendSuccess(res, result)
-})
-
-/**
- * 価格戦略の重み付け取得
- * GET /api/v1/pricing/strategy?hotelId=
- */
-export const getStrategy = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId } = req.query as unknown as { hotelId: string }
-  const result = await getStrategyService(hotelId)
-  sendSuccess(res, result)
-})
-
-/**
- * 価格戦略の重み付け更新（MANAGER 以上・監査対象 — F-DP-02）
- * PUT /api/v1/pricing/strategy
- */
-export const updateStrategy = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId, weightOccupancy, weightAdr, weightCompetitor } = req.body
-  const { before, after } = await updateStrategyService(
-    hotelId,
-    { weightOccupancy, weightAdr, weightCompetitor },
-    req.user!.userId
-  )
-  await writeAuditLog({
-    tenantId: after.tenantId,
-    userId: req.user!.userId,
-    action: 'UPDATE',
-    entity: 'PricingStrategyConfig',
-    entityId: after.id,
-    oldValue: before,
-    newValue: after,
-    ipAddress: req.ip,
-    userAgent: req.headers['user-agent'],
-  })
-  sendSuccess(res, after, 200, '価格戦略を更新しました')
 })
 
 /**

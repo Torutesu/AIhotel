@@ -75,15 +75,29 @@ export interface RoomType {
 // Pricing Types
 // ======================================
 
+/** レート区分（販売料金表の行区分） */
+export type RateCategory = 'OWN' | 'MEMBER' | 'SHAREHOLDER' | 'OTA'
+
+export const RATE_CATEGORY_LABELS: Record<RateCategory, string> = {
+  OWN: '自社',
+  MEMBER: '会員',
+  SHAREHOLDER: '株優',
+  OTA: 'OTA',
+}
+
+/**
+ * 料金ランク（F-SET-02）
+ * 部屋タイプ × レート区分 × ランクコード（"65".."0" / "★1".."★5"）で一意。
+ * 旧「最大40段階・rank番号」構造は2026/8に廃止。
+ */
 export interface PriceRank {
   id: string
   hotelId: string
-  rank: number
-  label: string
-  price1P: number
-  price2P: number
-  price3P?: number
-  price4P?: number
+  roomTypeId: string
+  rateCategory: RateCategory
+  rankCode: string
+  sortOrder: number
+  price: number
   isActive: boolean
 }
 
@@ -144,7 +158,8 @@ export interface DailyRoomData {
   id: string
   dailyDataId: string
   roomTypeId: string
-  priceRank?: number
+  /** 適用された料金ランクコード（"65".."0" / "★1".."★5"） */
+  priceRankCode?: string
   price1P?: number
   price2P?: number
   price3P?: number

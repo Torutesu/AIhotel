@@ -2,9 +2,10 @@ import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireRole, requireHotelAccess } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
 import {
-  hotelIdQuerySchema,
   createPriceRankSchema,
   updatePriceRankSchema,
+  priceRanksQuerySchema,
+  bulkUpsertPriceRanksSchema,
   updateHotelSettingsSchema,
   segmentsQuerySchema,
   upsertSegmentsSchema,
@@ -14,6 +15,7 @@ import {
   createPriceRank,
   updatePriceRank,
   deletePriceRank,
+  bulkUpsertPriceRanks,
   updateHotelSettings,
   getSegments,
   upsertSegments,
@@ -28,8 +30,18 @@ settingsRouter.use(authenticate)
 settingsRouter.get(
   '/price-ranks',
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
-  validate(hotelIdQuerySchema, 'query'),
+  validate(priceRanksQuerySchema, 'query'),
   getPriceRanks
+)
+
+// PUT /api/v1/settings/price-ranks/bulk — 料金表の一括登録（MANAGER 以上・F-SET-02）
+// :id ルートより前に定義しないと 'bulk' が :id として解釈される
+settingsRouter.put(
+  '/price-ranks/bulk',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(bulkUpsertPriceRanksSchema),
+  bulkUpsertPriceRanks
 )
 
 // 設定変更は MANAGER 以上（要件定義書 §4）
