@@ -15,7 +15,14 @@ import { CalendarIcon, AlertCircle, RefreshCw } from "lucide-react"
 
 import { Tab } from "@shared/types"
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type DashboardKpi, type AlertItem, type AiSummary } from "@/lib/api"
+import {
+  api,
+  ApiClientError,
+  type DashboardKpi,
+  type AlertItem,
+  type AiSummary,
+  type InventoryView,
+} from "@/lib/api"
 
 interface DashboardTabProps {
   onTabChange?: (tab: Tab) => void
@@ -132,6 +139,37 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
     loadData()
   }, [loadData])
 
+  // ---- 残室推移（実データ: api.inventoryView — F-INV-01） ----
+  const [inventoryDays, setInventoryDays] = useState("14")
+  const [inventory, setInventory] = useState<InventoryView | null>(null)
+  const [inventoryLoading, setInventoryLoading] = useState(true)
+  const [inventoryError, setInventoryError] = useState<string | null>(null)
+
+  const loadInventory = useCallback(async () => {
+    if (!hotelId) return
+    setInventoryLoading(true)
+    setInventoryError(null)
+    try {
+      const start = new Date()
+      const end = new Date()
+      end.setDate(end.getDate() + Number.parseInt(inventoryDays, 10) - 1)
+      const result = await api.inventoryView(
+        hotelId,
+        format(start, "yyyy-MM-dd"),
+        format(end, "yyyy-MM-dd")
+      )
+      setInventory(result)
+    } catch (err) {
+      setInventoryError(err instanceof ApiClientError ? err.message : "残室データの取得に失敗しました")
+    } finally {
+      setInventoryLoading(false)
+    }
+  }, [hotelId, inventoryDays])
+
+  useEffect(() => {
+    loadInventory()
+  }, [loadInventory])
+
   const todayKey = format(new Date(), "yyyy-MM-dd")
 
   // 稼働率・ADRの月間推移チャートデータ（実績→予測の連続系列）
@@ -217,6 +255,20 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiBudgetNegative: ratioNegative(simulation?.projectedOccupancy, comparison?.budgetOccupancy),
         aiLastYearRatio: formatRatio(simulation?.projectedOccupancy, comparison?.lastYearOccupancy),
         aiLastYearNegative: ratioNegative(simulation?.projectedOccupancy, comparison?.lastYearOccupancy),
+      },
+      {
+        // 定員稼働率（F-KPI-01）= 宿泊人数 / 総定員
+        label: "定員稼働率",
+        actual: formatPercent(summary.capacityOccupancyRate),
+        budgetRatio: "-",
+        budgetNegative: false,
+        lastYearRatio: "-",
+        lastYearNegative: false,
+        aiPrediction: "-",
+        aiBudgetRatio: "-",
+        aiBudgetNegative: false,
+        aiLastYearRatio: "-",
+        aiLastYearNegative: false,
       },
       {
         label: "REV-Per",
@@ -707,6 +759,96 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
           ) : (
             <p className="text-sm text-muted-foreground">データがありません。</p>
           )}
+
+          {/* 残室推移（在庫表 — F-INV-01。日別×タイプ別、前回断面との差異付き） */}
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div>
+                  <CardTitle className="text-base">残室状況（日別×タイプ別）</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {inventory?.capturedDate
+                      ? `取得日 ${inventory.capturedDate}${inventory.previousCapturedDate ? `（前回 ${inventory.previousCapturedDate} との差異を併記）` : ""}`
+                      : "PMSから取得した残室の推移を表示します"}
+                  </p>
+                </div>
+                <Select value={inventoryDays} onValueChange={setInventoryDays}>
+                  <SelectTrigger className="h-8 w-28 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="7">今後7日</SelectItem>
+                    <SelectItem value="14">今後14日</SelectItem>
+                    <SelectItem value="30">今後30日</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {inventoryLoading ? (
+                <Skeleton className="h-48 w-full" />
+              ) : inventoryError ? (
+                <div className="flex flex-col items-center gap-3 py-6 text-center">
+                  <AlertCircle className="w-6 h-6 text-destructive" />
+                  <p className="text-sm text-muted-foreground">{inventoryError}</p>
+                  <Button variant="outline" size="sm" onClick={loadInventory} className="gap-2">
+                    <RefreshCw className="w-4 h-4" />
+                    再試行
+                  </Button>
+                </div>
+              ) : !inventory || inventory.rows.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  残室データが登録されていません。PMS取込後に表示されます。
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2 px-2 font-medium sticky left-0 bg-background">日付</th>
+                        {inventory.roomTypes.map((rt) => (
+                          <th key={rt} className="text-right py-2 px-2 font-medium whitespace-nowrap">{rt}</th>
+                        ))}
+                        <th className="text-right py-2 px-2 font-medium">合計</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inventory.rows.map((row) => (
+                        <tr key={row.stayDate} className="border-b hover:bg-muted/50">
+                          <td className="py-1.5 px-2 sticky left-0 bg-background">{row.stayDate}</td>
+                          {inventory.roomTypes.map((rt) => {
+                            const cell = row.byRoomType[rt]
+                            return (
+                              <td key={rt} className="text-right py-1.5 px-2 whitespace-nowrap">
+                                {cell ? (
+                                  <>
+                                    <span className={cell.remaining === 0 ? "text-[color:var(--negative)] font-semibold" : ""}>
+                                      {cell.remaining}
+                                    </span>
+                                    {cell.diff != null && cell.diff !== 0 && (
+                                      <span className={`ml-1 text-[10px] ${cell.diff < 0 ? "text-green-600" : "text-muted-foreground"}`}>
+                                        {cell.diff > 0 ? "+" : ""}{cell.diff}
+                                      </span>
+                                    )}
+                                  </>
+                                ) : (
+                                  "—"
+                                )}
+                              </td>
+                            )
+                          })}
+                          <td className="text-right py-1.5 px-2 font-semibold">{row.totalRemaining}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[10px] text-muted-foreground mt-2">
+                    差異は前回取得日からの残室の増減（マイナス＝販売が進んだ分）
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
