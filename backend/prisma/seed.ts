@@ -402,6 +402,149 @@ async function main() {
   }
   console.log(`✅ Segment masters: ${segmentCount}`)
 
+  // オンハンド・実績明細・残室（Phase 4B — F-OH-02/03, F-CXL-01, F-TOP-01, F-INV-01）
+  // 冪等: ホテル単位で全削除してから再生成する
+  await prisma.onHandSnapshot.deleteMany({ where: { hotelId: hotel.id } })
+  await prisma.reservation.deleteMany({ where: { hotelId: hotel.id } })
+  await prisma.reservationNight.deleteMany({ where: { hotelId: hotel.id } })
+  await prisma.roomInventorySnapshot.deleteMany({ where: { hotelId: hotel.id } })
+
+  const MARKET_CODES = ['IFJ', 'IAJ', 'NET', 'GAJ', 'BJ', 'IFF']
+  const REGION_CODES = ['12TK', '14KN', '27NR', '29OS', '01HK', '40FO']
+  const AGENT_CODES = ['RAK', 'JLN', 'EXP', 'AGD', 'JTB', 'DIR']
+  const RATE_TYPES = ['OWN', 'MEMBER', 'OTA']
+
+  // 実績明細（過去60日分。セグメント別分析・上位下位分析の元データ）
+  const nightRows = []
+  for (let offset = -60; offset < 0; offset++) {
+    const stayDate = addDays(today, offset)
+    const dow = stayDate.getUTCDay()
+    const isWeekend = dow === 5 || dow === 6
+    const daySold = Math.round(totalRooms * (isWeekend ? 0.92 : 0.74))
+    // 1日を6セグメントに分配する
+    let remaining = daySold
+    for (let i = 0; i < MARKET_CODES.length; i++) {
+      const isLast = i === MARKET_CODES.length - 1
+      const rooms = isLast ? remaining : Math.max(1, Math.round(daySold * (0.3 - i * 0.045)))
+      if (!isLast && rooms >= remaining) continue
+      remaining -= isLast ? 0 : rooms
+      const guestsPerRoom = 1 + Math.round(rng())
+      const adrBase = isWeekend ? 21000 : 16500
+      nightRows.push({
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        stayDate,
+        roomTypeCode: roomTypes[i % roomTypes.length].code,
+        rateTypeCode: RATE_TYPES[i % RATE_TYPES.length],
+        rooms,
+        guests: rooms * guestsPerRoom,
+        roomRevenue: Math.round(rooms * (adrBase + rng() * 3000)),
+        agentCode: AGENT_CODES[i % AGENT_CODES.length],
+        regionCode: REGION_CODES[i % REGION_CODES.length],
+        marketCode: MARKET_CODES[i],
+        individualGroupType: MARKET_CODES[i].startsWith('G') || MARKET_CODES[i] === 'BJ' ? 'G' : 'I',
+        buildingCode: 'MAIN',
+      })
+      if (isLast) break
+    }
+  }
+  await prisma.reservationNight.createMany({ data: nightRows })
+
+  // オンハンド予約（今後180日分の断面 = 本日）＋キャンセル分析用の予約/キャンセル日
+  const reservationRows = []
+  for (let offset = 0; offset < 180; offset++) {
+    const checkIn = addDays(today, offset)
+    const dow = checkIn.getUTCDay()
+    const isWeekend = dow === 5 || dow === 6
+    // 先の日付ほど積上が薄い（ブッキングカーブの形になる）
+    const pickup = Math.max(0.05, 1 - offset / 200)
+    const targetRooms = Math.round(totalRooms * (isWeekend ? 0.93 : 0.75) * pickup)
+    const bookingCount = Math.max(1, Math.round(targetRooms / 8))
+    for (let b = 0; b < bookingCount; b++) {
+      const rooms = Math.max(1, Math.round(targetRooms / bookingCount))
+      const leadDays = Math.round(10 + rng() * 120)
+      const nights = 1 + Math.round(rng() * 2)
+      const marketCode = MARKET_CODES[b % MARKET_CODES.length]
+      // 約8%をキャンセル済みにする（キャンセル分析の元データ）
+      const isCancelled = rng() < 0.08
+      reservationRows.push({
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        capturedDate: today,
+        bookedAt: addDays(checkIn, -leadDays),
+        cancelledAt: isCancelled ? addDays(checkIn, -Math.round(rng() * leadDays)) : null,
+        checkIn,
+        checkOut: addDays(checkIn, nights),
+        roomTypeCode: roomTypes[b % roomTypes.length].code,
+        rateTypeCode: RATE_TYPES[b % RATE_TYPES.length],
+        rooms,
+        guests: rooms * (1 + Math.round(rng())),
+        roomRevenue: Math.round(rooms * nights * ((isWeekend ? 21000 : 16500) + rng() * 3000)),
+        agentCode: AGENT_CODES[b % AGENT_CODES.length],
+        regionCode: REGION_CODES[b % REGION_CODES.length],
+        marketCode,
+        isGroup: marketCode === 'GAJ' || marketCode === 'BJ',
+      })
+    }
+  }
+  await prisma.reservation.createMany({ data: reservationRows })
+
+  // オンハンドスナップショット: 複数断面（過去360日分を10日刻み）でカーブを描けるようにする
+  const snapshotRows = []
+  for (let stayOffset = 0; stayOffset < 60; stayOffset++) {
+    const stayDate = addDays(today, stayOffset)
+    const dow = stayDate.getUTCDay()
+    const isWeekend = dow === 5 || dow === 6
+    const finalRooms = Math.round(totalRooms * (isWeekend ? 0.93 : 0.75))
+    for (let daysBefore = 360; daysBefore >= 0; daysBefore -= 10) {
+      const capturedDate = addDays(stayDate, -daysBefore)
+      // 本日より後の断面はまだ存在しない
+      if (capturedDate.getTime() > today.getTime()) continue
+      const progress = Math.pow(1 - daysBefore / 360, 2.2)
+      const rooms = Math.round(finalRooms * Math.min(1, progress + rng() * 0.03))
+      snapshotRows.push({
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        stayDate,
+        capturedDate,
+        rooms,
+        revenue: Math.round(rooms * ((isWeekend ? 21000 : 16500) + rng() * 2000)),
+        guests: rooms * 2,
+      })
+    }
+  }
+  await prisma.onHandSnapshot.createMany({ data: snapshotRows, skipDuplicates: true })
+
+  // 残室スナップショット（直近2断面 × 今後30日 × タイプ別 — 前回差異を出せるようにする）
+  const inventoryRows = []
+  for (const capturedOffset of [-1, 0]) {
+    const capturedDate = addDays(today, capturedOffset)
+    for (let stayOffset = 0; stayOffset < 30; stayOffset++) {
+      const stayDate = addDays(today, stayOffset)
+      const dow = stayDate.getUTCDay()
+      const isWeekend = dow === 5 || dow === 6
+      for (const rt of roomTypes) {
+        const soldRatio = (isWeekend ? 0.9 : 0.7) + capturedOffset * -0.02 + rng() * 0.06
+        const remaining = Math.max(0, Math.round(rt.count * (1 - Math.min(1, soldRatio))))
+        inventoryRows.push({
+          hotelId: hotel.id,
+          tenantId: tenant.id,
+          roomTypeCode: rt.code,
+          stayDate,
+          capturedDate,
+          remainingRooms: remaining,
+          totalRooms: rt.count,
+        })
+      }
+    }
+  }
+  await prisma.roomInventorySnapshot.createMany({ data: inventoryRows, skipDuplicates: true })
+
+  console.log(
+    `✅ On-hand: reservations ${reservationRows.length}, nights ${nightRows.length}, ` +
+      `snapshots ${snapshotRows.length}, inventory ${inventoryRows.length}`
+  )
+
   console.log('✨ Seeding completed!')
 }
 

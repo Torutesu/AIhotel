@@ -216,8 +216,13 @@ export interface DashboardKpi {
     soldRooms: number
     adr: number
     occupancyRate: number
+    /** 定員稼働率 = 宿泊人数 / 総定員（F-KPI-01）。部屋タイプマスタ未整備時は null */
+    capacityOccupancyRate: number | null
+    /** 総定員（Σ capacity × count） */
+    totalCapacity: number
     revPar: number
     guests: number
+    /** DOR = Double Occupancy Rate（宿泊人数 / 販売室数） */
     dor: number
     guestUnitPrice: number
     actualDays: number
@@ -357,6 +362,134 @@ export interface CompetitorAnalysis {
   }>
 }
 
+// ======================================
+// 分析拡張（Phase 4B — F-CXL-01, F-TOP-01, F-OH-03, F-INV-01）
+// ======================================
+
+export interface CancellationBucket {
+  period: string
+  bookedRooms: number
+  bookedCount: number
+  bookedRevenue: number
+  cancelledRooms: number
+  cancelledCount: number
+  cancelledRevenue: number
+  diffRooms: number
+  diffCount: number
+  diffRevenue: number
+  cancellationRate: number
+}
+
+export interface CancellationAnalysis {
+  hotelId: string
+  startDate: string
+  endDate: string
+  granularity: "daily" | "monthly"
+  buckets: CancellationBucket[]
+  totals: CancellationBucket
+  lastYear: { buckets: CancellationBucket[]; totals: CancellationBucket } | null
+}
+
+export type SegmentAxis =
+  | "roomType"
+  | "market"
+  | "region"
+  | "agent"
+  | "rateType"
+  | "guests"
+  | "individualGroup"
+
+export interface SegmentItem {
+  rank: number
+  code: string
+  name: string
+  aggregateCode: string | null
+  rooms: number
+  guests: number
+  revenue: number
+  adr: number
+  guestUnitPrice: number
+  roomShare: number
+  revenueShare: number
+  lastYear?: { rank: number | null; rooms: number; revenue: number } | null
+  diff?: { rank: number | null; rooms: number; revenue: number } | null
+}
+
+export interface SegmentAnalysis {
+  hotelId: string
+  axis: SegmentAxis
+  axisLabel: string
+  startDate: string
+  endDate: string
+  limit: number
+  segmentCount: number
+  totals: { rooms: number; guests: number; revenue: number }
+  items: SegmentItem[]
+}
+
+export interface DailyRanking {
+  hotelId: string
+  metric: "adr" | "occupancy"
+  startDate: string
+  endDate: string
+  dayCount: number
+  top: Array<{
+    date: string
+    value: number
+    adr: number | null
+    occupancy: number | null
+    soldRooms: number | null
+    revenue: number | null
+  }>
+  bottom: DailyRanking["top"]
+}
+
+export interface OnHandCurvePoint {
+  daysBefore: number
+  rooms: number
+  revenue: number
+  adr: number
+  occupancy: number | null
+}
+
+export interface OnHandCurve {
+  hotelId: string
+  scope: "daily" | "monthly"
+  startDate: string
+  endDate: string
+  step: number
+  maxDaysBefore: number
+  totalRooms: number
+  capacityRoomNights: number
+  points: OnHandCurvePoint[]
+  lastYear: { points: OnHandCurvePoint[]; startDate: string; endDate: string } | null
+}
+
+export interface InventoryView {
+  hotelId: string
+  capturedDate: string | null
+  previousCapturedDate: string | null
+  startDate: string
+  endDate: string
+  totalRooms?: number
+  roomTypes: string[]
+  rows: Array<{
+    stayDate: string
+    totalRemaining: number
+    byRoomType: Record<string, { remaining: number; total: number | null; diff: number | null }>
+  }>
+}
+
+export interface SegmentMasterItem {
+  id: string
+  kind: string
+  code: string
+  name: string
+  aggregateCode: string | null
+  sortOrder: number
+  isActive: boolean
+}
+
 export interface CreateEventInput {
   hotelId: string
   name: string
@@ -457,8 +590,13 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   const adr = soldRoomsSum > 0 ? Math.round(totalRevenue / soldRoomsSum) : 0
   const occupancyRate = actualDays > 0 ? soldRoomsSum / (totalRooms * actualDays) : 0
   const revPar = actualDays > 0 ? totalRevenue / (totalRooms * actualDays) : 0
-  const dor = actualDays > 0 ? Math.round((guestsSum / actualDays) * 10) / 10 : 0
+  // DOR = Double Occupancy Rate（宿泊人数 / 販売室数）
+  const dor = soldRoomsSum > 0 ? Math.round((guestsSum / soldRoomsSum) * 100) / 100 : 0
   const guestUnitPrice = guestsSum > 0 ? Math.round(totalRevenue / guestsSum) : 0
+  // 定員稼働率（F-KPI-01）。デモモードは1室あたり平均定員2名で概算する
+  const totalCapacity = totalRooms * 2
+  const capacityOccupancyRate =
+    actualDays > 0 ? Number((guestsSum / (totalCapacity * actualDays)).toFixed(3)) : null
 
   const budgetOccupancy = 0.78
   const budgetAdr = 18500
@@ -475,6 +613,8 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
       soldRooms: soldRoomsSum,
       adr,
       occupancyRate: Number(occupancyRate.toFixed(3)),
+      capacityOccupancyRate,
+      totalCapacity,
       revPar: Math.round(revPar),
       guests: guestsSum,
       dor,
@@ -742,6 +882,89 @@ export const api = {
     return rawRequest(
       `/api/v1/analysis/competitor?hotelId=${hotelId}&startDate=${startDate}&endDate=${endDate}`
     )
+  },
+
+  // ---- 分析拡張（Phase 4B） ----
+
+  /** キャンセル分析（F-CXL-01） */
+  cancellationAnalysis(
+    hotelId: string,
+    startDate: string,
+    endDate: string,
+    options: { granularity?: "daily" | "monthly"; compareLastYear?: boolean } = {}
+  ): Promise<CancellationAnalysis> {
+    const params = new URLSearchParams({ hotelId, startDate, endDate })
+    if (options.granularity) params.set("granularity", options.granularity)
+    if (options.compareLastYear) params.set("compareLastYear", "true")
+    return rawRequest(`/api/v1/analysis/cancellations?${params}`)
+  },
+
+  /** セグメント別パフォーマンス上位N（F-TOP-01） */
+  segmentAnalysis(
+    hotelId: string,
+    startDate: string,
+    endDate: string,
+    axis: SegmentAxis,
+    options: { limit?: number; compareLastYear?: boolean } = {}
+  ): Promise<SegmentAnalysis> {
+    const params = new URLSearchParams({ hotelId, startDate, endDate, axis })
+    if (options.limit != null) params.set("limit", String(options.limit))
+    if (options.compareLastYear) params.set("compareLastYear", "true")
+    return rawRequest(`/api/v1/analysis/segments?${params}`)
+  },
+
+  /** 上位・下位分析（日別ADR / 日別稼働率 — F-TOP-01） */
+  dailyRanking(
+    hotelId: string,
+    startDate: string,
+    endDate: string,
+    metric: "adr" | "occupancy" = "adr",
+    limit = 10
+  ): Promise<DailyRanking> {
+    const params = new URLSearchParams({
+      hotelId,
+      startDate,
+      endDate,
+      metric,
+      limit: String(limit),
+    })
+    return rawRequest(`/api/v1/analysis/ranking?${params}`)
+  },
+
+  /** オンハンド ブッキングカーブ（F-OH-03）。stayDate または year+month を指定する */
+  onHandCurve(
+    hotelId: string,
+    target: { stayDate?: string; year?: number; month?: number },
+    options: { step?: number; maxDaysBefore?: number; compareLastYear?: boolean } = {}
+  ): Promise<OnHandCurve> {
+    const params = new URLSearchParams({ hotelId })
+    if (target.stayDate) params.set("stayDate", target.stayDate)
+    if (target.year != null) params.set("year", String(target.year))
+    if (target.month != null) params.set("month", String(target.month))
+    if (options.step != null) params.set("step", String(options.step))
+    if (options.maxDaysBefore != null) params.set("maxDaysBefore", String(options.maxDaysBefore))
+    if (options.compareLastYear) params.set("compareLastYear", "true")
+    return rawRequest(`/api/v1/daily/onhand-curve?${params}`)
+  },
+
+  /** 残室ビュー（日別×タイプ別・前回断面との差異 — F-INV-01） */
+  inventoryView(
+    hotelId: string,
+    startDate: string,
+    endDate: string,
+    options: { capturedDate?: string; comparePrevious?: boolean } = {}
+  ): Promise<InventoryView> {
+    const params = new URLSearchParams({ hotelId, startDate, endDate })
+    if (options.capturedDate) params.set("capturedDate", options.capturedDate)
+    if (options.comparePrevious === false) params.set("comparePrevious", "false")
+    return rawRequest(`/api/v1/daily/inventory?${params}`)
+  },
+
+  /** セグメントマスタ一覧（F-SET-06） */
+  segmentMasters(hotelId: string, kind?: string): Promise<SegmentMasterItem[]> {
+    const params = new URLSearchParams({ hotelId })
+    if (kind) params.set("kind", kind)
+    return rawRequest(`/api/v1/settings/segments?${params}`)
   },
 
   priceRanks(hotelId: string): Promise<PriceRank[]> {
