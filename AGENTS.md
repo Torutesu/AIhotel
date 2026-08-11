@@ -40,10 +40,11 @@ pnpm --filter backend build && pnpm --filter frontend build
 **スキーマ変更**: `prisma migrate dev` でマイグレーションファイルを生成しコミットする。`db:push` を使わない。`migrate reset` / `--force-reset` / `--accept-data-loss` は禁止（実行前にユーザー確認必須）
 
 **ドメイン確定値**（再議論・変更しない）:
-- バックエンドは Express+TypeScript+Prisma（FastAPIへ移行しない）。クラウド固有SDKを追加しない
+- バックエンドは Express+TypeScript+Prisma（FastAPIへ移行しない）。クラウドはAWS東京リージョン前提だが、AWS SDKの利用は `src/lib/` のアダプタ層に限定（controllers/routes/servicesのビジネスロジックに持ち込まない）
 - ロールは ADMIN / MANAGER / OPERATOR の3種
-- 料金ランクは最大40段階、需要レベルはA〜E、週末=金・土（`Hotel.weekendDays` を参照しハードコードしない）
-- 価格戦略の重み（稼働率/ADR/競合）は合計100%必須
+- 需要レベルはA〜E（**UI表示名は「アラート」**）、週末=金・土（`Hotel.weekendDays` を参照しハードコードしない）
+- 料金ランクは**部屋タイプ×レート区分（自社/会員/株優/OTA）×ランクコード（65〜0＋★1〜★5）**。販売料金表（Drive資料）を正とし、価格は100円単位対応。~~最大40段階~~ は2026/8に撤廃（`docs/drive-gap-analysis.md` §2.1）
+- ~~価格戦略の重み合計100%必須~~ → 重み付け設定機能自体を撤去予定（同 §3-3）。撤去完了までは既存制約を維持
 
 **API契約**: パスは `/api/v1/<領域>`。レスポンスは `utils/response.ts` / `errorHandler.ts` 経由で
 成功 `{success: true, data}` / 失敗 `{success: false, error, errors?}` に統一。独自形式を作らない
@@ -55,5 +56,8 @@ pnpm --filter backend build && pnpm --filter frontend build
 
 ## 未実装領域（Phase 4 — 「実装済み」と報告しないこと）
 
-PMS/OTA連携・スクレイピング・需要予測ML・Claude APIによるAIコメント生成・バッチジョブ・PDF/Excel出力。
-対応するDBテーブルとAPIの器は存在し、現在はseedデータで動作している。
+PMSデータ自動取得（クローリング/Browser Use）・OTA/競合スクレイピング・オンハンド（180日予約）データ基盤・
+承認→サイトコントローラー自動書き込み・料金ランク新モデル・キャンセル分析・残室推移・特日/外部要因マスタ・
+需要予測ML（4エージェント構成）・Claude APIによるAIコメント生成・バッチジョブ。
+既存領域はseedデータで動作している。PDF/Excelレポート出力は実装済み。
+要件のギャップと決定事項は `docs/drive-gap-analysis.md` を参照。
