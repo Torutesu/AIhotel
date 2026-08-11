@@ -152,6 +152,23 @@ async function writeIngestLog(
   }
 }
 
+// 一括取込は実データで数万行になる（実測: 1ヶ月分の実績で約24,000行）。
+// Prismaの対話トランザクションは既定5秒で切れるため、明示的に延長する。
+// あわせて createMany をチャンク分割し、1文あたりのプレースホルダ数がPostgreSQLの
+// 上限（65535）を超えないようにする。
+const BULK_TX_OPTIONS = { maxWait: 15_000, timeout: 180_000 } as const
+const CREATE_MANY_CHUNK = 2_000
+
+/** createMany をチャンクに分けて実行する（大量行対策） */
+async function createManyChunked<T>(
+  rows: T[],
+  create: (chunk: T[]) => Promise<unknown>
+): Promise<void> {
+  for (let i = 0; i < rows.length; i += CREATE_MANY_CHUNK) {
+    await create(rows.slice(i, i + CREATE_MANY_CHUNK))
+  }
+}
+
 function collectColumns(rows: Record<string, unknown>[]): string[] {
   const keys = new Set<string>()
   for (const row of rows.slice(0, 100)) {
@@ -187,8 +204,9 @@ export async function ingestNightsService(input: IngestNightsInput, userId?: str
       await tx.reservationNight.deleteMany({
         where: { hotelId: hotel.id, stayDate: { in: targetDates } },
       })
-      await tx.reservationNight.createMany({
-        data: input.rows.map((r) => ({
+      await createManyChunked(input.rows, (chunk) =>
+        tx.reservationNight.createMany({
+        data: chunk.map((r) => ({
           tenantId: hotel.tenantId,
           hotelId: hotel.id,
           stayDate: toUtcDate(r.stayDate),
@@ -211,8 +229,9 @@ export async function ingestNightsService(input: IngestNightsInput, userId?: str
           isDayUse: r.isDayUse ?? false,
           compHuType: r.compHuType ?? null,
         })),
-      })
-    })
+        })
+      )
+    }, BULK_TX_OPTIONS)
     await writeIngestLog(logBase, 'SUCCESS')
     return { inserted: input.rows.length, replacedDates: targetDates.length }
   } catch (error) {
@@ -244,8 +263,9 @@ export async function ingestReservationsService(input: IngestReservationsInput, 
     const aggregates = aggregateOnHand(input.rows)
     await prisma.$transaction(async (tx) => {
       await tx.reservation.deleteMany({ where: { hotelId: hotel.id, capturedDate } })
-      await tx.reservation.createMany({
-        data: input.rows.map((r) => ({
+      await createManyChunked(input.rows, (chunk) =>
+        tx.reservation.createMany({
+        data: chunk.map((r) => ({
           tenantId: hotel.tenantId,
           hotelId: hotel.id,
           capturedDate,
@@ -265,10 +285,12 @@ export async function ingestReservationsService(input: IngestReservationsInput, 
           marketCode: r.marketCode ?? null,
           isGroup: r.isGroup ?? false,
         })),
-      })
+        })
+      )
       await tx.onHandSnapshot.deleteMany({ where: { hotelId: hotel.id, capturedDate } })
-      await tx.onHandSnapshot.createMany({
-        data: aggregates.map((a) => ({
+      await createManyChunked(aggregates, (chunk) =>
+        tx.onHandSnapshot.createMany({
+        data: chunk.map((a) => ({
           tenantId: hotel.tenantId,
           hotelId: hotel.id,
           stayDate: a.stayDate,
@@ -281,8 +303,9 @@ export async function ingestReservationsService(input: IngestReservationsInput, 
             byMarket: a.byMarket,
           } as Prisma.InputJsonValue,
         })),
-      })
-    })
+        })
+      )
+    }, BULK_TX_OPTIONS)
     await writeIngestLog(logBase, 'SUCCESS')
     return {
       inserted: input.rows.length,
@@ -316,8 +339,9 @@ export async function ingestInventoryService(input: IngestInventoryInput, userId
   try {
     await prisma.$transaction(async (tx) => {
       await tx.roomInventorySnapshot.deleteMany({ where: { hotelId: hotel.id, capturedDate } })
-      await tx.roomInventorySnapshot.createMany({
-        data: input.rows.map((r) => ({
+      await createManyChunked(input.rows, (chunk) =>
+        tx.roomInventorySnapshot.createMany({
+        data: chunk.map((r) => ({
           tenantId: hotel.tenantId,
           hotelId: hotel.id,
           roomTypeCode: r.roomTypeCode,
@@ -326,8 +350,9 @@ export async function ingestInventoryService(input: IngestInventoryInput, userId
           remainingRooms: r.remainingRooms,
           totalRooms: r.totalRooms ?? null,
         })),
-      })
-    })
+        })
+      )
+    }, BULK_TX_OPTIONS)
     await writeIngestLog(logBase, 'SUCCESS')
     return { inserted: input.rows.length, capturedDate }
   } catch (error) {
