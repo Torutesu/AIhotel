@@ -6,6 +6,7 @@ import { getPricingCalendarService, getSimulationService } from '../services/pri
 import type { RateCategory } from '@prisma/client'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
 import { getForecastAccuracyService } from '../services/forecast/accuracyService.js'
+import { trainDemandModelService } from '../services/forecast/trainingService.js'
 
 /**
  * 日別価格カレンダー
@@ -77,4 +78,32 @@ export const getForecastAccuracy = asyncHandler(async (req: Request, res: Respon
   }
   const result = await getForecastAccuracyService({ hotelId, from, to, modelVersion })
   sendSuccess(res, result)
+})
+
+/**
+ * 需要予測モデルの学習（ADMIN/MANAGER・監査対象 — F-AI-01, 4E-2）
+ * Ridge と GBM を同じ特徴量で学習し、検証誤差の小さい方を採用する。
+ * POST /api/v1/pricing/train
+ */
+export const trainForecastModel = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.body as { hotelId: string }
+  const result = await trainDemandModelService(hotelId)
+
+  if (!result) {
+    // 学習できるだけの実績が無い状態。ルールベースのまま運用する
+    sendSuccess(res, { trained: false }, 200, '学習に必要な実績データが不足しています')
+    return
+  }
+
+  await writeAuditLog({
+    tenantId: result.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'ForecastModel',
+    entityId: hotelId,
+    newValue: result,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, { trained: true, ...result }, 200, '需要予測モデルを学習しました')
 })

@@ -53,6 +53,7 @@ model Tenant {
   ingestLogs               IngestLog[]
   ingestSchedules          IngestSchedule[]
   forecastSnapshots        ForecastSnapshot[]
+  forecastModels           ForecastModel[]
   specialDays              SpecialDay[]
   externalFactors          ExternalFactor[]
 }
@@ -150,6 +151,7 @@ model Hotel {
   ingestLogs               IngestLog[]
   ingestSchedules          IngestSchedule[]
   forecastSnapshots        ForecastSnapshot[]
+  forecastModels           ForecastModel[]
   specialDays              SpecialDay[]
   externalFactors          ExternalFactor[]
 
@@ -917,6 +919,40 @@ model ForecastSnapshot {
   @@index([tenantId])
   @@index([hotelId, stayDate])
   @@index([hotelId, predictedAt])
+}
+
+// 学習済み需要予測モデル（Phase 4E — docs/ai-agent-design.md §2）
+// 毎日 Ridge と GBM を学習し、検証誤差の小さい方を採用して保存する。
+// 過去のモデルは履歴として残し、有効なのは isActive=true の1件のみ。
+model ForecastModel {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  /** ForecastSnapshot.modelVersion と対応 */
+  modelVersion String
+  /** ridge / gbm */
+  algorithm    String
+  sampleCount  Int
+  /** 採用の根拠となった検証誤差（MAE） */
+  validationMae Float
+
+  /** 特徴量の名前。並び順を変えたモデルを誤って読まないための照合用 */
+  featureNames      Json
+  /** 特徴量の寄与度（0〜1に正規化）。MLOps画面が読む */
+  featureImportance Json
+  /** アルゴリズム固有のパラメータ（係数 / 木構造） */
+  params            Json
+  /** 採用しなかった候補の検証誤差。選択理由を後から説明できるように残す */
+  candidates        Json?
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, isActive])
 }
 
 // ======================================

@@ -4,6 +4,7 @@ import type { DemandLevel } from '@prisma/client'
 import type { DailyForecast, DemandForecaster } from './types.js'
 import { ruleBasedForecaster } from './ruleBasedForecaster.js'
 import { recordForecastSnapshotsService, scoreForecastSnapshotsService } from './accuracyService.js'
+import { forecastWithLearnedModel } from './learnedForecaster.js'
 
 // 需要予測の再計算・DB反映（F-DP-05）。
 // F-DP-03（AI予測値へのリセット）のバックエンドとしても機能する:
@@ -81,7 +82,26 @@ export async function recomputeForecastService(
   const start = dateOnly(startDate ?? new Date())
   const end = dateOnly(endDate ?? addUtcDays(start, DEFAULT_FORECAST_DAYS))
 
-  const forecasts = await forecaster.forecast({ hotelId, startDate: start, endDate: end })
+  // 学習済みモデルがあればそれを使い、無ければルールベースへ倒す（4E-2）。
+  // 呼び出し側が明示的に forecaster を渡した場合はその指定を優先する。
+  let features: Map<number, number[]> | null = null
+  let forecasts: DailyForecast[]
+  let modelVersion: string
+
+  const learned = forecaster === ruleBasedForecaster ? await forecastWithLearnedModel({
+    hotelId,
+    startDate: start,
+    endDate: end,
+  }) : null
+
+  if (learned && learned.length > 0) {
+    forecasts = learned
+    modelVersion = learned[0].modelVersion
+    features = new Map(learned.map((f) => [f.date.getTime(), f.features]))
+  } else {
+    forecasts = await forecaster.forecast({ hotelId, startDate: start, endDate: end })
+    modelVersion = forecaster.name
+  }
 
   for (const forecast of forecasts) {
     await upsertHotelWideRecommendation(hotelId, hotel.tenantId, forecast)
@@ -93,11 +113,12 @@ export async function recomputeForecastService(
   await recordForecastSnapshotsService({
     hotelId,
     predictedAt: new Date(),
-    modelVersion: forecaster.name,
+    modelVersion,
     snapshots: forecasts.map((f) => ({
       stayDate: f.date,
       predictedOccupancy: f.predictedOccupancy,
       confidence: f.confidence,
+      features: features?.get(f.date.getTime()),
     })),
   })
 
@@ -106,7 +127,7 @@ export async function recomputeForecastService(
 
   return {
     count: forecasts.length,
-    modelVersion: forecaster.name,
+    modelVersion,
     tenantId: hotel.tenantId,
     startDate: start.toISOString().slice(0, 10),
     endDate: end.toISOString().slice(0, 10),

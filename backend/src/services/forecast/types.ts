@@ -11,6 +11,12 @@ export interface ForecastInput {
   hotelId: string
   startDate: Date
   endDate: Date
+  /**
+   * いつ時点の予測とみなすか（省略時は今日）。
+   * 過去日を指定すると、その時点で判明していた情報だけで予測する＝バックテストになる。
+   * 実装はこれを必ず尊重すること。無視すると検証誤差だけが良く出て本番で外れる。
+   */
+  predictedAt?: Date
 }
 
 export interface DailyForecast {

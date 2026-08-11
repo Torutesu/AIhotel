@@ -6,12 +6,14 @@ import {
   pricingCalendarQuerySchema,
   recomputeForecastSchema,
   forecastAccuracyQuerySchema,
+  trainForecastModelSchema,
 } from '../lib/validators.js'
 import {
   getCalendar,
   getSimulation,
   recomputeForecast,
   getForecastAccuracy,
+  trainForecastModel,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -53,4 +55,13 @@ pricingRouter.get(
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(forecastAccuracyQuerySchema, 'query'),
   getForecastAccuracy
+)
+
+// POST /api/v1/pricing/train — 需要予測モデルの学習（MANAGER以上・監査対象）
+pricingRouter.post(
+  '/train',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(trainForecastModelSchema),
+  trainForecastModel
 )
