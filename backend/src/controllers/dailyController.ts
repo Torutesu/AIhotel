@@ -5,6 +5,8 @@ import {
   getBookingCurveService,
   getCompetitorPricesService,
 } from '../services/dailyService.js'
+import { getOnHandCurveService, getInventoryViewService } from '../services/onHandService.js'
+import type { OnHandCurveQueryInput, InventoryQueryInput } from '../lib/validators.js'
 
 /**
  * ブッキングカーブ
@@ -27,5 +29,23 @@ export const getCompetitorPrices = asyncHandler(async (req: Request, res: Respon
     endDate: Date
   }
   const result = await getCompetitorPricesService(hotelId, startDate, endDate)
+  sendSuccess(res, result)
+})
+
+/**
+ * オンハンド ブッキングカーブ（リードタイム別・前年対比 — F-OH-03）
+ * GET /api/v1/daily/onhand-curve?hotelId=&stayDate= | &year=&month=
+ */
+export const getOnHandCurve = asyncHandler(async (req: Request, res: Response) => {
+  const result = await getOnHandCurveService(req.query as unknown as OnHandCurveQueryInput)
+  sendSuccess(res, result)
+})
+
+/**
+ * 残室ビュー（日別×タイプ別・前回断面との差異 — F-INV-01）
+ * GET /api/v1/daily/inventory?hotelId=&startDate=&endDate=&capturedDate=
+ */
+export const getInventoryView = asyncHandler(async (req: Request, res: Response) => {
+  const result = await getInventoryViewService(req.query as unknown as InventoryQueryInput)
   sendSuccess(res, result)
 })
