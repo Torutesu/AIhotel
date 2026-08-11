@@ -46,6 +46,12 @@ model Tenant {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  segmentMasters           SegmentMaster[]
+  reservations             Reservation[]
+  reservationNights        ReservationNight[]
+  onHandSnapshots          OnHandSnapshot[]
+  roomInventorySnapshots   RoomInventorySnapshot[]
+  ingestLogs               IngestLog[]
 }
 
 // ======================================
@@ -134,6 +140,12 @@ model Hotel {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  segmentMasters           SegmentMaster[]
+  reservations             Reservation[]
+  reservationNights        ReservationNight[]
+  onHandSnapshots          OnHandSnapshot[]
+  roomInventorySnapshots   RoomInventorySnapshot[]
+  ingestLogs               IngestLog[]
 
   @@index([tenantId])
 }
@@ -618,6 +630,185 @@ model Event {
   @@index([tenantId])
   @@index([hotelId])
   @@index([startDate, endDate])
+}
+
+// ======================================
+// PMS Ingest & On-Hand — Phase 4A
+// （F-OH-01/02/03, F-INV-01, F-SET-06, F-ING-01 — docs/drive-gap-analysis.md §2.3-2.5, 5.10）
+// ======================================
+
+// セグメントマスタ（F-SET-06）。マスタ設定.xlsx / PMSコードマスターを取り込む。
+// aggregateCode は集計コード（MC集約・地域集計・ソース集計等）、attributes はPMS固有の
+// 追加属性（地域の分割1〜4、AGTの種別・施策等）を保持する。
+model SegmentMaster {
+  id            String      @id @default(cuid())
+  tenantId      String
+  tenant        Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId       String
+  hotel         Hotel       @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  kind          SegmentKind
+  code          String
+  name          String
+  aggregateCode String?
+  attributes    Json?
+  sortOrder     Int         @default(0)
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([hotelId, kind, code])
+  @@index([tenantId])
+  @@index([hotelId, kind])
+}
+
+enum SegmentKind {
+  SOURCE // 目的（ビジネス/観光等）
+  CHANNEL // 利用形態（1名利用/夫婦/家族等）
+  MARKET // 販路・個人団体区分（MCコード）
+  REGION // 地域コード（都道府県・海外）
+  AGENT // エージェント（AGTCD）
+  RATE_TYPE // 料金タイプ
+  ROOM_GROUP // 部屋タイプグループ
+  CHANNEL_GROUP // 販路グループ
+  REGION_GROUP // 地域グループ（ツール上のマスタ設定で編集可）
+}
+
+// オンハンド予約明細（F-OH-01）。PMSデータ自動取得アプリが毎日送る
+// 「当日から180日分の予約情報」の断面（capturedDate単位で全量置換）。
+// PMSの予約番号は個人情報扱いで取得しないため（仕様書Ⅲ章3.3）、明細に安定IDは無い。
+model Reservation {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  capturedDate DateTime  @db.Date // このオンハンド断面の取得日
+  bookedAt     DateTime? // 予約日
+  cancelledAt  DateTime? // キャンセル日
+  checkIn      DateTime  @db.Date
+  checkOut     DateTime  @db.Date
+  roomTypeCode String
+  rateTypeCode String?
+  packageCode  String?
+  rooms        Int
+  guests       Int?
+  roomRevenue  Float? // 室料NET（滞在合計）
+  serviceFee   Float?
+  agentCode    String?
+  regionCode   String?
+  marketCode   String?
+  isGroup      Boolean   @default(false)
+  ingestLogId  String?
+  createdAt    DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, capturedDate])
+  @@index([hotelId, checkIn])
+}
+
+// 宿泊実績1泊明細（F-OH-01）。HG月次データ（計上日単位）をそのまま保持する。
+// 計上日を持たないPMSの予約データは取込時に1泊単位へ展開して格納する（機能リスト要件）。
+model ReservationNight {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId             String
+  hotel               Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  stayDate            DateTime @db.Date // 計上日
+  roomTypeCode        String
+  rateTypeCode        String?
+  packageCode         String?
+  rooms               Int
+  guests              Int?
+  guestsDetail        Json? // 男/女/子供人数等の内訳
+  roomRevenue         Float? // 室料NET（当該泊）
+  serviceFee          Float?
+  agentCode           String?
+  regionCode          String?
+  marketCode          String?
+  individualGroupType String? // 個人団体区分（I/G等）
+  buildingCode        String? // 棟コード
+  blockCode           String?
+  checkIn             DateTime? @db.Date
+  checkOut            DateTime? @db.Date
+  isDayUse            Boolean  @default(false)
+  compHuType          String? // COMP/HU区分
+  ingestLogId         String?
+  createdAt           DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+}
+
+// オンハンド日次スナップショット（F-OH-02/03）。
+// (宿泊日, 取得日) 単位の予約積上。KPI表・ブッキングカーブ・月初/期間比較の基盤。
+// BookingCurveData（roomsBookedのみ）の後継。segments に内訳を保持する。
+model OnHandSnapshot {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  hotel        Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  stayDate     DateTime @db.Date
+  capturedDate DateTime @db.Date
+  rooms        Int
+  revenue      Float?
+  guests       Int?
+  segments     Json? // { byRoomType: {code: {rooms, revenue}}, byMarket: {...} } 等の内訳
+  createdAt    DateTime @default(now())
+
+  @@unique([hotelId, stayDate, capturedDate])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+  @@index([hotelId, capturedDate])
+}
+
+// 残室推移スナップショット（F-INV-01 — ◆HG2608残室.xlsx の再現）。
+// PMSは過去日の残室を表示できないため、日次で取得して推移を記録する。
+model RoomInventorySnapshot {
+  id             String   @id @default(cuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId        String
+  hotel          Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  roomTypeCode   String
+  stayDate       DateTime @db.Date
+  capturedDate   DateTime @db.Date
+  remainingRooms Int
+  totalRooms     Int?
+  createdAt      DateTime @default(now())
+
+  @@unique([hotelId, roomTypeCode, stayDate, capturedDate])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+}
+
+// PMS取込ログ（F-ING-01 — 仕様書Ⅲ章3.5: 成功/失敗・開始終了時間・取得項目を記録、最低1年保持）
+model IngestLog {
+  id              String       @id @default(cuid())
+  tenantId        String
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId         String
+  hotel           Hotel        @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  source          String // pms-nights / pms-reservations / pms-inventory 等
+  status          IngestStatus
+  startedAt       DateTime
+  finishedAt      DateTime?
+  targetDate      DateTime?    @db.Date // capturedDate 等の対象日
+  rowCount        Int?
+  columns         Json? // 取得したデータ項目
+  error           String?
+  createdByUserId String?
+  createdAt       DateTime     @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, createdAt])
+}
+
+enum IngestStatus {
+  SUCCESS
+  PARTIAL
+  FAILED
 }
 
 // ======================================
