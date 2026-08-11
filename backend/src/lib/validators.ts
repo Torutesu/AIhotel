@@ -407,6 +407,87 @@ export const upsertSegmentsSchema = z.object({
 })
 
 // ======================================
+// 分析拡張 Validators（Phase 4B — F-CXL-01, F-TOP-01, F-OH-03, F-INV-01）
+// ======================================
+
+// 期間比較(FROM-TO)。日数上限は1年（機能リスト: 月別/日別/年間）
+export const periodQuerySchema = z
+  .object({
+    hotelId: entityIdSchema,
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
+    compareLastYear: z.coerce.boolean().optional().default(false),
+  })
+  .refine((d) => d.startDate <= d.endDate, {
+    message: '開始日は終了日以前である必要があります',
+  })
+
+// キャンセル分析（F-CXL-01）: 日別/月別 × 室数・件数・室料売上
+export const cancellationQuerySchema = periodQuerySchema.innerType().extend({
+  granularity: z.enum(['daily', 'monthly']).default('daily'),
+  compareLastYear: z.coerce.boolean().optional().default(false),
+}).refine((d) => d.startDate <= d.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+// セグメント別分析（F-TOP-01）: 集計軸と指標
+export const segmentAxisSchema = z.enum([
+  'roomType',
+  'market',
+  'region',
+  'agent',
+  'rateType',
+  'guests',
+  'individualGroup',
+])
+
+export const segmentAnalysisQuerySchema = periodQuerySchema.innerType().extend({
+  axis: segmentAxisSchema,
+  // 上位表示（既定10位 — 機能リスト「※表示数は要確認事項」のためパラメータ化）
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+  compareLastYear: z.coerce.boolean().optional().default(false),
+}).refine((d) => d.startDate <= d.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+// 上位・下位分析（F-TOP-01）: 日別ADR / 日別稼働率
+export const rankingQuerySchema = periodQuerySchema.innerType().extend({
+  metric: z.enum(['adr', 'occupancy']).default('adr'),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+}).refine((d) => d.startDate <= d.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+// オンハンド ブッキングカーブ（F-OH-03）: 宿泊日 or 対象月のリードタイム別推移
+export const onHandCurveQuerySchema = z
+  .object({
+    hotelId: entityIdSchema,
+    stayDate: z.coerce.date().optional(),
+    year: z.coerce.number().int().min(2020).max(2100).optional(),
+    month: z.coerce.number().int().min(1).max(12).optional(),
+    // 進捗管理表と同じ10日刻みを既定にする（【進捗管理】5日間・10日間.xlsx）
+    step: z.coerce.number().int().min(1).max(30).default(10),
+    maxDaysBefore: z.coerce.number().int().min(10).max(400).default(360),
+    compareLastYear: z.coerce.boolean().optional().default(false),
+  })
+  .refine((d) => d.stayDate != null || (d.year != null && d.month != null), {
+    message: 'stayDate、または year と month の指定が必要です',
+  })
+
+// 残室ビュー（F-INV-01）
+export const inventoryQuerySchema = z
+  .object({
+    hotelId: entityIdSchema,
+    startDate: z.coerce.date(),
+    endDate: z.coerce.date(),
+    capturedDate: z.coerce.date().optional(), // 省略時は最新断面
+    comparePrevious: z.coerce.boolean().optional().default(true), // 前回断面との差異
+  })
+  .refine((d) => d.startDate <= d.endDate, {
+    message: '開始日は終了日以前である必要があります',
+  })
+
+// ======================================
 // Type Exports
 // ======================================
 
@@ -434,3 +515,9 @@ export type IngestReservationRow = z.infer<typeof ingestReservationRowSchema>
 export type IngestReservationsInput = z.infer<typeof ingestReservationsSchema>
 export type IngestInventoryInput = z.infer<typeof ingestInventorySchema>
 export type UpsertSegmentsInput = z.infer<typeof upsertSegmentsSchema>
+export type CancellationQueryInput = z.infer<typeof cancellationQuerySchema>
+export type SegmentAxis = z.infer<typeof segmentAxisSchema>
+export type SegmentAnalysisQueryInput = z.infer<typeof segmentAnalysisQuerySchema>
+export type RankingQueryInput = z.infer<typeof rankingQuerySchema>
+export type OnHandCurveQueryInput = z.infer<typeof onHandCurveQuerySchema>
+export type InventoryQueryInput = z.infer<typeof inventoryQuerySchema>
