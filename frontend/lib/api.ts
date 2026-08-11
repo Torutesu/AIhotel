@@ -562,6 +562,66 @@ export interface SegmentMasterItem {
   isActive: boolean
 }
 
+// ---- 取込モニタリング（F-ING-01）----
+// PMSデータは原則バックエンドが自動で取りに行く（docs/pms-ingest-design.md §A-3）。
+// 画面の役割は「届いているかを見る」ことで、アップロードは復旧用の代替手段。
+
+export type IngestFreshness = "OK" | "WAITING" | "LATE" | "NEVER" | "FAILED"
+
+export interface IngestSourceStatus {
+  source: string
+  profileId: string | null
+  enabled: boolean
+  expectedAt: string
+  timeZone: string
+  /** 自動取得の方式。null は「外部からのpush待ち（監視のみ）」 */
+  connector: string | null
+  lastRunAt: string | null
+  graceMinutes: number
+  status: IngestFreshness
+  lastSuccessAt: string | null
+  lastAttemptAt: string | null
+  lastError: string | null
+  message: string
+}
+
+export interface IngestStatus {
+  hotelId: string
+  checkedAt: string
+  hasProblem: boolean
+  items: IngestSourceStatus[]
+}
+
+export interface IngestLogEntry {
+  id: string
+  source: string
+  status: "SUCCESS" | "PARTIAL" | "FAILED"
+  startedAt: string
+  finishedAt: string | null
+  targetDate: string | null
+  rowCount: number | null
+  error: string | null
+  origin: string | null
+}
+
+export interface IngestRunFileResult {
+  fileName: string
+  origin: string
+  outcome: "INGESTED" | "SKIPPED_DUPLICATE" | "NOTHING_TO_FETCH" | "PUSH_ONLY" | "FAILED"
+  rowCount?: number
+  message?: string
+}
+
+export interface IngestRunResult {
+  ranAt: string
+  results: Array<{
+    source: string
+    outcome: IngestRunFileResult["outcome"]
+    files: IngestRunFileResult[]
+    message?: string
+  }>
+}
+
 export interface CreateEventInput {
   hotelId: string
   name: string
@@ -1161,5 +1221,25 @@ export const api = {
         mockEvents = getMockEvents(hotelId).filter((e) => e.id !== id)
       }
     )
+  },
+
+  // ---- 取込モニタリング（F-ING-01）----
+
+  ingestStatus(hotelId: string): Promise<IngestStatus> {
+    return rawRequest(`/api/v1/ingest/status?hotelId=${encodeURIComponent(hotelId)}`)
+  },
+
+  ingestLogs(hotelId: string, limit = 20): Promise<IngestLogEntry[]> {
+    return rawRequest(
+      `/api/v1/ingest/logs?hotelId=${encodeURIComponent(hotelId)}&limit=${limit}`
+    )
+  },
+
+  /** 自動取得を今すぐ実行する（通常はバックエンドのスケジューラが動かす） */
+  runIngestConnectors(hotelId: string, source?: string): Promise<IngestRunResult> {
+    return rawRequest("/api/v1/ingest/run", {
+      method: "POST",
+      body: JSON.stringify(source ? { hotelId, source } : { hotelId }),
+    })
   },
 }

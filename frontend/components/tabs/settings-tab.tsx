@@ -21,6 +21,7 @@ import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 import { useAuth } from "@/components/auth-provider"
+import { DataIngestPanel } from "@/components/data-ingest-panel"
 import {
   api,
   ApiClientError,
@@ -408,6 +409,9 @@ export function SettingsTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* データ取込状況（自動連携の監視 — F-ING-01） */}
+      <DataIngestPanel />
 
       {/* 料金ランク設定 */}
       <Card>
