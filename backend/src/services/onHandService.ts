@@ -35,37 +35,45 @@ export function daysBetween(from: Date, to: Date): number {
 /**
  * スナップショット群をリードタイム別カーブに畳み込む。純関数（テスト対象）。
  *
- * - 各スナップショットのリードタイム = stayDate - capturedDate
- * - step 刻みのバケットへ切り上げ（例 step=10 なら 0,10,20…）
- * - 同一バケットに複数宿泊日が入る場合は合計（月間カーブ）
- * - 同一宿泊日で同一バケットに複数断面がある場合は「宿泊日に最も近い断面」を採用する
+ * リードタイムは **基準日（referenceDate）からの日数** で測る。
+ * - 単日カーブ: 基準日 = その宿泊日
+ * - 月間カーブ: 基準日 = 月初（進捗管理表【5日間・10日間】と同じ考え方。
+ *   「N日前時点で、その月ぜんぶの予約が何室積み上がっていたか」を見る）
+ *
+ * 取得日（capturedDate）が同じスナップショットは同一断面なので合算する。
+ * 宿泊日ごとにリードタイムを測って合算すると、月の途中では宿泊日ごとに
+ * 保有する断面数が変わり、0日前付近が実際より小さく出てしまうため採用しない。
+ *
+ * 同一バケットに複数の断面が入る場合は、基準日に最も近い断面を採用する。
  */
 export function buildCurve(
   snapshots: SnapshotRow[],
   step: number,
   maxDaysBefore: number,
-  capacityRoomNights: number | null
+  capacityRoomNights: number | null,
+  referenceDate: Date
 ): CurvePoint[] {
-  // stayDate+bucket 単位で最も宿泊日に近い断面を選ぶ
-  const picked = new Map<string, { daysBefore: number; rooms: number; revenue: number }>()
-
+  // 取得日単位に合算（= その日の断面での対象期間トータル）
+  const byCaptured = new Map<string, { capturedDate: Date; rooms: number; revenue: number }>()
   for (const s of snapshots) {
-    const lead = daysBetween(s.capturedDate, s.stayDate)
-    if (lead < 0 || lead > maxDaysBefore) continue
-    const bucket = Math.ceil(lead / step) * step
-    const key = `${s.stayDate.toISOString().slice(0, 10)}#${bucket}`
-    const existing = picked.get(key)
-    if (!existing || lead < existing.daysBefore) {
-      picked.set(key, { daysBefore: bucket, rooms: s.rooms, revenue: s.revenue ?? 0 })
-    }
+    const key = s.capturedDate.toISOString().slice(0, 10)
+    const agg = byCaptured.get(key) ?? { capturedDate: s.capturedDate, rooms: 0, revenue: 0 }
+    agg.rooms += s.rooms
+    agg.revenue += s.revenue ?? 0
+    byCaptured.set(key, agg)
   }
 
-  const byBucket = new Map<number, { rooms: number; revenue: number }>()
-  for (const p of picked.values()) {
-    const agg = byBucket.get(p.daysBefore) ?? { rooms: 0, revenue: 0 }
-    agg.rooms += p.rooms
-    agg.revenue += p.revenue
-    byBucket.set(p.daysBefore, agg)
+  // 基準日からのリードタイムで step 刻みのバケットへ寄せる
+  const byBucket = new Map<number, { lead: number; rooms: number; revenue: number }>()
+  for (const snap of byCaptured.values()) {
+    const lead = daysBetween(snap.capturedDate, referenceDate)
+    if (lead < 0 || lead > maxDaysBefore) continue
+    const bucket = Math.ceil(lead / step) * step
+    const existing = byBucket.get(bucket)
+    // 同一バケットには基準日に最も近い断面を残す
+    if (!existing || lead < existing.lead) {
+      byBucket.set(bucket, { lead, rooms: snap.rooms, revenue: snap.revenue })
+    }
   }
 
   return [...byBucket.entries()]
@@ -122,7 +130,8 @@ export async function getOnHandCurveService(input: OnHandCurveQueryInput) {
   const capacityRoomNights = hotel.totalRooms * dayCount
 
   const snapshots = await loadSnapshots(hotel.id, start, end)
-  const points = buildCurve(snapshots, input.step, input.maxDaysBefore, capacityRoomNights)
+  // 基準日: 単日は宿泊日、月間は月初（進捗管理表と同じ）
+  const points = buildCurve(snapshots, input.step, input.maxDaysBefore, capacityRoomNights, start)
 
   let lastYear: { points: CurvePoint[]; startDate: string; endDate: string } | null = null
   if (input.compareLastYear) {
@@ -134,7 +143,8 @@ export async function getOnHandCurveService(input: OnHandCurveQueryInput) {
         lySnapshots,
         input.step,
         input.maxDaysBefore,
-        hotel.totalRooms * (daysBetween(lyStart, lyEnd) + 1)
+        hotel.totalRooms * (daysBetween(lyStart, lyEnd) + 1),
+        lyStart
       ),
       startDate: lyStart.toISOString().slice(0, 10),
       endDate: lyEnd.toISOString().slice(0, 10),

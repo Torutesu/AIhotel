@@ -149,13 +149,14 @@ describe('daysBetween / buildCurve', () => {
     expect(daysBetween(d('2026-08-11'), d('2026-08-01'))).toBe(-10)
   })
 
-  it('リードタイムをstep刻みのバケットへ畳み込み360日前→0日前で返す', () => {
+  it('基準日からのリードタイムをstep刻みに畳み込み360日前→0日前で返す（単日カーブ）', () => {
+    const stayDate = d('2026-08-31')
     const snapshots = [
-      { stayDate: d('2026-08-31'), capturedDate: d('2026-08-01'), rooms: 100, revenue: 1600000 }, // 30日前
-      { stayDate: d('2026-08-31'), capturedDate: d('2026-08-21'), rooms: 150, revenue: 2550000 }, // 10日前
-      { stayDate: d('2026-08-31'), capturedDate: d('2026-08-31'), rooms: 180, revenue: 3240000 }, // 0日前
+      { stayDate, capturedDate: d('2026-08-01'), rooms: 100, revenue: 1600000 }, // 30日前
+      { stayDate, capturedDate: d('2026-08-21'), rooms: 150, revenue: 2550000 }, // 10日前
+      { stayDate, capturedDate: d('2026-08-31'), rooms: 180, revenue: 3240000 }, // 0日前
     ]
-    const points = buildCurve(snapshots, 10, 360, 200)
+    const points = buildCurve(snapshots, 10, 360, 200, stayDate)
     expect(points.map((p) => p.daysBefore)).toEqual([30, 10, 0])
     expect(points[0].rooms).toBe(100)
     expect(points[2].rooms).toBe(180)
@@ -163,35 +164,42 @@ describe('daysBetween / buildCurve', () => {
     expect(points[2].occupancy).toBe(0.9) // 180 / 200
   })
 
-  it('複数宿泊日を同じバケットで合算する（月間カーブ）', () => {
+  it('月間カーブは同一取得日の全宿泊日を合算し、月初基準でリードタイムを測る', () => {
+    const monthStart = d('2026-08-01')
     const snapshots = [
-      { stayDate: d('2026-08-10'), capturedDate: d('2026-07-31'), rooms: 50, revenue: 800000 },
-      { stayDate: d('2026-08-11'), capturedDate: d('2026-08-01'), rooms: 70, revenue: 1120000 },
+      // 取得日 2026-07-22（月初の10日前）の断面: 月内2日分
+      { stayDate: d('2026-08-10'), capturedDate: d('2026-07-22'), rooms: 50, revenue: 800000 },
+      { stayDate: d('2026-08-11'), capturedDate: d('2026-07-22'), rooms: 70, revenue: 1120000 },
+      // 取得日 2026-08-01（0日前）の断面: 同じ2日分が積み上がっている
+      { stayDate: d('2026-08-10'), capturedDate: d('2026-08-01'), rooms: 90, revenue: 1440000 },
+      { stayDate: d('2026-08-11'), capturedDate: d('2026-08-01'), rooms: 110, revenue: 1760000 },
     ]
-    const points = buildCurve(snapshots, 10, 360, null)
-    expect(points).toHaveLength(1)
-    expect(points[0].daysBefore).toBe(10)
-    expect(points[0].rooms).toBe(120)
+    const points = buildCurve(snapshots, 10, 360, null, monthStart)
+    expect(points.map((p) => p.daysBefore)).toEqual([10, 0])
+    expect(points[0].rooms).toBe(120) // 50 + 70
+    expect(points[1].rooms).toBe(200) // 90 + 110（右肩上がりになる）
     expect(points[0].occupancy).toBeNull() // 総室数不明時はnull
   })
 
-  it('同一宿泊日・同一バケットに複数断面がある場合は宿泊日に近い方を採用する', () => {
+  it('同一バケットに複数断面がある場合は基準日に近い断面を採用する', () => {
+    const stayDate = d('2026-08-31')
     const snapshots = [
-      { stayDate: d('2026-08-31'), capturedDate: d('2026-08-22'), rooms: 140, revenue: 0 }, // 9日前
-      { stayDate: d('2026-08-31'), capturedDate: d('2026-08-25'), rooms: 160, revenue: 0 }, // 6日前
+      { stayDate, capturedDate: d('2026-08-22'), rooms: 140, revenue: 0 }, // 9日前
+      { stayDate, capturedDate: d('2026-08-25'), rooms: 160, revenue: 0 }, // 6日前
     ]
-    const points = buildCurve(snapshots, 10, 360, null)
+    const points = buildCurve(snapshots, 10, 360, null, stayDate)
     expect(points).toHaveLength(1)
     expect(points[0].rooms).toBe(160)
   })
 
-  it('maxDaysBeforeを超えるリードタイムと未来断面を除外する', () => {
+  it('maxDaysBeforeを超えるリードタイムと基準日より後の断面を除外する', () => {
+    const stayDate = d('2026-08-31')
     const snapshots = [
-      { stayDate: d('2026-08-31'), capturedDate: d('2024-08-31'), rooms: 5, revenue: 0 }, // 730日前
-      { stayDate: d('2026-08-31'), capturedDate: d('2026-09-05'), rooms: 999, revenue: 0 }, // 負のリード
-      { stayDate: d('2026-08-31'), capturedDate: d('2026-08-31'), rooms: 180, revenue: 0 },
+      { stayDate, capturedDate: d('2024-08-31'), rooms: 5, revenue: 0 }, // 730日前
+      { stayDate, capturedDate: d('2026-09-05'), rooms: 999, revenue: 0 }, // 負のリード
+      { stayDate, capturedDate: d('2026-08-31'), rooms: 180, revenue: 0 },
     ]
-    const points = buildCurve(snapshots, 10, 360, null)
+    const points = buildCurve(snapshots, 10, 360, null, stayDate)
     expect(points).toHaveLength(1)
     expect(points[0].rooms).toBe(180)
   })

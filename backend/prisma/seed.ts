@@ -489,19 +489,28 @@ async function main() {
   }
   await prisma.reservation.createMany({ data: reservationRows })
 
-  // オンハンドスナップショット: 複数断面（過去360日分を10日刻み）でカーブを描けるようにする
+  // オンハンドスナップショット
+  // 実運用（PMS取込アプリ）は「毎日、その時点の全宿泊日分」を送るため、
+  // seedも取得日ごとに対象宿泊日を横断して作る（取得日が揃っていないと
+  // 月間ブッキングカーブが正しい形にならない）。取得日は過去540日を10日刻み。
   const snapshotRows = []
-  for (let stayOffset = 0; stayOffset < 60; stayOffset++) {
-    const stayDate = addDays(today, stayOffset)
-    const dow = stayDate.getUTCDay()
-    const isWeekend = dow === 5 || dow === 6
-    const finalRooms = Math.round(totalRooms * (isWeekend ? 0.93 : 0.75))
-    for (let daysBefore = 360; daysBefore >= 0; daysBefore -= 10) {
-      const capturedDate = addDays(stayDate, -daysBefore)
-      // 本日より後の断面はまだ存在しない
-      if (capturedDate.getTime() > today.getTime()) continue
-      const progress = Math.pow(1 - daysBefore / 360, 2.2)
+  for (let capturedOffset = -540; capturedOffset <= 0; capturedOffset += 10) {
+    const capturedDate = addDays(today, capturedOffset)
+    // その断面から先360日分の宿泊日を積み上げる
+    for (let stayOffset = 0; stayOffset <= 360; stayOffset += 1) {
+      const stayDate = addDays(capturedDate, stayOffset)
+      const dayDiff = Math.round((stayDate.getTime() - today.getTime()) / (24 * 60 * 60 * 1000))
+      // 直近60日前〜先360日を対象。加えて前年同時期（カーブの前年対比用）も残す
+      const isCurrentWindow = dayDiff >= -60
+      const isLastYearWindow = dayDiff <= -305 && dayDiff >= -425
+      if (!isCurrentWindow && !isLastYearWindow) continue
+      const dow = stayDate.getUTCDay()
+      const isWeekend = dow === 5 || dow === 6
+      const finalRooms = Math.round(totalRooms * (isWeekend ? 0.93 : 0.75))
+      const daysBefore = stayOffset
+      const progress = Math.pow(1 - Math.min(1, daysBefore / 360), 2.2)
       const rooms = Math.round(finalRooms * Math.min(1, progress + rng() * 0.03))
+      if (rooms <= 0) continue
       snapshotRows.push({
         hotelId: hotel.id,
         tenantId: tenant.id,
@@ -513,7 +522,13 @@ async function main() {
       })
     }
   }
-  await prisma.onHandSnapshot.createMany({ data: snapshotRows, skipDuplicates: true })
+  // 件数が多いためチャンク分割して投入する
+  for (let i = 0; i < snapshotRows.length; i += 5000) {
+    await prisma.onHandSnapshot.createMany({
+      data: snapshotRows.slice(i, i + 5000),
+      skipDuplicates: true,
+    })
+  }
 
   // 残室スナップショット（直近2断面 × 今後30日 × タイプ別 — 前回差異を出せるようにする）
   const inventoryRows = []
