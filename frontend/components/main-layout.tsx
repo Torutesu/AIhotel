@@ -46,8 +46,11 @@ export function MainLayout() {
     <div className="flex h-screen bg-background">
       {/* Left Sidebar Navigation */}
       <aside className="w-66 border-r border-sidebar-border bg-sidebar flex flex-col">
-        <div className="p-6 border-b border-sidebar-border">
-          <h1 className="text-xl font-semibold text-sidebar-foreground">AI Revenue Management</h1>
+        <div className="flex items-center gap-2 px-6 py-5 border-b border-sidebar-border">
+          <span className="inline-block h-2 w-2 rounded-full bg-primary" aria-hidden />
+          <h1 className="font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
+            AI Revenue Management
+          </h1>
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
@@ -60,7 +63,7 @@ export function MainLayout() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors whitespace-nowrap",
+                  "w-full flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap",
                   isActive
                     ? "bg-sidebar-primary text-sidebar-primary-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -77,7 +80,7 @@ export function MainLayout() {
           <button
             onClick={() => setActiveTab("settings")}
             className={cn(
-              "w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors",
+              "w-full flex items-center gap-3 px-4 py-2.5 rounded-full text-sm font-medium transition-colors",
               activeTab === "settings"
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -87,7 +90,7 @@ export function MainLayout() {
             <span>設定</span>
           </button>
 
-          <div className="flex items-center justify-between gap-2 rounded-lg px-2 py-2">
+          <div className="flex items-center justify-between gap-2 rounded-full px-2 py-2">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-sidebar-foreground">{user.name}</p>
               <p className="truncate text-xs text-muted-foreground">{user.email}</p>
@@ -123,7 +126,7 @@ export function MainLayout() {
       {/* Chat Button - Bottom Right */}
       <Button
         size="icon"
-        className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg z-50"
+        className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-[var(--shadow-xl)] z-50"
         onClick={() => setChatOpen(!chatOpen)}
       >
         <MessageCircle className="h-6 w-6" />

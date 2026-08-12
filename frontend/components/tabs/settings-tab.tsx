@@ -259,7 +259,7 @@ export function SettingsTab() {
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">設定</h1>
+          <h1 className="text-2xl font-heading font-medium tracking-tight">設定</h1>
           <p className="text-sm text-muted-foreground mt-1">システムの各種設定を管理できます</p>
         </div>
         <div className="flex gap-2">

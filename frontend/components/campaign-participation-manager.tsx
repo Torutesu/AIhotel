@@ -181,18 +181,18 @@ export function CampaignParticipationManager() {
 
       {/* OTAパスワード更新アラート（スクレイピング用アカウントの期限管理） */}
       {OTA_ACCOUNT_STATUS.some((a) => a.passwordDaysLeft != null && a.passwordDaysLeft <= PASSWORD_ALERT_THRESHOLD_DAYS) && (
-        <Alert className="bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800">
-          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          <AlertTitle className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+        <Alert className="bg-warning/10 border-warning/30">
+          <AlertTriangle className="h-4 w-4 text-warning" />
+          <AlertTitle className="text-sm font-semibold text-warning">
             OTAアカウントのパスワード更新が必要です
           </AlertTitle>
-          <AlertDescription className="text-xs text-amber-800 dark:text-amber-200 mt-1 space-y-2">
+          <AlertDescription className="text-xs text-warning/90 mt-1 space-y-2">
             <div className="space-y-1">
               {OTA_ACCOUNT_STATUS.filter((a) => a.passwordDaysLeft != null && a.passwordDaysLeft <= PASSWORD_ALERT_THRESHOLD_DAYS).map((a) => (
                 <div key={a.channel} className="flex items-center justify-between gap-2 flex-wrap">
                   <p>
                     • <span className="font-semibold">{a.channel}</span>（施設ID: {a.facilityId}）: パスワードをあと
-                    <span className={`font-bold ${a.passwordDaysLeft! <= 7 ? "text-red-600 dark:text-red-400" : ""}`}>{a.passwordDaysLeft}日以内</span>
+                    <span className={`font-bold ${a.passwordDaysLeft! <= 7 ? "text-negative" : ""}`}>{a.passwordDaysLeft}日以内</span>
                     に更新してください
                   </p>
                   <Button
@@ -236,7 +236,7 @@ export function CampaignParticipationManager() {
                   onClick={() => handleImportOTA(channel)}
                 >
                   {needsUpdate && (
-                    <Badge className="absolute top-1.5 right-1.5 bg-amber-500 text-white text-[9px] px-1 py-0 h-4">
+                    <Badge className="absolute top-1.5 right-1.5 bg-warning text-white text-[9px] px-1 py-0 h-4">
                       PW残{account!.passwordDaysLeft}日
                     </Badge>
                   )}

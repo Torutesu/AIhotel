@@ -598,7 +598,7 @@ export function AnalysisTab() {
         {/* Channel Analysis */}
         <TabsContent value="channel" className="space-y-4">
           {/* AI解説を一番上に */}
-          <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+          <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
                 <span className="text-xl">🤖</span>
@@ -708,7 +708,7 @@ export function AnalysisTab() {
         {/* Room Type Analysis */}
         <TabsContent value="roomtype" className="space-y-4">
           {/* AI解説を一番上に */}
-          <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+          <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
                 <span className="text-xl">🤖</span>
@@ -868,7 +868,7 @@ export function AnalysisTab() {
         {/* Customer Segment Analysis */}
         <TabsContent value="segment" className="space-y-6">
           {/* AI解説を一番上に */}
-          <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+          <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
                 <span className="text-xl">🤖</span>
@@ -1120,10 +1120,10 @@ export function AnalysisTab() {
         {/* Competitor Price Analysis */}
         <TabsContent value="competitor" className="space-y-6">
           {/* 注意事項アラート */}
-          <Alert className="bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800">
-            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            <AlertTitle className="text-sm font-semibold text-amber-900 dark:text-amber-100">データ取り扱いに関する注意事項</AlertTitle>
-            <AlertDescription className="text-xs text-amber-800 dark:text-amber-200 mt-1 space-y-1">
+          <Alert className="bg-warning/10 border-warning/30">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle className="text-sm font-semibold text-warning">データ取り扱いに関する注意事項</AlertTitle>
+            <AlertDescription className="text-xs text-warning/90 mt-1 space-y-1">
               <p>• 競合データは参考値であり、実際の価格設定には複数の要因（立地、設備、サービス品質等）を総合的に考慮してください。</p>
               <p>• 対象期間: {competitorRange.startDate} 〜 {competitorRange.endDate}（上部の対象期間セレクタで選択した月）</p>
             </AlertDescription>
@@ -1493,7 +1493,7 @@ export function AnalysisTab() {
         {/* Free Analysis */}
         <TabsContent value="free" className="space-y-4">
           {/* AI解説を一番上に */}
-          <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+          <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold flex items-center gap-2">
                 <span className="text-xl">🤖</span>

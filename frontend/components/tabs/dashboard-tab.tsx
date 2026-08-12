@@ -330,11 +330,11 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
           <p className="text-sm font-medium mb-2">{payload[0].payload.date}</p>
           <div className="space-y-1">
             <p className="text-xs flex items-center gap-2">
-              <span className="w-3 h-0.5 bg-blue-600"></span>
+              <span className="w-3 h-0.5 bg-[color:var(--chart-1)]"></span>
               <span>稼働率: {payload[0].value != null ? `${payload[0].value.toFixed(1)}%` : "-"}</span>
             </p>
             <p className="text-xs flex items-center gap-2">
-              <span className="w-3 h-0.5 bg-red-500"></span>
+              <span className="w-3 h-0.5 bg-[color:var(--chart-3)]"></span>
               <span>ADR: {payload[1]?.value != null ? `¥${Math.round(payload[1].value).toLocaleString()}` : "-"}</span>
             </p>
           </div>
@@ -346,18 +346,18 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
 
   const severityBadges: Record<AlertItem["severity"], { border: string; bg: string; dot: string; label: string; text: string }> = {
     RED: {
-      border: "border-red-500",
-      bg: "bg-red-50 dark:bg-red-950/20",
-      dot: "bg-red-500",
+      border: "border-negative",
+      bg: "bg-negative/10",
+      dot: "bg-negative",
       label: "すぐに修正する",
-      text: "text-red-700 dark:text-red-400",
+      text: "text-negative",
     },
     YELLOW: {
-      border: "border-yellow-500",
-      bg: "bg-yellow-50 dark:bg-yellow-950/20",
-      dot: "bg-yellow-500",
+      border: "border-warning",
+      bg: "bg-warning/10",
+      dot: "bg-warning",
       label: "1週間内での経過観察が必要",
-      text: "text-yellow-700 dark:text-yellow-400",
+      text: "text-warning",
     },
   }
 
@@ -459,7 +459,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                             {alert.linkTab && (
                               <button
                                 onClick={() => onTabChange?.(alert.linkTab as Tab)}
-                                className="text-xs text-blue-600 hover:underline hover:text-blue-800 transition-colors"
+                                className="text-xs text-primary hover:underline hover:text-[color:var(--cyan-edge)] transition-colors"
                               >
                                 {alert.targetDate ? format(new Date(alert.targetDate), "yyyy/MM/dd") : ""}
                                 {alert.linkTab === "pricing" && " (料金設定へ)"}
@@ -482,7 +482,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         </Card>
 
         {/* AI解説セクション */}
-        <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 dark:from-blue-950/30 dark:to-indigo-950/30 dark:border-blue-800">
+        <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
           <CardHeader className="pb-1">
             <CardTitle className="text-lg font-semibold flex items-center gap-2">
               <span className="text-xl">🤖</span>
@@ -519,11 +519,11 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                 <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-0.5 bg-blue-600"></div>
+                      <div className="w-3 h-0.5 bg-[color:var(--chart-1)]"></div>
                       <span className="font-medium text-xs">稼働率</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-3 h-0.5 bg-red-500"></div>
+                      <div className="w-3 h-0.5 bg-[color:var(--chart-3)]"></div>
                       <span className="font-medium text-xs">ADR</span>
                     </div>
                   </div>
@@ -577,7 +577,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       yAxisId="left"
                       type="monotone"
                       dataKey="occupancyActual"
-                      stroke="#2563eb"
+                      stroke="var(--chart-1)"
                       strokeWidth={2.5}
                       dot={false}
                       name="稼働率"
@@ -588,7 +588,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       yAxisId="left"
                       type="monotone"
                       dataKey="occupancyForecast"
-                      stroke="#2563eb"
+                      stroke="var(--chart-1)"
                       strokeWidth={2.5}
                       strokeDasharray="5 5"
                       dot={false}
@@ -600,7 +600,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       yAxisId="right"
                       type="monotone"
                       dataKey="adrActual"
-                      stroke="#ef4444"
+                      stroke="var(--chart-3)"
                       strokeWidth={2.5}
                       dot={false}
                       name="ADR"
@@ -611,7 +611,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       yAxisId="right"
                       type="monotone"
                       dataKey="adrForecast"
-                      stroke="#ef4444"
+                      stroke="var(--chart-3)"
                       strokeWidth={2.5}
                       strokeDasharray="5 5"
                       dot={false}
@@ -703,7 +703,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         {/* KPI進捗状況 */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">KPI進捗状況</h2>
+            <h2 className="text-lg font-heading font-medium tracking-tight">KPI進捗状況</h2>
             <p className="text-xs text-muted-foreground">
               {kpi ? `${kpi.summary.actualDays}日分の実績を集計` : ""}
             </p>
@@ -738,7 +738,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                           <td className={`text-right py-1.5 px-2 border-r ${row.lastYearNegative ? "text-[color:var(--negative)]" : ""}`}>
                             {row.lastYearRatio}
                           </td>
-                          <td className="text-right py-1.5 px-2 border-r font-semibold text-green-600 dark:text-green-400">
+                          <td className="text-right py-1.5 px-2 border-r font-semibold text-positive">
                             {row.aiPrediction}
                           </td>
                           <td className={`text-right py-1.5 px-2 border-r ${row.aiBudgetNegative ? "text-[color:var(--negative)]" : ""}`}>
@@ -816,9 +816,9 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                     const dayName = ["日", "月", "火", "水", "木", "金", "土"][row.dow]
                     const isWeekend = row.dow === 5 || row.dow === 6
                     return (
-                      <tr key={row.date.toISOString()} className={`border-b hover:bg-muted/20 ${isWeekend ? "bg-blue-50/50 dark:bg-blue-950/10" : ""}`}>
+                      <tr key={row.date.toISOString()} className={`border-b hover:bg-muted/20 ${isWeekend ? "bg-primary/5" : ""}`}>
                         <td className="text-center py-1.5 px-2 font-medium border-r">{format(row.date, "M/d")}</td>
-                        <td className={`text-center py-1.5 px-2 border-r ${row.dow === 0 ? "text-red-600" : row.dow === 6 ? "text-blue-600" : ""}`}>
+                        <td className={`text-center py-1.5 px-2 border-r ${row.dow === 0 ? "text-negative" : row.dow === 6 ? "text-primary" : ""}`}>
                           {dayName}
                         </td>
                         {row.types.map((t) => (

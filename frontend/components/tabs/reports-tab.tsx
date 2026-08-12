@@ -17,7 +17,7 @@ export function ReportsTab() {
     <div className="p-4 space-y-3">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-semibold text-balance">レポート</h2>
+        <h2 className="text-2xl font-heading font-medium tracking-tight text-balance">レポート</h2>
         <p className="text-sm text-muted-foreground mt-0.5">各種レポートの生成とエクスポート</p>
       </div>
 

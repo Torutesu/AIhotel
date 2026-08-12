@@ -41,11 +41,11 @@ function eventTypeLabel(type: string): string {
 function impactBadgeClass(impact?: string | null): string {
   switch (impact) {
     case "high":
-      return "bg-red-500 text-white"
+      return "bg-negative text-white"
     case "medium":
-      return "bg-yellow-500 text-black"
+      return "bg-warning text-white"
     case "low":
-      return "bg-blue-400 text-white"
+      return "bg-primary text-white"
     default:
       return "bg-muted text-muted-foreground"
   }
@@ -84,25 +84,25 @@ const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"]
 const PRICE_RANK_COUNT = 40
 function getRankBadgeColor(rank: number): string {
   const band = Math.ceil((rank / PRICE_RANK_COUNT) * 5)
-  if (band <= 1) return "bg-blue-500 text-white"
-  if (band <= 2) return "bg-cyan-500 text-white"
-  if (band <= 3) return "bg-green-500 text-white"
-  if (band <= 4) return "bg-yellow-500 text-black"
-  return "bg-red-500 text-white"
+  if (band <= 1) return "bg-primary text-white"
+  if (band <= 2) return "bg-[color:var(--chart-2)] text-white"
+  if (band <= 3) return "bg-[color:var(--chart-4)] text-white"
+  if (band <= 4) return "bg-warning text-white"
+  return "bg-negative text-white"
 }
 
 function demandBadgeClass(demand: string | null): string {
   switch (demand) {
     case "A":
-      return "bg-blue-600 text-white"
+      return "bg-primary text-white"
     case "B":
-      return "bg-blue-400 text-white"
+      return "bg-[color:var(--cyan-edge)] text-white"
     case "C":
-      return "bg-gray-300 text-gray-800"
+      return "bg-secondary text-secondary-foreground"
     case "D":
-      return "bg-orange-200 text-orange-800"
+      return "bg-warning/15 text-warning"
     case "E":
-      return "bg-red-200 text-red-800"
+      return "bg-negative/15 text-negative"
     default:
       return "bg-muted text-muted-foreground"
   }
@@ -230,9 +230,9 @@ const AI_PRICING_PROPOSALS: Array<{ level: "high" | "medium" | "low"; text: stri
 ]
 
 const PROPOSAL_LEVEL_STYLE: Record<string, { label: string; className: string }> = {
-  high: { label: "レベル高", className: "bg-red-500 text-white" },
-  medium: { label: "レベル中", className: "bg-yellow-500 text-black" },
-  low: { label: "レベル低", className: "bg-blue-400 text-white" },
+  high: { label: "レベル高", className: "bg-negative text-white" },
+  medium: { label: "レベル中", className: "bg-warning text-white" },
+  low: { label: "レベル低", className: "bg-primary text-white" },
 }
 
 interface MonthCalendar {
@@ -458,7 +458,7 @@ export function PricingTab() {
       </div>
 
       {/* AI価格最適化の提案（レベルを色付きバッジで表示） */}
-      <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 dark:from-blue-950/30 dark:to-indigo-950/30 dark:border-blue-800">
+      <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-1">
           <CardTitle className="text-lg font-semibold flex items-center gap-2">
             <span className="text-xl">🤖</span>
@@ -550,15 +550,15 @@ export function PricingTab() {
               </div>
               <div className="flex flex-col">
                 <p className="text-xs text-muted-foreground mb-0.5">着地予測ADR（AI予測）</p>
-                <div className="text-lg font-semibold mb-0.5 text-blue-700 dark:text-blue-300">{yen(overallSummary.landingAdr)}</div>
+                <div className="text-lg font-semibold mb-0.5 text-primary">{yen(overallSummary.landingAdr)}</div>
               </div>
               <div className="flex flex-col">
                 <p className="text-xs text-muted-foreground mb-0.5">着地予測稼働率（AI予測）</p>
-                <div className="text-lg font-semibold mb-0.5 text-blue-700 dark:text-blue-300">{pct(overallSummary.landingOccupancy)}</div>
+                <div className="text-lg font-semibold mb-0.5 text-primary">{pct(overallSummary.landingOccupancy)}</div>
               </div>
               <div className="flex flex-col">
                 <p className="text-xs text-muted-foreground mb-0.5">着地予測RevPAR（AI予測）</p>
-                <div className="text-lg font-semibold mb-0.5 text-blue-700 dark:text-blue-300">{yen(overallSummary.landingRevPar)}</div>
+                <div className="text-lg font-semibold mb-0.5 text-primary">{yen(overallSummary.landingRevPar)}</div>
               </div>
             </div>
           )}
@@ -606,7 +606,7 @@ export function PricingTab() {
                     </div>
                   </div>
                   <p className="text-xs text-muted-foreground mb-2">
-                    曜日欄の色: <span className="text-red-600 font-medium">祝日</span> / <span className="text-amber-600 font-medium">特日（お盆・年末年始等）</span>
+                    曜日欄の色: <span className="text-negative font-medium">祝日</span> / <span className="text-warning font-medium">特日（お盆・年末年始等）</span>
                     。特日はAIが候補を提示し、オペレーターがマスタ設定画面で修正できます。
                   </p>
 
@@ -679,11 +679,11 @@ export function PricingTab() {
                                 : null
                             // 特日 > 祝日 > 通常曜日の順で色付け（色のみで表現、特日は別色）
                             const dayColorClass = special
-                              ? "text-amber-600 dark:text-amber-400 font-semibold"
+                              ? "text-warning font-semibold"
                               : holiday || dow === 0
-                                ? "text-red-600 dark:text-red-400 font-semibold"
+                                ? "text-negative font-semibold"
                                 : dow === 6
-                                  ? "text-blue-600 dark:text-blue-400"
+                                  ? "text-primary"
                                   : ""
                             return (
                               <tr
@@ -769,15 +769,15 @@ export function PricingTab() {
                     <div className="space-y-3">
                       <div className="flex items-center gap-3 text-xs flex-wrap">
                         <div className="flex items-center gap-2">
-                          <div className="w-3 h-0.5 bg-blue-600"></div>
+                          <div className="w-3 h-0.5 bg-positive"></div>
                           <span>実績ADR</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <div className="w-3 h-0.5 bg-green-600"></div>
+                          <div className="w-3 h-0.5 bg-[color:var(--chart-2)]"></div>
                           <span>AI予測ADR</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <div className="w-3 h-3 bg-orange-200 rounded"></div>
+                          <div className="w-3 h-3 bg-warning/40 rounded"></div>
                           <span>稼働率予測</span>
                         </div>
                       </div>
@@ -1095,13 +1095,13 @@ export function PricingTab() {
                       ) : (
                         <div className="space-y-2 text-sm">
                           {savedInfo?.eventInfo && (
-                            <div className="p-3 bg-blue-50 dark:bg-blue-950/20 rounded-lg">
+                            <div className="p-3 bg-primary/5 rounded-lg">
                               <div className="font-medium mb-1">イベント情報</div>
                               <div className="text-muted-foreground">{savedInfo.eventInfo}</div>
                             </div>
                           )}
                           {savedInfo?.externalFactors && (
-                            <div className="p-3 bg-orange-50 dark:bg-orange-950/20 rounded-lg">
+                            <div className="p-3 bg-warning/10 rounded-lg">
                               <div className="font-medium mb-1">外部要因情報</div>
                               <div className="text-muted-foreground">{savedInfo.externalFactors}</div>
                             </div>
@@ -1383,7 +1383,7 @@ function PriceGrid({
                   className={`
                     min-h-[110px] p-2 text-xs relative
                     ${cell.isCurrentMonth ? "" : "opacity-30"}
-                    ${cell.dayOfWeek === 0 ? "bg-red-50 dark:bg-red-950/20" : cell.dayOfWeek === 6 ? "bg-blue-50 dark:bg-blue-950/20" : ""}
+                    ${cell.dayOfWeek === 0 ? "bg-negative/5" : cell.dayOfWeek === 6 ? "bg-primary/5" : ""}
                     border-r border-b
                     ${cell.isCurrentMonth && cell.data ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}
                   `}
@@ -1391,7 +1391,7 @@ function PriceGrid({
                   <div className="flex items-center justify-between mb-1">
                     <div
                       className={`font-medium inline-flex items-center justify-center ${
-                        cell.dayOfWeek === 0 ? "text-red-600 dark:text-red-400" : cell.dayOfWeek === 6 ? "text-blue-600 dark:text-blue-400" : ""
+                        cell.dayOfWeek === 0 ? "text-negative" : cell.dayOfWeek === 6 ? "text-primary" : ""
                       }`}
                     >
                       {cell.date}

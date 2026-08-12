@@ -120,15 +120,15 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed bottom-24 right-6 w-[420px] h-[600px] bg-card border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed bottom-24 right-6 w-[420px] h-[600px] bg-card border border-border rounded-2xl shadow-[var(--shadow-xl)] flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border bg-gradient-to-r from-primary/5 to-primary/10">
+      <div className="flex items-center justify-between p-4 border-b border-border bg-primary/5">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
             <Sparkles className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h3 className="font-semibold">AIアシスタント</h3>
+            <h3 className="font-heading font-medium tracking-tight">AIアシスタント</h3>
             <p className="text-xs text-muted-foreground">収益管理をサポート</p>
           </div>
         </div>

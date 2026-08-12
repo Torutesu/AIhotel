@@ -321,7 +321,7 @@ export function DailyAnalysisTab() {
       </div>
 
       {/* AI解説セクション - 月全体の傾向・進捗に対するコメント（個別日への対応指示はダッシュボードのアラートが担当） */}
-      <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+      <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
           <CardTitle className="text-lg font-semibold flex items-center gap-2">
             <span className="text-xl">🤖</span>
@@ -403,10 +403,10 @@ export function DailyAnalysisTab() {
               <p className="text-xs text-muted-foreground mb-0.5">月間ADR</p>
               <div className="text-lg font-semibold mb-0.5">¥18,250</div>
               <div className="flex flex-col gap-0.5 text-xs">
-                <span className="text-[color:var(--positive)] flex items-center gap-1">
+                <span className="text-positive flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />対1か月前 +3.2%
                 </span>
-                <span className="text-[color:var(--positive)]">対予算 +1.8% / 対前年 +4.1%</span>
+                <span className="text-positive">対予算 +1.8% / 対前年 +4.1%</span>
               </div>
             </div>
 
@@ -414,10 +414,10 @@ export function DailyAnalysisTab() {
               <p className="text-xs text-muted-foreground mb-0.5">月間稼働率</p>
               <div className="text-lg font-semibold mb-0.5">82.5%</div>
               <div className="flex flex-col gap-0.5 text-xs">
-                <span className="text-[color:var(--positive)] flex items-center gap-1">
+                <span className="text-positive flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />対予算 +2.4pt
                 </span>
-                <span className="text-[color:var(--positive)]">対前年 +1.9pt</span>
+                <span className="text-positive">対前年 +1.9pt</span>
               </div>
             </div>
 
@@ -425,10 +425,10 @@ export function DailyAnalysisTab() {
               <p className="text-xs text-muted-foreground mb-0.5">月間RevPAR</p>
               <div className="text-lg font-semibold mb-0.5">¥15,056</div>
               <div className="flex flex-col gap-0.5 text-xs">
-                <span className="text-[color:var(--positive)] flex items-center gap-1">
+                <span className="text-positive flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />対予算 +3.1%
                 </span>
-                <span className="text-[color:var(--positive)]">対前年 +6.2%</span>
+                <span className="text-positive">対前年 +6.2%</span>
               </div>
             </div>
 
@@ -437,7 +437,7 @@ export function DailyAnalysisTab() {
               <div className="text-lg font-semibold mb-0.5">¥26,500</div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 4月5日（土）
-                <Badge className="bg-amber-500 text-white text-[9px] px-1 py-0 h-4">年間3位</Badge>
+                <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間3位</Badge>
               </div>
             </div>
 
@@ -446,7 +446,7 @@ export function DailyAnalysisTab() {
               <div className="text-lg font-semibold mb-0.5">100.0%</div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 4月5日（土）
-                <Badge className="bg-amber-500 text-white text-[9px] px-1 py-0 h-4">年間1位</Badge>
+                <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間1位</Badge>
               </div>
             </div>
 
@@ -455,7 +455,7 @@ export function DailyAnalysisTab() {
               <div className="text-lg font-semibold mb-0.5">¥26,500</div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 4月5日（土）
-                <Badge className="bg-amber-500 text-white text-[9px] px-1 py-0 h-4">年間2位</Badge>
+                <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間2位</Badge>
               </div>
             </div>
 
@@ -713,7 +713,7 @@ export function DailyAnalysisTab() {
                         setSelectedStayDate(new Date(yearNum, monthNum - 1, dayNum))
                       }}
                     >
-                      <td className={`py-2 px-2 font-medium ${isSelectedForCurve ? "bg-blue-100 dark:bg-blue-900" : ""}`}>{row.date}</td>
+                      <td className={`py-2 px-2 font-medium ${isSelectedForCurve ? "bg-primary/10" : ""}`}>{row.date}</td>
                       <td className="py-2 px-2">
                         <Badge variant={row.day === "土" || row.day === "日" ? "default" : "outline"} className="text-xs">{row.day}</Badge>
                       </td>
@@ -728,9 +728,9 @@ export function DailyAnalysisTab() {
                           <span
                             className={
                               row.occAi >= 90
-                                ? "text-[color:var(--positive)] font-medium"
+                                ? "text-positive font-medium"
                                 : row.occAi < 70
-                                  ? "text-[color:var(--negative)]"
+                                  ? "text-negative"
                                   : ""
                             }
                           >
@@ -770,7 +770,7 @@ export function DailyAnalysisTab() {
                       </td>
                       <td className="text-center py-2 px-2">
                         {isPast ? (
-                          <span className={row.yoy >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}>
+                          <span className={row.yoy >= 0 ? "text-positive" : "text-negative"}>
                             {row.yoy >= 0 ? "+" : ""}
                             {row.yoy.toFixed(1)}%
                           </span>
@@ -792,7 +792,7 @@ export function DailyAnalysisTab() {
                   <td className="text-right py-2 px-2 font-semibold">¥19,107</td>
                   <td className="text-right py-2 px-2 font-semibold">¥15,248</td>
                   <td className="text-right py-2 px-2 font-semibold">¥6,405,000,000</td>
-                  <td className="text-center py-2 px-2 font-semibold text-[color:var(--positive)]">+8.4%</td>
+                  <td className="text-center py-2 px-2 font-semibold text-positive">+8.4%</td>
                 </tr>
               </tfoot>
             </table>
@@ -1014,13 +1014,13 @@ export function DailyAnalysisTab() {
                   { day: "祝日", occ: 97.2, adr: 24800, revpar: 24106, yoy: 15.8, isSpecial: true },
                   { day: "休前日", occ: 96.5, adr: 24200, revpar: 23353, yoy: 13.9, isSpecial: true },
                 ].map((row) => (
-                  <tr key={row.day} className={`border-b hover:bg-muted/50 ${row.isSpecial ? "bg-amber-50/50 dark:bg-amber-950/10" : ""}`}>
-                    <td className={`py-2 px-2 font-medium ${row.isSpecial ? "text-amber-700 dark:text-amber-400" : ""}`}>{row.day}</td>
+                  <tr key={row.day} className={`border-b hover:bg-muted/50 ${row.isSpecial ? "bg-warning/5" : ""}`}>
+                    <td className={`py-2 px-2 font-medium ${row.isSpecial ? "text-warning" : ""}`}>{row.day}</td>
                     <td className="text-right py-2 px-2">{row.occ.toFixed(1)}%</td>
                     <td className="text-right py-2 px-2">¥{row.adr.toLocaleString()}</td>
                     <td className="text-right py-2 px-2">¥{row.revpar.toLocaleString()}</td>
                     <td className="text-right py-2 px-2">
-                      <span className={row.yoy >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}>
+                      <span className={row.yoy >= 0 ? "text-positive" : "text-negative"}>
                         {row.yoy >= 0 ? "+" : ""}
                         {row.yoy.toFixed(1)}%
                       </span>
@@ -1034,7 +1034,7 @@ export function DailyAnalysisTab() {
       </Card>
 
       {/* Competitor Comparison Section */}
-      <Card className="border-l-4 border-l-orange-500">
+      <Card className="border-l-4 border-l-[color:var(--chart-4)]">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -1141,10 +1141,10 @@ export function DailyAnalysisTab() {
         </CardHeader>
         <CardContent className="pt-0 space-y-4">
           {/* 注意事項アラート */}
-          <Alert className="bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800">
-            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            <AlertTitle className="text-sm font-semibold text-amber-900 dark:text-amber-100">データ取り扱いに関する注意事項</AlertTitle>
-            <AlertDescription className="text-xs text-amber-800 dark:text-amber-200 mt-1 space-y-1">
+          <Alert className="bg-warning/10 border-warning/30">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            <AlertTitle className="text-sm text-warning font-semibold">データ取り扱いに関する注意事項</AlertTitle>
+            <AlertDescription className="text-xs text-warning/90 mt-1 space-y-1">
               <p>• 競合データは参考値であり、実際の価格設定には複数の要因（立地、設備、サービス品質等）を総合的に考慮してください。</p>
               <p>• 表示期間: {weekStart} 〜 {weekEnd}（1週間単位）</p>
               <p>• データ取得日時: {new Date().toLocaleString("ja-JP")}</p>
@@ -1191,7 +1191,7 @@ export function DailyAnalysisTab() {
                             </div>
                             {diff != null && diffPercent != null ? (
                               <div
-                                className={`text-sm font-medium ${diff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"}`}
+                                className={`text-sm font-medium ${diff >= 0 ? "text-positive" : "text-negative"}`}
                               >
                                 {diff >= 0 ? "+" : ""}
                                 {yen(Math.abs(diff))} ({diff >= 0 ? "+" : ""}
@@ -1247,9 +1247,9 @@ export function DailyAnalysisTab() {
                                     <td
                                       className={`text-right py-2 px-2 font-medium ${
                                         diff != null && diff >= 0
-                                          ? "text-[color:var(--positive)]"
+                                          ? "text-positive"
                                           : diff != null
-                                            ? "text-[color:var(--negative)]"
+                                            ? "text-negative"
                                             : ""
                                       }`}
                                     >
@@ -1258,9 +1258,9 @@ export function DailyAnalysisTab() {
                                     <td
                                       className={`text-right py-2 px-2 ${
                                         diffPercent != null && diffPercent >= 0
-                                          ? "text-[color:var(--positive)]"
+                                          ? "text-positive"
                                           : diffPercent != null
-                                            ? "text-[color:var(--negative)]"
+                                            ? "text-negative"
                                             : ""
                                       }`}
                                     >
