@@ -13,9 +13,29 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
-import { CalendarIcon, Plus, Trash2, Download, Upload, Save } from "lucide-react"
+import { CalendarIcon, Plus, Trash2, Download, Upload, Save, AlertTriangle, KeyRound } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
 import type { CampaignData } from "@shared/types"
+
+// OTAスクレイピング用アカウントの状態（モック）。
+// スクレイピングには施設ID（OTAごと）・ユーザーID・パスワードの登録が必要で、
+// OTAによっては3か月単位でのパスワード更新が求められる
+const OTA_ACCOUNT_STATUS: Array<{
+  channel: string
+  facilityId: string
+  requiresPeriodicUpdate: boolean
+  passwordDaysLeft: number | null
+}> = [
+  { channel: "楽天トラベル", facilityId: "R-102845", requiresPeriodicUpdate: true, passwordDaysLeft: 12 },
+  { channel: "じゃらん", facilityId: "J-558214", requiresPeriodicUpdate: true, passwordDaysLeft: 3 },
+  { channel: "一休.com", facilityId: "I-30412", requiresPeriodicUpdate: false, passwordDaysLeft: null },
+  { channel: "Booking.com", facilityId: "B-7729481", requiresPeriodicUpdate: true, passwordDaysLeft: 64 },
+  { channel: "Expedia", facilityId: "E-4451920", requiresPeriodicUpdate: false, passwordDaysLeft: null },
+  { channel: "Agoda", facilityId: "A-995127", requiresPeriodicUpdate: true, passwordDaysLeft: 41 },
+]
+
+const PASSWORD_ALERT_THRESHOLD_DAYS = 14
 
 export function CampaignParticipationManager() {
   const [campaigns, setCampaigns] = useState<CampaignData[]>([
@@ -159,6 +179,45 @@ export function CampaignParticipationManager() {
         </Button>
       </div>
 
+      {/* OTAパスワード更新アラート（スクレイピング用アカウントの期限管理） */}
+      {OTA_ACCOUNT_STATUS.some((a) => a.passwordDaysLeft != null && a.passwordDaysLeft <= PASSWORD_ALERT_THRESHOLD_DAYS) && (
+        <Alert className="bg-amber-50 border-amber-200 dark:bg-amber-950 dark:border-amber-800">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+          <AlertTitle className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+            OTAアカウントのパスワード更新が必要です
+          </AlertTitle>
+          <AlertDescription className="text-xs text-amber-800 dark:text-amber-200 mt-1 space-y-2">
+            <div className="space-y-1">
+              {OTA_ACCOUNT_STATUS.filter((a) => a.passwordDaysLeft != null && a.passwordDaysLeft <= PASSWORD_ALERT_THRESHOLD_DAYS).map((a) => (
+                <div key={a.channel} className="flex items-center justify-between gap-2 flex-wrap">
+                  <p>
+                    • <span className="font-semibold">{a.channel}</span>（施設ID: {a.facilityId}）: パスワードをあと
+                    <span className={`font-bold ${a.passwordDaysLeft! <= 7 ? "text-red-600 dark:text-red-400" : ""}`}>{a.passwordDaysLeft}日以内</span>
+                    に更新してください
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={() =>
+                      toast.info(`${a.channel}のパスワード更新処理を開始します`, {
+                        description: "本システム上からの更新処理は今後実装されます。",
+                      })
+                    }
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    更新処理
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <p className="text-[10px]">
+              ※ データ取得（スクレイピング）には施設ID（OTAごと）・ユーザーID・パスワードの登録が必要です。OTAによっては3か月単位でのパスワード更新が求められます
+            </p>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* OTAデータ取得セクション */}
       <Card>
         <CardHeader>
@@ -166,17 +225,26 @@ export function CampaignParticipationManager() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-            {channels.slice(0, 6).map((channel) => (
-              <Button
-                key={channel}
-                variant="outline"
-                className="flex flex-col items-center gap-2 h-auto py-4"
-                onClick={() => handleImportOTA(channel)}
-              >
-                <Download className="w-5 h-5" />
-                <span className="text-sm">{channel}</span>
-              </Button>
-            ))}
+            {channels.slice(0, 6).map((channel) => {
+              const account = OTA_ACCOUNT_STATUS.find((a) => a.channel === channel)
+              const needsUpdate = account?.passwordDaysLeft != null && account.passwordDaysLeft <= PASSWORD_ALERT_THRESHOLD_DAYS
+              return (
+                <Button
+                  key={channel}
+                  variant="outline"
+                  className="flex flex-col items-center gap-2 h-auto py-4 relative"
+                  onClick={() => handleImportOTA(channel)}
+                >
+                  {needsUpdate && (
+                    <Badge className="absolute top-1.5 right-1.5 bg-amber-500 text-white text-[9px] px-1 py-0 h-4">
+                      PW残{account!.passwordDaysLeft}日
+                    </Badge>
+                  )}
+                  <Download className="w-5 h-5" />
+                  <span className="text-sm">{channel}</span>
+                </Button>
+              )
+            })}
           </div>
         </CardContent>
       </Card>
