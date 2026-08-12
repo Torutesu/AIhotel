@@ -41,7 +41,7 @@ export function LoginForm() {
             <span className="inline-block h-2 w-2 rounded-full bg-primary" aria-hidden />
             <span className="text-xs font-medium tracking-wide text-muted-foreground">AI HOTEL</span>
           </div>
-          <CardTitle className="text-2xl font-normal">AI Revenue Management</CardTitle>
+          <CardTitle className="text-2xl font-semibold tracking-tight">AI Revenue Management</CardTitle>
           <CardDescription>ホテル収益管理システムにログインしてください</CardDescription>
         </CardHeader>
         <CardContent>
@@ -84,7 +84,7 @@ export function LoginForm() {
             </Button>
           </form>
 
-          <div className="mt-4 rounded-[10px] border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
+          <div className="mt-4 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
             <p className="font-medium">デモアカウント</p>
             <p>メール: admin@demo-hotel.example.com</p>
             <p>パスワード: Admin1234</p>

@@ -4,53 +4,54 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Seline Analytics style reference — quiet analyst's desk on warm paper */
-  --background: #fafaf9; /* stone canvas */
-  --foreground: #0c0a09; /* ink black */
-  --card: #ffffff; /* pure white */
-  --card-foreground: #0c0a09;
+  /* OpenAI Developers style reference — stark white laboratory */
+  --background: #ffffff; /* paper white canvas */
+  --foreground: #282828; /* graphite — repeated body/UI text */
+  --card: #f9f9f9; /* fog white */
+  --card-foreground: #282828;
   --popover: #ffffff;
-  --popover-foreground: #0c0a09;
-  --primary: #3ba6f1; /* cyan signal — the one chromatic voice */
+  --popover-foreground: #282828;
+  --primary: #000000; /* obsidian — the single dark CTA mass */
   --primary-foreground: #ffffff;
-  --secondary: #f3f1f0; /* light stone tint */
-  --secondary-foreground: #0c0a09;
-  --muted: #f3f1f0;
-  --muted-foreground: #78716c; /* warm gray */
-  --accent: #f3f1f0;
-  --accent-foreground: #0c0a09;
+  --secondary: #ededed; /* mist gray */
+  --secondary-foreground: #0d0d0d;
+  --muted: #f3f3f3; /* linen */
+  --muted-foreground: #5d5d5d; /* ash gray */
+  --accent: #f3f3f3;
+  --accent-foreground: #181818;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #e8e6e5; /* stone border — primary structural device */
-  --input: #d6d3d1; /* stone muted */
-  --ring: #3ba6f1;
-  --chart-1: #3ba6f1; /* cyan signal */
-  --chart-2: #1f9e83; /* teal */
-  --chart-3: #6c6fdb; /* indigo */
-  --chart-4: #c98a3a; /* amber */
-  --chart-5: #9c4f7c; /* plum */
-  --positive: #1a73b8; /* accessible brand blue for revenue upside */
-  --negative: #dc2626; /* accessible red for revenue downside */
+  --border: #ededed; /* mist gray hairline */
+  --input: #ededed;
+  --ring: #0d0d0d; /* neutral ink — no chromatic accent on controls */
+  /* グラフ/データ指標色は元のパレットに戻す */
+  --chart-1: oklch(0.55 0.18 250);
+  --chart-2: oklch(0.65 0.15 200);
+  --chart-3: oklch(0.7 0.12 180);
+  --chart-4: oklch(0.6 0.1 220);
+  --chart-5: oklch(0.75 0.08 160);
+  --positive: oklch(0.55 0.18 250);
+  --negative: oklch(0.55 0.22 25);
   --warning: #9a6208; /* accessible amber for caution/warning status */
-  --ash-gray: #a8a29e;
-  --stone-muted: #d6d3d1;
-  --sky-wash: #c1e1f7;
-  --cyan-edge: #3398e1;
-  --soot: #1c1917;
-  --radius: 0.625rem; /* 10px — content card radius */
+  --ash-gray: #5d5d5d;
+  --stone-muted: #ededed;
+  --sky-wash: #f3f3f3; /* neutral wash — no chromatic tint on UI chrome */
+  --cyan-edge: #181818; /* neutral dark edge, replaces the old accent border */
+  --soot: #0d0d0d;
+  --radius: 0.5rem; /* 8px — card/button/input radius */
   --sidebar: #ffffff;
-  --sidebar-foreground: #0c0a09;
-  --sidebar-primary: #1c1917; /* soot fill for active nav item, per Tab Pill Group spec */
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f3f1f0;
-  --sidebar-accent-foreground: #0c0a09;
-  --sidebar-border: #e8e6e5;
-  --sidebar-ring: #3ba6f1;
+  --sidebar-foreground: #282828;
+  --sidebar-primary: #ededed; /* ghost-nav active fill, not the CTA black */
+  --sidebar-primary-foreground: #0d0d0d;
+  --sidebar-accent: #f3f3f3;
+  --sidebar-accent-foreground: #181818;
+  --sidebar-border: #ededed;
+  --sidebar-ring: #0d0d0d;
 }
 
 @theme inline {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-heading: var(--font-inter-tight), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-heading: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif; /* 単一書体、weightのみで階層を作る */
   --font-mono: "Geist Mono", "Geist Mono Fallback";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -88,7 +89,6 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: 1rem; /* 16px — feature-card radius */
   --radius-full: 9999px;
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
@@ -99,11 +99,11 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* Shadows — named to match the Seline style reference exactly */
-  --shadow-xs: 0px 1px 2px 0px rgba(0, 0, 0, 0.05); /* hairline / subtle */
-  --shadow-sm: 0px 4px 6px -1px rgba(0, 0, 0, 0.1), 0px 2px 4px -2px rgba(0, 0, 0, 0.1); /* small icon / chip */
-  --shadow-md: 0px 4px 16px 0px rgba(0, 0, 0, 0.05); /* flat content card lift */
-  --shadow-xl: 0px 12px 45px 0px rgba(17, 12, 46, 0.12); /* floating dashboard preview */
+  /* Shadows — OpenAI Developers採用: 唯一のヘアラインシャドウのみ、エレベーションは使わない */
+  --shadow-xs: 0px 1px 2px -1px rgba(0, 0, 0, 0.08);
+  --shadow-sm: 0px 1px 2px -1px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0px 1px 2px -1px rgba(0, 0, 0, 0.08);
+  --shadow-xl: 0px 1px 2px -1px rgba(0, 0, 0, 0.08);
 }
 
 @layer base {
@@ -116,12 +116,12 @@
 }
 
 @layer components {
-  /* Inline highlight span — one per headline, marks the value-prop keyword */
+  /* インライン強調（無彩色）— 太字+ニュートラルなピル背景で階層を作る */
   .brand-highlight {
-    color: var(--cyan-edge);
-    background-color: var(--sky-wash);
+    color: #181818;
+    background-color: #ededed;
     border-radius: 4px;
     padding: 2px 8px;
-    font-weight: 400;
+    font-weight: 500;
   }
 }
