@@ -9,8 +9,8 @@ import "./globals.css"
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 
 export const metadata: Metadata = {
-  title: "ホテル収益管理システム",
-  description: "Hotel Revenue Management System",
+  title: "ホテレベ",
+  description: "ホテレベ - AIホテル収益管理システム",
   generator: "v0.app",
 }
 

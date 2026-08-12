@@ -21,7 +21,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
       id: "1",
       role: "assistant",
       content:
-        "こんにちは！ホテル収益管理システムのAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。",
+        "こんにちは！ホテレベのAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。",
       timestamp: new Date(),
     },
   ])
@@ -120,7 +120,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed bottom-24 right-6 w-[420px] h-[600px] bg-card border border-border rounded-lg shadow-xs flex flex-col overflow-hidden">
+    <div className="fixed inset-0 md:inset-auto md:bottom-24 md:right-6 w-full md:w-[420px] h-full md:h-[600px] bg-card border-0 md:border border-border rounded-none md:rounded-lg shadow-xs flex flex-col overflow-hidden z-30">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border bg-muted/50">
         <div className="flex items-center gap-3">

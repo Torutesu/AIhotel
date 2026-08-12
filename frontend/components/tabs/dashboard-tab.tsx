@@ -516,8 +516,8 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
               <p className="text-sm text-muted-foreground py-8 text-center">この月のデータがありません。</p>
             ) : (
               <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-4">
+                <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                  <div className="flex items-center gap-4 flex-wrap">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-0.5 bg-[color:var(--chart-1)]"></div>
                       <span className="font-medium text-xs">稼働率</span>
@@ -527,7 +527,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       <span className="font-medium text-xs">ADR</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
                     <span className="px-1.5 py-0.5 bg-muted rounded text-xs">実績</span>
                     <span>←</span>
                     <span className="px-1.5 py-0.5 bg-muted rounded text-xs">→</span>
@@ -634,7 +634,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
           <CardContent className="pt-0">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <h3 className="text-sm font-medium text-muted-foreground">月初比較</h3>
                   <span className="text-xs text-muted-foreground whitespace-nowrap">vs {month}月1日</span>
                 </div>
@@ -642,9 +642,9 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
               </div>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <h3 className="text-sm font-medium text-muted-foreground">日付比較</h3>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Select
                       value={comparisonType}
                       onValueChange={(value: "previousDay" | "weekAgo" | "lastMonth" | "custom") => {
@@ -702,7 +702,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
 
         {/* KPI進捗状況 */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="text-lg font-heading font-medium tracking-tight">KPI進捗状況</h2>
             <p className="text-xs text-muted-foreground">
               {kpi ? `${kpi.summary.actualDays}日分の実績を集計` : ""}

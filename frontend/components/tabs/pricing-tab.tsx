@@ -529,13 +529,13 @@ export function PricingTab() {
 
           {/* サマリーカード（現在値と着地予測（AI予測）の6指標） */}
           {loading ? (
-            <div className="grid grid-cols-3 lg:grid-cols-6 gap-3 border-t pt-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3 border-t pt-2.5">
               {Array.from({ length: 6 }).map((_, i) => (
                 <Skeleton key={i} className="h-16 w-full" />
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-3 lg:grid-cols-6 gap-3 border-t pt-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3 border-t pt-2.5">
               <div className="flex flex-col">
                 <p className="text-xs text-muted-foreground mb-0.5">現在のADR</p>
                 <div className="text-lg font-semibold mb-0.5">{yen(overallSummary.currentAdr)}</div>
@@ -856,7 +856,7 @@ export function PricingTab() {
                       className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="new-event-type">種別</Label>
                       <Select value={newEventType} onValueChange={setNewEventType}>
@@ -886,7 +886,7 @@ export function PricingTab() {
                       </Select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="new-event-start">開始日</Label>
                       <input
@@ -1034,12 +1034,12 @@ export function PricingTab() {
                         <div className="font-medium">推奨価格（料金ランク {day.rankLabel ?? "-"}）</div>
                         {day.confidence != null && <Badge variant="outline" className="text-xs">信頼度 {(day.confidence * 100).toFixed(0)}%</Badge>}
                       </div>
-                      <div className="grid grid-cols-3 gap-4 text-sm">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                         <div>1名料金：{yen(day.price1P)}</div>
                         <div>2名料金：{yen(day.price2P)}</div>
                         <div>3名料金：{yen(day.price3P)}</div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 text-sm border-t pt-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm border-t pt-3">
                         <div>アラート：{day.demandLevel ?? "-"}（{demandDescription(day.demandLevel)}）</div>
                         <div>稼働率予測：{pct(day.predictedOccupancy)}</div>
                         <div>競合平均価格：{yen(day.competitorAvgPrice)}</div>
@@ -1122,7 +1122,7 @@ export function PricingTab() {
       {/* AI Analysis Dialog */}
       {selectedRowForAnalysis && (
         <Dialog open={selectedRowForAnalysis !== null} onOpenChange={(open) => !open && setSelectedRowForAnalysis(null)}>
-          <DialogContent className="!max-w-[60vw] sm:!max-w-[60vw] max-h-[90vh] overflow-y-auto w-full">
+          <DialogContent className="max-h-[90vh] overflow-y-auto w-full sm:!max-w-[90vw] lg:!max-w-[60vw]">
             {(() => {
               const { monthIndex, day } = selectedRowForAnalysis
               const [y, m, d] = day.date.split("-").map(Number)

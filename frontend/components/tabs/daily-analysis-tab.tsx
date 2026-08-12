@@ -309,7 +309,7 @@ export function DailyAnalysisTab() {
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h2 className="text-2xl font-semibold text-balance">日別分析</h2>
           <p className="text-sm text-muted-foreground mt-1">日次パフォーマンスの詳細分析</p>
@@ -398,7 +398,7 @@ export function DailyAnalysisTab() {
           </div>
 
           {/* サマリーカード（事実のみの9指標。最高〜年間10位以内の日にはバッジを表示） */}
-          <div className="grid grid-cols-3 gap-3 border-t pt-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t pt-2.5">
             <div className="flex flex-col">
               <p className="text-xs text-muted-foreground mb-0.5">月間ADR</p>
               <div className="text-lg font-semibold mb-0.5">¥18,250</div>
@@ -1042,7 +1042,7 @@ export function DailyAnalysisTab() {
               競合ホテルとの価格比較分析
             </CardTitle>
             <div className="flex items-center gap-4 flex-wrap">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <Label htmlFor="competitor-week-start" className="text-xs whitespace-nowrap">表示週</Label>
                 <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => shiftWeek(-7)}>
                   ← 前週
@@ -1183,7 +1183,7 @@ export function DailyAnalysisTab() {
                       const diffPercent = diff != null && compAvg ? (diff / compAvg) * 100 : null
 
                       return (
-                        <Card key={`${comp.id}-${occ}`} className="min-w-[200px] flex-1 max-w-[250px]">
+                        <Card key={`${comp.id}-${occ}`} className="w-full sm:min-w-[200px] sm:flex-1 sm:max-w-[250px]">
                           <CardContent className="py-2.5 px-3">
                             <p className="text-xs text-muted-foreground mb-1">{occLabel(occ)}</p>
                             <div className="text-lg font-semibold mb-0.5">

@@ -582,15 +582,17 @@ export function AnalysisTab() {
                   </SelectContent>
                 </Select>
               </div>
-              <TabsList className="h-9 inline-flex">
-                <TabsTrigger value="channel" className="text-sm px-4 py-2">チャネル分析</TabsTrigger>
-                <TabsTrigger value="roomtype" className="text-sm px-4 py-2">部屋タイプ分析</TabsTrigger>
-                <TabsTrigger value="booking" className="text-sm px-4 py-2">予約期間分析</TabsTrigger>
-                <TabsTrigger value="segment" className="text-sm px-4 py-2">顧客セグメント</TabsTrigger>
-                <TabsTrigger value="competitor" className="text-sm px-4 py-2">競合価格</TabsTrigger>
-                <TabsTrigger value="comparison" className="text-sm px-4 py-2">年間推移</TabsTrigger>
-                <TabsTrigger value="free" className="text-sm px-4 py-2">フリー分析</TabsTrigger>
-              </TabsList>
+              <div className="w-full min-w-0 overflow-x-auto sm:w-auto">
+                <TabsList className="h-9 inline-flex">
+                  <TabsTrigger value="channel" className="text-sm px-4 py-2">チャネル分析</TabsTrigger>
+                  <TabsTrigger value="roomtype" className="text-sm px-4 py-2">部屋タイプ分析</TabsTrigger>
+                  <TabsTrigger value="booking" className="text-sm px-4 py-2">予約期間分析</TabsTrigger>
+                  <TabsTrigger value="segment" className="text-sm px-4 py-2">顧客セグメント</TabsTrigger>
+                  <TabsTrigger value="competitor" className="text-sm px-4 py-2">競合価格</TabsTrigger>
+                  <TabsTrigger value="comparison" className="text-sm px-4 py-2">年間推移</TabsTrigger>
+                  <TabsTrigger value="free" className="text-sm px-4 py-2">フリー分析</TabsTrigger>
+                </TabsList>
+              </div>
             </div>
           </CardContent>
         </Card>

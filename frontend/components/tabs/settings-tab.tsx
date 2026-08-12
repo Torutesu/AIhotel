@@ -460,7 +460,7 @@ export function SettingsTab() {
               <Label htmlFor="edit-rank-label">ラベル</Label>
               <Input id="edit-rank-label" value={editLabel} onChange={(e) => setEditLabel(e.target.value)} />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-rank-1p">1名料金</Label>
                 <Input

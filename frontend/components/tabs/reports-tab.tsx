@@ -219,15 +219,15 @@ export function ReportsTab() {
             ].map((report, index) => (
               <div
                 key={index}
-                className="flex items-center justify-between p-2.5 border border-border rounded-lg hover:bg-muted/50 transition-colors"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 border border-border rounded-lg hover:bg-muted/50 transition-colors"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
                     <FileText className="w-4 h-4 text-muted-foreground" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-sm font-medium">{report.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
+                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       <span className="text-xs text-muted-foreground">{report.type}</span>
                       <span className="text-xs text-muted-foreground">•</span>
                       <span className="text-xs text-muted-foreground">{report.date}</span>
@@ -236,7 +236,7 @@ export function ReportsTab() {
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
                   <Badge variant="outline" className="text-xs">{report.format}</Badge>
                   <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
                     <Download className="w-4 h-4" />
@@ -285,11 +285,11 @@ export function ReportsTab() {
             ].map((schedule, index) => (
               <div
                 key={index}
-                className="flex items-center justify-between p-2.5 border border-border rounded-lg hover:bg-muted/50 transition-colors"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 border border-border rounded-lg hover:bg-muted/50 transition-colors"
               >
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-medium">{schedule.name}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
+                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                     <span className="text-xs text-muted-foreground">{schedule.frequency}</span>
                     <span className="text-xs text-muted-foreground">•</span>
                     <span className="text-xs text-muted-foreground">{schedule.recipients}</span>
@@ -297,7 +297,7 @@ export function ReportsTab() {
                     <span className="text-xs text-muted-foreground">{schedule.format}</span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
                   <Badge variant="secondary" className="text-xs">{schedule.status}</Badge>
                   <Button variant="ghost" size="sm" className="h-8">
                     編集
@@ -318,7 +318,7 @@ export function ReportsTab() {
           <p className="text-sm text-muted-foreground">
             カスタムレポートテンプレートを作成して、必要なデータを自動的に集計・出力できます。
           </p>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <Button variant="outline" size="sm" className="h-8">
               テンプレート管理
             </Button>

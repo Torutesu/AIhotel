@@ -39,9 +39,8 @@ export function LoginForm() {
         <CardHeader>
           <div className="mb-1 flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-primary" aria-hidden />
-            <span className="text-xs font-medium tracking-wide text-muted-foreground">AI HOTEL</span>
+            <CardTitle className="text-2xl font-semibold tracking-tight">ホテレベ</CardTitle>
           </div>
-          <CardTitle className="text-2xl font-semibold tracking-tight">AI Revenue Management</CardTitle>
           <CardDescription>ホテル収益管理システムにログインしてください</CardDescription>
         </CardHeader>
         <CardContent>

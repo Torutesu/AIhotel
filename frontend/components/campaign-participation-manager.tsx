@@ -166,7 +166,7 @@ export function CampaignParticipationManager() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-semibold">キャンペーン参画データ管理</h2>
           <p className="text-sm text-muted-foreground mt-1">
