@@ -4,9 +4,9 @@ import type React from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   ArrowRight,
+  ArrowUpRight,
   BarChart3,
   BellRing,
-  BookOpenCheck,
   Bot,
   Brain,
   Building2,
@@ -17,13 +17,14 @@ import {
   GraduationCap,
   LineChart,
   Lock,
+  Menu,
   MessageSquareText,
   RefreshCcw,
   Server,
   ShieldCheck,
-  Sparkles,
   TrendingUp,
   UserCog,
+  X,
   Zap,
 } from "lucide-react"
 
@@ -163,35 +164,39 @@ function Typewriter({ lines }: { lines: string[] }) {
 // パーツ
 // ============================================================
 
-function SectionHeading({
-  eyebrow,
-  title,
-  lead,
-}: {
-  eyebrow: string
-  title: React.ReactNode
-  lead?: string
-}) {
+/** モデルバッジ風グラデーションサムネイル（唯一の above-fold カラー） */
+function GradientBadge({ label, size = "h-6 w-6 text-[10px]" }: { label: string; size?: string }) {
   return (
-    <Reveal className="mx-auto max-w-3xl text-center">
-      <p className="mb-3 text-sm font-semibold tracking-[0.2em] text-[var(--lp-accent-3)]">{eyebrow}</p>
-      <h2 className="text-balance text-3xl font-bold leading-tight md:text-5xl">{title}</h2>
-      {lead ? <p className="mt-5 text-pretty text-base leading-relaxed text-[var(--lp-muted)] md:text-lg">{lead}</p> : null}
+    <span
+      className={`lp-featured flex shrink-0 items-center justify-center font-semibold text-white ${size}`}
+      style={{ borderRadius: 6 }}
+    >
+      {label}
+    </span>
+  )
+}
+
+function SectionHeading({ title, lead }: { title: React.ReactNode; lead?: string }) {
+  return (
+    <Reveal className="mx-auto max-w-2xl text-center">
+      <h2 className="lp-display text-balance">{title}</h2>
+      {lead ? <p className="mt-3 text-pretty text-base leading-relaxed text-[var(--color-ash-gray)]">{lead}</p> : null}
     </Reveal>
   )
 }
 
+/* 価格ランク: 彩度を使わず明度で需要の高低を表現する */
 const RANK_CELLS = [
-  { day: "金", rank: "S28", color: "bg-rose-500/80" },
-  { day: "土", rank: "S31", color: "bg-rose-400/80" },
-  { day: "日", rank: "S17", color: "bg-amber-400/80" },
-  { day: "月", rank: "S09", color: "bg-emerald-400/70" },
-  { day: "火", rank: "S08", color: "bg-emerald-400/70" },
-  { day: "水", rank: "S11", color: "bg-teal-400/70" },
-  { day: "木", rank: "S14", color: "bg-sky-400/70" },
+  { day: "金", rank: "S28", cls: "bg-[#282828] text-white" },
+  { day: "土", rank: "S31", cls: "bg-[#000000] text-white" },
+  { day: "日", rank: "S17", cls: "bg-[#5d5d5d] text-white" },
+  { day: "月", rank: "S09", cls: "bg-[#ededed] text-[#181818]" },
+  { day: "火", rank: "S08", cls: "bg-[#f3f3f3] text-[#181818]" },
+  { day: "水", rank: "S11", cls: "bg-[#ededed] text-[#181818]" },
+  { day: "木", rank: "S14", cls: "bg-[#8f8f8f] text-white" },
 ]
 
-/** ヒーローに浮かぶプロダクト風ダッシュボードモックアップ（CSS/SVG製） */
+/** ヒーロー下のプロダクト風ダッシュボードモックアップ（CSS/SVG製・ライトUI） */
 function DashboardMockup() {
   const wrapRef = useRef<HTMLDivElement | null>(null)
 
@@ -201,31 +206,32 @@ function DashboardMockup() {
     const rect = el.getBoundingClientRect()
     const px = (e.clientX - rect.left) / rect.width - 0.5
     const py = (e.clientY - rect.top) / rect.height - 0.5
-    el.style.setProperty("--ry", `${px * 10}deg`)
-    el.style.setProperty("--rx", `${8 - py * 10}deg`)
+    el.style.setProperty("--ry", `${px * 4}deg`)
+    el.style.setProperty("--rx", `${3 - py * 4}deg`)
   }, [])
 
   const handleLeave = useCallback(() => {
     const el = wrapRef.current
     if (!el) return
     el.style.setProperty("--ry", "0deg")
-    el.style.setProperty("--rx", "8deg")
+    el.style.setProperty("--rx", "3deg")
   }, [])
 
   return (
     <div className="lp-mockup-wrap" onMouseMove={handleMove} onMouseLeave={handleLeave}>
       <div
         ref={wrapRef}
-        className="lp-mockup lp-visible mx-auto w-full max-w-4xl rounded-2xl border border-white/10 bg-[#0c0f1a]/90 shadow-[0_40px_120px_-30px_rgba(91,140,255,0.35)] backdrop-blur"
+        className="lp-mockup lp-visible mx-auto w-full max-w-4xl rounded-lg border border-[var(--color-mist-gray)] bg-white"
+        style={{ boxShadow: "var(--shadow-subtle)" }}
       >
         {/* ウィンドウバー */}
-        <div className="flex items-center gap-2 border-b border-white/10 px-5 py-3">
-          <span className="h-3 w-3 rounded-full bg-rose-400/80" />
-          <span className="h-3 w-3 rounded-full bg-amber-400/80" />
-          <span className="h-3 w-3 rounded-full bg-emerald-400/80" />
-          <span className="ml-3 text-xs text-[var(--lp-muted)]">AIレベニューツール — メインダッシュボード</span>
-          <span className="ml-auto hidden items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-300 sm:flex">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
+        <div className="flex items-center gap-2 border-b border-[var(--color-mist-gray)] px-5 py-3">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#ededed]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#ededed]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#ededed]" />
+          <span className="ml-3 text-xs text-[var(--color-smoke)]">AIレベニューツール — メインダッシュボード</span>
+          <span className="ml-auto hidden items-center gap-1.5 rounded-full border border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] px-2.5 py-0.5 text-[10px] font-medium text-[var(--color-graphite)] sm:flex">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#181818]" />
             SC自動連携中
           </span>
         </div>
@@ -239,34 +245,38 @@ function DashboardMockup() {
                 { label: "ADR", value: <CountUp to={18400} prefix="¥" />, diff: "+12.4%" },
                 { label: "RevPAR", value: <CountUp to={16928} prefix="¥" />, diff: "+15.1%" },
               ].map((kpi) => (
-                <div key={kpi.label} className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-                  <p className="text-[10px] text-[var(--lp-muted)] md:text-xs">{kpi.label}</p>
-                  <p className="mt-1 text-sm font-bold tabular-nums md:text-lg">{kpi.value}</p>
-                  <p className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-400">
-                    <TrendingUp className="h-3 w-3" />
+                <div key={kpi.label} className="rounded-lg border border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] p-3">
+                  <p className="text-[10px] text-[var(--color-smoke)] md:text-xs">{kpi.label}</p>
+                  <p className="mt-1 text-sm font-semibold tabular-nums text-[var(--color-carbon)] md:text-lg">{kpi.value}</p>
+                  <p className="mt-0.5 flex items-center gap-1 text-[10px] font-medium text-[var(--color-graphite)]">
+                    <TrendingUp className="h-3 w-3" strokeWidth={1.5} />
                     {kpi.diff}
                   </p>
                 </div>
               ))}
             </div>
 
-            {/* 需要予測チャート */}
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            {/* 需要予測チャート（スパークラインのみ、モデルバッジと同系のグラデーション） */}
+            <div className="rounded-lg border border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] p-4">
               <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-medium">需要予測（180日先まで）</p>
-                <span className="rounded-full bg-[var(--lp-accent)]/15 px-2 py-0.5 text-[10px] text-[#7ea7ff]">
+                <p className="text-xs font-medium text-[var(--color-carbon)]">需要予測（180日先まで）</p>
+                <span className="rounded-full border border-[var(--color-mist-gray)] bg-white px-2 py-0.5 text-[10px] text-[var(--color-ash-gray)]">
                   毎日 06:00 更新
                 </span>
               </div>
               <svg viewBox="0 0 320 96" className="lp-spark h-24 w-full" aria-hidden="true">
                 <defs>
+                  <linearGradient id="lp-spark-stroke" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#6366f1" />
+                    <stop offset="100%" stopColor="#8b5cf6" />
+                  </linearGradient>
                   <linearGradient id="lp-spark-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#5b8cff" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="#5b8cff" stopOpacity="0" />
+                    <stop offset="0%" stopColor="#6366f1" stopOpacity="0.12" />
+                    <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
                   </linearGradient>
                 </defs>
                 {[0, 1, 2, 3].map((i) => (
-                  <line key={i} x1="0" x2="320" y1={24 * i + 4} y2={24 * i + 4} stroke="rgba(255,255,255,0.06)" />
+                  <line key={i} x1="0" x2="320" y1={24 * i + 4} y2={24 * i + 4} stroke="#ededed" />
                 ))}
                 <path
                   d="M0,72 C24,66 40,58 56,60 C76,62 88,44 108,40 C128,36 140,52 160,48 C184,44 196,22 216,18 C236,14 248,30 268,26 C288,22 304,12 320,10 L320,96 L0,96 Z"
@@ -276,17 +286,17 @@ function DashboardMockup() {
                   className="lp-spark-line"
                   d="M0,72 C24,66 40,58 56,60 C76,62 88,44 108,40 C128,36 140,52 160,48 C184,44 196,22 216,18 C236,14 248,30 268,26 C288,22 304,12 320,10"
                   fill="none"
-                  stroke="#7ea7ff"
-                  strokeWidth="2.5"
+                  stroke="url(#lp-spark-stroke)"
+                  strokeWidth="2"
                   strokeLinecap="round"
                 />
               </svg>
-              {/* 稼働バー */}
+              {/* 稼働バー（明度スケール） */}
               <div className="mt-2 flex h-10 items-end gap-1.5">
                 {[35, 55, 42, 70, 62, 88, 96, 78, 58, 66, 84, 92, 74, 60].map((h, i) => (
                   <div
                     key={i}
-                    className="lp-bar flex-1 rounded-sm bg-gradient-to-t from-[#5b8cff]/30 to-[#8b5cf6]/70"
+                    className={`lp-bar flex-1 rounded-sm ${h >= 84 ? "bg-[#282828]" : h >= 60 ? "bg-[#8f8f8f]" : "bg-[#dcdcdc]"}`}
                     style={{ height: `${h}%`, "--lp-delay": `${i * 60}ms` } as React.CSSProperties}
                   />
                 ))}
@@ -296,39 +306,41 @@ function DashboardMockup() {
 
           {/* 右: 価格ランク + AIコメント */}
           <div className="space-y-4">
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div className="rounded-lg border border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] p-4">
               <div className="mb-3 flex items-center justify-between">
-                <p className="text-xs font-medium">今週の価格ランク</p>
-                <span className="text-[10px] text-[var(--lp-muted)]">40段階 / 100円単位</span>
+                <p className="text-xs font-medium text-[var(--color-carbon)]">今週の価格ランク</p>
+                <span className="text-[10px] text-[var(--color-smoke)]">40段階 / 100円単位</span>
               </div>
               <div className="grid grid-cols-7 gap-1.5">
                 {RANK_CELLS.map((cell, i) => (
                   <div key={cell.day} className="text-center">
-                    <p className="mb-1 text-[9px] text-[var(--lp-muted)]">{cell.day}</p>
+                    <p className="mb-1 text-[9px] text-[var(--color-smoke)]">{cell.day}</p>
                     <div
-                      className={`lp-rank-cell rounded-md py-1.5 text-[9px] font-bold text-slate-900 md:text-[10px] ${cell.color}`}
-                      style={{ "--lp-delay": `${i * 220}ms` } as React.CSSProperties}
+                      className={`lp-rank-cell rounded-md py-1.5 text-[9px] font-semibold md:text-[10px] ${cell.cls}`}
+                      style={{ "--lp-delay": `${i * 260}ms` } as React.CSSProperties}
                     >
                       {cell.rank}
                     </div>
                   </div>
                 ))}
               </div>
-              <div className="mt-3 flex items-center justify-between rounded-lg border border-[var(--lp-accent)]/25 bg-[var(--lp-accent)]/10 px-3 py-2">
-                <p className="text-[10px] text-[#a5c1ff]">土曜 S29→S31 への変更提案</p>
-                <span className="flex gap-1.5">
-                  <span className="rounded bg-emerald-400/90 px-2 py-0.5 text-[9px] font-bold text-slate-900">承認</span>
-                  <span className="rounded border border-white/20 px-2 py-0.5 text-[9px] text-[var(--lp-muted)]">否認</span>
+              <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-[var(--color-mist-gray)] bg-white px-3 py-2">
+                <p className="text-[10px] text-[var(--color-ash-gray)]">土曜 S29→S31 への変更提案</p>
+                <span className="flex shrink-0 gap-1.5">
+                  <span className="rounded-full bg-[#000000] px-2.5 py-0.5 text-[9px] font-medium text-white">承認</span>
+                  <span className="rounded-full border border-[var(--color-mist-gray)] px-2.5 py-0.5 text-[9px] text-[var(--color-ash-gray)]">
+                    否認
+                  </span>
                 </span>
               </div>
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
-              <p className="mb-2 flex items-center gap-1.5 text-xs font-medium">
-                <Bot className="h-3.5 w-3.5 text-[var(--lp-accent-3)]" />
+            <div className="rounded-lg border border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] p-4">
+              <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-[var(--color-carbon)]">
+                <Bot className="h-3.5 w-3.5 text-[var(--color-graphite)]" strokeWidth={1.5} />
                 AI要因コメント
               </p>
-              <p className="min-h-[72px] text-[11px] leading-relaxed text-[var(--lp-muted)]">
+              <p className="min-h-[72px] text-[11px] leading-relaxed text-[var(--color-ash-gray)]">
                 <Typewriter
                   lines={[
                     "11/22(土)は近隣で大規模コンサートが開催予定。競合3施設は既に平均+18%の価格改定済みです。ランクS31への引き上げを推奨します。",
@@ -384,25 +396,21 @@ const AGENTS = [
     icon: BarChart3,
     name: "需要予測エージェント",
     body: "時系列予測モデルで180日先までの日次需要・稼働率を毎日再学習・再予測。",
-    color: "from-sky-400/20 to-sky-400/0 text-sky-300",
   },
   {
     icon: Zap,
     name: "価格決定エージェント",
     body: "需要予測と外部要因から、40段階・100円単位の最適な価格ランクを算出。",
-    color: "from-violet-400/20 to-violet-400/0 text-violet-300",
   },
   {
     icon: MessageSquareText,
     name: "要因解説エージェント",
     body: "予実乖離の理由を分析し、事実・予測コメントと具体的な改善策を日本語で提示。",
-    color: "from-cyan-400/20 to-cyan-400/0 text-cyan-300",
   },
   {
     icon: GraduationCap,
     name: "学習エージェント",
     body: "承認・否認の操作ログからホテル固有の価格感応度を学習し、提案を継続的に調整。",
-    color: "from-emerald-400/20 to-emerald-400/0 text-emerald-300",
   },
 ]
 
@@ -417,19 +425,16 @@ const FEATURES = [
 
 const STEPS = [
   {
-    step: "STEP 1",
     title: "初期設定",
     period: "導入時",
     body: "PMS連携とデータ項目をヒアリングのうえ設定。ホテル側のポート開放や追加開発は不要です。",
   },
   {
-    step: "STEP 2",
     title: "並走学習期",
     period: "〜6ヶ月",
     body: "AIとオペレーターが並行して価格決定の「答え合わせ」を実施。承認・否認のたびに、AIが御館の戦略を学習します。",
   },
   {
-    step: "STEP 3",
     title: "自律運用",
     period: "6ヶ月〜",
     body: "基本業務はAIが自律実行。オペレーターは提案の根拠をチェックし、最終承認のみを担当するマネジメント業務へ。",
@@ -468,15 +473,27 @@ const FAQS = [
 
 function FaqItem({ q, a }: { q: string; a: string }) {
   return (
-    <details className="lp-card group px-6 py-5">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left font-medium [&::-webkit-details-marker]:hidden">
+    <details className="group rounded-lg border border-[var(--color-mist-gray)] bg-white px-6 py-5 transition-colors hover:bg-[var(--color-fog-white)]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-left text-base font-medium text-[var(--color-carbon)] [&::-webkit-details-marker]:hidden">
         <span className="text-pretty">{q}</span>
-        <ChevronDown className="h-5 w-5 shrink-0 text-[var(--lp-muted)] transition-transform duration-300 group-open:rotate-180" />
+        <ChevronDown
+          className="h-5 w-5 shrink-0 text-[var(--color-smoke)] transition-transform duration-300 group-open:rotate-180"
+          strokeWidth={1.5}
+        />
       </summary>
-      <p className="mt-4 text-sm leading-relaxed text-[var(--lp-muted)]">{a}</p>
+      <p className="mt-4 text-sm leading-relaxed text-[var(--color-ash-gray)]">{a}</p>
     </details>
   )
 }
+
+const NAV_LINKS = [
+  { href: "#problem", label: "課題" },
+  { href: "#how", label: "仕組み" },
+  { href: "#features", label: "機能" },
+  { href: "#steps", label: "導入の流れ" },
+  { href: "#security", label: "セキュリティ" },
+  { href: "#faq", label: "FAQ" },
+]
 
 // ============================================================
 // ページ本体
@@ -484,119 +501,127 @@ function FaqItem({ q, a }: { q: string; a: string }) {
 
 export function LandingPage() {
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
-  // ヒーローのマウス追従グロー + スクロールプログレス
+  // スクロールプログレス
   useEffect(() => {
     const root = rootRef.current
     if (!root) return
-
-    const onMove = (e: MouseEvent) => {
-      root.style.setProperty("--mx", `${e.clientX}px`)
-      root.style.setProperty("--my", `${e.clientY}px`)
-    }
     const onScroll = () => {
       const max = document.documentElement.scrollHeight - window.innerHeight
       root.style.setProperty("--lp-scroll", `${max > 0 ? window.scrollY / max : 0}`)
     }
-    window.addEventListener("mousemove", onMove, { passive: true })
     window.addEventListener("scroll", onScroll, { passive: true })
     onScroll()
-    return () => {
-      window.removeEventListener("mousemove", onMove)
-      window.removeEventListener("scroll", onScroll)
-    }
+    return () => window.removeEventListener("scroll", onScroll)
   }, [])
 
   return (
-    <div ref={rootRef} className="lp-root min-h-screen font-sans">
+    <div ref={rootRef} className="lp-root min-h-screen">
       {/* ================= ナビ ================= */}
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/5 bg-[#06070c]/70 backdrop-blur-xl">
-        <div className="lp-progress absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-[#5b8cff] via-[#8b5cf6] to-[#22d3ee]" />
-        <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-          <a href="#top" className="flex items-center gap-2 font-bold">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[#5b8cff] to-[#8b5cf6]">
-              <Sparkles className="h-4 w-4 text-white" />
-            </span>
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-[var(--color-mist-gray)] bg-white/90 backdrop-blur-md">
+        <div className="lp-progress absolute inset-x-0 top-0 h-0.5 bg-[#181818]" />
+        <nav className="mx-auto flex h-14 max-w-[1200px] items-center justify-between px-5">
+          <a href="#top" className="flex items-center gap-2 text-[15px] font-semibold text-[var(--color-ink)]">
+            <GradientBadge label="AI" />
             AIレベニューツール
           </a>
-          <div className="hidden items-center gap-7 text-sm text-[var(--lp-muted)] md:flex">
-            <a href="#problem" className="transition-colors hover:text-white">課題</a>
-            <a href="#how" className="transition-colors hover:text-white">仕組み</a>
-            <a href="#features" className="transition-colors hover:text-white">機能</a>
-            <a href="#steps" className="transition-colors hover:text-white">導入の流れ</a>
-            <a href="#security" className="transition-colors hover:text-white">セキュリティ</a>
-            <a href="#faq" className="transition-colors hover:text-white">FAQ</a>
+          <div className="hidden items-center gap-1 lg:flex">
+            {NAV_LINKS.map((l) => (
+              <a key={l.href} href={l.href} className="lp-btn-ghost">
+                {l.label}
+              </a>
+            ))}
           </div>
-          <a
-            href="#cta"
-            className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7ea7ff]"
-          >
-            お問い合わせ
-          </a>
+          <div className="flex items-center gap-2">
+            <a
+              href="#cta"
+              className="lp-btn-dark hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#181818] focus-visible:ring-offset-2 sm:inline-block"
+            >
+              お問い合わせ
+            </a>
+            <button
+              type="button"
+              aria-label={menuOpen ? "メニューを閉じる" : "メニューを開く"}
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((v) => !v)}
+              className="lp-btn-ghost lg:hidden"
+            >
+              {menuOpen ? <X className="h-5 w-5" strokeWidth={1.5} /> : <Menu className="h-5 w-5" strokeWidth={1.5} />}
+            </button>
+          </div>
         </nav>
+        {/* モバイルメニュー */}
+        <div className={`lp-mobile-menu border-[var(--color-mist-gray)] lg:hidden ${menuOpen ? "lp-open border-t" : ""}`}>
+          <div>
+            <div className="flex flex-col gap-1 bg-white px-5 py-3">
+              {NAV_LINKS.map((l) => (
+                <a key={l.href} href={l.href} onClick={() => setMenuOpen(false)} className="lp-btn-ghost">
+                  {l.label}
+                </a>
+              ))}
+              <a href="#cta" onClick={() => setMenuOpen(false)} className="lp-btn-dark mt-2 text-center sm:hidden">
+                お問い合わせ
+              </a>
+            </div>
+          </div>
+        </div>
       </header>
 
       {/* ================= ヒーロー ================= */}
-      <section id="top" className="relative overflow-hidden pt-32 pb-20 md:pt-40 md:pb-28">
-        <div className="lp-grid-bg absolute inset-0" aria-hidden="true" />
-        <div className="lp-hero-glow pointer-events-none fixed inset-0 z-0" aria-hidden="true" />
-        <div className="lp-blob left-[-10%] top-[-10%] h-[480px] w-[480px] bg-[#5b8cff]/40" aria-hidden="true" />
-        <div className="lp-blob right-[-15%] top-[20%] h-[520px] w-[520px] bg-[#8b5cf6]/30 [animation-delay:-6s]" aria-hidden="true" />
-        <div className="lp-blob bottom-[-30%] left-[30%] h-[420px] w-[420px] bg-[#22d3ee]/20 [animation-delay:-12s]" aria-hidden="true" />
-
-        <div className="relative z-10 mx-auto max-w-6xl px-5 text-center">
-          <div className="lp-hero-in mx-auto mb-6 flex w-fit items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-1.5 text-xs text-[var(--lp-muted)] md:text-sm">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--lp-accent-3)]" />
+      <section id="top" className="px-5 pt-32 pb-16 md:pt-40 md:pb-20">
+        <div className="mx-auto max-w-[1200px] text-center">
+          <div className="lp-hero-in mx-auto mb-6 flex w-fit items-center gap-2.5 rounded-full border border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] py-1 pl-1 pr-4 text-sm text-[var(--color-ash-gray)]">
+            <GradientBadge label="AI" size="h-6 w-6 text-[10px]" />
             宿泊施設のための自律型AIレベニューマネジメント
           </div>
 
-          <h1 className="lp-hero-in text-balance text-4xl font-bold leading-[1.15] md:text-7xl" style={{ "--lp-delay": "120ms" } as React.CSSProperties}>
-            価格決定を、
-            <br className="md:hidden" />
-            <span className="lp-shimmer">AIの仕事</span>に。
+          <h1 className="lp-hero-in lp-display mx-auto max-w-2xl text-balance" style={{ "--lp-delay": "100ms" } as React.CSSProperties}>
+            価格決定を、AIの仕事に。
           </h1>
 
-          <p className="lp-hero-in mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-[var(--lp-muted)] md:text-lg" style={{ "--lp-delay": "240ms" } as React.CSSProperties}>
+          <p
+            className="lp-hero-in mx-auto mt-3 max-w-xl text-pretty text-base leading-relaxed text-[var(--color-ash-gray)]"
+            style={{ "--lp-delay": "200ms" } as React.CSSProperties}
+          >
             PMSと外部データから180日先の需要を毎日予測し、最適な料金ランクを自動算出。
-            承認ひとつでサイトコントローラーへ自動反映。
-            属人化していたレベニューマネジメントを、AIが引き継ぎます。
+            承認ひとつでサイトコントローラーへ自動反映します。
           </p>
 
-          <div className="lp-hero-in mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row" style={{ "--lp-delay": "360ms" } as React.CSSProperties}>
+          <div
+            className="lp-hero-in mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row"
+            style={{ "--lp-delay": "300ms" } as React.CSSProperties}
+          >
             <a
               href="#cta"
-              className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-[#5b8cff] to-[#8b5cf6] px-7 py-3.5 font-semibold text-white shadow-[0_10px_40px_-10px_rgba(91,140,255,0.6)] transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7ea7ff]"
+              className="lp-btn-dark flex items-center gap-1.5 px-5 py-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#181818] focus-visible:ring-offset-2"
             >
               資料請求・お問い合わせ
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
             </a>
-            <a
-              href="#how"
-              className="rounded-full border border-white/20 px-7 py-3.5 font-semibold text-white/90 transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7ea7ff]"
-            >
+            <a href="#how" className="lp-arrow-link">
               仕組みを見る
+              <ArrowUpRight className="h-4 w-4" strokeWidth={1.5} />
             </a>
           </div>
 
-          <div className="lp-hero-in mt-16" style={{ "--lp-delay": "500ms" } as React.CSSProperties}>
+          <div className="lp-hero-in mt-16" style={{ "--lp-delay": "420ms" } as React.CSSProperties}>
             <DashboardMockup />
           </div>
         </div>
       </section>
 
       {/* ================= データソース マーキー ================= */}
-      <section className="border-y border-white/5 bg-[var(--lp-bg-soft)] py-8">
-        <p className="mb-5 text-center text-xs tracking-[0.25em] text-[var(--lp-muted)]">
-          AIが毎日集約・分析するデータソース
-        </p>
+      <section className="border-y border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] py-8">
+        <p className="mb-5 text-center text-xs text-[var(--color-smoke)]">AIが毎日集約・分析するデータソース</p>
         <div className="lp-marquee overflow-hidden">
-          <div className="lp-marquee-track gap-4 pr-4">
+          <div className="lp-marquee-track gap-3 pr-3">
             {[...DATA_SOURCES, ...DATA_SOURCES].map((s, i) => (
               <span
                 key={i}
-                className="flex items-center gap-2 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.03] px-5 py-2 text-sm text-[var(--lp-muted)]"
+                className="flex items-center gap-2 whitespace-nowrap rounded-full border border-[var(--color-mist-gray)] bg-white px-4 py-1.5 text-sm text-[var(--color-ash-gray)]"
               >
-                <Database className="h-3.5 w-3.5 text-[var(--lp-accent)]" />
+                <Database className="h-3.5 w-3.5 text-[var(--color-graphite)]" strokeWidth={1.5} />
                 {s}
               </span>
             ))}
@@ -605,26 +630,23 @@ export function LandingPage() {
       </section>
 
       {/* ================= 課題 ================= */}
-      <section id="problem" className="mx-auto max-w-6xl scroll-mt-24 px-5 py-24 md:py-32">
+      <section id="problem" className="mx-auto max-w-[1200px] scroll-mt-20 px-5 py-16 md:py-24">
         <SectionHeading
-          eyebrow="PROBLEM"
-          title={<>レベニュー業務は、<span className="lp-gradient-text">限界</span>を迎えている</>}
+          title="レベニュー業務は、限界を迎えている"
           lead="担当者の頑張りに支えられた価格運用は、もう続かない。多くの宿泊施設が同じ壁に直面しています。"
         />
-        <div className="mt-14 grid gap-6 md:grid-cols-3">
+        <div className="mt-12 grid gap-5 md:grid-cols-3">
           {PROBLEMS.map((p, i) => (
-            <Reveal key={p.title} delay={i * 120}>
-              <div className="lp-card lp-card-hover h-full p-7">
-                <div className="mb-5 flex items-center justify-between">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-[#5b8cff]/25 to-transparent">
-                    <p.icon className="h-6 w-6 text-[#7ea7ff]" />
-                  </span>
-                  <span className="rounded-full border border-rose-400/30 bg-rose-400/10 px-3 py-1 text-xs text-rose-300">
+            <Reveal key={p.title} delay={i * 100}>
+              <div className="lp-card lp-card-hover h-full p-6">
+                <div className="mb-4 flex items-center justify-between">
+                  <p.icon className="h-5 w-5 text-[var(--color-graphite)]" strokeWidth={1.5} />
+                  <span className="rounded-full border border-[var(--color-mist-gray)] bg-white px-3 py-0.5 text-xs text-[var(--color-ash-gray)]">
                     {p.tag}
                   </span>
                 </div>
-                <h3 className="text-lg font-bold leading-snug">{p.title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-[var(--lp-muted)]">{p.body}</p>
+                <h3 className="text-base font-medium leading-snug text-[var(--color-carbon)]">{p.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--color-ash-gray)]">{p.body}</p>
               </div>
             </Reveal>
           ))}
@@ -632,15 +654,14 @@ export function LandingPage() {
       </section>
 
       {/* ================= 仕組み（フロー） ================= */}
-      <section id="how" className="relative scroll-mt-24 border-y border-white/5 bg-[var(--lp-bg-soft)] py-24 md:py-32">
-        <div className="mx-auto max-w-6xl px-5">
+      <section id="how" className="border-y border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] py-16 scroll-mt-14 md:py-24">
+        <div className="mx-auto max-w-[1200px] px-5">
           <SectionHeading
-            eyebrow="HOW IT WORKS"
-            title={<>データ収集から反映まで、<span className="lp-gradient-text">全自動</span></>}
+            title="データ収集から反映まで、全自動"
             lead="人が介在するのは「承認」だけ。データの取得・分析・価格算出・SC書き込みまで、システムが自律的に回し続けます。"
           />
 
-          <Reveal className="mt-14">
+          <Reveal className="mt-12">
             <div className="relative grid gap-4 md:grid-cols-[1fr_auto_1.2fr_auto_1fr]">
               {/* 入力 */}
               <div className="space-y-3">
@@ -648,37 +669,40 @@ export function LandingPage() {
                   { icon: Building2, title: "PMS内部データ", body: "予約・残室・販売状況を毎日自動取得。個人情報は除外。" },
                   { icon: Database, title: "外部要因データ", body: "競合・イベント・天候・航空・SNSなど10種以上を収集。" },
                 ].map((n) => (
-                  <div key={n.title} className="lp-card p-5">
-                    <p className="flex items-center gap-2 text-sm font-bold">
-                      <n.icon className="h-4 w-4 text-[var(--lp-accent-3)]" />
+                  <div key={n.title} className="rounded-lg border border-[var(--color-mist-gray)] bg-white p-5">
+                    <p className="flex items-center gap-2 text-sm font-medium text-[var(--color-carbon)]">
+                      <n.icon className="h-4 w-4 text-[var(--color-graphite)]" strokeWidth={1.5} />
                       {n.title}
                     </p>
-                    <p className="mt-2 text-xs leading-relaxed text-[var(--lp-muted)]">{n.body}</p>
+                    <p className="mt-2 text-xs leading-relaxed text-[var(--color-ash-gray)]">{n.body}</p>
                   </div>
                 ))}
               </div>
 
               {/* 矢印 */}
               <div className="hidden items-center md:flex" aria-hidden="true">
-                <svg width="48" height="24" viewBox="0 0 48 24">
-                  <path className="lp-flow-line" d="M0,12 H40" stroke="#5b8cff" strokeWidth="2" fill="none" />
-                  <path d="M40,6 L48,12 L40,18 Z" fill="#5b8cff" />
+                <svg width="40" height="24" viewBox="0 0 40 24">
+                  <path className="lp-flow-line" d="M0,12 H32" stroke="#8f8f8f" strokeWidth="1.5" fill="none" />
+                  <path d="M32,7 L40,12 L32,17 Z" fill="#8f8f8f" />
                 </svg>
               </div>
 
-              {/* AIエンジン */}
-              <div className="lp-flow-node rounded-2xl border border-[var(--lp-accent)]/40 bg-gradient-to-b from-[#5b8cff]/15 to-[#8b5cf6]/10 p-6">
-                <p className="flex items-center gap-2 font-bold">
-                  <Brain className="h-5 w-5 text-[#a78bfa]" />
+              {/* AIエンジン（フィーチャードグラデーションタイル） */}
+              <div className="lp-featured p-6">
+                <p className="flex items-center gap-2 text-base font-medium">
+                  <Brain className="h-5 w-5" strokeWidth={1.5} />
                   マルチエージェントAIエンジン
                 </p>
-                <p className="mt-2 text-xs leading-relaxed text-[var(--lp-muted)]">
+                <p className="mt-2 text-xs leading-relaxed text-white/85">
                   役割分担された4つのAIが協調し、需要予測 → 価格決定 → 根拠説明 → 学習のサイクルを毎日実行。
                 </p>
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {AGENTS.map((a) => (
-                    <span key={a.name} className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-2 text-[10px] text-[var(--lp-muted)]">
-                      <a.icon className="h-3 w-3 shrink-0 text-[#7ea7ff]" />
+                    <span
+                      key={a.name}
+                      className="flex items-center gap-1.5 rounded-md bg-white/15 px-2.5 py-2 text-[11px] text-white"
+                    >
+                      <a.icon className="h-3 w-3 shrink-0" strokeWidth={1.5} />
                       {a.name.replace("エージェント", "")}
                     </span>
                   ))}
@@ -686,29 +710,29 @@ export function LandingPage() {
               </div>
 
               <div className="hidden items-center md:flex" aria-hidden="true">
-                <svg width="48" height="24" viewBox="0 0 48 24">
-                  <path className="lp-flow-line" d="M0,12 H40" stroke="#8b5cf6" strokeWidth="2" fill="none" />
-                  <path d="M40,6 L48,12 L40,18 Z" fill="#8b5cf6" />
+                <svg width="40" height="24" viewBox="0 0 40 24">
+                  <path className="lp-flow-line" d="M0,12 H32" stroke="#8f8f8f" strokeWidth="1.5" fill="none" />
+                  <path d="M32,7 L40,12 L32,17 Z" fill="#8f8f8f" />
                 </svg>
               </div>
 
               {/* 出力 */}
               <div className="space-y-3">
-                <div className="lp-card p-5">
-                  <p className="flex items-center gap-2 text-sm font-bold">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                <div className="rounded-lg border border-[var(--color-mist-gray)] bg-white p-5">
+                  <p className="flex items-center gap-2 text-sm font-medium text-[var(--color-carbon)]">
+                    <CheckCircle2 className="h-4 w-4 text-[var(--color-graphite)]" strokeWidth={1.5} />
                     価格ランク提案 → 承認
                   </p>
-                  <p className="mt-2 text-xs leading-relaxed text-[var(--lp-muted)]">
+                  <p className="mt-2 text-xs leading-relaxed text-[var(--color-ash-gray)]">
                     180日各日の適正ランクを毎朝提示。オペレーターは承認・否認するだけ。
                   </p>
                 </div>
-                <div className="lp-card p-5">
-                  <p className="flex items-center gap-2 text-sm font-bold">
-                    <Zap className="h-4 w-4 text-amber-300" />
+                <div className="rounded-lg border border-[var(--color-mist-gray)] bg-white p-5">
+                  <p className="flex items-center gap-2 text-sm font-medium text-[var(--color-carbon)]">
+                    <Zap className="h-4 w-4 text-[var(--color-graphite)]" strokeWidth={1.5} />
                     SCへ自動書き込み
                   </p>
-                  <p className="mt-2 text-xs leading-relaxed text-[var(--lp-muted)]">
+                  <p className="mt-2 text-xs leading-relaxed text-[var(--color-ash-gray)]">
                     承認済みランクをサイトコントローラーへ自動反映。失敗時は該当日のみ再試行。
                   </p>
                 </div>
@@ -716,22 +740,20 @@ export function LandingPage() {
             </div>
 
             {/* 学習ループ */}
-            <div className="mx-auto mt-8 flex w-fit items-center gap-3 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-6 py-3 text-sm text-emerald-300">
-              <RefreshCcw className="h-4 w-4 animate-[spin_6s_linear_infinite]" />
+            <div className="mx-auto mt-8 flex w-fit items-center gap-3 rounded-full border border-[var(--color-mist-gray)] bg-white px-5 py-2.5 text-center text-sm text-[var(--color-ash-gray)]">
+              <RefreshCcw className="h-4 w-4 shrink-0 animate-[spin_8s_linear_infinite] text-[var(--color-graphite)]" strokeWidth={1.5} />
               承認・否認の判断はAIへフィードバックされ、ホテル独自のノウハウとして自動蓄積
             </div>
           </Reveal>
 
           {/* 4エージェント詳細 */}
-          <div className="mt-16 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             {AGENTS.map((a, i) => (
-              <Reveal key={a.name} delay={i * 100}>
-                <div className="lp-card lp-card-hover h-full p-6">
-                  <span className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br ${a.color}`}>
-                    <a.icon className="h-5 w-5" />
-                  </span>
-                  <h3 className="text-sm font-bold">{a.name}</h3>
-                  <p className="mt-2 text-xs leading-relaxed text-[var(--lp-muted)]">{a.body}</p>
+              <Reveal key={a.name} delay={i * 80}>
+                <div className="lp-card lp-card-hover h-full bg-white p-6">
+                  <a.icon className="mb-4 h-5 w-5 text-[var(--color-graphite)]" strokeWidth={1.5} />
+                  <h3 className="text-sm font-medium text-[var(--color-carbon)]">{a.name}</h3>
+                  <p className="mt-2 text-xs leading-relaxed text-[var(--color-ash-gray)]">{a.body}</p>
                 </div>
               </Reveal>
             ))}
@@ -740,52 +762,45 @@ export function LandingPage() {
       </section>
 
       {/* ================= 数字 ================= */}
-      <section className="mx-auto max-w-6xl px-5 py-24 md:py-32">
-        <SectionHeading
-          eyebrow="IMPACT"
-          title={<>成果は<span className="lp-gradient-text">数字</span>で語る</>}
-          lead="システムがホテル固有データを学習した定常運用状態での目標値です。"
-        />
-        <div className="mt-14 grid grid-cols-2 gap-5 lg:grid-cols-4">
+      <section className="mx-auto max-w-[1200px] px-5 py-16 md:py-24">
+        <SectionHeading title="成果は数字で語る" lead="システムがホテル固有データを学習した定常運用状態での目標値です。" />
+        <div className="mt-12 grid grid-cols-2 gap-5 lg:grid-cols-4">
           {[
             { value: <CountUp to={180} suffix="日" />, label: "先までの需要を毎日予測", note: "日次で再学習・再予測" },
             { value: <CountUp to={15} prefix="+" suffix="%" />, label: "売上向上（目標）", note: "詳細な価格設定とランク最適化" },
             { value: <CountUp to={50} prefix="−" suffix="%" />, label: "運用コスト削減（目標）", note: "人件費・労働時間の効率化" },
             { value: <CountUp to={10} prefix="±" suffix="%" />, label: "需要予測誤差（目標）", note: "定常運用時の精度基準" },
           ].map((s, i) => (
-            <Reveal key={s.label} delay={i * 120}>
-              <div className="lp-card lp-card-hover h-full p-7 text-center">
-                <p className="lp-gradient-text text-4xl font-bold tabular-nums md:text-5xl">{s.value}</p>
-                <p className="mt-3 text-sm font-medium">{s.label}</p>
-                <p className="mt-1.5 text-xs text-[var(--lp-muted)]">{s.note}</p>
+            <Reveal key={s.label} delay={i * 100}>
+              <div className="lp-card lp-card-hover h-full p-6 text-center">
+                <p className="lp-display tabular-nums">{s.value}</p>
+                <p className="mt-2 text-sm font-medium text-[var(--color-carbon)]">{s.label}</p>
+                <p className="mt-1 text-xs text-[var(--color-smoke)]">{s.note}</p>
               </div>
             </Reveal>
           ))}
         </div>
         <Reveal delay={200}>
-          <p className="mt-6 text-center text-xs text-[var(--lp-muted)]">
+          <p className="mt-6 text-center text-xs text-[var(--color-smoke)]">
             ※ 数値はフル稼働から十分な学習データが蓄積された定常状態を前提とした目標値であり、成果を保証するものではありません。
           </p>
         </Reveal>
       </section>
 
       {/* ================= 機能 ================= */}
-      <section id="features" className="scroll-mt-24 border-y border-white/5 bg-[var(--lp-bg-soft)] py-24 md:py-32">
-        <div className="mx-auto max-w-6xl px-5">
+      <section id="features" className="scroll-mt-14 border-y border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] py-16 md:py-24">
+        <div className="mx-auto max-w-[1200px] px-5">
           <SectionHeading
-            eyebrow="FEATURES"
-            title={<>毎日の運用を支える<span className="lp-gradient-text">主要機能</span></>}
+            title="毎日の運用を支える主要機能"
             lead="「AIに任せる」と「人が納得して決める」を両立するための機能群。"
           />
-          <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f, i) => (
-              <Reveal key={f.title} delay={(i % 3) * 100}>
-                <div className="lp-card lp-card-hover group h-full p-7">
-                  <span className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 bg-white/5 transition-colors group-hover:border-[#7ea7ff]/40 group-hover:bg-[#5b8cff]/15">
-                    <f.icon className="h-6 w-6 text-[#7ea7ff]" />
-                  </span>
-                  <h3 className="font-bold">{f.title}</h3>
-                  <p className="mt-2.5 text-sm leading-relaxed text-[var(--lp-muted)]">{f.body}</p>
+              <Reveal key={f.title} delay={(i % 3) * 80}>
+                <div className="lp-card lp-card-hover h-full bg-white p-6">
+                  <f.icon className="mb-4 h-5 w-5 text-[var(--color-graphite)]" strokeWidth={1.5} />
+                  <h3 className="text-base font-medium text-[var(--color-carbon)]">{f.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--color-ash-gray)]">{f.body}</p>
                 </div>
               </Reveal>
             ))}
@@ -794,30 +809,29 @@ export function LandingPage() {
       </section>
 
       {/* ================= 導入ステップ ================= */}
-      <section id="steps" className="mx-auto max-w-5xl scroll-mt-24 px-5 py-24 md:py-32">
+      <section id="steps" className="mx-auto max-w-4xl scroll-mt-20 px-5 py-16 md:py-24">
         <SectionHeading
-          eyebrow="ONBOARDING"
-          title={<>AIは<span className="lp-gradient-text">御館の戦略</span>を学びながら育つ</>}
+          title="AIは御館の戦略を学びながら育つ"
           lead="導入初日から完全自動ではなく、並走期間でホテル独自の判断基準を学習。だから現場が納得して任せられます。"
         />
-        <div className="mt-14 space-y-0">
+        <div className="mt-12">
           {STEPS.map((s, i) => (
-            <Reveal key={s.step} delay={i * 120}>
-              <div className="relative flex gap-6 pb-10 last:pb-0 md:gap-10">
+            <Reveal key={s.title} delay={i * 100}>
+              <div className="relative flex gap-5 pb-8 last:pb-0 md:gap-8">
                 <div className="flex flex-col items-center">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#7ea7ff]/40 bg-[#5b8cff]/15 text-sm font-bold text-[#7ea7ff]">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] text-sm font-semibold text-[var(--color-carbon)]">
                     {i + 1}
                   </span>
-                  {i < STEPS.length - 1 && <span className="lp-step-line mt-2 w-px flex-1" aria-hidden="true" />}
+                  {i < STEPS.length - 1 && <span className="mt-2 w-px flex-1 bg-[var(--color-mist-gray)]" aria-hidden="true" />}
                 </div>
-                <div className="lp-card lp-card-hover mb-2 flex-1 p-7">
+                <div className="lp-card lp-card-hover mb-2 flex-1 p-6">
                   <div className="flex flex-wrap items-center gap-3">
-                    <h3 className="text-lg font-bold">{s.title}</h3>
-                    <span className="rounded-full border border-white/15 bg-white/5 px-3 py-0.5 text-xs text-[var(--lp-muted)]">
+                    <h3 className="lp-heading">{s.title}</h3>
+                    <span className="rounded-full border border-[var(--color-mist-gray)] bg-white px-3 py-0.5 text-xs text-[var(--color-ash-gray)]">
                       {s.period}
                     </span>
                   </div>
-                  <p className="mt-3 text-sm leading-relaxed text-[var(--lp-muted)]">{s.body}</p>
+                  <p className="mt-2.5 text-sm leading-relaxed text-[var(--color-ash-gray)]">{s.body}</p>
                 </div>
               </div>
             </Reveal>
@@ -826,23 +840,20 @@ export function LandingPage() {
       </section>
 
       {/* ================= セキュリティ ================= */}
-      <section id="security" className="scroll-mt-24 border-y border-white/5 bg-[var(--lp-bg-soft)] py-24 md:py-32">
-        <div className="mx-auto max-w-6xl px-5">
+      <section id="security" className="scroll-mt-14 border-y border-[var(--color-mist-gray)] bg-[var(--color-fog-white)] py-16 md:py-24">
+        <div className="mx-auto max-w-[1200px] px-5">
           <SectionHeading
-            eyebrow="SECURITY"
-            title={<>宿泊業の商用データを<span className="lp-gradient-text">預かる設計</span></>}
+            title="宿泊業の商用データを預かる設計"
             lead="24時間365日提供・稼働率99%以上のSLA。セキュリティは仕様として定義されています。"
           />
-          <div className="mt-14 grid gap-5 sm:grid-cols-2">
+          <div className="mt-12 grid gap-5 sm:grid-cols-2">
             {SECURITY.map((s, i) => (
-              <Reveal key={s.title} delay={(i % 2) * 120}>
-                <div className="lp-card lp-card-hover flex h-full gap-5 p-7">
-                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-400/20 to-transparent">
-                    <s.icon className="h-6 w-6 text-emerald-300" />
-                  </span>
+              <Reveal key={s.title} delay={(i % 2) * 100}>
+                <div className="lp-card lp-card-hover flex h-full gap-4 bg-white p-6">
+                  <s.icon className="h-5 w-5 shrink-0 text-[var(--color-graphite)]" strokeWidth={1.5} />
                   <div>
-                    <h3 className="font-bold">{s.title}</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-[var(--lp-muted)]">{s.body}</p>
+                    <h3 className="text-base font-medium text-[var(--color-carbon)]">{s.title}</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-[var(--color-ash-gray)]">{s.body}</p>
                   </div>
                 </div>
               </Reveal>
@@ -852,56 +863,49 @@ export function LandingPage() {
       </section>
 
       {/* ================= FAQ ================= */}
-      <section id="faq" className="mx-auto max-w-3xl scroll-mt-24 px-5 py-24 md:py-32">
-        <SectionHeading eyebrow="FAQ" title="よくあるご質問" />
-        <div className="mt-12 space-y-4">
+      <section id="faq" className="mx-auto max-w-3xl scroll-mt-20 px-5 py-16 md:py-24">
+        <SectionHeading title="よくあるご質問" />
+        <div className="mt-10 space-y-3">
           {FAQS.map((f, i) => (
-            <Reveal key={f.q} delay={i * 80}>
+            <Reveal key={f.q} delay={i * 60}>
               <FaqItem q={f.q} a={f.a} />
             </Reveal>
           ))}
         </div>
       </section>
 
-      {/* ================= CTA ================= */}
-      <section id="cta" className="relative scroll-mt-24 overflow-hidden px-5 py-24 md:py-32">
-        <div className="lp-blob left-[10%] top-[0%] h-[400px] w-[400px] bg-[#5b8cff]/30" aria-hidden="true" />
-        <div className="lp-blob right-[5%] bottom-[0%] h-[400px] w-[400px] bg-[#8b5cf6]/25 [animation-delay:-8s]" aria-hidden="true" />
-        <Reveal className="relative z-10 mx-auto max-w-4xl">
-          <div className="rounded-3xl border border-[#7ea7ff]/25 bg-gradient-to-b from-[#5b8cff]/15 via-[#0b0d16] to-[#0b0d16] p-10 text-center md:p-16">
-            <BookOpenCheck className="mx-auto mb-6 h-10 w-10 text-[#7ea7ff]" />
-            <h2 className="text-balance text-3xl font-bold leading-tight md:text-5xl">
-              まずは自社の数字で、
-              <br />
-              <span className="lp-shimmer">AIの提案</span>を見てください。
-            </h2>
-            <p className="mx-auto mt-5 max-w-xl text-pretty text-[var(--lp-muted)]">
-              デモ環境のご案内、仕様書のご提供、PMS対応可否のご確認など、お気軽にお問い合わせください。
-            </p>
-            <div className="mt-9 flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <a
-                href="mailto:info@example.com?subject=AIレベニューツール%20資料請求"
-                className="group flex items-center gap-2 rounded-full bg-gradient-to-r from-[#5b8cff] to-[#8b5cf6] px-8 py-4 font-semibold text-white shadow-[0_10px_40px_-10px_rgba(91,140,255,0.6)] transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7ea7ff]"
-              >
-                資料請求・お問い合わせ
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </a>
-            </div>
+      {/* ================= CTA（ダークサーフェス） ================= */}
+      <section id="cta" className="scroll-mt-14 bg-[#181818] px-5 py-16 md:py-24">
+        <Reveal className="mx-auto max-w-2xl text-center">
+          <h2 className="lp-display text-balance !text-white">
+            まずは自社の数字で、AIの提案を見てください。
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-pretty text-base leading-relaxed text-white/70">
+            デモ環境のご案内、仕様書のご提供、PMS対応可否のご確認など、お気軽にお問い合わせください。
+          </p>
+          <div className="mt-8 flex flex-col items-center justify-center gap-4 sm:flex-row">
+            <a
+              href="mailto:info@example.com?subject=AIレベニューツール%20資料請求"
+              className="flex items-center gap-1.5 rounded-full bg-white px-5 py-2.5 text-sm font-medium text-[#0d0d0d] transition-opacity hover:opacity-85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#181818]"
+            >
+              資料請求・お問い合わせ
+              <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
+            </a>
           </div>
         </Reveal>
       </section>
 
       {/* ================= フッター ================= */}
-      <footer className="border-t border-white/5 py-10">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-5 text-sm text-[var(--lp-muted)] md:flex-row">
-          <p className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-md bg-gradient-to-br from-[#5b8cff] to-[#8b5cf6]">
-              <Sparkles className="h-3 w-3 text-white" />
-            </span>
+      <footer className="border-t border-[var(--color-mist-gray)] py-8">
+        <div className="mx-auto flex max-w-[1200px] flex-col items-center justify-between gap-3 px-5 text-sm text-[var(--color-ash-gray)] md:flex-row">
+          <p className="flex items-center gap-2 font-medium text-[var(--color-ink)]">
+            <GradientBadge label="AI" />
             AIレベニューツール
           </p>
           <p>© {new Date().getFullYear()} 株式会社アコモス</p>
-          <p className="text-xs">※ 本サービス名は仮称です。記載の仕様・数値は予告なく変更される場合があります。</p>
+          <p className="text-xs text-[var(--color-smoke)]">
+            ※ 本サービス名は仮称です。記載の仕様・数値は予告なく変更される場合があります。
+          </p>
         </div>
       </footer>
     </div>

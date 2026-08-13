@@ -1,65 +1,79 @@
 /* ============================================================
-   LP専用スタイル: アニメーション・装飾はこのファイルに集約
-   （ダッシュボード側の globals.css テーマには影響させない）
+   LP専用スタイル — OpenAI Developers 風デザインシステム
+   （stark white laboratory / light theme / モノクロ基調）
+   ダッシュボード側の globals.css テーマには影響させない
    ============================================================ */
 
 .lp-root {
-  --lp-bg: #06070c;
-  --lp-bg-soft: #0b0d16;
-  --lp-card: rgba(255, 255, 255, 0.04);
-  --lp-border: rgba(255, 255, 255, 0.09);
-  --lp-text: #f4f6fb;
-  --lp-muted: #9aa3b5;
-  --lp-accent: #5b8cff;
-  --lp-accent-2: #8b5cf6;
-  --lp-accent-3: #22d3ee;
-  --lp-positive: #34d399;
-  background-color: var(--lp-bg);
-  color: var(--lp-text);
+  /* Colors */
+  --color-obsidian: #000000;
+  --color-paper-white: #ffffff;
+  --color-carbon: #181818;
+  --color-fog-white: #f9f9f9;
+  --color-ash-gray: #5d5d5d;
+  --color-graphite: #282828;
+  --color-mist-gray: #ededed;
+  --color-linen: #f3f3f3;
+  --color-ink: #0d0d0d;
+  --color-smoke: #8f8f8f;
+  --color-slate-whisper: #64748b;
+
+  /* Gradient — モデルバッジ/フィーチャードタイル専用 */
+  --gradient-featured: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+
+  /* Typography */
+  --font-openai-sans: "Geist", "Geist Fallback", "Inter", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Layout */
+  --page-max-width: 1200px;
+  --section-gap: 64px;
+  --card-padding: 24px;
+
+  /* Radius */
+  --radius-cards: 8px;
+  --radius-pills: 9999px;
+
+  /* Shadow */
+  --shadow-subtle: rgba(0, 0, 0, 0.08) 0px 1px 2px -1px;
+
+  font-family: var(--font-openai-sans);
+  background-color: var(--color-paper-white);
+  color: var(--color-carbon);
+  letter-spacing: -0.008em;
   overflow-x: clip;
 }
 
-/* ---------- 背景装飾 ---------- */
+/* ---------- タイポグラフィ ---------- */
 
-.lp-grid-bg {
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, #000 40%, transparent 100%);
+.lp-display {
+  font-size: 30px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: var(--color-carbon);
 }
 
-.lp-blob {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(90px);
-  opacity: 0.45;
-  will-change: transform;
-  animation: lp-blob-drift 18s ease-in-out infinite alternate;
+@media (max-width: 640px) {
+  .lp-display {
+    font-size: 26px;
+  }
 }
 
-@keyframes lp-blob-drift {
-  0% { transform: translate3d(0, 0, 0) scale(1); }
-  50% { transform: translate3d(4%, 6%, 0) scale(1.12); }
-  100% { transform: translate3d(-4%, -3%, 0) scale(0.95); }
+.lp-heading {
+  font-size: 20px;
+  line-height: 1.4;
+  letter-spacing: -0.011em;
+  font-weight: 500;
+  color: var(--color-carbon);
 }
 
-/* マウス追従グロー（CSS変数 --mx/--my をJSで更新） */
-.lp-hero-glow {
-  background: radial-gradient(
-    600px circle at var(--mx, 50%) var(--my, 30%),
-    rgba(91, 140, 255, 0.14),
-    transparent 65%
-  );
-  transition: background 0.2s ease-out;
-}
-
-/* ---------- スクロールリビール ---------- */
+/* ---------- スクロールリビール（控えめ） ---------- */
 
 .lp-reveal {
   opacity: 0;
-  transform: translateY(28px);
-  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateY(16px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
   transition-delay: var(--lp-delay, 0ms);
 }
 
@@ -68,33 +82,11 @@
   transform: translateY(0);
 }
 
-/* ---------- テキスト装飾 ---------- */
-
-.lp-gradient-text {
-  background: linear-gradient(100deg, #7ea7ff 0%, #a78bfa 45%, #67e8f9 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.lp-shimmer {
-  background: linear-gradient(110deg, #7ea7ff, #a78bfa 30%, #67e8f9 50%, #a78bfa 70%, #7ea7ff);
-  background-size: 220% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: lp-shimmer-move 6s linear infinite;
-}
-
-@keyframes lp-shimmer-move {
-  to { background-position: -220% 0; }
-}
-
 /* ヒーロー文言の段階フェード */
 .lp-hero-in {
   opacity: 0;
-  transform: translateY(24px);
-  animation: lp-hero-up 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform: translateY(12px);
+  animation: lp-hero-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
   animation-delay: var(--lp-delay, 0ms);
 }
 
@@ -105,17 +97,64 @@
 /* ---------- カード ---------- */
 
 .lp-card {
-  background: var(--lp-card);
-  border: 1px solid var(--lp-border);
-  border-radius: 1.25rem;
-  backdrop-filter: blur(8px);
-  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.35s, box-shadow 0.35s;
+  background: var(--color-fog-white);
+  border: 1px solid var(--color-mist-gray);
+  border-radius: var(--radius-cards);
+  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
 .lp-card-hover:hover {
-  transform: translateY(-6px);
-  border-color: rgba(126, 167, 255, 0.35);
-  box-shadow: 0 20px 60px -20px rgba(91, 140, 255, 0.25);
+  background: var(--color-linen);
+}
+
+/* フィーチャードグラデーションタイル（below-fold限定） */
+.lp-featured {
+  background: var(--gradient-featured);
+  border-radius: var(--radius-cards);
+  color: #ffffff;
+}
+
+/* ---------- ボタン ---------- */
+
+.lp-btn-dark {
+  background: var(--color-obsidian);
+  color: var(--color-paper-white);
+  border-radius: var(--radius-pills);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 16px;
+  transition: opacity 0.2s ease;
+}
+
+.lp-btn-dark:hover {
+  opacity: 0.85;
+}
+
+.lp-btn-ghost {
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-graphite);
+  padding: 10px 12px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.lp-btn-ghost:hover {
+  background: var(--color-mist-gray);
+  color: var(--color-ink);
+}
+
+.lp-arrow-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-graphite);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lp-arrow-link:hover {
+  text-decoration: underline;
 }
 
 /* ---------- モックアップ ---------- */
@@ -125,15 +164,9 @@
 }
 
 .lp-mockup {
-  transform: rotateX(var(--rx, 8deg)) rotateY(var(--ry, 0deg));
+  transform: rotateX(var(--rx, 3deg)) rotateY(var(--ry, 0deg));
   transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-  animation: lp-float 7s ease-in-out infinite;
   will-change: transform;
-}
-
-@keyframes lp-float {
-  0%, 100% { margin-top: 0; }
-  50% { margin-top: -14px; }
 }
 
 /* スパークライン描画 */
@@ -164,16 +197,16 @@
   transform: scaleY(1);
 }
 
-/* ランクセルの波アニメーション */
+/* ランクセルの波（明度のみ・彩度なし） */
 .lp-rank-cell {
-  animation: lp-rank-pulse 3.6s ease-in-out infinite;
+  animation: lp-rank-pulse 4.2s ease-in-out infinite;
   animation-delay: var(--lp-delay, 0ms);
 }
 
 @keyframes lp-rank-pulse {
-  0%, 100% { filter: brightness(1); transform: translateY(0); }
-  12% { filter: brightness(1.5); transform: translateY(-3px); }
-  24% { filter: brightness(1); transform: translateY(0); }
+  0%, 100% { opacity: 1; transform: translateY(0); }
+  10% { opacity: 0.75; transform: translateY(-2px); }
+  20% { opacity: 1; transform: translateY(0); }
 }
 
 /* タイプライターのカーソル */
@@ -184,7 +217,7 @@
   height: 1em;
   margin-left: 2px;
   vertical-align: text-bottom;
-  background: var(--lp-accent-3);
+  background: var(--color-graphite);
   animation: lp-blink 1s step-end infinite;
 }
 
@@ -201,7 +234,7 @@
 .lp-marquee-track {
   display: flex;
   width: max-content;
-  animation: lp-marquee-move 32s linear infinite;
+  animation: lp-marquee-move 36s linear infinite;
 }
 
 .lp-marquee:hover .lp-marquee-track {
@@ -215,35 +248,12 @@
 /* ---------- フロー図 ---------- */
 
 .lp-flow-line {
-  stroke-dasharray: 6 8;
-  animation: lp-dash-flow 1.2s linear infinite;
+  stroke-dasharray: 5 7;
+  animation: lp-dash-flow 1.4s linear infinite;
 }
 
 @keyframes lp-dash-flow {
-  to { stroke-dashoffset: -14; }
-}
-
-.lp-flow-node {
-  animation: lp-node-pulse 3s ease-in-out infinite;
-}
-
-@keyframes lp-node-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(91, 140, 255, 0.35); }
-  50% { box-shadow: 0 0 0 12px rgba(91, 140, 255, 0); }
-}
-
-/* データパケット（フロー上を流れる点） */
-.lp-packet {
-  offset-path: var(--lp-path);
-  animation: lp-packet-move 3.2s linear infinite;
-  animation-delay: var(--lp-delay, 0ms);
-}
-
-@keyframes lp-packet-move {
-  0% { offset-distance: 0%; opacity: 0; }
-  8% { opacity: 1; }
-  92% { opacity: 1; }
-  100% { offset-distance: 100%; opacity: 0; }
+  to { stroke-dashoffset: -12; }
 }
 
 /* ---------- スクロールプログレスバー ---------- */
@@ -253,10 +263,20 @@
   transform: scaleX(var(--lp-scroll, 0));
 }
 
-/* ---------- ステップ番号 ---------- */
+/* ---------- モバイルメニュー ---------- */
 
-.lp-step-line {
-  background: linear-gradient(180deg, rgba(91, 140, 255, 0.6), rgba(139, 92, 246, 0.15));
+.lp-mobile-menu {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.lp-mobile-menu.lp-open {
+  grid-template-rows: 1fr;
+}
+
+.lp-mobile-menu > div {
+  overflow: hidden;
 }
 
 /* ---------- reduced motion ---------- */
