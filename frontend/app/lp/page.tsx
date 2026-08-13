@@ -2,6 +2,8 @@ import type { Metadata } from "next"
 import { LandingPage } from "./landing"
 import "./lp.css"
 
+// LP: 価格決定を、AIの仕事に。
+
 export const metadata: Metadata = {
   title: "AIレベニューツール | 価格決定を、AIの仕事に。",
   description:
