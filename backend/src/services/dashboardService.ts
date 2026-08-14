@@ -185,8 +185,18 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
   const fiscalStart = fiscalYearStart(year, month)
   const fiscalStartDate = new Date(Date.UTC(fiscalStart.year, fiscalStart.month - 1, 1))
 
-  const [dailyData, budget, recommendations, simulation, fiscalDailyData, fiscalBudgets] =
-    await Promise.all([
+  // 前年同月（グラフに前年実績カーブを重ねるため — F-DASH-03）
+  const lastYearRange = monthRange(year - 1, month)
+
+  const [
+    dailyData,
+    budget,
+    recommendations,
+    simulation,
+    fiscalDailyData,
+    fiscalBudgets,
+    lastYearDailyData,
+  ] = await Promise.all([
       prisma.dailyData.findMany({
         where: { hotelId, date: { gte: start, lt: end } },
         orderBy: { date: 'asc' },
@@ -213,6 +223,10 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
             ...(fiscalStart.year < year ? [{ year, month: { lte: month } }] : []),
           ],
         },
+      }),
+      prisma.dailyData.findMany({
+        where: { hotelId, date: { gte: lastYearRange.start, lt: lastYearRange.end } },
+        orderBy: { date: 'asc' },
       }),
     ])
 
@@ -294,11 +308,15 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
     }
   })()
 
-  // 日別推移: 実績 + AI予測（実績のない未来日は予測値 — F-DASH-03）
+  // 日別推移: 実績 + AI予測（実績のない未来日は予測値）+ 前年同月実績 — F-DASH-03
   const recommendationByDate = new Map(
     recommendations.map((r) => [r.date.toISOString().slice(0, 10), r])
   )
   const actualByDate = new Map(dailyData.map((d) => [d.date.toISOString().slice(0, 10), d]))
+  // 前年は「同じ日付（日）」で対応付ける（曜日ではなく日で揃える）
+  const lastYearByDay = new Map(
+    lastYearDailyData.map((d) => [d.date.getUTCDate(), d])
+  )
 
   const dailyTrend = []
   for (let day = 1; day <= daysInMonth; day++) {
@@ -306,12 +324,15 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
     const key = date.toISOString().slice(0, 10)
     const actual = actualByDate.get(key)
     const rec = recommendationByDate.get(key)
+    const lastYear = lastYearByDay.get(day)
     dailyTrend.push({
       date: key,
       occupancy: actual?.occupancy ?? null,
       adr: actual?.adr ?? null,
       predictedOccupancy: rec?.predictedOccupancy ?? null,
       predictedAdr: rec?.predictedAdr ?? null,
+      lastYearOccupancy: lastYear?.occupancy ?? null,
+      lastYearAdr: lastYear?.adr ?? null,
       isActual: actual?.totalRevenue != null,
     })
   }

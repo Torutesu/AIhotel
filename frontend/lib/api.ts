@@ -268,6 +268,9 @@ export interface DashboardKpi {
     adr: number | null
     predictedOccupancy: number | null
     predictedAdr: number | null
+    /** 前年同月同日の実績（グラフ重ね描き用 — F-DASH-03） */
+    lastYearOccupancy: number | null
+    lastYearAdr: number | null
     isActual: boolean
   }>
   simulation: {
@@ -481,6 +484,9 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
       adr: isActual ? adr : null,
       predictedOccupancy: Number(Math.min(1, occupancy + (rng() - 0.5) * 0.06).toFixed(3)),
       predictedAdr: Math.round(adr * (1 + (rng() - 0.5) * 0.05)),
+      // 前年同月同日の実績（モックでは当年から数%低い水準として生成）
+      lastYearOccupancy: Number(Math.max(0.2, occupancy * (0.93 + rng() * 0.06)).toFixed(3)),
+      lastYearAdr: Math.round(adr * (0.9 + rng() * 0.06)),
       isActual,
     })
   }

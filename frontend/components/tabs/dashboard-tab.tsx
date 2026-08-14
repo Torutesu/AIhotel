@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback, Fragment } from "react"
+import { useState, useMemo, useEffect, useCallback, useRef, Fragment } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
-import { CalendarIcon, AlertCircle, RefreshCw } from "lucide-react"
+import { CalendarIcon, AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
 
 import { Tab } from "@shared/types"
 import { useAuth } from "@/components/auth-provider"
@@ -43,6 +43,28 @@ const SNAPSHOT_OPTIONS = [
  * Level 3以下は各分析画面側で確認する運用。
  */
 const DASHBOARD_MIN_ALERT_LEVEL = 4
+
+// KPI進捗表に表示する指標（設定タブで施設ごとに選択。F-DASH-01）
+const ALL_KPI_KEYS = [
+  "roomRevenue",
+  "soldRooms",
+  "adr",
+  "occupancyRate",
+  "revPar",
+  "guests",
+  "dor",
+  "guestUnitPrice",
+] as const
+
+const dashboardKpiItemsKey = (hotelId: string) => `dashboard.kpiItems.${hotelId}`
+
+// KPI進捗の表示月数（開始月からの相対。F-DASH-01）
+const MONTH_SPAN_OPTIONS = [
+  { value: "1", label: "1か月" },
+  { value: "3", label: "3か月" },
+  { value: "6", label: "6か月" },
+  { value: "12", label: "12か月" },
+]
 
 // KPI進捗の比較軸（F-DASH-02）
 type ComparisonAxisKey = "toDate" | "cumulative" | "fiscalYear"
@@ -95,6 +117,15 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
   // KPI進捗の比較軸（F-DASH-02: 本日まで／累計進捗／年度累計）
   const [comparisonAxis, setComparisonAxis] = useState<ComparisonAxisKey>("toDate")
 
+  // KPI進捗の表示月数（1/3/6/12か月。開始月＝上部で選択中の対象年月）
+  const [monthSpan, setMonthSpan] = useState("1")
+  // 複数月表示時の各月KPI（開始月ぶんは kpi をそのまま使う）
+  const [spanKpis, setSpanKpis] = useState<DashboardKpi[]>([])
+  const [spanLoading, setSpanLoading] = useState(false)
+
+  // 設定タブで選択されたKPI表示項目（施設ごと。未保存なら全項目）
+  const [visibleKpiKeys, setVisibleKpiKeys] = useState<string[]>([...ALL_KPI_KEYS])
+
   // 日付比較設定（対応APIがないため参考値表示のまま）
   const [comparisonType, setComparisonType] = useState<"previousDay" | "weekAgo" | "lastMonth" | "custom">("previousDay")
   const [customComparisonDate, setCustomComparisonDate] = useState<Date | undefined>(undefined)
@@ -105,6 +136,9 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
   const [totalRooms, setTotalRooms] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // 画像エクスポート時に描画済みSVGを取得するためのラッパー参照
+  const chartWrapperRef = useRef<HTMLDivElement>(null)
 
   const comparisonDate = useMemo(() => {
     const base = new Date()
@@ -133,14 +167,32 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
 
   useEffect(() => {
     const loadSettings = () => {
-      if (typeof window !== "undefined") {
-        const savedTopSites = localStorage.getItem("dashboard.showTopSitesSection")
-        setShowTopSitesSection(savedTopSites === "true")
+      if (typeof window === "undefined") return
+      const savedTopSites = localStorage.getItem("dashboard.showTopSitesSection")
+      setShowTopSitesSection(savedTopSites === "true")
+
+      // KPI表示項目（設定タブで施設ごとに保存。未保存・不正値なら全項目）
+      if (!hotelId) return
+      const raw = localStorage.getItem(dashboardKpiItemsKey(hotelId))
+      if (!raw) {
+        setVisibleKpiKeys([...ALL_KPI_KEYS])
+        return
+      }
+      try {
+        const parsed = JSON.parse(raw)
+        const valid = Array.isArray(parsed)
+          ? parsed.filter((k): k is string => ALL_KPI_KEYS.includes(k as (typeof ALL_KPI_KEYS)[number]))
+          : []
+        setVisibleKpiKeys(valid.length > 0 ? valid : [...ALL_KPI_KEYS])
+      } catch {
+        setVisibleKpiKeys([...ALL_KPI_KEYS])
       }
     }
     loadSettings()
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "dashboard.showTopSitesSection") loadSettings()
+      if (e.key === "dashboard.showTopSitesSection" || e.key?.startsWith("dashboard.kpiItems.")) {
+        loadSettings()
+      }
     }
     window.addEventListener("storage", handleStorageChange)
     window.addEventListener("settingsUpdated", loadSettings)
@@ -148,7 +200,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       window.removeEventListener("storage", handleStorageChange)
       window.removeEventListener("settingsUpdated", loadSettings)
     }
-  }, [])
+  }, [hotelId])
 
   const loadData = useCallback(async () => {
     if (!hotelId) return
@@ -177,6 +229,35 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
     loadData()
   }, [loadData])
 
+  // 複数月表示（F-DASH-01）: 開始月からNか月ぶんを単月APIの並列取得で組み立てる
+  useEffect(() => {
+    const span = Number(monthSpan)
+    if (!hotelId || span <= 1) {
+      setSpanKpis([])
+      return
+    }
+    let cancelled = false
+    setSpanLoading(true)
+    const targets = Array.from({ length: span }, (_, i) => {
+      const offset = month - 1 + i
+      return { year: year + Math.floor(offset / 12), month: (offset % 12) + 1 }
+    })
+    Promise.all(targets.map((t) => api.dashboardKpi(hotelId, t.year, t.month)))
+      .then((results) => {
+        if (!cancelled) setSpanKpis(results)
+      })
+      .catch(() => {
+        // 単月表示は成功しているため、複数月ぶんの取得失敗時は単月表示にフォールバックする
+        if (!cancelled) setSpanKpis([])
+      })
+      .finally(() => {
+        if (!cancelled) setSpanLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hotelId, year, month, monthSpan])
+
   const todayKey = format(new Date(), "yyyy-MM-dd")
 
   // 稼働率・ADRの月間推移チャートデータ（実績→予測の連続系列）
@@ -200,10 +281,91 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
             ? Math.round(row.occupancy * 1000) / 10
             : null,
         adrForecast: !row.isActual ? row.predictedAdr : isBoundary ? row.adr : null,
+        occupancyLastYear:
+          row.lastYearOccupancy != null ? Math.round(row.lastYearOccupancy * 1000) / 10 : null,
+        adrLastYear: row.lastYearAdr,
         isToday: row.date === todayKey,
       }
     })
   }, [kpi, todayKey])
+
+  // グラフに引く予算・目標の水平線（F-DASH-03）。月次予算が未登録なら非表示
+  const budgetOccupancyLine = useMemo(() => {
+    const value = kpi?.comparison?.budgetOccupancy
+    return value != null ? Math.round(value * 1000) / 10 : null
+  }, [kpi])
+  const budgetAdrLine = kpi?.comparison?.budgetAdr ?? null
+
+  const hasLastYearTrend = useMemo(
+    () => trendChartData.some((d) => d.occupancyLastYear != null || d.adrLastYear != null),
+    [trendChartData]
+  )
+
+  // グラフのCSVエクスポート（日付・稼働率・ADR・予測・前年）
+  const exportTrendCsv = useCallback(() => {
+    if (trendChartData.length === 0) return
+    const header = ["日付", "稼働率(%)", "ADR(円)", "予測稼働率(%)", "予測ADR(円)", "前年稼働率(%)", "前年ADR(円)"]
+    const rows = trendChartData.map((d) => [
+      d.rawDate,
+      d.occupancyActual ?? "",
+      d.adrActual ?? "",
+      d.occupancyForecast ?? "",
+      d.adrForecast ?? "",
+      d.occupancyLastYear ?? "",
+      d.adrLastYear ?? "",
+    ])
+    const csv = [header, ...rows].map((cols) => cols.join(",")).join("\r\n")
+    // Excelで文字化けしないようBOM付きUTF-8で出力
+    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `稼働ADR月間推移_${year}-${String(month).padStart(2, "0")}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }, [trendChartData, year, month])
+
+  // グラフのPNGエクスポート（描画済みSVGをcanvasに転写。追加ライブラリ不要）
+  const exportTrendImage = useCallback(() => {
+    const svg = chartWrapperRef.current?.querySelector("svg")
+    if (!svg) return
+    const clone = svg.cloneNode(true) as SVGSVGElement
+    const { width, height } = svg.getBoundingClientRect()
+    clone.setAttribute("width", String(width))
+    clone.setAttribute("height", String(height))
+    // 背景が透過だと黒背景で見えなくなるため白地を敷く
+    clone.style.background = "#ffffff"
+    const source = new XMLSerializer().serializeToString(clone)
+    const svgUrl = URL.createObjectURL(new Blob([source], { type: "image/svg+xml;charset=utf-8" }))
+
+    const image = new Image()
+    image.onload = () => {
+      const scale = 2 // 資料貼り付け用に2倍解像度
+      const canvas = document.createElement("canvas")
+      canvas.width = width * scale
+      canvas.height = height * scale
+      const ctx = canvas.getContext("2d")
+      if (!ctx) {
+        URL.revokeObjectURL(svgUrl)
+        return
+      }
+      ctx.fillStyle = "#ffffff"
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+      URL.revokeObjectURL(svgUrl)
+      canvas.toBlob((blob) => {
+        if (!blob) return
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement("a")
+        link.href = url
+        link.download = `稼働ADR月間推移_${year}-${String(month).padStart(2, "0")}.png`
+        link.click()
+        URL.revokeObjectURL(url)
+      }, "image/png")
+    }
+    image.onerror = () => URL.revokeObjectURL(svgUrl)
+    image.src = svgUrl
+  }, [year, month])
 
   // 表示中の比較軸（F-DASH-02: 本日まで／累計進捗／年度累計）
   const axis = useMemo(() => {
@@ -227,6 +389,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
 
     return [
       {
+        key: "roomRevenue",
         label: "室料売上",
         actual: formatYen(revenueActual),
         budgetRatio: axis?.budgetRevenueRatio != null ? formatPercent(axis.budgetRevenueRatio) : "-",
@@ -240,6 +403,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiLastYearNegative: ratioNegative(simulation?.projectedRevenue, comparison?.lastYearRevenue),
       },
       {
+        key: "soldRooms",
         label: "販売室数",
         actual: `${summary.soldRooms.toLocaleString()}室`,
         budgetRatio: "-",
@@ -253,6 +417,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiLastYearNegative: false,
       },
       {
+        key: "adr",
         label: "ADR",
         actual: formatYen(adrActual),
         budgetRatio: axis?.budgetAdrRatio != null ? formatPercent(axis.budgetAdrRatio) : "-",
@@ -266,6 +431,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiLastYearNegative: ratioNegative(simulation?.projectedAdr, comparison?.lastYearAdr),
       },
       {
+        key: "occupancyRate",
         label: "稼働率",
         actual: formatPercent(occupancyActual),
         budgetRatio: axis?.budgetOccupancyRatio != null ? formatPercent(axis.budgetOccupancyRatio) : "-",
@@ -280,6 +446,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiLastYearNegative: ratioNegative(simulation?.projectedOccupancy, comparison?.lastYearOccupancy),
       },
       {
+        key: "revPar",
         label: "REV-Per",
         actual: formatYen(summary.revPar),
         budgetRatio: "-",
@@ -293,6 +460,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiLastYearNegative: false,
       },
       {
+        key: "guests",
         label: "宿泊人数",
         actual: `${summary.guests.toLocaleString()}人`,
         budgetRatio: "-",
@@ -306,6 +474,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiLastYearNegative: false,
       },
       {
+        key: "dor",
         label: "DOR",
         actual: `${summary.dor.toFixed(2)}人`,
         budgetRatio: "-",
@@ -319,6 +488,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiLastYearNegative: false,
       },
       {
+        key: "guestUnitPrice",
         label: "客単価",
         actual: formatYen(summary.guestUnitPrice),
         budgetRatio: "-",
@@ -332,7 +502,53 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         aiLastYearNegative: false,
       },
     ]
-  }, [kpi])
+  }, [kpi, comparisonAxis, axis])
+
+  // 設定タブで選択された表示項目のみに絞る（F-DASH-01）
+  const visibleKpiRows = useMemo(
+    () => kpiRows.filter((row) => visibleKpiKeys.includes(row.key)),
+    [kpiRows, visibleKpiKeys]
+  )
+
+  // 複数月表示（F-DASH-01）: 指標×月のマトリクス。実績値のみを月ごとに並べる
+  const multiMonthTable = useMemo(() => {
+    if (Number(monthSpan) <= 1 || spanKpis.length === 0) return null
+
+    const columns = spanKpis.map((k) => ({
+      key: `${k.year}-${k.month}`,
+      label: `${k.year}/${String(k.month).padStart(2, "0")}`,
+    }))
+
+    const formatters: Record<string, (k: DashboardKpi) => string> = {
+      roomRevenue: (k) => formatYen(k.summary.roomRevenue),
+      soldRooms: (k) => `${k.summary.soldRooms.toLocaleString()}室`,
+      adr: (k) => formatYen(k.summary.adr),
+      occupancyRate: (k) => formatPercent(k.summary.occupancyRate),
+      revPar: (k) => formatYen(k.summary.revPar),
+      guests: (k) => `${k.summary.guests.toLocaleString()}人`,
+      dor: (k) => `${k.summary.dor.toFixed(2)}人`,
+      guestUnitPrice: (k) => formatYen(k.summary.guestUnitPrice),
+    }
+
+    const labels: Record<string, string> = {
+      roomRevenue: "室料売上",
+      soldRooms: "販売室数",
+      adr: "ADR",
+      occupancyRate: "稼働率",
+      revPar: "REV-Per",
+      guests: "宿泊人数",
+      dor: "DOR",
+      guestUnitPrice: "客単価",
+    }
+
+    const rows = ALL_KPI_KEYS.filter((key) => visibleKpiKeys.includes(key)).map((key) => ({
+      key,
+      label: labels[key],
+      values: spanKpis.map((k) => formatters[key](k)),
+    }))
+
+    return { columns, rows }
+  }, [monthSpan, spanKpis, visibleKpiKeys])
 
   // 在庫表（日別・タイプ別残室と比較時点との差分）。日付から決定的に導出するモックデータ
   const inventoryRows = useMemo(() => {
@@ -570,7 +786,31 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         {/* 稼働・ADR月間推移 */}
         <Card>
           <CardHeader className="pb-1">
-            <CardTitle className="text-lg font-semibold">稼働・ADR月間推移</CardTitle>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-lg font-semibold">稼働・ADR月間推移</CardTitle>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={exportTrendCsv}
+                  disabled={loading || trendChartData.length === 0}
+                >
+                  <Download className="h-3 w-3" />
+                  CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={exportTrendImage}
+                  disabled={loading || trendChartData.length === 0}
+                >
+                  <ImageDown className="h-3 w-3" />
+                  画像
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="pt-0">
             {loading ? (
@@ -601,9 +841,25 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       ></span>
                       点線＝予測
                     </span>
+                    {hasLastYearTrend && (
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-4 h-0.5 bg-[color:var(--chart-5)] opacity-70"></span>
+                        前年実績
+                      </span>
+                    )}
+                    {(budgetOccupancyLine != null || budgetAdrLine != null) && (
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className="w-4 border-t-2 border-dotted border-[color:var(--chart-4)]"
+                          aria-hidden
+                        ></span>
+                        予算・目標
+                      </span>
+                    )}
                   </div>
                 </div>
 
+                <div ref={chartWrapperRef}>
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={trendChartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
@@ -688,8 +944,70 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       activeDot={{ r: 6 }}
                       connectNulls={false}
                     />
+                    {/* 前年実績（細線で背面に重ねる） */}
+                    {hasLastYearTrend && (
+                      <Line
+                        yAxisId="left"
+                        type="monotone"
+                        dataKey="occupancyLastYear"
+                        stroke="var(--chart-5)"
+                        strokeWidth={1.5}
+                        strokeOpacity={0.7}
+                        dot={false}
+                        name="稼働率（前年）"
+                        activeDot={{ r: 4 }}
+                        connectNulls
+                      />
+                    )}
+                    {hasLastYearTrend && (
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="adrLastYear"
+                        stroke="var(--chart-5)"
+                        strokeWidth={1.5}
+                        strokeOpacity={0.7}
+                        strokeDasharray="2 3"
+                        dot={false}
+                        name="ADR（前年）"
+                        activeDot={{ r: 4 }}
+                        connectNulls
+                      />
+                    )}
+                    {/* 予算・目標の水平線（月次予算が登録されている場合のみ） */}
+                    {budgetOccupancyLine != null && (
+                      <ReferenceLine
+                        yAxisId="left"
+                        y={budgetOccupancyLine}
+                        stroke="var(--chart-4)"
+                        strokeDasharray="2 2"
+                        strokeWidth={1.5}
+                        label={{
+                          value: `予算稼働率 ${budgetOccupancyLine.toFixed(1)}%`,
+                          position: "insideTopLeft",
+                          fill: "var(--chart-4)",
+                          fontSize: 10,
+                        }}
+                      />
+                    )}
+                    {budgetAdrLine != null && (
+                      <ReferenceLine
+                        yAxisId="right"
+                        y={budgetAdrLine}
+                        stroke="var(--chart-4)"
+                        strokeDasharray="2 2"
+                        strokeWidth={1.5}
+                        label={{
+                          value: `予算ADR ¥${Math.round(budgetAdrLine).toLocaleString()}`,
+                          position: "insideBottomRight",
+                          fill: "var(--chart-4)",
+                          fontSize: 10,
+                        }}
+                      />
+                    )}
                   </LineChart>
                 </ResponsiveContainer>
+                </div>
               </div>
             )}
           </CardContent>
@@ -773,13 +1091,33 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="text-lg font-heading font-medium tracking-tight">KPI進捗状況</h2>
-            <p className="text-xs text-muted-foreground">
-              {kpi
-                ? comparisonAxis === "fiscalYear" && kpi.comparison
-                  ? `${kpi.comparison.actualSummary.fiscalActualDays}日分の実績を集計（年度累計）`
-                  : `${kpi.summary.actualDays}日分の実績を集計`
-                : ""}
-            </p>
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* 開始月は上部の対象年月。ここでは表示月数を選ぶ（F-DASH-01） */}
+              <div className="flex items-center gap-1.5">
+                <Label className="text-xs whitespace-nowrap">
+                  {year}年{month}月から
+                </Label>
+                <Select value={monthSpan} onValueChange={setMonthSpan}>
+                  <SelectTrigger className="h-7 w-24 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MONTH_SPAN_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {kpi
+                  ? comparisonAxis === "fiscalYear" && kpi.comparison
+                    ? `${kpi.comparison.actualSummary.fiscalActualDays}日分の実績を集計（年度累計）`
+                    : `${kpi.summary.actualDays}日分の実績を集計`
+                  : ""}
+              </p>
+            </div>
           </div>
 
           {/* 比較軸の切り替え（F-DASH-02） */}
@@ -832,7 +1170,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       </tr>
                     </thead>
                     <tbody>
-                      {kpiRows.map((row) => (
+                      {visibleKpiRows.map((row) => (
                         <tr key={row.label} className="border-b hover:bg-muted/20">
                           <td className="py-1.5 px-2 font-medium border-r bg-muted/10">{row.label}</td>
                           <td className="text-right py-1.5 px-2 font-semibold border-r">{row.actual}</td>
@@ -860,6 +1198,61 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
             </Card>
           ) : (
             <p className="text-sm text-muted-foreground">データがありません。</p>
+          )}
+
+          {/* 複数月表示（F-DASH-01）: 指標×月の実績マトリクス */}
+          {Number(monthSpan) > 1 && (
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium">
+                  月別実績推移（{year}年{month}月から{monthSpan}か月）
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="pt-2">
+                {spanLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : multiMonthTable ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b bg-muted/30">
+                          <th className="text-center py-1.5 px-2 font-medium border-r whitespace-nowrap">指標</th>
+                          {multiMonthTable.columns.map((col) => (
+                            <th
+                              key={col.key}
+                              className="text-center py-1.5 px-2 font-medium border-r whitespace-nowrap"
+                            >
+                              {col.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {multiMonthTable.rows.map((row) => (
+                          <tr key={row.key} className="border-b hover:bg-muted/20">
+                            <td className="py-1.5 px-2 font-medium border-r bg-muted/10 whitespace-nowrap">
+                              {row.label}
+                            </td>
+                            {row.values.map((value, i) => (
+                              <td
+                                key={multiMonthTable.columns[i].key}
+                                className="text-right py-1.5 px-2 border-r whitespace-nowrap"
+                              >
+                                {value}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    月別データを取得できませんでした。表示月数を変更して再度お試しください。
+                  </p>
+                )}
+              </CardContent>
+            </Card>
           )}
         </div>
 
