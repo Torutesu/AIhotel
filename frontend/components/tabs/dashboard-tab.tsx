@@ -497,7 +497,9 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                 <Skeleton className="h-4 w-3/4" />
               </div>
             ) : aiSummary?.content ? (
-              <p className="text-sm leading-relaxed whitespace-pre-wrap">{aiSummary.content}</p>
+              <p className="max-h-60 overflow-y-auto text-sm leading-relaxed whitespace-pre-wrap">
+                {aiSummary.content}
+              </p>
             ) : (
               <p className="text-sm text-muted-foreground">この月のAIまとめはまだ生成されていません。</p>
             )}
@@ -527,11 +529,17 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                       <span className="font-medium text-xs">ADR</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
-                    <span className="px-1.5 py-0.5 bg-muted rounded text-xs">実績</span>
-                    <span>←</span>
-                    <span className="px-1.5 py-0.5 bg-muted rounded text-xs">→</span>
-                    <span className="px-1.5 py-0.5 bg-muted rounded text-xs">実績+予測</span>
+                  <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-4 h-0.5 bg-muted-foreground"></span>実線＝実績
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="w-4 border-t border-dashed border-muted-foreground"
+                        aria-hidden
+                      ></span>
+                      点線＝予測
+                    </span>
                   </div>
                 </div>
 

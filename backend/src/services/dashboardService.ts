@@ -8,6 +8,39 @@ function monthRange(year: number, month: number): { start: Date; end: Date } {
   }
 }
 
+/** 実績集計の入力（DailyDataのうちKPI算出に使う項目のみ） */
+export interface ActualDayRecord {
+  totalRevenue: number | null
+  soldRooms: number | null
+  guests: number | null
+}
+
+/**
+ * 実績KPIの集計（F-DASH-01）。
+ * DOR = 宿泊人数 / 販売室数（1室あたり平均利用人数。要件定義書「14. 用語集」準拠）
+ */
+export function computeSummary(actualDays: ActualDayRecord[], totalRooms: number) {
+  const totalRevenue = actualDays.reduce((sum, d) => sum + (d.totalRevenue ?? 0), 0)
+  const soldRooms = actualDays.reduce((sum, d) => sum + (d.soldRooms ?? 0), 0)
+  const guests = actualDays.reduce((sum, d) => sum + (d.guests ?? 0), 0)
+  const roomNights = totalRooms * actualDays.length
+  const adr = soldRooms > 0 ? totalRevenue / soldRooms : 0
+  const occupancyRate = roomNights > 0 ? soldRooms / roomNights : 0
+  const revPar = roomNights > 0 ? totalRevenue / roomNights : 0
+
+  return {
+    roomRevenue: Math.round(totalRevenue),
+    soldRooms,
+    adr: Math.round(adr),
+    occupancyRate: Math.round(occupancyRate * 1000) / 1000,
+    revPar: Math.round(revPar),
+    guests,
+    dor: soldRooms > 0 ? Math.round((guests / soldRooms) * 100) / 100 : 0,
+    guestUnitPrice: guests > 0 ? Math.round(totalRevenue / guests) : 0,
+    actualDays: actualDays.length,
+  }
+}
+
 /**
  * 月別KPI（F-DASH-01/02）
  * 実績集計 + 予算比・前年比 + 日別推移（実績と AI 予測の連続系列 — F-DASH-03）
@@ -37,25 +70,8 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
 
   // 実績集計（データが存在する日 = 本日までの実績）
   const actualDays = dailyData.filter((d) => d.totalRevenue != null)
-  const totalRevenue = actualDays.reduce((sum, d) => sum + (d.totalRevenue ?? 0), 0)
-  const soldRooms = actualDays.reduce((sum, d) => sum + (d.soldRooms ?? 0), 0)
-  const guests = actualDays.reduce((sum, d) => sum + (d.guests ?? 0), 0)
-  const roomNights = hotel.totalRooms * actualDays.length
-  const adr = soldRooms > 0 ? totalRevenue / soldRooms : 0
-  const occupancyRate = roomNights > 0 ? soldRooms / roomNights : 0
-  const revPar = roomNights > 0 ? totalRevenue / roomNights : 0
-
-  const summary = {
-    roomRevenue: Math.round(totalRevenue),
-    soldRooms,
-    adr: Math.round(adr),
-    occupancyRate: Math.round(occupancyRate * 1000) / 1000,
-    revPar: Math.round(revPar),
-    guests,
-    dor: actualDays.length > 0 ? Math.round((guests / actualDays.length) * 10) / 10 : 0,
-    guestUnitPrice: guests > 0 ? Math.round(totalRevenue / guests) : 0,
-    actualDays: actualDays.length,
-  }
+  const summary = computeSummary(actualDays, hotel.totalRooms)
+  const totalRevenue = summary.roomRevenue
 
   // 予算・前年比較（F-DASH-02）: 経過日数按分で「本日まで」の比率を出す
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
