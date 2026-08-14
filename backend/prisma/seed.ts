@@ -303,23 +303,58 @@ async function main() {
   await prisma.alert.deleteMany({ where: { hotelId: hotel.id } })
   await prisma.alert.createMany({
     data: [
+      // Level 5: 即時対応（ダッシュボード表示対象）
       {
         hotelId: hotel.id,
         tenantId: tenant.id,
         severity: AlertSeverity.RED,
+        level: 5,
         title: '稼働率が予算を大幅に下回っています',
         message: '来週火曜の予約積上が予算比 -18pt です。価格ランクの引き下げを検討してください。',
         linkTab: 'pricing',
         targetDate: addDays(today, 4),
       },
+      // Level 4: 1週間内の経過観察（ダッシュボード表示対象）
       {
         hotelId: hotel.id,
         tenantId: tenant.id,
         severity: AlertSeverity.YELLOW,
-        title: '競合平均価格との乖離が拡大',
-        message: '今週末の自社価格が競合平均より 12% 高くなっています。経過観察してください。',
+        level: 4,
+        title: '競合価格との乖離が拡大',
+        message: '今週末の自社価格が競合水準より 12% 高くなっています。経過観察してください。',
         linkTab: 'daily',
         targetDate: addDays(today, 2),
+      },
+      // Level 3以下: ダッシュボードには表示せず、各分析画面で確認する想定
+      {
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        severity: AlertSeverity.YELLOW,
+        level: 3,
+        title: 'OTA別の予約構成比に変化',
+        message: '公式サイト経由の構成比が前月比 -4pt です。チャネル分析で推移を確認してください。',
+        linkTab: 'analysis',
+        targetDate: addDays(today, 7),
+      },
+      {
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        severity: AlertSeverity.YELLOW,
+        level: 2,
+        title: '翌月の予算未登録',
+        message: '翌月の予算データが未登録です。設定画面から登録してください。',
+        linkTab: 'settings',
+        targetDate: null,
+      },
+      {
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        severity: AlertSeverity.YELLOW,
+        level: 1,
+        title: '料金ランクの見直し推奨',
+        message: '直近30日で未使用の料金ランクが3件あります。マスタ整理を検討してください。',
+        linkTab: 'settings',
+        targetDate: null,
       },
     ],
   })

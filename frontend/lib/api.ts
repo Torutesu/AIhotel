@@ -281,6 +281,8 @@ export interface DashboardKpi {
 export interface AlertItem {
   id: string
   severity: "RED" | "YELLOW"
+  /** 重要度 1-5（5が最重要）。ダッシュボードは5・4のみ表示（F-DASH-05） */
+  level: number
   title: string
   message: string
   linkTab: string | null
@@ -590,17 +592,18 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   }
 }
 
-function mockAlerts(): AlertItem[] {
+function mockAlerts(minLevel?: number): AlertItem[] {
   const today = new Date()
   const plusDays = (n: number) => {
     const d = new Date(today)
     d.setDate(d.getDate() + n)
     return toLocalDateStr(d)
   }
-  return [
+  const all: AlertItem[] = [
     {
       id: "mock-alert-1",
       severity: "RED",
+      level: 5,
       title: "稼働率が予算を大幅に下回っています",
       message: "来週火曜の予約積上が予算比 -18pt です。価格ランクの引き下げを検討してください。",
       linkTab: "pricing",
@@ -611,14 +614,49 @@ function mockAlerts(): AlertItem[] {
     {
       id: "mock-alert-2",
       severity: "YELLOW",
-      title: "競合平均価格との乖離が拡大",
-      message: "今週末の自社価格が競合平均より 12% 高くなっています。経過観察してください。",
+      level: 4,
+      title: "競合価格との乖離が拡大",
+      message: "今週末の自社価格が競合水準より 12% 高くなっています。経過観察してください。",
       linkTab: "daily",
       targetDate: plusDays(2),
       status: "OPEN",
       detectedAt: today.toISOString(),
     },
+    {
+      id: "mock-alert-3",
+      severity: "YELLOW",
+      level: 3,
+      title: "OTA別の予約構成比に変化",
+      message: "公式サイト経由の構成比が前月比 -4pt です。チャネル分析で推移を確認してください。",
+      linkTab: "analysis",
+      targetDate: plusDays(7),
+      status: "OPEN",
+      detectedAt: today.toISOString(),
+    },
+    {
+      id: "mock-alert-4",
+      severity: "YELLOW",
+      level: 2,
+      title: "翌月の予算未登録",
+      message: "翌月の予算データが未登録です。設定画面から登録してください。",
+      linkTab: "settings",
+      targetDate: null,
+      status: "OPEN",
+      detectedAt: today.toISOString(),
+    },
+    {
+      id: "mock-alert-5",
+      severity: "YELLOW",
+      level: 1,
+      title: "料金ランクの見直し推奨",
+      message: "直近30日で未使用の料金ランクが3件あります。マスタ整理を検討してください。",
+      linkTab: "settings",
+      targetDate: null,
+      status: "OPEN",
+      detectedAt: today.toISOString(),
+    },
   ]
+  return minLevel != null ? all.filter((a) => a.level >= minLevel) : all
 }
 
 function mockAiSummary(section?: string): AiSummary {
@@ -763,10 +801,12 @@ export const api = {
     )
   },
 
-  alerts(hotelId: string): Promise<AlertItem[]> {
+  /** minLevel を指定するとその重要度以上のみ取得（ダッシュボードは4＝Level 5・4のみ） */
+  alerts(hotelId: string, minLevel?: number): Promise<AlertItem[]> {
+    const levelParam = minLevel != null ? `&minLevel=${minLevel}` : ""
     return withDemoFallback(
-      () => rawRequest(`/api/v1/dashboard/alerts?hotelId=${hotelId}`),
-      () => mockAlerts()
+      () => rawRequest(`/api/v1/dashboard/alerts?hotelId=${hotelId}${levelParam}`),
+      () => mockAlerts(minLevel)
     )
   },
 

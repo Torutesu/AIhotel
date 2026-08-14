@@ -37,6 +37,13 @@ const SNAPSHOT_OPTIONS = [
   { value: "30", label: "1か月前時点" },
 ]
 
+/**
+ * ダッシュボードに表示するアラートの最小レベル（F-DASH-05）。
+ * 重要度は1〜5の5段階で管理し、ダッシュボードにはLevel 5・4のみを表示する。
+ * Level 3以下は各分析画面側で確認する運用。
+ */
+const DASHBOARD_MIN_ALERT_LEVEL = 4
+
 // KPI進捗の比較軸（F-DASH-02）
 type ComparisonAxisKey = "toDate" | "cumulative" | "fiscalYear"
 
@@ -150,7 +157,8 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
     try {
       const [kpiResult, alertsResult, summaryResult, hotels] = await Promise.all([
         api.dashboardKpi(hotelId, year, month),
-        api.alerts(hotelId),
+        // ダッシュボードはLevel 5・4のみ表示（F-DASH-05）。Level 3以下は各分析画面で確認する
+        api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL),
         api.aiSummary(hotelId),
         api.hotels(),
       ])
@@ -372,21 +380,39 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
     return null
   }
 
-  const severityBadges: Record<AlertItem["severity"], { border: string; bg: string; dot: string; label: string; text: string }> = {
-    RED: {
+  // アラート重要度（1-5の5段階）。ダッシュボードはLevel 5・4のみ表示する（F-DASH-05）
+  const alertLevelStyles: Record<number, { border: string; bg: string; dot: string; label: string; text: string }> = {
+    5: {
       border: "border-negative",
       bg: "bg-negative/10",
       dot: "bg-negative",
-      label: "すぐに修正する",
+      label: "Level 5 / すぐに修正する",
       text: "text-negative",
     },
-    YELLOW: {
+    4: {
       border: "border-warning",
       bg: "bg-warning/10",
       dot: "bg-warning",
-      label: "1週間内での経過観察が必要",
+      label: "Level 4 / 1週間内での経過観察が必要",
       text: "text-warning",
     },
+  }
+
+  // level未設定の旧データはseverityから補完する
+  const resolveAlertLevel = (alert: AlertItem): number =>
+    alert.level ?? (alert.severity === "RED" ? 5 : 4)
+
+  const alertStyleFor = (alert: AlertItem) => {
+    const level = resolveAlertLevel(alert)
+    return (
+      alertLevelStyles[level] ?? {
+        border: "border-border",
+        bg: "bg-muted/50",
+        dot: "bg-muted-foreground",
+        label: `Level ${level}`,
+        text: "text-muted-foreground",
+      }
+    )
   }
 
   if (!hotelId) {
@@ -463,7 +489,12 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         {/* アラートセクション - 一番上に配置 */}
         <Card>
           <CardHeader className="pb-1">
-            <CardTitle className="text-lg font-semibold">アラート</CardTitle>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-lg font-semibold">アラート</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                重要度5段階のうち Level 5・4 を表示（Level 3以下は各分析画面で確認）
+              </p>
+            </div>
           </CardHeader>
           <CardContent className="pt-0">
             {loading ? (
@@ -472,11 +503,13 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                 <Skeleton className="h-16 w-full" />
               </div>
             ) : alerts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">現在、対応が必要なアラートはありません。</p>
+              <p className="text-sm text-muted-foreground">
+                現在、対応が必要なアラート（Level 5・4）はありません。
+              </p>
             ) : (
               <div className="space-y-3">
                 {alerts.map((alert) => {
-                  const style = severityBadges[alert.severity]
+                  const style = alertStyleFor(alert)
                   return (
                     <div key={alert.id} className={`border-l-4 ${style.border} ${style.bg} p-3 rounded-r`}>
                       <div className="flex items-start gap-2">

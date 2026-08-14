@@ -2,7 +2,7 @@ import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireHotelAccess } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
 import {
-  hotelIdQuerySchema,
+  alertsQuerySchema,
   monthQuerySchema,
   kpiComparisonQuerySchema,
   aiSummaryQuerySchema,
@@ -26,8 +26,9 @@ dashboardRouter.get('/kpi', validate(monthQuerySchema, 'query'), getKpi)
 // GET /api/v1/dashboard/kpi/comparison?hotelId=&year=&month=&baseDate=
 dashboardRouter.get('/kpi/comparison', validate(kpiComparisonQuerySchema, 'query'), getKpiComparison)
 
-// GET /api/v1/dashboard/alerts?hotelId=
-dashboardRouter.get('/alerts', validate(hotelIdQuerySchema, 'query'), getAlerts)
+// GET /api/v1/dashboard/alerts?hotelId=&minLevel=
+// minLevel を省略すると全レベルを返す。ダッシュボードは minLevel=4（Level 5・4のみ）
+dashboardRouter.get('/alerts', validate(alertsQuerySchema, 'query'), getAlerts)
 
 // GET /api/v1/dashboard/ai-summary?hotelId=&section=
 dashboardRouter.get('/ai-summary', validate(aiSummaryQuerySchema, 'query'), getAiSummary)
