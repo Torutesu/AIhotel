@@ -52,11 +52,12 @@ export function clearTokens() {
   localStorage.removeItem(MOCK_USER_KEY)
 }
 
-// ---- Dev-only demo mode (バックエンド未起動時のみ、UI確認・デモ用) ----
-// NEXT_PUBLIC_DEMO_MODE=true をローカルの frontend/.env.local に設定した場合のみ有効。
-// 本番ビルド(NODE_ENV=production)では常に無効。バックエンドが応答する限り実APIを使用し、
-// 接続できない場合のみログイン・ダッシュボード・ダイナミックプライシング画面のダミーデータに
-// フォールバックする。それ以外の画面は対象外で、通常通りローディング/エラー/再試行を表示する。
+// ---- デモモード（バックエンド未接続時のダミーデータ表示） ----
+// NEXT_PUBLIC_DEMO_MODE=true のときのみ有効（next.config.mjs で既定値を設定）。
+// バックエンドが応答する限り常に実APIを使用し、接続できない場合に限りダミーデータへ
+// フォールバックする。フォールバックが起きた場合は画面上部にデモ表示バナーを出すため、
+// 「モックへのサイレントフォールバック禁止」の規約には抵触しない。
+// 本番でバックエンドを接続したら NEXT_PUBLIC_DEMO_MODE=false を設定すること。
 
 const MOCK_PASSWORD = "Admin1234"
 const MOCK_HOTEL_ID = "demo-hotel-001"
@@ -83,7 +84,30 @@ const MOCK_HOTEL: Hotel = {
 }
 
 function isDemoModeEnabled(): boolean {
-  return process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+  return process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+}
+
+// ---- デモデータ表示状態（バナー通知用） ----
+// フォールバックが1回でも発生したら true になり、画面上部にデモ表示バナーを出す。
+let demoDataInUse = false
+
+export function isDemoDataInUse(): boolean {
+  return demoDataInUse
+}
+
+/** デモデータ利用開始を購読する（バナー表示用） */
+export function subscribeDemoData(listener: () => void): () => void {
+  if (typeof window === "undefined") return () => {}
+  window.addEventListener("demoDataInUse", listener)
+  return () => window.removeEventListener("demoDataInUse", listener)
+}
+
+function markDemoDataInUse() {
+  if (demoDataInUse) return
+  demoDataInUse = true
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("demoDataInUse"))
+  }
 }
 
 function storeMockUser(user: User) {
@@ -130,6 +154,7 @@ async function withDemoFallback<T>(request: () => Promise<T>, fallback: () => T)
     return await request()
   } catch (err) {
     if (isDemoModeEnabled() && err instanceof ApiClientError && err.isBackendUnreachable) {
+      markDemoDataInUse()
       return fallback()
     }
     throw err
@@ -719,6 +744,166 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
   return { hotelId, year, month, calendar }
 }
 
+// 競合ホテル（seedと同等の3社構成）
+const MOCK_COMPETITOR_DEFS = [
+  { id: "mock-comp-1", name: "コンペティターホテルA", category: "アップスケール", factor: 1.08 },
+  { id: "mock-comp-2", name: "コンペティターホテルB", category: "ミッドスケール", factor: 0.94 },
+  { id: "mock-comp-3", name: "コンペティターホテルC", category: "アップスケール", factor: 1.02 },
+]
+
+function eachMockDate(startDate: string, endDate: string): Date[] {
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  const dates: Date[] = []
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    dates.push(new Date(d))
+  }
+  return dates
+}
+
+function mockBookingCurve(hotelId: string, date: string): BookingCurve {
+  const stay = new Date(date)
+  const totalRooms = MOCK_HOTEL.totalRooms
+  const rng = createSeededRandom(stay.getFullYear() * 10000 + (stay.getMonth() + 1) * 100 + stay.getDate())
+  const weekend = isMockWeekend(stay)
+  const finalOccupancy = Math.min(0.98, (weekend ? 0.92 : 0.74) + (rng() - 0.5) * 0.1)
+
+  // 宿泊日までの日数が減るほど積み上がる（右肩上がり — F-DAILY-01）
+  const daysBeforeList = [90, 60, 45, 30, 21, 14, 10, 7, 5, 3, 2, 1, 0]
+  const points = daysBeforeList.map((daysBefore) => {
+    const progress = Math.pow(1 - daysBefore / 90, 1.6)
+    const occupancy = Number((finalOccupancy * progress).toFixed(3))
+    return {
+      daysBefore,
+      roomsBooked: Math.round(totalRooms * occupancy),
+      occupancy,
+    }
+  })
+
+  return { hotelId, stayDate: date, totalRooms, points }
+}
+
+function mockCompetitorPrices(hotelId: string, startDate: string, endDate: string): CompetitorPrices {
+  const dates = eachMockDate(startDate, endDate)
+  const today = new Date()
+
+  const basePrice = (date: Date, rng: () => number) => {
+    const weekend = isMockWeekend(date)
+    return Math.round((weekend ? 23000 : 16500) * mockSeasonBoost(date.getMonth() + 1) * (0.97 + rng() * 0.08))
+  }
+
+  const ownPrices = dates.map((date) => {
+    const rng = createSeededRandom(date.getTime() / 86400000)
+    return {
+      date: toLocalDateStr(date),
+      price: basePrice(date, rng),
+      isActual: date <= today,
+    }
+  })
+
+  const competitors = MOCK_COMPETITOR_DEFS.map((comp, ci) => ({
+    id: comp.id,
+    name: comp.name,
+    category: comp.category,
+    prices: dates.map((date) => {
+      const rng = createSeededRandom(date.getTime() / 86400000 + ci * 977)
+      const price1P = Math.round(basePrice(date, rng) * comp.factor)
+      return {
+        date: toLocalDateStr(date),
+        price1P,
+        price2P: Math.round(price1P * 1.38),
+        price3P: Math.round(price1P * 1.75),
+        reliability: rng() > 0.15 ? "HIGH" : "MEDIUM",
+      }
+    }),
+  }))
+
+  return { hotelId, startDate, endDate, ownPrices, competitors }
+}
+
+function mockMonthlyTrend(hotelId: string, year: number): MonthlyTrend {
+  const today = new Date()
+  const totalRooms = MOCK_HOTEL.totalRooms
+
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const month = i + 1
+    const rng = createSeededRandom(year * 100 + month)
+    const boost = mockSeasonBoost(month)
+    const days = mockDaysInMonth(year, month)
+    const hasActuals = new Date(year, month - 1, 1) <= today
+
+    const occupancy = Number(Math.min(0.97, 0.76 * boost + (rng() - 0.5) * 0.08).toFixed(3))
+    const adr = Math.round(18000 * boost * (0.97 + rng() * 0.06))
+    const soldRooms = Math.round(totalRooms * days * occupancy)
+    const revenue = soldRooms * adr
+    const guests = Math.round(soldRooms * 1.5)
+
+    return {
+      month,
+      revenue: hasActuals ? revenue : 0,
+      soldRooms: hasActuals ? soldRooms : 0,
+      guests: hasActuals ? guests : 0,
+      adr: hasActuals ? adr : null,
+      occupancy: hasActuals ? occupancy : null,
+      revPar: hasActuals ? Math.round(adr * occupancy) : null,
+      budgetRevenue: Math.round(revenue * 0.97),
+      lastYearRevenue: Math.round(revenue * 0.93),
+      hasActuals,
+    }
+  })
+
+  return { hotelId, year, months }
+}
+
+function mockCompetitorAnalysis(
+  hotelId: string,
+  startDate: string,
+  endDate: string
+): CompetitorAnalysis {
+  const prices = mockCompetitorPrices(hotelId, startDate, endDate)
+
+  const competitors = prices.competitors.map((comp) => {
+    const values = comp.prices
+      .map((p) => p.price1P)
+      .filter((v): v is number => v != null)
+    return {
+      id: comp.id,
+      name: comp.name,
+      category: comp.category,
+      sampleSize: values.length,
+      minPrice: values.length > 0 ? Math.min(...values) : null,
+      maxPrice: values.length > 0 ? Math.max(...values) : null,
+      avgPrice:
+        values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null,
+    }
+  })
+
+  return { hotelId, startDate, endDate, competitors }
+}
+
+// 料金ランク40段階（F-SET-02）。更新はメモリ上に保持してUI操作を確認できるようにする
+let mockPriceRanks: PriceRank[] | null = null
+
+function getMockPriceRanks(hotelId: string): PriceRank[] {
+  if (mockPriceRanks) return mockPriceRanks
+  mockPriceRanks = Array.from({ length: 40 }, (_, i) => {
+    const rank = i + 1
+    const price1P = mockRankToPrice1P(rank)
+    return {
+      id: `mock-rank-${rank}`,
+      hotelId,
+      rank,
+      label: `R${String(rank).padStart(2, "0")}`,
+      price1P,
+      price2P: Math.round(price1P * 1.4),
+      price3P: Math.round(price1P * 1.8),
+      price4P: Math.round(price1P * 2.1),
+      isActive: true,
+    } as PriceRank
+  })
+  return mockPriceRanks
+}
+
 let mockStrategy: PricingStrategy = {
   id: "mock-strategy",
   hotelId: MOCK_HOTEL_ID,
@@ -761,6 +946,7 @@ export const api = {
       return result
     } catch (err) {
       if (isDemoModeEnabled() && err instanceof ApiClientError && err.isBackendUnreachable) {
+        markDemoDataInUse()
         const result = mockLogin(email, password)
         storeTokens(result.tokens.accessToken, result.tokens.refreshToken)
         storeMockUser(result.user)
@@ -856,27 +1042,44 @@ export const api = {
   },
 
   bookingCurve(hotelId: string, date: string): Promise<BookingCurve> {
-    return rawRequest(`/api/v1/daily/booking-curve?hotelId=${hotelId}&date=${date}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/daily/booking-curve?hotelId=${hotelId}&date=${date}`),
+      () => mockBookingCurve(hotelId, date)
+    )
   },
 
   competitorPrices(hotelId: string, startDate: string, endDate: string): Promise<CompetitorPrices> {
-    return rawRequest(
-      `/api/v1/daily/competitor-prices?hotelId=${hotelId}&startDate=${startDate}&endDate=${endDate}`
+    return withDemoFallback(
+      () =>
+        rawRequest(
+          `/api/v1/daily/competitor-prices?hotelId=${hotelId}&startDate=${startDate}&endDate=${endDate}`
+        ),
+      () => mockCompetitorPrices(hotelId, startDate, endDate)
     )
   },
 
   monthlyTrend(hotelId: string, year: number): Promise<MonthlyTrend> {
-    return rawRequest(`/api/v1/analysis/monthly?hotelId=${hotelId}&year=${year}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/monthly?hotelId=${hotelId}&year=${year}`),
+      () => mockMonthlyTrend(hotelId, year)
+    )
   },
 
   competitorAnalysis(hotelId: string, startDate: string, endDate: string): Promise<CompetitorAnalysis> {
-    return rawRequest(
-      `/api/v1/analysis/competitor?hotelId=${hotelId}&startDate=${startDate}&endDate=${endDate}`
+    return withDemoFallback(
+      () =>
+        rawRequest(
+          `/api/v1/analysis/competitor?hotelId=${hotelId}&startDate=${startDate}&endDate=${endDate}`
+        ),
+      () => mockCompetitorAnalysis(hotelId, startDate, endDate)
     )
   },
 
   priceRanks(hotelId: string): Promise<PriceRank[]> {
-    return rawRequest(`/api/v1/settings/price-ranks?hotelId=${hotelId}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/price-ranks?hotelId=${hotelId}`),
+      () => getMockPriceRanks(hotelId)
+    )
   },
 
   updatePriceRank(
@@ -884,17 +1087,36 @@ export const api = {
     hotelId: string,
     data: Partial<{ label: string; price1P: number; price2P: number; price3P: number; price4P: number }>
   ): Promise<PriceRank> {
-    return rawRequest(`/api/v1/settings/price-ranks/${id}?hotelId=${hotelId}`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    })
+    return withDemoFallback(
+      () =>
+        rawRequest<PriceRank>(`/api/v1/settings/price-ranks/${id}?hotelId=${hotelId}`, {
+          method: "PUT",
+          body: JSON.stringify(data),
+        }),
+      () => {
+        // デモ時はメモリ上のランクを書き換えて、保存操作の結果を画面で確認できるようにする
+        const ranks = getMockPriceRanks(hotelId)
+        const target = ranks.find((r) => r.id === id)
+        if (!target) throw new ApiClientError(404, "料金ランクが見つかりません")
+        Object.assign(target, data)
+        return target
+      }
+    )
   },
 
   updateHotelSettings(hotelId: string, data: UpdateHotelSettingsInput): Promise<Hotel> {
-    return rawRequest(`/api/v1/settings/hotel/${hotelId}`, {
-      method: "PUT",
-      body: JSON.stringify(data),
-    })
+    return withDemoFallback(
+      () =>
+        rawRequest<Hotel>(`/api/v1/settings/hotel/${hotelId}`, {
+          method: "PUT",
+          body: JSON.stringify(data),
+        }),
+      () => {
+        // デモ時はメモリ上のホテル設定を書き換えて保存操作を確認できるようにする
+        Object.assign(MOCK_HOTEL, data, { updatedAt: new Date() })
+        return MOCK_HOTEL
+      }
+    )
   },
 
   events(hotelId: string, startDate?: string, endDate?: string): Promise<HotelEvent[]> {
