@@ -8,11 +8,141 @@ function monthRange(year: number, month: number): { start: Date; end: Date } {
   }
 }
 
+/**
+ * 年度の開始月（4月始まり）。
+ * TODO: テナント／ホテル単位で変更可能にする場合は Hotel の設定項目へ移す。
+ */
+export const FISCAL_YEAR_START_MONTH = 4
+
 /** 実績集計の入力（DailyDataのうちKPI算出に使う項目のみ） */
 export interface ActualDayRecord {
   totalRevenue: number | null
   soldRooms: number | null
   guests: number | null
+}
+
+/** 予算・前年実績（MonthlyBudgetのうち比較に使う項目のみ） */
+export interface BudgetRecord {
+  budgetRevenue: number | null
+  budgetRooms: number | null
+  budgetAdr: number | null
+  budgetOccupancy: number | null
+  lastYearRevenue: number | null
+  lastYearRooms: number | null
+  lastYearAdr: number | null
+  lastYearOccupancy: number | null
+}
+
+/** 比較対象（予算または前年実績）の集計値 */
+export interface ComparisonTarget {
+  revenue: number | null
+  adr: number | null
+  occupancy: number | null
+}
+
+/** 実績側の集計値（比率算出に使う最小項目） */
+export interface ActualAggregate {
+  revenue: number
+  adr: number
+  occupancy: number
+}
+
+/** 1軸ぶんの比較結果（対予算・対前年の比率と、比較に使った目標値） */
+export interface ComparisonAxis {
+  budgetRevenue: number | null
+  budgetRevenueRatio: number | null
+  budgetAdr: number | null
+  budgetAdrRatio: number | null
+  budgetOccupancy: number | null
+  budgetOccupancyRatio: number | null
+  lastYearRevenue: number | null
+  lastYearRevenueRatio: number | null
+  lastYearAdr: number | null
+  lastYearAdrRatio: number | null
+  lastYearOccupancy: number | null
+  lastYearOccupancyRatio: number | null
+}
+
+/** 実績÷目標。目標が未設定/0なら null（小数第3位まで） */
+export function ratio(actual: number | null, target: number | null): number | null {
+  if (actual == null || target == null || target === 0) return null
+  return Math.round((actual / target) * 1000) / 1000
+}
+
+/**
+ * 実績と比較対象（予算・前年）から1軸ぶんの比較結果を作る。
+ * 売上は期間合計どうし、ADR・稼働率は「率」なので按分せず実績値と目標値を直接比較する。
+ */
+export function buildComparisonAxis(
+  actual: ActualAggregate,
+  budget: ComparisonTarget,
+  lastYear: ComparisonTarget
+): ComparisonAxis {
+  return {
+    budgetRevenue: budget.revenue,
+    budgetRevenueRatio: ratio(actual.revenue, budget.revenue),
+    budgetAdr: budget.adr,
+    budgetAdrRatio: ratio(actual.adr, budget.adr),
+    budgetOccupancy: budget.occupancy,
+    budgetOccupancyRatio: ratio(actual.occupancy, budget.occupancy),
+    lastYearRevenue: lastYear.revenue,
+    lastYearRevenueRatio: ratio(actual.revenue, lastYear.revenue),
+    lastYearAdr: lastYear.adr,
+    lastYearAdrRatio: ratio(actual.adr, lastYear.adr),
+    lastYearOccupancy: lastYear.occupancy,
+    lastYearOccupancyRatio: ratio(actual.occupancy, lastYear.occupancy),
+  }
+}
+
+/**
+ * 指定年月が属する年度の開始年月を返す（FISCAL_YEAR_START_MONTH 始まり）。
+ * 例: 2026年3月は2025年度 → { year: 2025, month: 4 }
+ */
+export function fiscalYearStart(
+  year: number,
+  month: number,
+  startMonth = FISCAL_YEAR_START_MONTH
+): { year: number; month: number } {
+  return { year: month >= startMonth ? year : year - 1, month: startMonth }
+}
+
+/**
+ * 複数月の予算レコードを年度累計の比較対象に畳み込む。
+ * ADRは売上÷室数の加重平均、稼働率は室数÷（客室数×期間日数）で再計算する。
+ */
+export function aggregateBudgets(
+  budgets: BudgetRecord[],
+  totalRooms: number,
+  periodDays: number
+): { budget: ComparisonTarget; lastYear: ComparisonTarget } {
+  const sum = (pick: (b: BudgetRecord) => number | null): number | null => {
+    const values = budgets.map(pick).filter((v): v is number => v != null)
+    return values.length > 0 ? values.reduce((a, b) => a + b, 0) : null
+  }
+
+  const roomNights = totalRooms * periodDays
+  const budgetRevenue = sum((b) => b.budgetRevenue)
+  const budgetRooms = sum((b) => b.budgetRooms)
+  const lastYearRevenue = sum((b) => b.lastYearRevenue)
+  const lastYearRooms = sum((b) => b.lastYearRooms)
+
+  return {
+    budget: {
+      revenue: budgetRevenue,
+      adr: budgetRevenue != null && budgetRooms ? Math.round(budgetRevenue / budgetRooms) : null,
+      occupancy:
+        budgetRooms != null && roomNights > 0 ? Math.round((budgetRooms / roomNights) * 1000) / 1000 : null,
+    },
+    lastYear: {
+      revenue: lastYearRevenue,
+      adr:
+        lastYearRevenue != null && lastYearRooms ? Math.round(lastYearRevenue / lastYearRooms) : null,
+      occupancy:
+        lastYearRooms != null && roomNights > 0
+          ? Math.round((lastYearRooms / roomNights) * 1000) / 1000
+          : null,
+    },
+  }
 }
 
 /**
@@ -51,51 +181,118 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
 
   const { start, end } = monthRange(year, month)
 
-  const [dailyData, budget, recommendations, simulation] = await Promise.all([
-    prisma.dailyData.findMany({
-      where: { hotelId, date: { gte: start, lt: end } },
-      orderBy: { date: 'asc' },
-    }),
-    prisma.monthlyBudget.findUnique({
-      where: { hotelId_year_month: { hotelId, year, month } },
-    }),
-    prisma.aiPriceRecommendation.findMany({
-      where: { hotelId, date: { gte: start, lt: end }, roomTypeId: null },
-      orderBy: { date: 'asc' },
-    }),
-    prisma.monthlyLandingSimulation.findUnique({
-      where: { hotelId_year_month: { hotelId, year, month } },
-    }),
-  ])
+  // 年度累計（F-DASH-02 第3軸）: 年度開始月から当月末までを集計対象にする
+  const fiscalStart = fiscalYearStart(year, month)
+  const fiscalStartDate = new Date(Date.UTC(fiscalStart.year, fiscalStart.month - 1, 1))
+
+  const [dailyData, budget, recommendations, simulation, fiscalDailyData, fiscalBudgets] =
+    await Promise.all([
+      prisma.dailyData.findMany({
+        where: { hotelId, date: { gte: start, lt: end } },
+        orderBy: { date: 'asc' },
+      }),
+      prisma.monthlyBudget.findUnique({
+        where: { hotelId_year_month: { hotelId, year, month } },
+      }),
+      prisma.aiPriceRecommendation.findMany({
+        where: { hotelId, date: { gte: start, lt: end }, roomTypeId: null },
+        orderBy: { date: 'asc' },
+      }),
+      prisma.monthlyLandingSimulation.findUnique({
+        where: { hotelId_year_month: { hotelId, year, month } },
+      }),
+      prisma.dailyData.findMany({
+        where: { hotelId, date: { gte: fiscalStartDate, lt: end } },
+        orderBy: { date: 'asc' },
+      }),
+      prisma.monthlyBudget.findMany({
+        where: {
+          hotelId,
+          OR: [
+            { year: fiscalStart.year, month: { gte: fiscalStart.month } },
+            ...(fiscalStart.year < year ? [{ year, month: { lte: month } }] : []),
+          ],
+        },
+      }),
+    ])
 
   // 実績集計（データが存在する日 = 本日までの実績）
   const actualDays = dailyData.filter((d) => d.totalRevenue != null)
   const summary = computeSummary(actualDays, hotel.totalRooms)
-  const totalRevenue = summary.roomRevenue
 
-  // 予算・前年比較（F-DASH-02）: 経過日数按分で「本日まで」の比率を出す
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
   const elapsedRatio = actualDays.length / daysInMonth
 
-  const comparison = budget
-    ? {
-        budgetRevenue: budget.budgetRevenue,
-        budgetRevenueToDate: budget.budgetRevenue != null ? Math.round(budget.budgetRevenue * elapsedRatio) : null,
-        budgetRatioToDate:
-          budget.budgetRevenue && budget.budgetRevenue > 0
-            ? Math.round((totalRevenue / (budget.budgetRevenue * elapsedRatio)) * 1000) / 1000
-            : null,
-        budgetAdr: budget.budgetAdr,
-        budgetOccupancy: budget.budgetOccupancy,
-        lastYearRevenue: budget.lastYearRevenue,
-        lastYearRatio:
-          budget.lastYearRevenue && budget.lastYearRevenue > 0
-            ? Math.round((totalRevenue / (budget.lastYearRevenue * elapsedRatio)) * 1000) / 1000
-            : null,
-        lastYearAdr: budget.lastYearAdr,
-        lastYearOccupancy: budget.lastYearOccupancy,
-      }
-    : null
+  // 予算・前年比較（F-DASH-02）: 「本日まで」「累計進捗」「年度累計」の3軸
+  const monthActual: ActualAggregate = {
+    revenue: summary.roomRevenue,
+    adr: summary.adr,
+    occupancy: summary.occupancyRate,
+  }
+
+  const comparison = (() => {
+    // 当月の予算・前年（月次レコード。未登録なら各値 null）
+    const monthBudget: ComparisonTarget = {
+      revenue: budget?.budgetRevenue ?? null,
+      adr: budget?.budgetAdr ?? null,
+      occupancy: budget?.budgetOccupancy ?? null,
+    }
+    const monthLastYear: ComparisonTarget = {
+      revenue: budget?.lastYearRevenue ?? null,
+      adr: budget?.lastYearAdr ?? null,
+      occupancy: budget?.lastYearOccupancy ?? null,
+    }
+
+    // 本日まで: 売上目標のみ経過日数で按分（ADR・稼働率は率なので按分しない）
+    const prorate = (value: number | null): number | null =>
+      value != null ? Math.round(value * elapsedRatio) : null
+    const toDate = buildComparisonAxis(
+      monthActual,
+      { ...monthBudget, revenue: prorate(monthBudget.revenue) },
+      { ...monthLastYear, revenue: prorate(monthLastYear.revenue) }
+    )
+
+    // 累計進捗: 月間予算フルに対する到達率
+    const cumulative = buildComparisonAxis(monthActual, monthBudget, monthLastYear)
+
+    // 年度累計: 年度開始月から当月実績までの累計どうしを比較
+    const fiscalActualDays = fiscalDailyData.filter((d) => d.totalRevenue != null)
+    const fiscalSummary = computeSummary(fiscalActualDays, hotel.totalRooms)
+    const fiscalTargets = aggregateBudgets(fiscalBudgets, hotel.totalRooms, fiscalActualDays.length)
+    const fiscalYear = buildComparisonAxis(
+      {
+        revenue: fiscalSummary.roomRevenue,
+        adr: fiscalSummary.adr,
+        occupancy: fiscalSummary.occupancyRate,
+      },
+      fiscalTargets.budget,
+      fiscalTargets.lastYear
+    )
+
+    return {
+      // 既存フィールド（後方互換のため維持）
+      budgetRevenue: budget?.budgetRevenue ?? null,
+      budgetRevenueToDate: toDate.budgetRevenue,
+      budgetRatioToDate: toDate.budgetRevenueRatio,
+      budgetAdr: budget?.budgetAdr ?? null,
+      budgetOccupancy: budget?.budgetOccupancy ?? null,
+      lastYearRevenue: budget?.lastYearRevenue ?? null,
+      lastYearRatio: toDate.lastYearRevenueRatio,
+      lastYearAdr: budget?.lastYearAdr ?? null,
+      lastYearOccupancy: budget?.lastYearOccupancy ?? null,
+      // 3軸（F-DASH-02）
+      toDate,
+      cumulative,
+      fiscalYear,
+      fiscalYearLabel: `${fiscalStart.year}年度（${fiscalStart.month}月〜${month}月）`,
+      actualSummary: {
+        fiscalRevenue: fiscalSummary.roomRevenue,
+        fiscalAdr: fiscalSummary.adr,
+        fiscalOccupancy: fiscalSummary.occupancyRate,
+        fiscalActualDays: fiscalSummary.actualDays,
+      },
+    }
+  })()
 
   // 日別推移: 実績 + AI予測（実績のない未来日は予測値 — F-DASH-03）
   const recommendationByDate = new Map(

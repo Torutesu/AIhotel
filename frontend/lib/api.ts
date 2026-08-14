@@ -207,6 +207,22 @@ export interface LoginResult {
   tokens: { accessToken: string; refreshToken: string }
 }
 
+/** 1軸ぶんの比較結果（F-DASH-02）。比率は実績÷目標、目標未設定なら null */
+export interface ComparisonAxis {
+  budgetRevenue: number | null
+  budgetRevenueRatio: number | null
+  budgetAdr: number | null
+  budgetAdrRatio: number | null
+  budgetOccupancy: number | null
+  budgetOccupancyRatio: number | null
+  lastYearRevenue: number | null
+  lastYearRevenueRatio: number | null
+  lastYearAdr: number | null
+  lastYearAdrRatio: number | null
+  lastYearOccupancy: number | null
+  lastYearOccupancyRatio: number | null
+}
+
 export interface DashboardKpi {
   hotelId: string
   year: number
@@ -232,6 +248,19 @@ export interface DashboardKpi {
     lastYearRatio: number | null
     lastYearAdr: number | null
     lastYearOccupancy: number | null
+    /** 本日まで（経過日数按分した予算との比較） */
+    toDate: ComparisonAxis
+    /** 累計進捗（月間予算フルに対する到達率） */
+    cumulative: ComparisonAxis
+    /** 年度累計（年度開始月から当月までの累計どうしの比較） */
+    fiscalYear: ComparisonAxis
+    fiscalYearLabel: string
+    actualSummary: {
+      fiscalRevenue: number
+      fiscalAdr: number
+      fiscalOccupancy: number
+      fiscalActualDays: number
+    }
   } | null
   dailyTrend: Array<{
     date: string
@@ -457,7 +486,8 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   const adr = soldRoomsSum > 0 ? Math.round(totalRevenue / soldRoomsSum) : 0
   const occupancyRate = actualDays > 0 ? soldRoomsSum / (totalRooms * actualDays) : 0
   const revPar = actualDays > 0 ? totalRevenue / (totalRooms * actualDays) : 0
-  const dor = actualDays > 0 ? Math.round((guestsSum / actualDays) * 10) / 10 : 0
+  // DOR = 宿泊人数 / 販売室数（1室あたり平均利用人数）
+  const dor = soldRoomsSum > 0 ? Math.round((guestsSum / soldRoomsSum) * 100) / 100 : 0
   const guestUnitPrice = guestsSum > 0 ? Math.round(totalRevenue / guestsSum) : 0
 
   const budgetOccupancy = 0.78
@@ -465,6 +495,39 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   const budgetRevenue = Math.round(budgetAdr * budgetOccupancy * totalRooms * numDays)
   const budgetRevenueToDate = actualDays > 0 ? Math.round((budgetRevenue / numDays) * actualDays) : null
   const lastYearRevenue = Math.round(budgetRevenue * 0.95)
+  const lastYearAdr = 17200
+  const lastYearOccupancy = 0.74
+
+  const mockRatio = (actual: number | null, target: number | null): number | null =>
+    actual == null || target == null || target === 0 ? null : Number((actual / target).toFixed(3))
+
+  const mockAxis = (
+    budgetRev: number | null,
+    lastYearRev: number | null,
+    actualRevenue: number,
+    actualAdr: number,
+    actualOccupancy: number
+  ): ComparisonAxis => ({
+    budgetRevenue: budgetRev,
+    budgetRevenueRatio: mockRatio(actualRevenue, budgetRev),
+    budgetAdr,
+    budgetAdrRatio: mockRatio(actualAdr, budgetAdr),
+    budgetOccupancy,
+    budgetOccupancyRatio: mockRatio(actualOccupancy, budgetOccupancy),
+    lastYearRevenue: lastYearRev,
+    lastYearRevenueRatio: mockRatio(actualRevenue, lastYearRev),
+    lastYearAdr,
+    lastYearAdrRatio: mockRatio(actualAdr, lastYearAdr),
+    lastYearOccupancy,
+    lastYearOccupancyRatio: mockRatio(actualOccupancy, lastYearOccupancy),
+  })
+
+  // 年度累計（4月始まり）のモック: 経過月数ぶんを当月実績から外挿する
+  const fiscalStartYear = month >= 4 ? year : year - 1
+  const elapsedFiscalMonths = month >= 4 ? month - 3 : month + 9
+  const fiscalRevenue = Math.round(totalRevenue * elapsedFiscalMonths * 0.98)
+  const fiscalBudgetRevenue = Math.round((budgetRevenueToDate ?? 0) * elapsedFiscalMonths)
+  const fiscalLastYearRevenue = Math.round(fiscalBudgetRevenue * 0.95)
 
   return {
     hotelId,
@@ -491,8 +554,30 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
             budgetOccupancy,
             lastYearRevenue,
             lastYearRatio: Number((totalRevenue / (lastYearRevenue * (actualDays / numDays))).toFixed(3)),
-            lastYearAdr: 17200,
-            lastYearOccupancy: 0.74,
+            lastYearAdr,
+            lastYearOccupancy,
+            toDate: mockAxis(
+              budgetRevenueToDate,
+              Math.round(lastYearRevenue * (actualDays / numDays)),
+              totalRevenue,
+              adr,
+              occupancyRate
+            ),
+            cumulative: mockAxis(budgetRevenue, lastYearRevenue, totalRevenue, adr, occupancyRate),
+            fiscalYear: mockAxis(
+              fiscalBudgetRevenue,
+              fiscalLastYearRevenue,
+              fiscalRevenue,
+              adr,
+              occupancyRate
+            ),
+            fiscalYearLabel: `${fiscalStartYear}年度（4月〜${month}月）`,
+            actualSummary: {
+              fiscalRevenue,
+              fiscalAdr: adr,
+              fiscalOccupancy: Number(occupancyRate.toFixed(3)),
+              fiscalActualDays: actualDays * elapsedFiscalMonths,
+            },
           }
         : null,
     dailyTrend,

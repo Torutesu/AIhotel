@@ -37,6 +37,15 @@ const SNAPSHOT_OPTIONS = [
   { value: "30", label: "1か月前時点" },
 ]
 
+// KPI進捗の比較軸（F-DASH-02）
+type ComparisonAxisKey = "toDate" | "cumulative" | "fiscalYear"
+
+const COMPARISON_AXES: Array<{ key: ComparisonAxisKey; label: string; description: string }> = [
+  { key: "toDate", label: "本日まで", description: "経過日数で按分した予算に対する進捗ペース" },
+  { key: "cumulative", label: "累計進捗", description: "月間予算に対する現時点の到達率" },
+  { key: "fiscalYear", label: "年度累計", description: "年度開始月から当月までの累計どうしの比較" },
+]
+
 function createSeededRandom(seed: number): () => number {
   let state = seed >>> 0
   return () => {
@@ -75,6 +84,9 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
 
   // 在庫表の比較時点（残室推移の記録データと比較する想定。対応APIがないためモック表示）
   const [snapshotPeriod, setSnapshotPeriod] = useState("7")
+
+  // KPI進捗の比較軸（F-DASH-02: 本日まで／累計進捗／年度累計）
+  const [comparisonAxis, setComparisonAxis] = useState<ComparisonAxisKey>("toDate")
 
   // 日付比較設定（対応APIがないため参考値表示のまま）
   const [comparisonType, setComparisonType] = useState<"previousDay" | "weekAgo" | "lastMonth" | "custom">("previousDay")
@@ -185,19 +197,34 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
     })
   }, [kpi, todayKey])
 
+  // 表示中の比較軸（F-DASH-02: 本日まで／累計進捗／年度累計）
+  const axis = useMemo(() => {
+    if (!kpi?.comparison) return null
+    return kpi.comparison[comparisonAxis] ?? null
+  }, [kpi, comparisonAxis])
+
   // KPI進捗テーブル用の行（実データのみ。バックエンドが提供しない比較値は「-」表示）
   const kpiRows = useMemo(() => {
     if (!kpi) return []
     const { summary, comparison, simulation } = kpi
+    // 年度累計軸では実績側も年度累計値を使う
+    const isFiscal = comparisonAxis === "fiscalYear"
+    const revenueActual = isFiscal
+      ? (comparison?.actualSummary.fiscalRevenue ?? summary.roomRevenue)
+      : summary.roomRevenue
+    const adrActual = isFiscal ? (comparison?.actualSummary.fiscalAdr ?? summary.adr) : summary.adr
+    const occupancyActual = isFiscal
+      ? (comparison?.actualSummary.fiscalOccupancy ?? summary.occupancyRate)
+      : summary.occupancyRate
 
     return [
       {
         label: "室料売上",
-        actual: formatYen(summary.roomRevenue),
-        budgetRatio: comparison?.budgetRatioToDate != null ? formatPercent(comparison.budgetRatioToDate) : "-",
-        budgetNegative: comparison?.budgetRatioToDate != null && comparison.budgetRatioToDate < 0.95,
-        lastYearRatio: comparison?.lastYearRatio != null ? formatPercent(comparison.lastYearRatio) : "-",
-        lastYearNegative: comparison?.lastYearRatio != null && comparison.lastYearRatio < 0.95,
+        actual: formatYen(revenueActual),
+        budgetRatio: axis?.budgetRevenueRatio != null ? formatPercent(axis.budgetRevenueRatio) : "-",
+        budgetNegative: axis?.budgetRevenueRatio != null && axis.budgetRevenueRatio < 0.95,
+        lastYearRatio: axis?.lastYearRevenueRatio != null ? formatPercent(axis.lastYearRevenueRatio) : "-",
+        lastYearNegative: axis?.lastYearRevenueRatio != null && axis.lastYearRevenueRatio < 0.95,
         aiPrediction: formatYen(simulation?.projectedRevenue),
         aiBudgetRatio: formatRatio(simulation?.projectedRevenue, comparison?.budgetRevenue),
         aiBudgetNegative: ratioNegative(simulation?.projectedRevenue, comparison?.budgetRevenue),
@@ -219,11 +246,11 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       },
       {
         label: "ADR",
-        actual: formatYen(summary.adr),
-        budgetRatio: formatRatio(summary.adr, comparison?.budgetAdr),
-        budgetNegative: ratioNegative(summary.adr, comparison?.budgetAdr),
-        lastYearRatio: formatRatio(summary.adr, comparison?.lastYearAdr),
-        lastYearNegative: ratioNegative(summary.adr, comparison?.lastYearAdr),
+        actual: formatYen(adrActual),
+        budgetRatio: axis?.budgetAdrRatio != null ? formatPercent(axis.budgetAdrRatio) : "-",
+        budgetNegative: axis?.budgetAdrRatio != null && axis.budgetAdrRatio < 0.95,
+        lastYearRatio: axis?.lastYearAdrRatio != null ? formatPercent(axis.lastYearAdrRatio) : "-",
+        lastYearNegative: axis?.lastYearAdrRatio != null && axis.lastYearAdrRatio < 0.95,
         aiPrediction: formatYen(simulation?.projectedAdr),
         aiBudgetRatio: formatRatio(simulation?.projectedAdr, comparison?.budgetAdr),
         aiBudgetNegative: ratioNegative(simulation?.projectedAdr, comparison?.budgetAdr),
@@ -232,11 +259,12 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       },
       {
         label: "稼働率",
-        actual: formatPercent(summary.occupancyRate),
-        budgetRatio: formatRatio(summary.occupancyRate, comparison?.budgetOccupancy),
-        budgetNegative: ratioNegative(summary.occupancyRate, comparison?.budgetOccupancy),
-        lastYearRatio: formatRatio(summary.occupancyRate, comparison?.lastYearOccupancy),
-        lastYearNegative: ratioNegative(summary.occupancyRate, comparison?.lastYearOccupancy),
+        actual: formatPercent(occupancyActual),
+        budgetRatio: axis?.budgetOccupancyRatio != null ? formatPercent(axis.budgetOccupancyRatio) : "-",
+        budgetNegative: axis?.budgetOccupancyRatio != null && axis.budgetOccupancyRatio < 0.95,
+        lastYearRatio:
+          axis?.lastYearOccupancyRatio != null ? formatPercent(axis.lastYearOccupancyRatio) : "-",
+        lastYearNegative: axis?.lastYearOccupancyRatio != null && axis.lastYearOccupancyRatio < 0.95,
         aiPrediction: formatPercent(simulation?.projectedOccupancy),
         aiBudgetRatio: formatRatio(simulation?.projectedOccupancy, comparison?.budgetOccupancy),
         aiBudgetNegative: ratioNegative(simulation?.projectedOccupancy, comparison?.budgetOccupancy),
@@ -713,7 +741,36 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
           <div className="flex items-center justify-between flex-wrap gap-2">
             <h2 className="text-lg font-heading font-medium tracking-tight">KPI進捗状況</h2>
             <p className="text-xs text-muted-foreground">
-              {kpi ? `${kpi.summary.actualDays}日分の実績を集計` : ""}
+              {kpi
+                ? comparisonAxis === "fiscalYear" && kpi.comparison
+                  ? `${kpi.comparison.actualSummary.fiscalActualDays}日分の実績を集計（年度累計）`
+                  : `${kpi.summary.actualDays}日分の実績を集計`
+                : ""}
+            </p>
+          </div>
+
+          {/* 比較軸の切り替え（F-DASH-02） */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {COMPARISON_AXES.map((option) => (
+                <button
+                  key={option.key}
+                  onClick={() => setComparisonAxis(option.key)}
+                  title={option.description}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    comparisonAxis === option.key
+                      ? "border-transparent bg-primary text-primary-foreground"
+                      : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  }`}
+                >
+                  {option.key === "fiscalYear" && kpi?.comparison
+                    ? kpi.comparison.fiscalYearLabel
+                    : option.label}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {COMPARISON_AXES.find((o) => o.key === comparisonAxis)?.description}
             </p>
           </div>
 
@@ -727,9 +784,15 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                     <thead>
                       <tr className="border-b bg-muted/30">
                         <th className="text-center py-1.5 px-2 font-medium border-r">指標</th>
-                        <th className="text-center py-1.5 px-2 font-medium border-r">当月実績</th>
-                        <th className="text-center py-1.5 px-2 font-medium border-r">予算比</th>
-                        <th className="text-center py-1.5 px-2 font-medium border-r">前年比</th>
+                        <th className="text-center py-1.5 px-2 font-medium border-r">
+                          {comparisonAxis === "fiscalYear" ? "年度累計実績" : "当月実績"}
+                        </th>
+                        <th className="text-center py-1.5 px-2 font-medium border-r">
+                          予算比（{COMPARISON_AXES.find((o) => o.key === comparisonAxis)?.label}）
+                        </th>
+                        <th className="text-center py-1.5 px-2 font-medium border-r">
+                          前年比（{COMPARISON_AXES.find((o) => o.key === comparisonAxis)?.label}）
+                        </th>
                         <th className="text-center py-1.5 px-2 font-medium border-r">AI着地予測</th>
                         <th className="text-center py-1.5 px-2 font-medium border-r">対予算(AI)</th>
                         <th className="text-center py-1.5 px-2 font-medium">対前年(AI)</th>
