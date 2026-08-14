@@ -84,7 +84,12 @@ const MOCK_HOTEL: Hotel = {
 }
 
 function isDemoModeEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+  // 明示的に "false" が設定されたときだけ無効化する。
+  // ホスティング側の環境変数が未設定・値の誤り（例: "ture"）でもデモ表示が維持されるよう、
+  // 「既定で有効・明示的に無効化」の向きにしている。
+  // なおフォールバックの発動条件はバックエンドに到達できない場合のみで、
+  // 実APIが応答する限り常に実データを優先する。
+  return process.env.NEXT_PUBLIC_DEMO_MODE !== "false"
 }
 
 // ---- デモデータ表示状態（バナー通知用） ----

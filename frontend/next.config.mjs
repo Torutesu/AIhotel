@@ -7,10 +7,11 @@ const __dirname = path.dirname(__filename)
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   env: {
-    // デモモードの既定値。バックエンド未接続時のみダミーデータへフォールバックし、
-    // その場合は画面上部にデモ表示バナーを出す（サイレントフォールバックはしない）。
-    // バックエンドを接続したら Vercel の環境変数に NEXT_PUBLIC_DEMO_MODE=false を設定して無効化する。
-    NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE ?? 'true',
+    // デモモードは lib/api.ts 側で「"false" のときだけ無効」と判定する。
+    // 未設定時に process.env.NEXT_PUBLIC_DEMO_MODE が undefined へインライン化されても
+    // 有効側に倒れるため、ここでは値をそのまま渡すだけにしている。
+    // バックエンドを接続したら、ホスティング側の環境変数に NEXT_PUBLIC_DEMO_MODE=false を設定して無効化する。
+    NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE ?? '',
   },
   images: {
     unoptimized: true,
