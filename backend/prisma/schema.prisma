@@ -404,6 +404,8 @@ model Alert {
   hotelId    String
   hotel      Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   severity   AlertSeverity
+  /// 重要度レベル 1-5（5が最重要）。ダッシュボードには5・4のみ表示する（F-DASH-05）
+  level      Int           @default(3)
   title      String
   message    String
   linkTab    String? // 遷移先タブ (dashboard/pricing/daily/analysis/reports/settings)
@@ -416,6 +418,7 @@ model Alert {
 
   @@index([tenantId])
   @@index([hotelId, status])
+  @@index([hotelId, level, status])
 }
 
 enum AlertSeverity {

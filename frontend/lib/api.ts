@@ -207,6 +207,22 @@ export interface LoginResult {
   tokens: { accessToken: string; refreshToken: string }
 }
 
+/** 1軸ぶんの比較結果（F-DASH-02）。比率は実績÷目標、目標未設定なら null */
+export interface ComparisonAxis {
+  budgetRevenue: number | null
+  budgetRevenueRatio: number | null
+  budgetAdr: number | null
+  budgetAdrRatio: number | null
+  budgetOccupancy: number | null
+  budgetOccupancyRatio: number | null
+  lastYearRevenue: number | null
+  lastYearRevenueRatio: number | null
+  lastYearAdr: number | null
+  lastYearAdrRatio: number | null
+  lastYearOccupancy: number | null
+  lastYearOccupancyRatio: number | null
+}
+
 export interface DashboardKpi {
   hotelId: string
   year: number
@@ -232,6 +248,19 @@ export interface DashboardKpi {
     lastYearRatio: number | null
     lastYearAdr: number | null
     lastYearOccupancy: number | null
+    /** 本日まで（経過日数按分した予算との比較） */
+    toDate: ComparisonAxis
+    /** 累計進捗（月間予算フルに対する到達率） */
+    cumulative: ComparisonAxis
+    /** 年度累計（年度開始月から当月までの累計どうしの比較） */
+    fiscalYear: ComparisonAxis
+    fiscalYearLabel: string
+    actualSummary: {
+      fiscalRevenue: number
+      fiscalAdr: number
+      fiscalOccupancy: number
+      fiscalActualDays: number
+    }
   } | null
   dailyTrend: Array<{
     date: string
@@ -239,6 +268,9 @@ export interface DashboardKpi {
     adr: number | null
     predictedOccupancy: number | null
     predictedAdr: number | null
+    /** 前年同月同日の実績（グラフ重ね描き用 — F-DASH-03） */
+    lastYearOccupancy: number | null
+    lastYearAdr: number | null
     isActual: boolean
   }>
   simulation: {
@@ -252,6 +284,8 @@ export interface DashboardKpi {
 export interface AlertItem {
   id: string
   severity: "RED" | "YELLOW"
+  /** 重要度 1-5（5が最重要）。ダッシュボードは5・4のみ表示（F-DASH-05） */
+  level: number
   title: string
   message: string
   linkTab: string | null
@@ -450,6 +484,9 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
       adr: isActual ? adr : null,
       predictedOccupancy: Number(Math.min(1, occupancy + (rng() - 0.5) * 0.06).toFixed(3)),
       predictedAdr: Math.round(adr * (1 + (rng() - 0.5) * 0.05)),
+      // 前年同月同日の実績（モックでは当年から数%低い水準として生成）
+      lastYearOccupancy: Number(Math.max(0.2, occupancy * (0.93 + rng() * 0.06)).toFixed(3)),
+      lastYearAdr: Math.round(adr * (0.9 + rng() * 0.06)),
       isActual,
     })
   }
@@ -457,7 +494,8 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   const adr = soldRoomsSum > 0 ? Math.round(totalRevenue / soldRoomsSum) : 0
   const occupancyRate = actualDays > 0 ? soldRoomsSum / (totalRooms * actualDays) : 0
   const revPar = actualDays > 0 ? totalRevenue / (totalRooms * actualDays) : 0
-  const dor = actualDays > 0 ? Math.round((guestsSum / actualDays) * 10) / 10 : 0
+  // DOR = 宿泊人数 / 販売室数（1室あたり平均利用人数）
+  const dor = soldRoomsSum > 0 ? Math.round((guestsSum / soldRoomsSum) * 100) / 100 : 0
   const guestUnitPrice = guestsSum > 0 ? Math.round(totalRevenue / guestsSum) : 0
 
   const budgetOccupancy = 0.78
@@ -465,6 +503,39 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   const budgetRevenue = Math.round(budgetAdr * budgetOccupancy * totalRooms * numDays)
   const budgetRevenueToDate = actualDays > 0 ? Math.round((budgetRevenue / numDays) * actualDays) : null
   const lastYearRevenue = Math.round(budgetRevenue * 0.95)
+  const lastYearAdr = 17200
+  const lastYearOccupancy = 0.74
+
+  const mockRatio = (actual: number | null, target: number | null): number | null =>
+    actual == null || target == null || target === 0 ? null : Number((actual / target).toFixed(3))
+
+  const mockAxis = (
+    budgetRev: number | null,
+    lastYearRev: number | null,
+    actualRevenue: number,
+    actualAdr: number,
+    actualOccupancy: number
+  ): ComparisonAxis => ({
+    budgetRevenue: budgetRev,
+    budgetRevenueRatio: mockRatio(actualRevenue, budgetRev),
+    budgetAdr,
+    budgetAdrRatio: mockRatio(actualAdr, budgetAdr),
+    budgetOccupancy,
+    budgetOccupancyRatio: mockRatio(actualOccupancy, budgetOccupancy),
+    lastYearRevenue: lastYearRev,
+    lastYearRevenueRatio: mockRatio(actualRevenue, lastYearRev),
+    lastYearAdr,
+    lastYearAdrRatio: mockRatio(actualAdr, lastYearAdr),
+    lastYearOccupancy,
+    lastYearOccupancyRatio: mockRatio(actualOccupancy, lastYearOccupancy),
+  })
+
+  // 年度累計（4月始まり）のモック: 経過月数ぶんを当月実績から外挿する
+  const fiscalStartYear = month >= 4 ? year : year - 1
+  const elapsedFiscalMonths = month >= 4 ? month - 3 : month + 9
+  const fiscalRevenue = Math.round(totalRevenue * elapsedFiscalMonths * 0.98)
+  const fiscalBudgetRevenue = Math.round((budgetRevenueToDate ?? 0) * elapsedFiscalMonths)
+  const fiscalLastYearRevenue = Math.round(fiscalBudgetRevenue * 0.95)
 
   return {
     hotelId,
@@ -491,8 +562,30 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
             budgetOccupancy,
             lastYearRevenue,
             lastYearRatio: Number((totalRevenue / (lastYearRevenue * (actualDays / numDays))).toFixed(3)),
-            lastYearAdr: 17200,
-            lastYearOccupancy: 0.74,
+            lastYearAdr,
+            lastYearOccupancy,
+            toDate: mockAxis(
+              budgetRevenueToDate,
+              Math.round(lastYearRevenue * (actualDays / numDays)),
+              totalRevenue,
+              adr,
+              occupancyRate
+            ),
+            cumulative: mockAxis(budgetRevenue, lastYearRevenue, totalRevenue, adr, occupancyRate),
+            fiscalYear: mockAxis(
+              fiscalBudgetRevenue,
+              fiscalLastYearRevenue,
+              fiscalRevenue,
+              adr,
+              occupancyRate
+            ),
+            fiscalYearLabel: `${fiscalStartYear}年度（4月〜${month}月）`,
+            actualSummary: {
+              fiscalRevenue,
+              fiscalAdr: adr,
+              fiscalOccupancy: Number(occupancyRate.toFixed(3)),
+              fiscalActualDays: actualDays * elapsedFiscalMonths,
+            },
           }
         : null,
     dailyTrend,
@@ -505,17 +598,18 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   }
 }
 
-function mockAlerts(): AlertItem[] {
+function mockAlerts(minLevel?: number): AlertItem[] {
   const today = new Date()
   const plusDays = (n: number) => {
     const d = new Date(today)
     d.setDate(d.getDate() + n)
     return toLocalDateStr(d)
   }
-  return [
+  const all: AlertItem[] = [
     {
       id: "mock-alert-1",
       severity: "RED",
+      level: 5,
       title: "稼働率が予算を大幅に下回っています",
       message: "来週火曜の予約積上が予算比 -18pt です。価格ランクの引き下げを検討してください。",
       linkTab: "pricing",
@@ -526,14 +620,49 @@ function mockAlerts(): AlertItem[] {
     {
       id: "mock-alert-2",
       severity: "YELLOW",
-      title: "競合平均価格との乖離が拡大",
-      message: "今週末の自社価格が競合平均より 12% 高くなっています。経過観察してください。",
+      level: 4,
+      title: "競合価格との乖離が拡大",
+      message: "今週末の自社価格が競合水準より 12% 高くなっています。経過観察してください。",
       linkTab: "daily",
       targetDate: plusDays(2),
       status: "OPEN",
       detectedAt: today.toISOString(),
     },
+    {
+      id: "mock-alert-3",
+      severity: "YELLOW",
+      level: 3,
+      title: "OTA別の予約構成比に変化",
+      message: "公式サイト経由の構成比が前月比 -4pt です。チャネル分析で推移を確認してください。",
+      linkTab: "analysis",
+      targetDate: plusDays(7),
+      status: "OPEN",
+      detectedAt: today.toISOString(),
+    },
+    {
+      id: "mock-alert-4",
+      severity: "YELLOW",
+      level: 2,
+      title: "翌月の予算未登録",
+      message: "翌月の予算データが未登録です。設定画面から登録してください。",
+      linkTab: "settings",
+      targetDate: null,
+      status: "OPEN",
+      detectedAt: today.toISOString(),
+    },
+    {
+      id: "mock-alert-5",
+      severity: "YELLOW",
+      level: 1,
+      title: "料金ランクの見直し推奨",
+      message: "直近30日で未使用の料金ランクが3件あります。マスタ整理を検討してください。",
+      linkTab: "settings",
+      targetDate: null,
+      status: "OPEN",
+      detectedAt: today.toISOString(),
+    },
   ]
+  return minLevel != null ? all.filter((a) => a.level >= minLevel) : all
 }
 
 function mockAiSummary(section?: string): AiSummary {
@@ -678,10 +807,12 @@ export const api = {
     )
   },
 
-  alerts(hotelId: string): Promise<AlertItem[]> {
+  /** minLevel を指定するとその重要度以上のみ取得（ダッシュボードは4＝Level 5・4のみ） */
+  alerts(hotelId: string, minLevel?: number): Promise<AlertItem[]> {
+    const levelParam = minLevel != null ? `&minLevel=${minLevel}` : ""
     return withDemoFallback(
-      () => rawRequest(`/api/v1/dashboard/alerts?hotelId=${hotelId}`),
-      () => mockAlerts()
+      () => rawRequest(`/api/v1/dashboard/alerts?hotelId=${hotelId}${levelParam}`),
+      () => mockAlerts(minLevel)
     )
   },
 

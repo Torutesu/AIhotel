@@ -178,7 +178,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
 
           <div className="space-y-2">
             <Label className="font-semibold">表示項目</Label>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <div className="flex items-center gap-2">
                 <Checkbox
                   id={`${title}-rooms`}
@@ -214,14 +214,14 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <Label className="font-semibold w-24">個人・団体・TOTAL</Label>
             <RadioGroup
               value={settings.individualGroupTotal}
               onValueChange={(value: "individual" | "group" | "total") =>
                 onChange({ ...settings, individualGroupTotal: value })
               }
-              className="flex gap-4"
+              className="flex gap-4 flex-wrap"
             >
               <div className="flex items-center gap-2">
                 <RadioGroupItem value="individual" id={`${title}-individual`} />
@@ -266,12 +266,12 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           <CardTitle className="text-lg">期間設定</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               <Label className="font-semibold">FROM</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
+                  <Button variant="outline" className="w-full sm:w-[240px] justify-start text-left font-normal">
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {dateFrom ? format(dateFrom, "yyyy年MM月dd日", { locale: ja }) : "日付を選択"}
                   </Button>
@@ -281,11 +281,11 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
                 </PopoverContent>
               </Popover>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Label className="font-semibold">TO</Label>
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
+                  <Button variant="outline" className="w-full sm:w-[240px] justify-start text-left font-normal">
                     <CalendarIcon className="mr-2 h-4 w-4" />
                     {dateTo ? format(dateTo, "yyyy年MM月dd日", { locale: ja }) : "日付を選択"}
                   </Button>
@@ -305,12 +305,12 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           <CardTitle className="text-lg">表示方法</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <Label className="font-semibold">表示モード</Label>
             <RadioGroup
               value={displayMode}
               onValueChange={(value: DisplayMode) => setDisplayMode(value)}
-              className="flex gap-4"
+              className="flex gap-4 flex-wrap"
             >
               <div className="flex items-center gap-2">
                 <RadioGroupItem value="table" id="display-table" />
@@ -324,12 +324,12 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           </div>
 
           {displayMode === "graph" && (
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <Label className="font-semibold">グラフ種類</Label>
               <RadioGroup
                 value={graphType}
                 onValueChange={(value: GraphType) => setGraphType(value)}
-                className="flex gap-4"
+                className="flex gap-4 flex-wrap"
               >
                 <div className="flex items-center gap-2">
                   <RadioGroupItem value="total" id="graph-total" />
@@ -367,12 +367,12 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           <CardTitle className="text-lg font-semibold">タイプ組合せ分析</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
             <Label className="font-semibold">表示方法</Label>
             <RadioGroup
               value={reservationTypeView}
               onValueChange={(value: "reservation" | "group") => setReservationTypeView(value)}
-              className="flex gap-4"
+              className="flex gap-4 flex-wrap"
             >
               <div className="flex items-center gap-2">
                 <RadioGroupItem value="reservation" id="type-reservation" />
@@ -413,7 +413,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
       <div className="sticky bottom-0 bg-background border-t p-4 shadow-lg">
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="include-batch"

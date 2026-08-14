@@ -46,7 +46,7 @@ const externalFactorsData: Record<string, { name: string; icon: LucideIcon; colo
   climate: {
     name: "気候要因",
     icon: Sun,
-    color: "hsl(var(--chart-1))",
+    color: "var(--chart-1)",
     factors: [
       {
         name: "気温",
@@ -86,7 +86,7 @@ const externalFactorsData: Record<string, { name: string; icon: LucideIcon; colo
   inbound: {
     name: "インバウンド動向",
     icon: Plane,
-    color: "hsl(var(--chart-2))",
+    color: "var(--chart-2)",
     factors: [
       {
         name: "JNTOデータ",
@@ -123,7 +123,7 @@ const externalFactorsData: Record<string, { name: string; icon: LucideIcon; colo
   events: {
     name: "イベント",
     icon: Calendar,
-    color: "hsl(var(--chart-3))",
+    color: "var(--chart-3)",
     factors: [
       {
         name: "桜開花",
@@ -160,7 +160,7 @@ const externalFactorsData: Record<string, { name: string; icon: LucideIcon; colo
   access: {
     name: "アクセス",
     icon: Plane,
-    color: "hsl(var(--chart-4))",
+    color: "var(--chart-4)",
     factors: [
       {
         name: "国際線",
@@ -197,7 +197,7 @@ const externalFactorsData: Record<string, { name: string; icon: LucideIcon; colo
   hotels: {
     name: "新規ホテル",
     icon: Building2,
-    color: "hsl(var(--chart-5))",
+    color: "var(--chart-5)",
     factors: [
       {
         name: "周辺新規開業",
@@ -228,10 +228,10 @@ const weeklyDetailData = [
 
 // チャート設定
 const forecastChartConfig = {
-  demandIndex: { label: "総合需要指数", color: "hsl(var(--chart-1))" },
-  climate: { label: "気候要因", color: "hsl(var(--chart-2))" },
-  inbound: { label: "インバウンド", color: "hsl(var(--chart-3))" },
-  events: { label: "イベント", color: "hsl(var(--chart-4))" },
+  demandIndex: { label: "総合需要指数", color: "var(--chart-1)" },
+  climate: { label: "気候要因", color: "var(--chart-2)" },
+  inbound: { label: "インバウンド", color: "var(--chart-3)" },
+  events: { label: "イベント", color: "var(--chart-4)" },
 }
 
 const weeklyChartConfig = {
@@ -242,14 +242,14 @@ const weeklyChartConfig = {
 }
 
 function TrendIcon({ trend }: { trend: string }) {
-  if (trend === "up") return <TrendingUp className="w-4 h-4 text-green-500" />
-  if (trend === "down") return <TrendingDown className="w-4 h-4 text-red-500" />
-  return <Minus className="w-4 h-4 text-gray-400" />
+  if (trend === "up") return <TrendingUp className="w-4 h-4 text-positive" />
+  if (trend === "down") return <TrendingDown className="w-4 h-4 text-negative" />
+  return <Minus className="w-4 h-4 text-muted-foreground" />
 }
 
 function StatusBadge({ status }: { status: string }) {
-  if (status === "positive") return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">好調</Badge>
-  if (status === "warning") return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">注意</Badge>
+  if (status === "positive") return <Badge className="bg-positive/10 text-positive">好調</Badge>
+  if (status === "warning") return <Badge className="bg-warning/10 text-warning">注意</Badge>
   if (status === "normal") return <Badge variant="secondary">通常</Badge>
   return <Badge variant="outline">-</Badge>
 }
@@ -269,10 +269,10 @@ export function AISummaryTab() {
       </div>
 
       {/* AI総合コメント */}
-      <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 dark:from-blue-950/30 dark:to-indigo-950/30 dark:border-blue-800">
+      <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-blue-500" />
+            <Sparkles className="w-5 h-5 text-primary" />
             AI総合予測コメント
           </CardTitle>
         </CardHeader>
@@ -280,15 +280,15 @@ export function AISummaryTab() {
           <div className="space-y-4 text-sm leading-relaxed">
             <p>
               <strong>【先6ヶ月の総合見通し】</strong><br />
-              2026年2月〜7月の期間は、<span className="text-blue-600 dark:text-blue-400 font-medium">3月下旬〜5月上旬が最大の需要期</span>となる見込みです。
+              2026年2月〜7月の期間は、<span className="brand-highlight">3月下旬〜5月上旬が最大の需要期</span>となる見込みです。
               中国春節（2月上旬）のインバウンド需要に始まり、桜シーズン・ゴールデンウィークと続く高需要期間では、
               価格戦略の最適化が収益最大化の鍵となります。
             </p>
             <p>
               <strong>【注意事項】</strong><br />
-              <span className="text-amber-600 dark:text-amber-400">6月の梅雨シーズン</span>は需要が大幅に落ち込む予測のため、
+              <span className="text-warning">6月の梅雨シーズン</span>は需要が大幅に落ち込む予測のため、
               早期の価格調整とプロモーション施策の準備を推奨します。
-              また、<span className="text-amber-600 dark:text-amber-400">4月に周辺で2軒の新規ホテルが開業予定</span>のため、
+              また、<span className="text-warning">4月に周辺で2軒の新規ホテルが開業予定</span>のため、
               競合動向の監視を強化してください。
             </p>
             <p>
@@ -320,12 +320,12 @@ export function AISummaryTab() {
               <YAxis domain={[0, 120]} className="text-xs" />
               <ChartTooltip content={<ChartTooltipContent />} />
               <Legend />
-              <ReferenceArea x1="3月" x2="5月" fill="hsl(var(--chart-3))" fillOpacity={0.1} />
+              <ReferenceArea x1="3月" x2="5月" fill="var(--chart-3)" fillOpacity={0.1} />
               <ReferenceLine y={80} stroke="hsl(var(--muted-foreground))" strokeDasharray="5 5" label={{ value: "平均", position: "right", fontSize: 10 }} />
-              <Area type="monotone" dataKey="demandIndex" name="総合需要指数" fill="hsl(var(--chart-1))" fillOpacity={0.3} stroke="hsl(var(--chart-1))" strokeWidth={2} />
-              <Line type="monotone" dataKey="inbound" name="インバウンド" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="events" name="イベント" stroke="hsl(var(--chart-3))" strokeWidth={2} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="climate" name="気候" stroke="hsl(var(--chart-4))" strokeWidth={2} dot={{ r: 4 }} />
+              <Area type="monotone" dataKey="demandIndex" name="総合需要指数" fill="var(--chart-1)" fillOpacity={0.3} stroke="var(--chart-1)" strokeWidth={2} />
+              <Line type="monotone" dataKey="inbound" name="インバウンド" stroke="var(--chart-2)" strokeWidth={2} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="events" name="イベント" stroke="var(--chart-3)" strokeWidth={2} dot={{ r: 4 }} />
+              <Line type="monotone" dataKey="climate" name="気候" stroke="var(--chart-4)" strokeWidth={2} dot={{ r: 4 }} />
             </ComposedChart>
           </ChartContainer>
           <p className="mt-4 text-sm text-muted-foreground leading-relaxed">
@@ -418,9 +418,9 @@ export function AISummaryTab() {
       </div>
 
       {/* 注意事項 */}
-      <Card className="bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800">
+      <Card className="bg-warning/10 border-warning/30">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+          <CardTitle className="flex items-center gap-2 text-warning">
             <AlertTriangle className="w-5 h-5" />
             今後の注意事項
           </CardTitle>
@@ -428,14 +428,14 @@ export function AISummaryTab() {
         <CardContent>
           <div className="space-y-2 text-sm">
             <div className="flex items-start gap-2">
-              <CloudRain className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
+              <CloudRain className="w-4 h-4 mt-0.5 text-warning flex-shrink-0" />
               <div>
                 <span className="font-medium">梅雨シーズン（6月）</span>: 需要指数は<span className="tabular-nums font-medium">70</span>
                 前後まで低下する見込み（前年同月比<span className="tabular-nums">-8.1%</span>想定）。早期の価格調整とプロモーション施策を準備してください。
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <Building2 className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
+              <Building2 className="w-4 h-4 mt-0.5 text-warning flex-shrink-0" />
               <div>
                 <span className="font-medium">新規ホテル開業（4月）</span>: 周辺<span className="tabular-nums">2</span>軒・計
                 <span className="tabular-nums">186</span>室の供給増。推定で稼働率
@@ -443,7 +443,7 @@ export function AISummaryTab() {
               </div>
             </div>
             <div className="flex items-start gap-2">
-              <ExternalLink className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
+              <ExternalLink className="w-4 h-4 mt-0.5 text-warning flex-shrink-0" />
               <div>
                 <span className="font-medium">インバウンド動向</span>: 中国春節期間中（2/1〜2/12頃）はピーク日で新規予約
                 <span className="tabular-nums">+340</span>件/日（前年比<span className="tabular-nums">+19%</span>）のシナリオ。オペレーションと在庫配分の余裕を確保してください。

@@ -21,7 +21,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
       id: "1",
       role: "assistant",
       content:
-        "こんにちは！ホテル収益管理システムのAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。",
+        "こんにちは！ホテレベのAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。",
       timestamp: new Date(),
     },
   ])
@@ -120,15 +120,15 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed bottom-24 right-6 w-[420px] h-[600px] bg-card border border-border rounded-xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 md:inset-auto md:bottom-24 md:right-6 w-full md:w-[420px] h-full md:h-[600px] bg-card border-0 md:border border-border rounded-none md:rounded-lg shadow-xs flex flex-col overflow-hidden z-30">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border bg-gradient-to-r from-primary/5 to-primary/10">
+      <div className="flex items-center justify-between p-4 border-b border-border bg-muted/50">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-primary" />
+          <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
+            <Sparkles className="w-5 h-5 text-foreground" />
           </div>
           <div>
-            <h3 className="font-semibold">AIアシスタント</h3>
+            <h3 className="font-heading font-medium tracking-tight">AIアシスタント</h3>
             <p className="text-xs text-muted-foreground">収益管理をサポート</p>
           </div>
         </div>

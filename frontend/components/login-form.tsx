@@ -34,10 +34,13 @@ export function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-xl font-semibold">AI Revenue Management</CardTitle>
+          <div className="mb-1 flex items-center gap-2">
+            <span className="inline-block h-2 w-2 rounded-full bg-primary" aria-hidden />
+            <CardTitle className="text-2xl font-semibold tracking-tight">ホテレベ</CardTitle>
+          </div>
           <CardDescription>ホテル収益管理システムにログインしてください</CardDescription>
         </CardHeader>
         <CardContent>
@@ -80,7 +83,7 @@ export function LoginForm() {
             </Button>
           </form>
 
-          <div className="mt-4 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
+          <div className="mt-4 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
             <p className="font-medium">デモアカウント</p>
             <p>メール: admin@demo-hotel.example.com</p>
             <p>パスワード: Admin1234</p>

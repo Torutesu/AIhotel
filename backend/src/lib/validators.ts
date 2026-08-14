@@ -218,6 +218,15 @@ export const hotelIdQuerySchema = z.object({
   hotelId: entityIdSchema,
 })
 
+/**
+ * アラート一覧のクエリ（F-DASH-05）
+ * minLevel: この値以上の重要度のみ返す。ダッシュボードは4（Level 5・4のみ表示）
+ */
+export const alertsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  minLevel: z.coerce.number().int().min(1).max(5).optional(),
+})
+
 export const monthQuerySchema = z.object({
   hotelId: entityIdSchema,
   year: z.coerce.number().int().min(2020).max(2100),

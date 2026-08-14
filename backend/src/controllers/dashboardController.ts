@@ -42,8 +42,8 @@ export const getKpiComparison = asyncHandler(async (req: Request, res: Response)
  * GET /api/v1/dashboard/alerts?hotelId=
  */
 export const getAlerts = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId } = req.query as unknown as { hotelId: string }
-  const result = await getAlertsService(hotelId)
+  const { hotelId, minLevel } = req.query as unknown as { hotelId: string; minLevel?: number }
+  const result = await getAlertsService(hotelId, minLevel)
   sendSuccess(res, result)
 })
 
