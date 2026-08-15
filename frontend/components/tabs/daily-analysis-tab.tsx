@@ -64,10 +64,135 @@ const MONTHLY_BOOKING_CURVE = [
   { monthsBefore: 0, monthly: 1200, cumulative: 30200, lastYearCumulative: 28400 },
 ]
 
-export function DailyAnalysisTab() {
+interface DailyAnalysisTabProps {
+  /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
+  onNavigateToPricing?: (date: Date) => void
+}
+
+/** デモ用の客室数（実データ接続までの想定値） */
+const DEMO_TOTAL_ROOMS = 300
+
+interface DailyRow {
+  date: string
+  day: string
+  rooms: number
+  occ: number
+  occAi: number
+  adr: number
+  adrAi: number
+  revpar: number
+  revparAi: number
+  revenue: number
+  revenueAi: number
+  yoy: number
+}
+
+/** 「4月5日（土）」形式に整形する */
+function formatRowDate(row: DailyRow | undefined): string {
+  if (!row) return "-"
+  const [month, day] = row.date.split("/")
+  return `${month}月${day}日（${row.day}）`
+}
+
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0
+    return state / 4294967296
+  }
+}
+
+/**
+ * 対象月の日別実績を生成する。
+ * 稼働率・ADR・RevPAR・室料売上が互いに整合するよう、販売室数とADRから逆算する。
+ */
+function buildDailyRows(year: number, month: number): DailyRow[] {
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const dayNames = ["日", "月", "火", "水", "木", "金", "土"]
+
+  return Array.from({ length: daysInMonth }, (_, i) => {
+    const day = i + 1
+    const date = new Date(year, month - 1, day)
+    const dow = date.getDay()
+    // 週末=金・土（Hotel.weekendDays に合わせる）
+    const isWeekend = dow === 5 || dow === 6
+    const rng = seededRandom(year * 10000 + month * 100 + day)
+
+    const occ = Math.min(1, Math.max(0.45, (isWeekend ? 0.95 : 0.72) + (rng() - 0.5) * 0.12))
+    const rooms = Math.round(DEMO_TOTAL_ROOMS * occ)
+    const adr = Math.round((isWeekend ? 24500 : 17000) * (0.97 + rng() * 0.08))
+    const revenue = rooms * adr
+    const revpar = Math.round(revenue / DEMO_TOTAL_ROOMS)
+
+    // AI推奨は実績よりわずかに強気の想定
+    const occAi = Math.min(1, occ * (1.01 + rng() * 0.02))
+    const adrAi = Math.round(adr * (1.01 + rng() * 0.02))
+    const roomsAi = Math.round(DEMO_TOTAL_ROOMS * occAi)
+    const revenueAi = roomsAi * adrAi
+
+    return {
+      date: `${month}/${day}`,
+      day: dayNames[dow],
+      rooms,
+      occ: Number((occ * 100).toFixed(1)),
+      occAi: Number((occAi * 100).toFixed(1)),
+      adr,
+      adrAi,
+      revpar,
+      revparAi: Math.round(revenueAi / DEMO_TOTAL_ROOMS),
+      revenue,
+      revenueAi,
+      yoy: Number(((rng() - 0.3) * 20).toFixed(1)),
+    }
+  })
+}
+
+export function DailyAnalysisTab({ onNavigateToPricing }: DailyAnalysisTabProps = {}) {
   const { hotelId } = useAuth()
   const [targetMonth, setTargetMonth] = useState("2025-04")
   const [viewMode, setViewMode] = useState<"table" | "segment-settings">("table")
+
+  const [targetYearNum, targetMonthNum] = useMemo(
+    () => targetMonth.split("-").map(Number),
+    [targetMonth]
+  )
+  const targetMonthLabel = `${targetYearNum}年${targetMonthNum}月`
+
+  // 日別実績（対象月から決定的に生成。実データ接続までのデモ値）
+  const dailyRows = useMemo(
+    () => buildDailyRows(targetYearNum, targetMonthNum),
+    [targetYearNum, targetMonthNum]
+  )
+
+  // 表下部の合計・平均（日別実績から算出するため、対象月を変えても整合する）
+  const dailyTotals = useMemo(() => {
+    const rooms = dailyRows.reduce((sum, r) => sum + r.rooms, 0)
+    const revenue = dailyRows.reduce((sum, r) => sum + r.revenue, 0)
+    const capacity = DEMO_TOTAL_ROOMS * dailyRows.length
+    return {
+      rooms,
+      revenue,
+      occupancy: capacity > 0 ? (rooms / capacity) * 100 : 0,
+      adr: rooms > 0 ? Math.round(revenue / rooms) : 0,
+      revpar: capacity > 0 ? Math.round(revenue / capacity) : 0,
+      yoy: dailyRows.reduce((sum, r) => sum + r.yoy, 0) / (dailyRows.length || 1),
+    }
+  }, [dailyRows])
+
+  // サマリーカード（月間の平均値と最高・最低の日）
+  const monthlySummary = useMemo(() => {
+    const pick = (compare: (a: DailyRow, b: DailyRow) => boolean, key: keyof DailyRow) =>
+      dailyRows.reduce((best, row) => (compare(row, best) ? row : best), dailyRows[0])
+
+    const highestAdr = pick((a, b) => a.adr > b.adr, "adr")
+    const lowestAdr = pick((a, b) => a.adr < b.adr, "adr")
+    const highestOcc = pick((a, b) => a.occ > b.occ, "occ")
+    const lowestOcc = pick((a, b) => a.occ < b.occ, "occ")
+    const highestRevpar = pick((a, b) => a.revpar > b.revpar, "revpar")
+    const lowestRevpar = pick((a, b) => a.revpar < b.revpar, "revpar")
+
+    return { highestAdr, lowestAdr, highestOcc, lowestOcc, highestRevpar, lowestRevpar }
+  }, [dailyRows])
 
   // 現在の日付を取得（過去/未来判定用）
   const today = new Date()
@@ -375,25 +500,6 @@ export function DailyAnalysisTab() {
               </Select>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="view-mode" className="text-xs whitespace-nowrap">表示形式</Label>
-              <Select
-                value="table"
-                onValueChange={(value) => {
-                  if (value === "table" || value === "segment-settings") {
-                    setViewMode(value)
-                  }
-                }}
-              >
-                <SelectTrigger id="view-mode" className="h-8 w-32 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="table">テーブル表示</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
             <p className="text-[10px] text-muted-foreground ml-auto">※ サマリーは実績値のみ（AI予測は含みません）</p>
           </div>
 
@@ -401,7 +507,7 @@ export function DailyAnalysisTab() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t pt-2.5">
             <div className="flex flex-col">
               <p className="text-xs text-muted-foreground mb-0.5">月間ADR</p>
-              <div className="text-lg font-semibold mb-0.5">¥18,250</div>
+              <div className="text-lg font-semibold mb-0.5">¥{dailyTotals.adr.toLocaleString()}</div>
               <div className="flex flex-col gap-0.5 text-xs">
                 <span className="text-positive flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />対1か月前 +3.2%
@@ -412,7 +518,7 @@ export function DailyAnalysisTab() {
 
             <div className="flex flex-col">
               <p className="text-xs text-muted-foreground mb-0.5">月間稼働率</p>
-              <div className="text-lg font-semibold mb-0.5">82.5%</div>
+              <div className="text-lg font-semibold mb-0.5">{dailyTotals.occupancy.toFixed(1)}%</div>
               <div className="flex flex-col gap-0.5 text-xs">
                 <span className="text-positive flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />対予算 +2.4pt
@@ -423,7 +529,7 @@ export function DailyAnalysisTab() {
 
             <div className="flex flex-col">
               <p className="text-xs text-muted-foreground mb-0.5">月間RevPAR</p>
-              <div className="text-lg font-semibold mb-0.5">¥15,056</div>
+              <div className="text-lg font-semibold mb-0.5">¥{dailyTotals.revpar.toLocaleString()}</div>
               <div className="flex flex-col gap-0.5 text-xs">
                 <span className="text-positive flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />対予算 +3.1%
@@ -434,47 +540,47 @@ export function DailyAnalysisTab() {
 
             <div className="flex flex-col border-t pt-2 mt-1">
               <p className="text-xs text-muted-foreground mb-0.5">月間最高ADR日</p>
-              <div className="text-lg font-semibold mb-0.5">¥26,500</div>
+              <div className="text-lg font-semibold mb-0.5">{`¥${monthlySummary.highestAdr.adr.toLocaleString()}`}</div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                4月5日（土）
+                {formatRowDate(monthlySummary.highestAdr)}
                 <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間3位</Badge>
               </div>
             </div>
 
             <div className="flex flex-col border-t pt-2 mt-1">
               <p className="text-xs text-muted-foreground mb-0.5">月間最高稼働率日</p>
-              <div className="text-lg font-semibold mb-0.5">100.0%</div>
+              <div className="text-lg font-semibold mb-0.5">{`${monthlySummary.highestOcc.occ.toFixed(1)}%`}</div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                4月5日（土）
+                {formatRowDate(monthlySummary.highestOcc)}
                 <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間1位</Badge>
               </div>
             </div>
 
             <div className="flex flex-col border-t pt-2 mt-1">
               <p className="text-xs text-muted-foreground mb-0.5">月間最高RevPAR日</p>
-              <div className="text-lg font-semibold mb-0.5">¥26,500</div>
+              <div className="text-lg font-semibold mb-0.5">{`¥${monthlySummary.highestRevpar.revpar.toLocaleString()}`}</div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                4月5日（土）
+                {formatRowDate(monthlySummary.highestRevpar)}
                 <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間2位</Badge>
               </div>
             </div>
 
             <div className="flex flex-col border-t pt-2 mt-1">
               <p className="text-xs text-muted-foreground mb-0.5">月間最低ADR日</p>
-              <div className="text-lg font-semibold mb-0.5">¥14,800</div>
-              <p className="text-xs text-muted-foreground">4月14日（月）</p>
+              <div className="text-lg font-semibold mb-0.5">{`¥${monthlySummary.lowestAdr.adr.toLocaleString()}`}</div>
+              <p className="text-xs text-muted-foreground">{formatRowDate(monthlySummary.lowestAdr)}</p>
             </div>
 
             <div className="flex flex-col border-t pt-2 mt-1">
               <p className="text-xs text-muted-foreground mb-0.5">月間最低稼働率日</p>
-              <div className="text-lg font-semibold mb-0.5">53.3%</div>
-              <p className="text-xs text-muted-foreground">4月14日（月）</p>
+              <div className="text-lg font-semibold mb-0.5">{`${monthlySummary.lowestOcc.occ.toFixed(1)}%`}</div>
+              <p className="text-xs text-muted-foreground">{formatRowDate(monthlySummary.lowestOcc)}</p>
             </div>
 
             <div className="flex flex-col border-t pt-2 mt-1">
               <p className="text-xs text-muted-foreground mb-0.5">月間最低RevPAR日</p>
-              <div className="text-lg font-semibold mb-0.5">¥7,893</div>
-              <p className="text-xs text-muted-foreground">4月14日（月）</p>
+              <div className="text-lg font-semibold mb-0.5">{`¥${monthlySummary.lowestRevpar.revpar.toLocaleString()}`}</div>
+              <p className="text-xs text-muted-foreground">{formatRowDate(monthlySummary.lowestRevpar)}</p>
             </div>
           </div>
         </CardContent>
@@ -483,7 +589,7 @@ export function DailyAnalysisTab() {
       {/* Daily Performance Table */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">日別パフォーマンス（2025年4月）</CardTitle>
+          <CardTitle className="text-base">日別パフォーマンス（{targetMonthLabel}）</CardTitle>
           <p className="text-xs text-muted-foreground">行をクリックすると、その日のブッキングカーブを下部に表示します</p>
         </CardHeader>
         <CardContent className="pt-0">
@@ -502,204 +608,7 @@ export function DailyAnalysisTab() {
                 </tr>
               </thead>
               <tbody>
-                {[
-                  {
-                    date: "4/1",
-                    day: "火",
-                    rooms: 22000,
-                    occ: 73.3,
-                    occAi: 75.0,
-                    adr: 17200,
-                    adrAi: 17500,
-                    revpar: 12607,
-                    revparAi: 13125,
-                    revenue: 378400000,
-                    revenueAi: 385000000,
-                    yoy: 5.2,
-                  },
-                  {
-                    date: "4/2",
-                    day: "水",
-                    rooms: 20000,
-                    occ: 66.7,
-                    occAi: 68.0,
-                    adr: 16800,
-                    adrAi: 17000,
-                    revpar: 11206,
-                    revparAi: 11560,
-                    revenue: 336000000,
-                    revenueAi: 340000000,
-                    yoy: 3.8,
-                  },
-                  {
-                    date: "4/3",
-                    day: "木",
-                    rooms: 24000,
-                    occ: 80.0,
-                    occAi: 82.0,
-                    adr: 17500,
-                    adrAi: 17800,
-                    revpar: 14000,
-                    revparAi: 14596,
-                    revenue: 420000000,
-                    revenueAi: 427200000,
-                    yoy: 8.5,
-                  },
-                  {
-                    date: "4/4",
-                    day: "金",
-                    rooms: 28000,
-                    occ: 93.3,
-                    occAi: 95.0,
-                    adr: 21500,
-                    adrAi: 22000,
-                    revpar: 20067,
-                    revparAi: 20900,
-                    revenue: 602000000,
-                    revenueAi: 616000000,
-                    yoy: 12.3,
-                  },
-                  {
-                    date: "4/5",
-                    day: "土",
-                    rooms: 30000,
-                    occ: 100.0,
-                    occAi: 100.0,
-                    adr: 26500,
-                    adrAi: 27000,
-                    revpar: 26500,
-                    revparAi: 27000,
-                    revenue: 795000000,
-                    revenueAi: 810000000,
-                    yoy: 18.7,
-                  },
-                  {
-                    date: "4/6",
-                    day: "日",
-                    rooms: 29000,
-                    occ: 96.7,
-                    occAi: 98.0,
-                    adr: 23800,
-                    adrAi: 24200,
-                    revpar: 23013,
-                    revparAi: 23716,
-                    revenue: 690200000,
-                    revenueAi: 701800000,
-                    yoy: 15.2,
-                  },
-                  {
-                    date: "4/7",
-                    day: "月",
-                    rooms: 18000,
-                    occ: 60.0,
-                    occAi: 62.0,
-                    adr: 16200,
-                    adrAi: 16500,
-                    revpar: 9720,
-                    revparAi: 10230,
-                    revenue: 291600000,
-                    revenueAi: 297000000,
-                    yoy: 2.1
-                  },
-                  {
-                    date: "4/8",
-                    day: "火",
-                    rooms: 21000,
-                    occ: 70.0,
-                    occAi: 72.0,
-                    adr: 16500,
-                    adrAi: 16800,
-                    revpar: 11550,
-                    revparAi: 12096,
-                    revenue: 346500000,
-                    revenueAi: 352800000,
-                    yoy: 4.5,
-                  },
-                  {
-                    date: "4/9",
-                    day: "水",
-                    rooms: 19000,
-                    occ: 63.3,
-                    occAi: 65.0,
-                    adr: 16000,
-                    adrAi: 16200,
-                    revpar: 10133,
-                    revparAi: 10530,
-                    revenue: 304000000,
-                    revenueAi: 307800000,
-                    yoy: 1.8,
-                  },
-                  {
-                    date: "4/10",
-                    day: "木",
-                    rooms: 23000,
-                    occ: 76.7,
-                    occAi: 78.0,
-                    adr: 17000,
-                    adrAi: 17300,
-                    revpar: 13033,
-                    revparAi: 13494,
-                    revenue: 391000000,
-                    revenueAi: 397900000,
-                    yoy: 6.9,
-                  },
-                  {
-                    date: "4/11",
-                    day: "金",
-                    rooms: 27000,
-                    occ: 90.0,
-                    occAi: 92.0,
-                    adr: 20500,
-                    adrAi: 21000,
-                    revpar: 18450,
-                    revparAi: 19320,
-                    revenue: 553500000,
-                    revenueAi: 567000000,
-                    yoy: 10.8,
-                  },
-                  {
-                    date: "4/12",
-                    day: "土",
-                    rooms: 30000,
-                    occ: 100.0,
-                    occAi: 100.0,
-                    adr: 25000,
-                    adrAi: 25500,
-                    revpar: 25000,
-                    revparAi: 25500,
-                    revenue: 750000000,
-                    revenueAi: 765000000,
-                    yoy: 16.4,
-                  },
-                  {
-                    date: "4/13",
-                    day: "日",
-                    rooms: 28000,
-                    occ: 93.3,
-                    occAi: 95.0,
-                    adr: 22500,
-                    adrAi: 23000,
-                    revpar: 21000,
-                    revparAi: 21850,
-                    revenue: 630000000,
-                    revenueAi: 644000000,
-                    yoy: 13.5,
-                  },
-                  {
-                    date: "4/14",
-                    day: "月",
-                    rooms: 16000,
-                    occ: 53.3,
-                    occAi: 55.0,
-                    adr: 14800,
-                    adrAi: 15000,
-                    revpar: 7893,
-                    revparAi: 8250,
-                    revenue: 236800000,
-                    revenueAi: 240000000,
-                    yoy: -2.3,
-                  },
-                ].map((row) => {
+                {dailyRows.map((row) => {
                   const isPast = isPastDate(row.date, targetMonth)
                   const isSelectedForCurve =
                     !!selectedStayDate && format(selectedStayDate, "M/d") === row.date
@@ -713,7 +622,21 @@ export function DailyAnalysisTab() {
                         setSelectedStayDate(new Date(yearNum, monthNum - 1, dayNum))
                       }}
                     >
-                      <td className={`py-2 px-2 font-medium ${isSelectedForCurve ? "bg-primary/10" : ""}`}>{row.date}</td>
+                      <td className={`py-2 px-2 font-medium ${isSelectedForCurve ? "bg-primary/10" : ""}`}>
+                        {/* 日付からダイナミックプライシングの同じ日へ遷移する（行クリックのカーブ表示とは別動作） */}
+                        <button
+                          type="button"
+                          className="text-primary underline-offset-2 hover:underline"
+                          title={`${row.date} のダイナミックプライシングを開く`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const [monthNum, dayNum] = row.date.split("/").map(Number)
+                            onNavigateToPricing?.(new Date(targetYearNum, monthNum - 1, dayNum))
+                          }}
+                        >
+                          {row.date}
+                        </button>
+                      </td>
                       <td className="py-2 px-2">
                         <Badge variant={row.day === "土" || row.day === "日" ? "default" : "outline"} className="text-xs">{row.day}</Badge>
                       </td>
@@ -787,12 +710,27 @@ export function DailyAnalysisTab() {
                   <td className="py-2 px-2 font-semibold" colSpan={2}>
                     合計 / 平均
                   </td>
-                  <td className="text-right py-2 px-2 font-semibold">335,000室</td>
-                  <td className="text-right py-2 px-2 font-semibold">79.8%</td>
-                  <td className="text-right py-2 px-2 font-semibold">¥19,107</td>
-                  <td className="text-right py-2 px-2 font-semibold">¥15,248</td>
-                  <td className="text-right py-2 px-2 font-semibold">¥6,405,000,000</td>
-                  <td className="text-center py-2 px-2 font-semibold text-positive">+8.4%</td>
+                  <td className="text-right py-2 px-2 font-semibold">
+                    {dailyTotals.rooms.toLocaleString()}室
+                  </td>
+                  <td className="text-right py-2 px-2 font-semibold">
+                    {dailyTotals.occupancy.toFixed(1)}%
+                  </td>
+                  <td className="text-right py-2 px-2 font-semibold">
+                    ¥{dailyTotals.adr.toLocaleString()}
+                  </td>
+                  <td className="text-right py-2 px-2 font-semibold">
+                    ¥{dailyTotals.revpar.toLocaleString()}
+                  </td>
+                  <td className="text-right py-2 px-2 font-semibold">
+                    ¥{dailyTotals.revenue.toLocaleString()}
+                  </td>
+                  <td
+                    className={`text-center py-2 px-2 font-semibold ${dailyTotals.yoy >= 0 ? "text-positive" : "text-negative"}`}
+                  >
+                    {dailyTotals.yoy >= 0 ? "+" : ""}
+                    {dailyTotals.yoy.toFixed(1)}%
+                  </td>
                 </tr>
               </tfoot>
             </table>

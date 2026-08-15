@@ -48,6 +48,8 @@ export function MainLayout() {
   const [chatOpen, setChatOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  // 日別分析の日付からダイナミックプライシングへ遷移する際の対象日
+  const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
   const { user, loading, logout } = useAuth()
 
   // 折りたたみ状態を記憶する（デスクトップのみ意味を持つ）
@@ -228,8 +230,17 @@ export function MainLayout() {
         {/* Main Content Area */}
         <main className="flex-1 overflow-auto">
           {activeTab === "dashboard" && <DashboardTab onTabChange={setActiveTab} />}
-          {activeTab === "pricing" && <PricingTab />}
-          {activeTab === "daily" && <DailyAnalysisTab />}
+          {activeTab === "pricing" && (
+            <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
+          )}
+          {activeTab === "daily" && (
+            <DailyAnalysisTab
+              onNavigateToPricing={(date) => {
+                setPricingFocusDate(date)
+                selectTab("pricing")
+              }}
+            />
+          )}
           {activeTab === "analysis" && <AnalysisTab />}
           {activeTab === "reports" && <ReportsTab />}
           {activeTab === "ai-summary" && <AISummaryTab />}

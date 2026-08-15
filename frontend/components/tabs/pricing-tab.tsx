@@ -241,11 +241,31 @@ interface MonthCalendar {
   calendar: PricingCalendarDay[]
 }
 
-export function PricingTab() {
+interface PricingTabProps {
+  /** 日別分析から遷移してきた際に開く対象日 */
+  focusDate?: Date | null
+  /** 対象日への遷移処理が完了したことを親に伝える */
+  onFocusDateHandled?: () => void
+}
+
+/** Date を "yyyy-MM-dd" に整形する（ローカル時刻基準） */
+function toDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+}
+
+export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = {}) {
   const { hotelId } = useAuth()
 
   const now = new Date()
-  const [targetMonth, setTargetMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`)
+  const [targetMonth, setTargetMonth] = useState(() =>
+    focusDate
+      ? `${focusDate.getFullYear()}-${String(focusDate.getMonth() + 1).padStart(2, "0")}`
+      : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  )
+  // 日別分析から遷移してきた日（該当行をハイライトする）
+  const [highlightedDate, setHighlightedDate] = useState<string | null>(
+    focusDate ? toDateKey(focusDate) : null
+  )
   const [roomType, setRoomType] = useState("all")
   const [calendarViewMode, setCalendarViewMode] = useState<"table" | "grid">("table")
   // タイプ別人数別カレンダーの表示タイプ（全タイプ表示なし。デフォルトはマスタの先頭タイプ）
@@ -277,6 +297,14 @@ export function PricingTab() {
   const [newEventEnd, setNewEventEnd] = useState("")
   const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low">("medium")
   const [newEventLocation, setNewEventLocation] = useState("")
+
+  // 日別分析から日付付きで遷移してきたら、その月に切り替えて該当行をハイライトする
+  useEffect(() => {
+    if (!focusDate) return
+    setTargetMonth(`${focusDate.getFullYear()}-${String(focusDate.getMonth() + 1).padStart(2, "0")}`)
+    setHighlightedDate(toDateKey(focusDate))
+    onFocusDateHandled?.()
+  }, [focusDate, onFocusDateHandled])
 
   // 表示は1か月のみ（表示する月は「対象月」で選択）
   const monthRange = useMemo(() => {
@@ -688,7 +716,15 @@ export function PricingTab() {
                             return (
                               <tr
                                 key={day.date}
-                                className="border-b hover:bg-muted/50 cursor-pointer transition-colors"
+                                // 日別分析から遷移してきた日は、行を強調して画面内へスクロールする
+                                ref={
+                                  day.date === highlightedDate
+                                    ? (el) => el?.scrollIntoView({ block: "center" })
+                                    : undefined
+                                }
+                                className={`border-b hover:bg-muted/50 cursor-pointer transition-colors ${
+                                  day.date === highlightedDate ? "bg-primary/10 ring-1 ring-primary/40" : ""
+                                }`}
                                 onClick={() => setSelectedRowForAnalysis({ monthIndex, day })}
                               >
                                 <td className="py-2 px-2 font-medium">
