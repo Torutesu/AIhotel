@@ -261,7 +261,7 @@ export function AISummaryTab() {
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Brain className="w-6 h-6" />
-          AIまとめ - 外部要因動向予測
+          外部需要動向
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
           外部要因に基づく先6ヶ月（2026年2月〜7月）のマーケット動向予測
