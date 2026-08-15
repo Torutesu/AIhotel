@@ -4,7 +4,6 @@ import { useEffect, useState } from "react"
 import {
   LayoutDashboard,
   TrendingUp,
-  Calendar,
   BarChart3,
   FileText,
   MessageCircle,
@@ -21,7 +20,6 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { DashboardTab } from "@/components/tabs/dashboard-tab"
 import { PricingTab } from "@/components/tabs/pricing-tab"
-import { DailyAnalysisTab } from "@/components/tabs/daily-analysis-tab"
 import { AnalysisTab } from "@/components/tabs/analysis-tab"
 import { ReportsTab } from "@/components/tabs/reports-tab"
 import { SettingsTab } from "@/components/tabs/settings-tab"
@@ -35,8 +33,7 @@ import type { Tab } from "@shared/types"
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
   { id: "pricing" as const, label: "ダイナミックプライシング", icon: TrendingUp },
-  { id: "daily" as const, label: "日別分析", icon: Calendar },
-  { id: "analysis" as const, label: "各種分析", icon: BarChart3 },
+  { id: "analysis" as const, label: "分析", icon: BarChart3 },
   { id: "reports" as const, label: "レポート", icon: FileText },
   { id: "ai-summary" as const, label: "AIまとめ", icon: Brain },
 ]
@@ -48,7 +45,7 @@ export function MainLayout() {
   const [chatOpen, setChatOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  // 日別分析の日付からダイナミックプライシングへ遷移する際の対象日
+  // 分析タブの日付からダイナミックプライシングへ遷移する際の対象日
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
   const { user, loading, logout } = useAuth()
 
@@ -233,15 +230,14 @@ export function MainLayout() {
           {activeTab === "pricing" && (
             <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
           )}
-          {activeTab === "daily" && (
-            <DailyAnalysisTab
+          {activeTab === "analysis" && (
+            <AnalysisTab
               onNavigateToPricing={(date) => {
                 setPricingFocusDate(date)
                 selectTab("pricing")
               }}
             />
           )}
-          {activeTab === "analysis" && <AnalysisTab />}
           {activeTab === "reports" && <ReportsTab />}
           {activeTab === "ai-summary" && <AISummaryTab />}
           {activeTab === "settings" && <SettingsTab />}

@@ -371,7 +371,7 @@ export function AISummaryTab() {
           return (
             <Card key={key}>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
+                <CardTitle className="flex items-center gap-2 text-base font-medium">
                   <IconComponent className="w-4 h-4" />
                   {category.name}
                 </CardTitle>

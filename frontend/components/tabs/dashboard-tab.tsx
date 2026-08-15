@@ -879,7 +879,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         <Card>
           <CardHeader className="pb-1">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle className="text-lg font-semibold">アラート</CardTitle>
+              <CardTitle className="text-base font-medium">アラート</CardTitle>
               <p className="text-xs text-muted-foreground">
                 重要度5段階のうち Level 5・4 を表示（Level 3以下は各分析画面で確認）
               </p>
@@ -934,7 +934,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         {/* AI解説セクション */}
         <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
           <CardHeader className="pb-1">
-            <CardTitle className="text-lg font-semibold flex items-center gap-2">
+            <CardTitle className="text-base font-medium flex items-center gap-2">
               <span className="text-xl">🤖</span>
               AI解説
             </CardTitle>
@@ -960,7 +960,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         <Card>
           <CardHeader className="pb-1">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle className="text-lg font-semibold">稼働・ADR月間推移</CardTitle>
+              <CardTitle className="text-base font-medium">稼働・ADR月間推移</CardTitle>
               <div className="flex items-center gap-1.5">
                 <Button
                   variant="outline"
@@ -1189,7 +1189,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         {/* 月初比較・日付比較（F-DASH-04）。対応APIが未整備のため現在の実績から遡ったモック値 */}
         <Card>
           <CardHeader className="pb-1">
-            <CardTitle className="text-lg font-semibold">月初比較・日付比較</CardTitle>
+            <CardTitle className="text-base font-medium">月初比較・日付比較</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1272,7 +1272,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
         {showTopSitesSection && (
           <Card>
             <CardHeader className="pb-1">
-              <CardTitle className="text-lg font-semibold">伸び率の高いサイト上位3件</CardTitle>
+              <CardTitle className="text-base font-medium">伸び率の高いサイト上位3件</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <p className="text-sm text-muted-foreground">この機能は今後提供予定です。</p>
@@ -1454,7 +1454,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
           <CardHeader className="pb-1">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <CardTitle className="text-lg font-semibold">在庫表（日別・タイプ別残室推移）</CardTitle>
+                <CardTitle className="text-base font-medium">在庫表（日別・タイプ別残室推移）</CardTitle>
                 <p className="text-xs text-muted-foreground mt-1">
                   日々の予約情報から残室数を記録し、選択した時点との推移を表示します（PMSでは過去時点の残室を確認できないため本システムで記録）
                 </p>
@@ -1477,8 +1477,8 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
             </div>
           </CardHeader>
           <CardContent className="pt-2">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
+            <div className="overflow-x-auto overflow-y-auto max-h-[520px]">
+              <table className="table-sticky-head w-full text-xs border-collapse">
                 <thead>
                   <tr className="border-b bg-muted/30">
                     <th rowSpan={2} className="text-center py-1.5 px-2 font-medium border-r">日付</th>

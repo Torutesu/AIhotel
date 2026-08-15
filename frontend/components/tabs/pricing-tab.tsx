@@ -488,7 +488,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
       {/* AI価格最適化の提案（レベルを色付きバッジで表示） */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-1">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
             <span className="text-xl">🤖</span>
             AI価格最適化の提案
           </CardTitle>
@@ -1217,7 +1217,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                     {neighbors.length > 1 && (
                       <Card>
                         <CardHeader>
-                          <CardTitle className="text-base">周辺日の推奨価格・稼働率予測</CardTitle>
+                          <CardTitle className="text-base font-medium">周辺日の推奨価格・稼働率予測</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div className="overflow-x-auto">
@@ -1295,7 +1295,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                     {insights.length > 0 && (
                       <Card className="border-l-4 border-l-primary">
                         <CardHeader>
-                          <CardTitle className="text-lg flex items-center gap-2">
+                          <CardTitle className="text-base font-medium flex items-center gap-2">
                             <AlertCircle className="w-5 h-5" />
                             AI分析インサイト
                           </CardTitle>
