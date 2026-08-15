@@ -95,8 +95,8 @@ export function ReportsTab() {
                     <TrendingUp className="w-4 h-4 text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm font-semibold">収益サマリー</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">月次収益の概要</p>
+                    <CardTitle className="text-sm font-semibold">サマリー</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">月次の概要</p>
                   </div>
                 </div>
                 <Badge variant="secondary" className="text-xs flex-shrink-0">月次</Badge>
