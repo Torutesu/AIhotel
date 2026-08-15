@@ -7,11 +7,19 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { TrendingUp, AlertCircle, RefreshCw } from "lucide-react"
+import { TrendingUp, AlertCircle, RefreshCw, BarChart3, Settings } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, BarChart, Bar } from "recharts"
 import { AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CampaignParticipationManager } from "@/components/campaign-participation-manager"
+import { SegmentCrossAnalysisSettings } from "@/components/segment-cross-analysis-settings"
+import {
+  DailyAiInsightSection,
+  DailyPerformanceSection,
+  BookingCurveSection,
+  WeekdayPerformanceSection,
+  DailyCompetitorSection,
+} from "@/components/tabs/daily-analysis-tab"
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type MonthlyTrend, type CompetitorAnalysis } from "@/lib/api"
@@ -1777,22 +1785,79 @@ export function OtaCampaignSection() {
 // ============================================================================
 // 各種分析タブ（既存のサブタブ構成のまま、各セクションを呼び出す）
 // ============================================================================
-export function AnalysisTab() {
+interface AnalysisTabProps {
+  /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
+  onNavigateToPricing?: (date: Date) => void
+}
+
+/**
+ * 分析タブ（旧「日別分析」＋「各種分析」の統合）。
+ * 分析の切り口が重複しないよう、見る軸ごとに5つへ再編している。
+ *  - 実績推移 : いつ（日別・曜日別・年間の時系列）
+ *  - 需要構成 : 誰が・どこから・何を（チャネル/部屋タイプ/セグメント）
+ *  - 予約動向 : いつ予約が入るか（ブッキングカーブ・予約期間）
+ *  - 競合比較 : 外部との比較
+ *  - フリー分析: 自由軸の分析と販促データ管理
+ */
+const ANALYSIS_VIEWS = [
+  { value: "performance", label: "実績推移", description: "日別・曜日別・年間の時系列で実績を見る" },
+  { value: "composition", label: "需要構成", description: "チャネル・部屋タイプ・顧客セグメント別に需要の内訳を見る" },
+  { value: "booking", label: "予約動向", description: "宿泊日までのリードタイムで予約の入り方を見る" },
+  { value: "competitor", label: "競合比較", description: "競合ホテルとの価格を日別・期間集計で比較する" },
+  { value: "free", label: "フリー分析", description: "任意の軸を組み合わせて分析し、販促参画データを管理する" },
+]
+
+export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
   const [targetPeriod, setTargetPeriod] = useState(DEFAULT_TARGET_PERIOD)
+  const [activeView, setActiveView] = useState("performance")
+  const [viewMode, setViewMode] = useState<"analysis" | "segment-settings">("analysis")
+
+  // 日別テーブルの行クリックで選ばれた宿泊日（予約動向のブッキングカーブと連動する）
+  const [curveStayDate, setCurveStayDate] = useState<Date | undefined>(undefined)
+
+  const activeViewMeta = ANALYSIS_VIEWS.find((v) => v.value === activeView)
+
+  // セグメント別クロス分析設定
+  if (viewMode === "segment-settings") {
+    return (
+      <div className="p-4">
+        <div className="mb-4 flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={() => setViewMode("analysis")} className="gap-2">
+            <BarChart3 className="w-4 h-4" />
+            分析に戻る
+          </Button>
+        </div>
+        <SegmentCrossAnalysisSettings
+          onSave={(settings) => {
+            console.log("Settings saved:", settings)
+          }}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className="p-4 space-y-4">
       {/* Header */}
-      <div>
-        <h2 className="text-2xl font-semibold text-balance">各種分析</h2>
-        <p className="text-sm text-muted-foreground mt-1">多角的な収益分析とインサイト</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-2xl font-semibold text-balance">分析</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            日次の実績から需要構成・予約動向・競合比較までを一画面で確認します
+          </p>
+        </div>
+        <Button onClick={() => setViewMode("segment-settings")} variant="outline" size="sm" className="gap-2">
+          <Settings className="w-4 h-4" />
+          セグメント別クロス分析設定
+        </Button>
       </div>
 
-      {/* Analysis Tabs */}
-      <Tabs defaultValue="channel" className="space-y-4">
-        {/* Period SelectorとTabsListを1つのCardに統合 */}
+      <DailyAiInsightSection />
+
+      <Tabs value={activeView} onValueChange={setActiveView} className="space-y-4">
+        {/* 対象期間と分析軸の切り替え */}
         <Card>
-          <CardContent className="py-3 px-4">
+          <CardContent className="py-3 px-4 space-y-2">
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div className="flex items-center gap-2">
                 <Label htmlFor="period" className="text-sm whitespace-nowrap">対象期間</Label>
@@ -1810,56 +1875,63 @@ export function AnalysisTab() {
               </div>
               <div className="w-full min-w-0 overflow-x-auto sm:w-auto">
                 <TabsList className="h-9 inline-flex">
-                  <TabsTrigger value="channel" className="text-sm px-4 py-2">チャネル分析</TabsTrigger>
-                  <TabsTrigger value="roomtype" className="text-sm px-4 py-2">部屋タイプ分析</TabsTrigger>
-                  <TabsTrigger value="booking" className="text-sm px-4 py-2">予約期間分析</TabsTrigger>
-                  <TabsTrigger value="segment" className="text-sm px-4 py-2">顧客セグメント</TabsTrigger>
-                  <TabsTrigger value="competitor" className="text-sm px-4 py-2">競合価格</TabsTrigger>
-                  <TabsTrigger value="comparison" className="text-sm px-4 py-2">年間推移</TabsTrigger>
-                  <TabsTrigger value="free" className="text-sm px-4 py-2">フリー分析</TabsTrigger>
+                  {ANALYSIS_VIEWS.map((view) => (
+                    <TabsTrigger
+                      key={view.value}
+                      value={view.value}
+                      title={view.description}
+                      className="text-sm px-4 py-2"
+                    >
+                      {view.label}
+                    </TabsTrigger>
+                  ))}
                 </TabsList>
               </div>
             </div>
+            {activeViewMeta && (
+              <p className="text-xs text-muted-foreground">{activeViewMeta.description}</p>
+            )}
           </CardContent>
         </Card>
 
-        {/* Channel Analysis */}
-        <TabsContent value="channel">
-          <ChannelAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
-        </TabsContent>
-
-        {/* Room Type Analysis */}
-        <TabsContent value="roomtype">
-          <RoomTypeAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
-        </TabsContent>
-
-        {/* Booking Window Analysis */}
-        <TabsContent value="booking">
-          <BookingPeriodAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
-        </TabsContent>
-
-        {/* Customer Segment Analysis */}
-        <TabsContent value="segment">
-          <SegmentAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
-        </TabsContent>
-
-        {/* Competitor Price Analysis */}
-        <TabsContent value="competitor">
-          <CompetitorAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
-        </TabsContent>
-
-        <TabsContent value="comparison">
+        {/* 実績推移: 日別 → 曜日別 → 年間の順で粒度を粗くしていく */}
+        <TabsContent value="performance" className="space-y-4">
+          <DailyPerformanceSection
+            onNavigateToPricing={onNavigateToPricing}
+            onSelectStayDate={(date) => {
+              setCurveStayDate(date)
+              setActiveView("booking")
+            }}
+          />
+          <WeekdayPerformanceSection />
           <YearlyTrendSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
         </TabsContent>
 
-        {/* Free Analysis */}
-        <TabsContent value="free">
+        {/* 需要構成: どこから・何を・誰が */}
+        <TabsContent value="composition" className="space-y-4">
+          <ChannelAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+          <RoomTypeAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+          <SegmentAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+        </TabsContent>
+
+        {/* 予約動向: 宿泊日までのリードタイム */}
+        <TabsContent value="booking" className="space-y-4">
+          <BookingCurveSection stayDate={curveStayDate} onStayDateChange={setCurveStayDate} />
+          <BookingPeriodAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+        </TabsContent>
+
+        {/* 競合比較: 日別の価格差 → 期間集計 */}
+        <TabsContent value="competitor" className="space-y-4">
+          <DailyCompetitorSection />
+          <CompetitorAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+        </TabsContent>
+
+        {/* フリー分析と販促データ管理 */}
+        <TabsContent value="free" className="space-y-4">
           <FreeAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+          <OtaCampaignSection />
         </TabsContent>
       </Tabs>
-
-      {/* OTA販売促進参画データ管理セクション */}
-      <OtaCampaignSection />
     </div>
   )
 }

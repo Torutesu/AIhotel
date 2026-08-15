@@ -323,7 +323,7 @@ export interface Message {
 // Navigation Types
 // ======================================
 
-export type Tab = 'dashboard' | 'pricing' | 'daily' | 'analysis' | 'reports' | 'settings' | 'ai-summary'
+export type Tab = 'dashboard' | 'pricing' | 'analysis' | 'reports' | 'settings' | 'ai-summary'
 
 // ======================================
 // API Response Types

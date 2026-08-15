@@ -40,7 +40,7 @@ function avgOf(rows: Array<Record<string, any>>, key: string): number | null {
 // AIインサイト
 // ============================================================================
 
-/** 冒頭のAIインサイトカード（月全体の傾向・進捗コメント） */
+/** 分析タブ冒頭のAIインサイトカード（月全体の傾向・進捗コメント） */
 export function DailyAiInsightSection() {
   return (
     /* AI解説セクション - 月全体の傾向・進捗に対するコメント（個別日への対応指示はダッシュボードのアラートが担当） */
@@ -48,7 +48,7 @@ export function DailyAiInsightSection() {
       <CardHeader className="pb-3">
         <CardTitle className="text-lg font-semibold flex items-center gap-2">
           <span className="text-xl">🤖</span>
-          日別分析インサイト
+          分析インサイト
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           月全体の傾向・需要・予算進捗・前年進捗に対するコメントです（個別日へのピンポイントの対応指示はダッシュボードのアラートをご確認ください）
@@ -168,6 +168,8 @@ interface DailyPerformanceSectionProps {
   onTargetMonthChange?: (value: string) => void
   /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
   onNavigateToPricing?: (date: Date) => void
+  /** 行クリックで宿泊日が選ばれたことを親に伝える（ブッキングカーブとの連動用） */
+  onSelectStayDate?: (date: Date) => void
 }
 
 /** 対象月セレクタ＋月間サマリーカード＋日別パフォーマンステーブル（対象月の状態を共有する） */
@@ -175,6 +177,7 @@ export function DailyPerformanceSection({
   targetMonth: targetMonthProp,
   onTargetMonthChange,
   onNavigateToPricing,
+  onSelectStayDate,
 }: DailyPerformanceSectionProps = {}) {
   const [internalTargetMonth, setInternalTargetMonth] = useState("2025-04")
   const targetMonth = targetMonthProp ?? internalTargetMonth
@@ -386,7 +389,9 @@ export function DailyPerformanceSection({
                       onClick={() => {
                         const [monthNum, dayNum] = row.date.split("/").map(Number)
                         const [yearNum] = targetMonth.split("-").map(Number)
-                        setSelectedStayDate(new Date(yearNum, monthNum - 1, dayNum))
+                        const stayDate = new Date(yearNum, monthNum - 1, dayNum)
+                        setSelectedStayDate(stayDate)
+                        onSelectStayDate?.(stayDate)
                       }}
                     >
                       <td className={`py-2 px-2 font-medium ${isSelectedForCurve ? "bg-primary/10" : ""}`}>
@@ -541,7 +546,16 @@ const MONTHLY_BOOKING_CURVE = [
 ]
 
 /** ブッキングカーブグラフ（実データ: api.bookingCurve。表示単位・表示区分のセレクタを含む） */
-export function BookingCurveSection() {
+interface BookingCurveSectionProps {
+  /** 表示する宿泊日。省略時は内部stateで管理する */
+  stayDate?: Date
+  onStayDateChange?: (date: Date | undefined) => void
+}
+
+export function BookingCurveSection({
+  stayDate: stayDateProp,
+  onStayDateChange,
+}: BookingCurveSectionProps = {}) {
   const { hotelId } = useAuth()
 
   // 現在の日付を取得（実績/予測の境界判定用）
@@ -549,11 +563,16 @@ export function BookingCurveSection() {
   const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate())
 
   // ---- ブッキングカーブ（実データ: api.bookingCurve） ----
-  const [selectedStayDate, setSelectedStayDate] = useState<Date | undefined>(() => {
+  const [internalStayDate, setInternalStayDate] = useState<Date | undefined>(() => {
     const d = new Date()
     d.setDate(d.getDate() + 7)
     return d
   })
+  const selectedStayDate = stayDateProp ?? internalStayDate
+  const setSelectedStayDate = (date: Date | undefined) => {
+    setInternalStayDate(date)
+    onStayDateChange?.(date)
+  }
   const [bookingCurve, setBookingCurve] = useState<BookingCurve | null>(null)
   const [bookingCurveLoading, setBookingCurveLoading] = useState(false)
   const [bookingCurveError, setBookingCurveError] = useState<string | null>(null)
@@ -1254,68 +1273,5 @@ export function DailyCompetitorSection() {
   )
 }
 
-// ============================================================================
-// 日別分析タブ（各セクションを並べるだけの薄いコンテナ）
-// ============================================================================
-
-interface DailyAnalysisTabProps {
-  /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
-  onNavigateToPricing?: (date: Date) => void
-}
-
-export function DailyAnalysisTab({ onNavigateToPricing }: DailyAnalysisTabProps = {}) {
-  const [viewMode, setViewMode] = useState<"table" | "segment-settings">("table")
-
-  // セグメント別クロス分析設定表示の場合
-  if (viewMode === "segment-settings") {
-    return (
-      <div className="p-4">
-        <div className="mb-4 flex items-center gap-3">
-          <Button variant="outline" size="sm" onClick={() => setViewMode("table")} className="gap-2">
-            <BarChart3 className="w-4 h-4" />
-            日別分析に戻る
-          </Button>
-        </div>
-        <SegmentCrossAnalysisSettings
-          onSave={(settings) => {
-            // 設定を保存し、基本分析に反映する処理
-            console.log("Settings saved:", settings)
-            // 実際の実装では、ここでAPIを呼び出して設定を保存
-            // 例: await saveSegmentAnalysisSettings(settings)
-
-            // 保存成功後、設定画面に留まる（ユーザーがさらに調整できるように）
-            // または、必要に応じて日別分析画面に戻る
-            // setViewMode("table")
-          }}
-        />
-      </div>
-    )
-  }
-
-  return (
-    <div className="p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 className="text-2xl font-semibold text-balance">日別分析</h2>
-          <p className="text-sm text-muted-foreground mt-1">日次パフォーマンスの詳細分析</p>
-        </div>
-        <Button onClick={() => setViewMode("segment-settings")} variant="outline" size="sm" className="gap-2">
-          <Settings className="w-4 h-4" />
-          セグメント別クロス分析設定
-        </Button>
-      </div>
-
-      <DailyAiInsightSection />
-
-      <DailyPerformanceSection onNavigateToPricing={onNavigateToPricing} />
-
-      <BookingCurveSection />
-
-      <WeekdayPerformanceSection />
-
-      <DailyCompetitorSection />
-
-    </div>
-  )
-}
+// 旧「日別分析」タブのコンテナは分析タブへ統合したため削除した。
+// 上記の各セクションは components/tabs/analysis-tab.tsx から利用している。
