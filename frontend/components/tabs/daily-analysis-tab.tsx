@@ -46,7 +46,7 @@ export function DailyAiInsightSection() {
     /* AI解説セクション - 月全体の傾向・進捗に対するコメント（個別日への対応指示はダッシュボードのアラートが担当） */
     <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg font-semibold flex items-center gap-2">
+        <CardTitle className="text-base font-medium flex items-center gap-2">
           <span className="text-xl">🤖</span>
           分析インサイト
         </CardTitle>
@@ -253,24 +253,32 @@ export function DailyPerformanceSection({
       {/* ControlsとSummaryを1つのCardに統合 */}
       <Card>
         <CardContent className="py-2.5 px-3">
-          {/* フィルターコントロール */}
+          {/* フィルターコントロール。対象月が外から制御されている場合は
+              画面上部のセレクタと重複するため、ここでは表示しない */}
           <div className="flex items-center gap-3 flex-wrap mb-2.5">
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="target-month-daily" className="text-xs whitespace-nowrap">対象月</Label>
-              <Select value={targetMonth} onValueChange={handleTargetMonthChange}>
-                <SelectTrigger id="target-month-daily" className="h-8 w-32 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="2025-02">2025年2月</SelectItem>
-                  <SelectItem value="2025-03">2025年3月</SelectItem>
-                  <SelectItem value="2025-04">2025年4月</SelectItem>
-                  <SelectItem value="2025-05">2025年5月</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {targetMonthProp === undefined && (
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="target-month-daily" className="text-xs whitespace-nowrap">対象月</Label>
+                <Select value={targetMonth} onValueChange={handleTargetMonthChange}>
+                  <SelectTrigger id="target-month-daily" className="h-8 w-32 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2025-02">2025年2月</SelectItem>
+                    <SelectItem value="2025-03">2025年3月</SelectItem>
+                    <SelectItem value="2025-04">2025年4月</SelectItem>
+                    <SelectItem value="2025-05">2025年5月</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-            <p className="text-[10px] text-muted-foreground ml-auto">※ サマリーは実績値のみ（AI予測は含みません）</p>
+            {targetMonthProp !== undefined && (
+              <h3 className="text-sm font-medium">{targetMonthLabel}のサマリー</h3>
+            )}
+            <p className="text-[10px] text-muted-foreground ml-auto">
+              ※ 実績値のみ（AI予測は含みません）
+            </p>
           </div>
 
           {/* サマリーカード（事実のみの9指標。最高〜年間10位以内の日にはバッジを表示） */}
@@ -359,12 +367,12 @@ export function DailyPerformanceSection({
       {/* Daily Performance Table */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">日別パフォーマンス（{targetMonthLabel}）</CardTitle>
+          <CardTitle className="text-base font-medium">日別パフォーマンス（{targetMonthLabel}）</CardTitle>
           <p className="text-xs text-muted-foreground">行をクリックすると、その日のブッキングカーブを下部に表示します</p>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+          <div className="overflow-x-auto overflow-y-auto max-h-[560px]">
+            <table className="table-sticky-head w-full text-xs">
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-2 px-2 font-medium">日付</th>
@@ -693,7 +701,7 @@ export function BookingCurveSection({
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
-            <CardTitle className="text-base">ブッキングカーブグラフ</CardTitle>
+            <CardTitle className="text-base font-medium">ブッキングカーブグラフ</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
               {curveUnit === "monthly"
                 ? `宿泊月 ${selectedStayDate ? format(selectedStayDate, "yyyy年M月", { locale: ja }) : ""} の予約積み上げ状況（月単位）`
@@ -882,7 +890,7 @@ export function WeekdayPerformanceSection() {
     /* Day of Week Analysis */
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base">曜日別パフォーマンス分析</CardTitle>
+        <CardTitle className="text-base font-medium">曜日別パフォーマンス分析</CardTitle>
         <p className="text-xs text-muted-foreground">
           祝日・休前日は曜日と別区分で集計しています。GW・年末年始などの特日グループの集計区分は、マスタ設定でのグループ化に対応予定です
         </p>
@@ -1023,7 +1031,7 @@ export function DailyCompetitorSection() {
     <Card className="border-l-4 border-l-[color:var(--chart-4)]">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <CardTitle className="text-base flex items-center gap-2">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
             競合ホテルとの価格比較分析
           </CardTitle>

@@ -317,7 +317,7 @@ export function ChannelAnalysisSection(props: AnalysisSectionProps) {
       {/* AI解説を一番上に */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
             <span className="text-xl">🤖</span>
             チャネル分析インサイト
           </CardTitle>
@@ -379,7 +379,7 @@ export function ChannelAnalysisSection(props: AnalysisSectionProps) {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">チャネル別パフォーマンス</CardTitle>
+          <CardTitle className="text-base font-medium">チャネル別パフォーマンス</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="overflow-x-auto">
@@ -435,7 +435,7 @@ export function RoomTypeAnalysisSection(props: AnalysisSectionProps) {
       {/* AI解説を一番上に */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
             <span className="text-xl">🤖</span>
             部屋タイプ分析インサイト
           </CardTitle>
@@ -466,7 +466,7 @@ export function RoomTypeAnalysisSection(props: AnalysisSectionProps) {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">部屋タイプ別パフォーマンス</CardTitle>
+          <CardTitle className="text-base font-medium">部屋タイプ別パフォーマンス</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="overflow-x-auto">
@@ -573,7 +573,7 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
 
       <Card className="border-l-4 border-l-[color:var(--chart-3)]">
         <CardHeader>
-          <CardTitle className="text-lg">予約期間分析インサイト</CardTitle>
+          <CardTitle className="text-base font-medium">予約期間分析インサイト</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-start gap-3">
@@ -639,7 +639,7 @@ export function SegmentAnalysisSection(props: AnalysisSectionProps) {
       {/* AI解説を一番上に */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
             <span className="text-xl">🤖</span>
             顧客セグメント分析インサイト
           </CardTitle>
@@ -691,7 +691,7 @@ export function SegmentAnalysisSection(props: AnalysisSectionProps) {
         <>
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">利用人数別パフォーマンス</CardTitle>
+              <CardTitle className="text-base font-medium">利用人数別パフォーマンス</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="space-y-4">
@@ -794,7 +794,7 @@ export function SegmentAnalysisSection(props: AnalysisSectionProps) {
       {segmentViewMode === "segment" && (
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">顧客セグメント別パフォーマンス</CardTitle>
+            <CardTitle className="text-base font-medium">顧客セグメント別パフォーマンス</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="space-y-4">
@@ -993,7 +993,7 @@ export function CompetitorAnalysisSection(props: AnalysisSectionProps) {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">競合ホテル別平均価格</CardTitle>
+              <CardTitle className="text-base font-medium">競合ホテル別平均価格</CardTitle>
               <p className="text-xs text-muted-foreground mt-1">対象期間中の1名料金の平均値</p>
             </CardHeader>
             <CardContent className="pt-0">
@@ -1032,7 +1032,7 @@ export function CompetitorAnalysisSection(props: AnalysisSectionProps) {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">競合ホテル一覧</CardTitle>
+              <CardTitle className="text-base font-medium">競合ホテル一覧</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="overflow-x-auto">
@@ -1359,7 +1359,7 @@ export function YearlyTrendSection(props: AnalysisSectionProps) {
           {monthlyTrendInsights && (
             <Card className="border-l-4 border-l-primary">
               <CardHeader>
-                <CardTitle className="text-lg">{trendYear}年 実績サマリー</CardTitle>
+                <CardTitle className="text-base font-medium">{trendYear}年 実績サマリー</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex items-start gap-3">
@@ -1539,7 +1539,7 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
       {/* AI解説を一番上に */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold flex items-center gap-2">
+          <CardTitle className="text-base font-medium flex items-center gap-2">
             <span className="text-xl">🤖</span>
             フリー分析インサイト
           </CardTitle>
@@ -1564,7 +1564,7 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
 
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">フリー分析</CardTitle>
+          <CardTitle className="text-base font-medium">フリー分析</CardTitle>
           <p className="text-xs text-muted-foreground mt-1">カスタム分析軸を選択して自由に分析</p>
         </CardHeader>
         <CardContent className="pt-0 space-y-4">
@@ -1773,7 +1773,7 @@ export function OtaCampaignSection() {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg font-semibold">OTA販売促進参画データ管理</CardTitle>
+        <CardTitle className="text-base font-medium">OTA販売促進参画データ管理</CardTitle>
       </CardHeader>
       <CardContent className="pt-0">
         <CampaignParticipationManager />
@@ -1857,23 +1857,10 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
       <Tabs value={activeView} onValueChange={setActiveView} className="space-y-4">
         {/* 対象期間と分析軸の切り替え */}
         <Card>
-          <CardContent className="py-3 px-4 space-y-2">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-2">
-                <Label htmlFor="period" className="text-sm whitespace-nowrap">対象期間</Label>
-                <Select value={targetPeriod} onValueChange={setTargetPeriod}>
-                  <SelectTrigger id="period" className="h-9 w-40 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="2025-03">2025年3月</SelectItem>
-                    <SelectItem value="2025-04">2025年4月</SelectItem>
-                    <SelectItem value="2025-05">2025年5月</SelectItem>
-                    <SelectItem value="2025-06">2025年6月</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="w-full min-w-0 overflow-x-auto sm:w-auto">
+          <CardContent className="px-4 py-3">
+            {/* 主: 分析軸の切り替え。従: 対象期間のフィルタ */}
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div className="w-full min-w-0 overflow-x-auto lg:w-auto">
                 <TabsList className="h-9 inline-flex">
                   {ANALYSIS_VIEWS.map((view) => (
                     <TabsTrigger
@@ -1887,16 +1874,37 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
                   ))}
                 </TabsList>
               </div>
+              <div className="flex items-center gap-2">
+                <Label htmlFor="period" className="text-xs whitespace-nowrap text-muted-foreground">
+                  対象期間
+                </Label>
+                <Select value={targetPeriod} onValueChange={setTargetPeriod}>
+                  <SelectTrigger id="period" className="h-9 w-36 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="2025-03">2025年3月</SelectItem>
+                    <SelectItem value="2025-04">2025年4月</SelectItem>
+                    <SelectItem value="2025-05">2025年5月</SelectItem>
+                    <SelectItem value="2025-06">2025年6月</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             {activeViewMeta && (
-              <p className="text-xs text-muted-foreground">{activeViewMeta.description}</p>
+              <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
+                {activeViewMeta.description}
+              </p>
             )}
           </CardContent>
         </Card>
 
         {/* 実績推移: 日別 → 曜日別 → 年間の順で粒度を粗くしていく */}
         <TabsContent value="performance" className="space-y-4">
+          {/* 対象期間は画面上部のセレクタに一本化する（同じ "YYYY-MM" 形式） */}
           <DailyPerformanceSection
+            targetMonth={targetPeriod}
+            onTargetMonthChange={setTargetPeriod}
             onNavigateToPricing={onNavigateToPricing}
             onSelectStayDate={(date) => {
               setCurveStayDate(date)

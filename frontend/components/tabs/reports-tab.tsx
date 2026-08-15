@@ -176,7 +176,7 @@ export function ReportsTab() {
       {/* Recent Reports */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">最近のレポート</CardTitle>
+          <CardTitle className="text-base font-medium">最近のレポート</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
           <div className="space-y-2">
@@ -252,7 +252,7 @@ export function ReportsTab() {
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">定期レポート設定</CardTitle>
+            <CardTitle className="text-base font-medium">定期レポート設定</CardTitle>
             <Button variant="outline" size="sm" className="h-8">
               新規追加
             </Button>
@@ -312,7 +312,7 @@ export function ReportsTab() {
       {/* Report Templates */}
       <Card className="border-l-4 border-l-primary">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">レポートテンプレート</CardTitle>
+          <CardTitle className="text-base font-medium">レポートテンプレート</CardTitle>
         </CardHeader>
         <CardContent className="pt-0 space-y-2">
           <p className="text-sm text-muted-foreground">

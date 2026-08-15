@@ -113,6 +113,21 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* KPI・実績値が縦に並ぶ画面のため、表内の数字は等幅で桁を揃える */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* 行数の多い表でヘッダーを固定する（スクロール中も指標名が読める） */
+  .table-sticky-head thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background-color: var(--card);
+    box-shadow: inset 0 -1px 0 var(--border);
+  }
 }
 
 @layer components {
