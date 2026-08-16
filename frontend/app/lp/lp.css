@@ -1,0 +1,306 @@
+/* ============================================================
+   LP専用スタイル — OpenAI Developers 風デザインシステム
+   （stark white laboratory / light theme / モノクロ基調）
+   ダッシュボード側の globals.css テーマには影響させない
+   ============================================================ */
+
+.lp-root {
+  /* Colors */
+  --color-obsidian: #000000;
+  --color-paper-white: #ffffff;
+  --color-carbon: #181818;
+  --color-fog-white: #f9f9f9;
+  --color-ash-gray: #5d5d5d;
+  --color-graphite: #282828;
+  --color-mist-gray: #ededed;
+  --color-linen: #f3f3f3;
+  --color-ink: #0d0d0d;
+  --color-smoke: #8f8f8f;
+  --color-slate-whisper: #64748b;
+
+  /* Gradient — モデルバッジ/フィーチャードタイル専用 */
+  --gradient-featured: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+
+  /* Typography */
+  --font-openai-sans: "Geist", "Geist Fallback", "Inter", ui-sans-serif, system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Layout */
+  --page-max-width: 1200px;
+  --section-gap: 64px;
+  --card-padding: 24px;
+
+  /* Radius */
+  --radius-cards: 8px;
+  --radius-pills: 9999px;
+
+  /* Shadow */
+  --shadow-subtle: rgba(0, 0, 0, 0.08) 0px 1px 2px -1px;
+
+  font-family: var(--font-openai-sans);
+  background-color: var(--color-paper-white);
+  color: var(--color-carbon);
+  letter-spacing: -0.008em;
+  overflow-x: clip;
+}
+
+/* ---------- タイポグラフィ ---------- */
+
+.lp-display {
+  font-size: 30px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: var(--color-carbon);
+}
+
+@media (max-width: 640px) {
+  .lp-display {
+    font-size: 26px;
+  }
+}
+
+.lp-heading {
+  font-size: 20px;
+  line-height: 1.4;
+  letter-spacing: -0.011em;
+  font-weight: 500;
+  color: var(--color-carbon);
+}
+
+/* ---------- スクロールリビール（控えめ） ---------- */
+
+.lp-reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1), transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--lp-delay, 0ms);
+}
+
+.lp-reveal.lp-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ヒーロー文言の段階フェード */
+.lp-hero-in {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: lp-hero-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--lp-delay, 0ms);
+}
+
+@keyframes lp-hero-up {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- カード ---------- */
+
+.lp-card {
+  background: var(--color-fog-white);
+  border: 1px solid var(--color-mist-gray);
+  border-radius: var(--radius-cards);
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+
+.lp-card-hover:hover {
+  background: var(--color-linen);
+}
+
+/* フィーチャードグラデーションタイル（below-fold限定） */
+.lp-featured {
+  background: var(--gradient-featured);
+  border-radius: var(--radius-cards);
+  color: #ffffff;
+}
+
+/* ---------- ボタン ---------- */
+
+.lp-btn-dark {
+  background: var(--color-obsidian);
+  color: var(--color-paper-white);
+  border-radius: var(--radius-pills);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 10px 16px;
+  transition: opacity 0.2s ease;
+}
+
+.lp-btn-dark:hover {
+  opacity: 0.85;
+}
+
+.lp-btn-ghost {
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-graphite);
+  padding: 10px 12px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.lp-btn-ghost:hover {
+  background: var(--color-mist-gray);
+  color: var(--color-ink);
+}
+
+.lp-arrow-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-graphite);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lp-arrow-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------- モックアップ ---------- */
+
+.lp-mockup-wrap {
+  perspective: 1600px;
+}
+
+.lp-mockup {
+  transform: rotateX(var(--rx, 3deg)) rotateY(var(--ry, 0deg));
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+/* スパークライン描画 */
+.lp-spark path.lp-spark-line {
+  stroke-dasharray: 600;
+  stroke-dashoffset: 600;
+}
+
+.lp-visible .lp-spark path.lp-spark-line,
+.lp-spark.lp-play path.lp-spark-line {
+  animation: lp-draw 2.2s cubic-bezier(0.4, 0, 0.2, 1) 0.4s forwards;
+}
+
+@keyframes lp-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+/* KPIバーの伸長 */
+.lp-bar {
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: var(--lp-delay, 0ms);
+}
+
+.lp-visible .lp-bar,
+.lp-play .lp-bar {
+  transform: scaleY(1);
+}
+
+/* ランクセルの波（明度のみ・彩度なし） */
+.lp-rank-cell {
+  animation: lp-rank-pulse 4.2s ease-in-out infinite;
+  animation-delay: var(--lp-delay, 0ms);
+}
+
+@keyframes lp-rank-pulse {
+  0%, 100% { opacity: 1; transform: translateY(0); }
+  10% { opacity: 0.75; transform: translateY(-2px); }
+  20% { opacity: 1; transform: translateY(0); }
+}
+
+/* タイプライターのカーソル */
+.lp-caret::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-graphite);
+  animation: lp-blink 1s step-end infinite;
+}
+
+@keyframes lp-blink {
+  50% { opacity: 0; }
+}
+
+/* ---------- マーキー ---------- */
+
+.lp-marquee {
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+.lp-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: lp-marquee-move 36s linear infinite;
+}
+
+.lp-marquee:hover .lp-marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes lp-marquee-move {
+  to { transform: translateX(-50%); }
+}
+
+/* ---------- フロー図 ---------- */
+
+.lp-flow-line {
+  stroke-dasharray: 5 7;
+  animation: lp-dash-flow 1.4s linear infinite;
+}
+
+@keyframes lp-dash-flow {
+  to { stroke-dashoffset: -12; }
+}
+
+/* ---------- スクロールプログレスバー ---------- */
+
+.lp-progress {
+  transform-origin: left;
+  transform: scaleX(var(--lp-scroll, 0));
+}
+
+/* ---------- モバイルメニュー ---------- */
+
+.lp-mobile-menu {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.lp-mobile-menu.lp-open {
+  grid-template-rows: 1fr;
+}
+
+.lp-mobile-menu > div {
+  overflow: hidden;
+}
+
+/* ---------- reduced motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-root *,
+  .lp-root *::before,
+  .lp-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .lp-reveal,
+  .lp-hero-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  .lp-bar {
+    transform: scaleY(1);
+  }
+
+  .lp-spark path.lp-spark-line {
+    stroke-dashoffset: 0;
+  }
+}
