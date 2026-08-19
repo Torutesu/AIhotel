@@ -2,9 +2,12 @@ import { prisma } from '../../lib/prisma.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
 import type { DemandLevel } from '@prisma/client'
 import type { DailyForecast, DemandForecaster } from './types.js'
-import { ruleBasedForecaster } from './ruleBasedForecaster.js'
+import { calibratedForecaster } from './calibratedForecaster.js'
 
 // 需要予測の再計算・DB反映（F-DP-05）。
+// 既定の予測実装はルールベース予測に「運営担当者の意向プロファイル」（継続学習・
+// F-DP-10）の補正を重ねた calibratedForecaster。有効化済みプロファイルが無ければ
+// ルールベース予測そのままの結果になる。
 // F-DP-03（AI予測値へのリセット）のバックエンドとしても機能する:
 // 手動で価格ランクを編集した後でも、このサービスを呼べば AiPriceRecommendation が
 // 最新のルールベース予測で上書きされ、AI推奨値に戻せる。
@@ -71,7 +74,7 @@ export async function recomputeForecastService(
   hotelId: string,
   startDate?: Date,
   endDate?: Date,
-  forecaster: DemandForecaster = ruleBasedForecaster
+  forecaster: DemandForecaster = calibratedForecaster
 ): Promise<RecomputeForecastResult> {
   const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
   if (!hotel) throw new NotFoundError('ホテル')

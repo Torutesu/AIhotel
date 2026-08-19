@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
+import { PrismaClient, UserRole, DemandLevel, AlertSeverity, PriceIntentReason } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
@@ -209,7 +209,9 @@ async function main() {
       tenantId: tenant.id,
       date,
       predictedOccupancy: Math.round(predictedOcc * 1000) / 1000,
-      predictedAdr: Math.round((isWeekend ? 24000 : 17000) * seasonBoost),
+      // 予測ADRは実績ADRと同じ水準を中心に振らす。片側に寄せると差異レポートの
+      // outcome（実績 vs AI想定）が常に一方向へ倒れ、デモとして意味をなさない
+      predictedAdr: Math.round((isWeekend ? 23000 : 16500) * seasonBoost + (rng() - 0.5) * 1200),
       recommendedRank,
       recommendedPrice: Math.round(6500 + ((recommendedRank - 1) / (PRICE_RANK_COUNT - 1)) * 23500),
       demandLevel,
@@ -220,6 +222,79 @@ async function main() {
   await prisma.dailyData.createMany({ data: dailyRows })
   await prisma.aiPriceRecommendation.createMany({ data: aiRows })
   console.log(`✅ Daily data: ${dailyRows.length}, AI recommendations: ${aiRows.length}`)
+
+  // 8-b. 運営担当者の意向（PriceDecision）— F-DP-08 / F-DP-09 / F-DP-10 のデモデータ。
+  // 過去90日のうち約2/3の日に判断が記録され、AI推奨をそのまま採用した日と
+  // 意向で動かした日が混ざっている、という想定のデータを決定的に生成する。
+  const operatorUser = await prisma.user.findUnique({
+    where: { email: 'operator@demo-hotel.example.com' },
+  })
+  const managerUser = await prisma.user.findUnique({
+    where: { email: 'manager@demo-hotel.example.com' },
+  })
+
+  await prisma.priceDecision.deleteMany({ where: { hotelId: hotel.id } })
+
+  const decisionRows = []
+  for (const ai of aiRows) {
+    // 判断は宿泊日より前に行われる想定。過去日と直近の将来日のみ記録があるものとする
+    const offsetDays = Math.round((ai.date.getTime() - today.getTime()) / 86_400_000)
+    if (offsetDays > 30) continue
+    if (rng() > 0.65) continue // 全日に記録があるわけではない
+
+    const dow = ai.date.getUTCDay()
+    const isWeekend = dow === 5 || dow === 6
+
+    // 週末・高需要日は上げ、平日の低需要日は競合追随で下げる、という意向の癖を持たせる
+    let rankDelta = 0
+    let intentReason: PriceIntentReason = PriceIntentReason.FOLLOW_AI
+    let intentNote: string | null = null
+
+    if (isWeekend && (ai.demandLevel === DemandLevel.A || ai.demandLevel === DemandLevel.B)) {
+      rankDelta = 2
+      intentReason = PriceIntentReason.EVENT_DEMAND
+      intentNote = '周辺イベントで週末の引き合いが強いため、推奨より2ランク上げた'
+    } else if (!isWeekend && (ai.demandLevel === DemandLevel.D || ai.demandLevel === DemandLevel.E)) {
+      rankDelta = -2
+      intentReason = PriceIntentReason.COMPETITOR_MOVE
+      intentNote = '近隣2館が同水準まで下げてきたため追随'
+    } else if (rng() > 0.75) {
+      rankDelta = 1
+      intentReason = PriceIntentReason.FIELD_INSIGHT
+      intentNote = '常連の予約が例年より早く入っているため微増'
+    }
+
+    const appliedRank = Math.min(PRICE_RANK_COUNT, Math.max(1, ai.recommendedRank + rankDelta))
+    const appliedDelta = appliedRank - ai.recommendedRank
+    const appliedPrice = Math.round(6500 + ((appliedRank - 1) / (PRICE_RANK_COUNT - 1)) * 23500)
+
+    decisionRows.push({
+      hotelId: hotel.id,
+      tenantId: tenant.id,
+      date: ai.date,
+      aiRecommendedRank: ai.recommendedRank,
+      aiRecommendedPrice: ai.recommendedPrice,
+      aiPredictedOccupancy: ai.predictedOccupancy,
+      aiPredictedAdr: ai.predictedAdr,
+      aiDemandLevel: ai.demandLevel,
+      aiConfidence: ai.confidence,
+      aiModelVersion: ai.modelVersion,
+      appliedRank,
+      appliedPrice,
+      decisionType:
+        appliedDelta === 0 ? ('ACCEPTED' as const) : appliedDelta > 0 ? ('RAISED' as const) : ('LOWERED' as const),
+      intentReason: appliedDelta === 0 ? PriceIntentReason.FOLLOW_AI : intentReason,
+      intentNote: appliedDelta === 0 ? null : intentNote,
+      decidedByUserId: (isWeekend ? managerUser?.id : operatorUser?.id) ?? null,
+      // 宿泊日の7日前に判断した想定
+      decidedAt: addDays(ai.date, -7),
+    })
+  }
+  await prisma.priceDecision.createMany({ data: decisionRows })
+  console.log(`✅ Price decisions (運営担当者の意向): ${decisionRows.length}`)
+
+  // 8-c. 意向プロファイル（継続学習の結果）は seed では作らない。
+  // POST /api/v1/pricing/learning/recompute を叩くと上の判断履歴から学習される。
 
   // 9. ブッキングカーブ（今後30日の宿泊日 × リードタイム）
   const curveRows = []

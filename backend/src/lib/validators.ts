@@ -295,6 +295,57 @@ export const updateStrategySchema = z.object({
 })
 
 // ======================================
+// 運営担当者の意向・差異・継続学習 Validators（F-DP-08 / F-DP-09 / F-DP-10）
+// ======================================
+
+// Prisma の PriceIntentReason と対応。増減時は schema.prisma と揃えること
+export const PRICE_INTENT_REASONS = [
+  'FOLLOW_AI',
+  'COMPETITOR_MOVE',
+  'EVENT_DEMAND',
+  'GROUP_BLOCK',
+  'OTA_CAMPAIGN',
+  'BUDGET_PRESSURE',
+  'FIELD_INSIGHT',
+  'OPERATION_LIMIT',
+  'OTHER',
+] as const
+
+// 判断種別（ACCEPTED/RAISED/LOWERED）はサーバ側でAI推奨との差から導出するため受け取らない
+export const createPriceDecisionSchema = z.object({
+  hotelId: entityIdSchema,
+  date: z.coerce.date(),
+  roomTypeId: entityIdSchema.optional(),
+  // 料金ランクは最大40段階（F-SET-02）
+  appliedRank: z.number().int().min(1).max(40).optional(),
+  appliedPrice: z.number().int().min(0).optional(),
+  intentReason: z.enum(PRICE_INTENT_REASONS),
+  intentNote: z.string().max(1000).optional(),
+}).refine((data) => data.appliedRank != null || data.appliedPrice != null, {
+  message: '適用した料金ランクまたは価格のいずれかは必須です',
+})
+
+export const priceDecisionsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+}).refine(
+  (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
+  { message: '開始日は終了日以前である必要があります' }
+)
+
+export const recomputePreferenceProfilesSchema = z.object({
+  hotelId: entityIdSchema,
+  // 学習に使う過去日数（30日〜2年）
+  lookbackDays: z.number().int().min(30).max(730).optional(),
+})
+
+export const updatePreferenceProfileSchema = z.object({
+  hotelId: entityIdSchema,
+  isEnabled: z.boolean(),
+})
+
+// ======================================
 // Type Exports
 // ======================================
 
@@ -316,3 +367,7 @@ export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
+export type CreatePriceDecisionInput = z.infer<typeof createPriceDecisionSchema>
+export type PriceDecisionsQueryInput = z.infer<typeof priceDecisionsQuerySchema>
+export type RecomputePreferenceProfilesInput = z.infer<typeof recomputePreferenceProfilesSchema>
+export type UpdatePreferenceProfileInput = z.infer<typeof updatePreferenceProfileSchema>

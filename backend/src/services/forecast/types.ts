@@ -21,6 +21,11 @@ export interface DailyForecast {
   recommendedPrice: number | null
   confidence: number
   modelVersion: string
+  /**
+   * 運営担当者の意向プロファイル（継続学習）による料金ランク補正値。
+   * 補正が適用されなかった場合は 0 / 未定義。
+   */
+  operatorRankDelta?: number
 }
 
 export interface DemandForecaster {
