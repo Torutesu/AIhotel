@@ -57,3 +57,7 @@ pnpm --filter backend build && pnpm --filter frontend build
 
 PMS/OTA連携・スクレイピング・需要予測ML・Claude APIによるAIコメント生成・バッチジョブ・PDF/Excel出力。
 対応するDBテーブルとAPIの器は存在し、現在はseedデータで動作している。
+
+運営担当者の意向の記録・差異可視化・継続学習（F-DP-08〜10）はルールベース補正まで実装済み。
+MLモデル化・定期再学習バッチは未実装（設計は `docs/継続学習設計.md`）。
+学習結果は自動反映せず、MANAGERが承認したセグメントのみ需要予測へ反映する仕様を崩さないこと。
