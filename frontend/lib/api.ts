@@ -363,6 +363,139 @@ export interface PricingStrategy {
   weightCompetitor: number
 }
 
+// ---- 運営担当者の意向・差異・継続学習（F-DP-08 / F-DP-09 / F-DP-10）----
+
+export type PriceIntentReason =
+  | "FOLLOW_AI"
+  | "COMPETITOR_MOVE"
+  | "EVENT_DEMAND"
+  | "GROUP_BLOCK"
+  | "OTA_CAMPAIGN"
+  | "BUDGET_PRESSURE"
+  | "FIELD_INSIGHT"
+  | "OPERATION_LIMIT"
+  | "OTHER"
+
+/** AI推奨に対する動かし方。サーバ側でAI推奨との差から導出される */
+export type PriceDecisionType = "ACCEPTED" | "RAISED" | "LOWERED"
+
+/** 実績がAIの想定RevPARを上回ったか */
+export type VarianceOutcome = "OPERATOR_BETTER" | "AI_BETTER" | "EVEN"
+
+export interface IntentVarianceDay {
+  date: string
+  dayType: "weekend" | "weekday"
+  demandLevel: "A" | "B" | "C" | "D" | "E" | null
+  aiRank: number | null
+  aiPrice: number | null
+  aiPredictedOccupancy: number | null
+  aiPredictedAdr: number | null
+  appliedRank: number | null
+  appliedPrice: number | null
+  decisionType: PriceDecisionType | null
+  intentReason: PriceIntentReason | null
+  intentNote: string | null
+  decidedByName: string | null
+  decidedAt: string | null
+  decisionCount: number
+  actualOccupancy: number | null
+  actualAdr: number | null
+  actualRevPar: number | null
+  rankDelta: number | null
+  priceDelta: number | null
+  priceDeltaPct: number | null
+  occupancyDelta: number | null
+  adrDelta: number | null
+  estimatedAiRevPar: number | null
+  revParDelta: number | null
+  outcome: VarianceOutcome | null
+}
+
+export interface VarianceBreakdown {
+  key: string
+  label: string
+  count: number
+  avgRankDelta: number | null
+  avgPriceDeltaPct: number | null
+  outperformRate: number | null
+  evaluatedCount: number
+}
+
+export interface IntentVarianceSummary {
+  totalDays: number
+  decidedDays: number
+  acceptedCount: number
+  raisedCount: number
+  loweredCount: number
+  followRate: number | null
+  avgRankDelta: number | null
+  avgPriceDeltaPct: number | null
+  avgOccupancyDelta: number | null
+  avgAdrDelta: number | null
+  outperformRate: number | null
+  evaluatedCount: number
+  byIntentReason: VarianceBreakdown[]
+  bySegment: VarianceBreakdown[]
+}
+
+export interface IntentVarianceReport {
+  hotelId: string
+  year: number
+  month: number
+  days: IntentVarianceDay[]
+  summary: IntentVarianceSummary
+}
+
+export interface PriceDecision {
+  id: string
+  hotelId: string
+  date: string
+  aiRecommendedRank: number | null
+  aiRecommendedPrice: number | null
+  appliedRank: number | null
+  appliedPrice: number | null
+  decisionType: PriceDecisionType
+  intentReason: PriceIntentReason
+  intentNote: string | null
+  decidedAt: string
+  decidedBy?: { id: string; name: string; role: UserRole } | null
+}
+
+export interface CreatePriceDecisionInput {
+  hotelId: string
+  date: string
+  appliedRank?: number
+  appliedPrice?: number
+  intentReason: PriceIntentReason
+  intentNote?: string
+}
+
+export interface OperatorPreferenceProfile {
+  id: string
+  hotelId: string
+  segmentKey: string
+  demandLevel: "A" | "B" | "C" | "D" | "E" | null
+  dayType: string
+  sampleCount: number
+  avgRankDelta: number
+  medianRankDelta: number
+  appliedRankDelta: number
+  outperformRate: number | null
+  evaluatedCount: number
+  dominantIntentReason: PriceIntentReason | null
+  isEnabled: boolean
+  modelVersion: string
+  computedAt: string
+}
+
+export interface RecomputeProfilesResult {
+  hotelId: string
+  lookbackDays: number
+  sampleCount: number
+  segmentCount: number
+  modelVersion: string
+}
+
 export interface BookingCurve {
   hotelId: string
   stayDate: string
@@ -747,6 +880,251 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
   }
 
   return { hotelId, year, month, calendar }
+}
+
+// ---- 運営担当者の意向・差異のデモデータ ----
+// 価格カレンダーのモックから同じ乱数系列で「意向が記録された日」を組み立て、
+// カレンダー表示と差異レポートの数字が食い違わないようにする。
+
+const MOCK_INTENT_REASON_BY_SEGMENT: Record<string, PriceIntentReason> = {
+  raise: "EVENT_DEMAND",
+  lower: "COMPETITOR_MOVE",
+  minor: "FIELD_INSIGHT",
+}
+
+/** デモ中に画面から記録した意向（日付 → 判断）。実APIが使える環境では使われない */
+const mockRecordedDecisions = new Map<string, { appliedRank: number; intentReason: PriceIntentReason; intentNote?: string }>()
+
+function mockIntentVariance(hotelId: string, year: number, month: number): IntentVarianceReport {
+  const { calendar } = mockPricingCalendar(hotelId, year, month)
+  const rng = createSeededRandom(year * 100 + month + 31)
+  const today = new Date()
+
+  const days: IntentVarianceDay[] = calendar.map((day) => {
+    const date = new Date(day.date)
+    const weekend = isMockWeekend(date)
+    const dayType: IntentVarianceDay["dayType"] = weekend ? "weekend" : "weekday"
+    const recorded = mockRecordedDecisions.get(day.date)
+    const hasDecision = recorded != null || rng() < 0.65
+
+    let appliedRank: number | null = null
+    let intentReason: PriceIntentReason | null = null
+    let intentNote: string | null = null
+
+    if (recorded) {
+      appliedRank = recorded.appliedRank
+      intentReason = recorded.intentReason
+      intentNote = recorded.intentNote ?? null
+    } else if (hasDecision && day.recommendedRank != null) {
+      let delta = 0
+      if (weekend && (day.demandLevel === "A" || day.demandLevel === "B")) {
+        delta = 2
+        intentReason = MOCK_INTENT_REASON_BY_SEGMENT.raise
+        intentNote = "周辺イベントで週末の引き合いが強いため、推奨より2ランク上げた"
+      } else if (!weekend && (day.demandLevel === "D" || day.demandLevel === "E")) {
+        delta = -2
+        intentReason = MOCK_INTENT_REASON_BY_SEGMENT.lower
+        intentNote = "近隣2館が同水準まで下げてきたため追随"
+      } else if (rng() > 0.75) {
+        delta = 1
+        intentReason = MOCK_INTENT_REASON_BY_SEGMENT.minor
+        intentNote = "常連の予約が例年より早く入っているため微増"
+      } else {
+        intentReason = "FOLLOW_AI"
+      }
+      appliedRank = Math.min(40, Math.max(1, day.recommendedRank + delta))
+    }
+
+    const appliedPrice = appliedRank != null ? mockRankToPrice1P(appliedRank) : null
+    const rankDelta = appliedRank != null && day.recommendedRank != null ? appliedRank - day.recommendedRank : null
+    const priceDelta = appliedPrice != null && day.recommendedPrice != null ? appliedPrice - day.recommendedPrice : null
+    const priceDeltaPct =
+      priceDelta != null && day.recommendedPrice ? Number((priceDelta / day.recommendedPrice).toFixed(4)) : null
+
+    const isPast = date < today
+    const actualRevPar =
+      isPast && day.actualOccupancy != null && day.actualAdr != null
+        ? Math.round(day.actualOccupancy * day.actualAdr)
+        : null
+    const estimatedAiRevPar =
+      day.predictedOccupancy != null && day.predictedAdr != null
+        ? Math.round(day.predictedOccupancy * day.predictedAdr)
+        : null
+    const revParDelta = actualRevPar != null && estimatedAiRevPar != null ? actualRevPar - estimatedAiRevPar : null
+    const outcome: VarianceOutcome | null =
+      revParDelta != null && estimatedAiRevPar
+        ? revParDelta / estimatedAiRevPar > 0.02
+          ? "OPERATOR_BETTER"
+          : revParDelta / estimatedAiRevPar < -0.02
+            ? "AI_BETTER"
+            : "EVEN"
+        : null
+
+    return {
+      date: day.date,
+      dayType,
+      demandLevel: day.demandLevel,
+      aiRank: day.recommendedRank,
+      aiPrice: day.recommendedPrice,
+      aiPredictedOccupancy: day.predictedOccupancy,
+      aiPredictedAdr: day.predictedAdr,
+      appliedRank,
+      appliedPrice,
+      decisionType:
+        rankDelta == null ? null : rankDelta === 0 ? "ACCEPTED" : rankDelta > 0 ? "RAISED" : "LOWERED",
+      intentReason,
+      intentNote,
+      decidedByName: intentReason == null ? null : weekend ? "レベニューマネージャー" : "フロント担当",
+      decidedAt: intentReason == null ? null : new Date(date.getTime() - 7 * 86_400_000).toISOString(),
+      decisionCount: intentReason == null ? 0 : 1,
+      actualOccupancy: day.actualOccupancy,
+      actualAdr: day.actualAdr,
+      actualRevPar,
+      rankDelta,
+      priceDelta,
+      priceDeltaPct,
+      occupancyDelta:
+        day.actualOccupancy != null && day.predictedOccupancy != null
+          ? Number((day.actualOccupancy - day.predictedOccupancy).toFixed(4))
+          : null,
+      adrDelta: day.actualAdr != null && day.predictedAdr != null ? day.actualAdr - day.predictedAdr : null,
+      estimatedAiRevPar,
+      revParDelta,
+      outcome,
+    }
+  })
+
+  return { hotelId, year, month, days, summary: mockSummarizeVariance(days) }
+}
+
+function mockAverage(values: Array<number | null>): number | null {
+  const nums = values.filter((v): v is number => v != null)
+  if (nums.length === 0) return null
+  return Number((nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(4))
+}
+
+const MOCK_INTENT_REASON_LABELS: Record<PriceIntentReason, string> = {
+  FOLLOW_AI: "AI推奨に従う",
+  COMPETITOR_MOVE: "競合の動きに追随",
+  EVENT_DEMAND: "イベント・地域需要",
+  GROUP_BLOCK: "団体・グループ受入",
+  OTA_CAMPAIGN: "OTAキャンペーン",
+  BUDGET_PRESSURE: "予算達成",
+  FIELD_INSIGHT: "現場の肌感覚",
+  OPERATION_LIMIT: "オペレーション制約",
+  OTHER: "その他",
+}
+
+function mockBreakdown(key: string, label: string, days: IntentVarianceDay[]): VarianceBreakdown {
+  const evaluated = days.filter((d) => d.outcome != null)
+  return {
+    key,
+    label,
+    count: days.length,
+    avgRankDelta: mockAverage(days.map((d) => d.rankDelta)),
+    avgPriceDeltaPct: mockAverage(days.map((d) => d.priceDeltaPct)),
+    outperformRate:
+      evaluated.length > 0
+        ? Number((evaluated.filter((d) => d.outcome === "OPERATOR_BETTER").length / evaluated.length).toFixed(4))
+        : null,
+    evaluatedCount: evaluated.length,
+  }
+}
+
+function mockSummarizeVariance(days: IntentVarianceDay[]): IntentVarianceSummary {
+  const decided = days.filter((d) => d.decisionType != null)
+  const evaluated = decided.filter((d) => d.outcome != null)
+  const acceptedCount = decided.filter((d) => d.decisionType === "ACCEPTED").length
+  const reasons = Array.from(
+    new Set(decided.map((d) => d.intentReason).filter((r): r is PriceIntentReason => r != null))
+  )
+  const segments = Array.from(new Set(decided.map((d) => `${d.demandLevel ?? "UNKNOWN"}:${d.dayType}`)))
+
+  return {
+    totalDays: days.length,
+    decidedDays: decided.length,
+    acceptedCount,
+    raisedCount: decided.filter((d) => d.decisionType === "RAISED").length,
+    loweredCount: decided.filter((d) => d.decisionType === "LOWERED").length,
+    followRate: decided.length > 0 ? Number((acceptedCount / decided.length).toFixed(4)) : null,
+    avgRankDelta: mockAverage(decided.map((d) => d.rankDelta)),
+    avgPriceDeltaPct: mockAverage(decided.map((d) => d.priceDeltaPct)),
+    avgOccupancyDelta: mockAverage(days.map((d) => d.occupancyDelta)),
+    avgAdrDelta: mockAverage(days.map((d) => d.adrDelta)),
+    outperformRate:
+      evaluated.length > 0
+        ? Number((evaluated.filter((d) => d.outcome === "OPERATOR_BETTER").length / evaluated.length).toFixed(4))
+        : null,
+    evaluatedCount: evaluated.length,
+    byIntentReason: reasons.map((r) =>
+      mockBreakdown(r, MOCK_INTENT_REASON_LABELS[r], decided.filter((d) => d.intentReason === r))
+    ),
+    bySegment: segments.map((key) =>
+      mockBreakdown(key, key, decided.filter((d) => `${d.demandLevel ?? "UNKNOWN"}:${d.dayType}` === key))
+    ),
+  }
+}
+
+let mockProfiles: OperatorPreferenceProfile[] | null = null
+
+function getMockPreferenceProfiles(hotelId: string): OperatorPreferenceProfile[] {
+  if (mockProfiles) return mockProfiles
+  const now = new Date().toISOString()
+  mockProfiles = [
+    {
+      id: "mock-profile-1",
+      hotelId,
+      segmentKey: "B:weekend",
+      demandLevel: "B",
+      dayType: "weekend",
+      sampleCount: 19,
+      avgRankDelta: 2,
+      medianRankDelta: 2,
+      appliedRankDelta: 2,
+      outperformRate: 0.54,
+      evaluatedCount: 13,
+      dominantIntentReason: "EVENT_DEMAND",
+      isEnabled: false,
+      modelVersion: "operator-calibration-v1",
+      computedAt: now,
+    },
+    {
+      id: "mock-profile-2",
+      hotelId,
+      segmentKey: "D:weekday",
+      demandLevel: "D",
+      dayType: "weekday",
+      sampleCount: 9,
+      avgRankDelta: -2,
+      medianRankDelta: -2,
+      appliedRankDelta: -2,
+      outperformRate: 0.67,
+      evaluatedCount: 3,
+      dominantIntentReason: "COMPETITOR_MOVE",
+      isEnabled: false,
+      modelVersion: "operator-calibration-v1",
+      computedAt: now,
+    },
+    {
+      id: "mock-profile-3",
+      hotelId,
+      segmentKey: "C:weekday",
+      demandLevel: "C",
+      dayType: "weekday",
+      sampleCount: 47,
+      avgRankDelta: 0.32,
+      medianRankDelta: 0,
+      // 実績が伴っていないため補正0（学習しない判断）
+      appliedRankDelta: 0,
+      outperformRate: 0.4,
+      evaluatedCount: 42,
+      dominantIntentReason: "FOLLOW_AI",
+      isEnabled: false,
+      modelVersion: "operator-calibration-v1",
+      computedAt: now,
+    },
+  ]
+  return mockProfiles
 }
 
 // 競合ホテル（seedと同等の3社構成）
@@ -1174,6 +1552,107 @@ export const api = {
         }),
       () => {
         mockEvents = getMockEvents(hotelId).filter((e) => e.id !== id)
+      }
+    )
+  },
+
+  // ---- 運営担当者の意向・差異・継続学習（F-DP-08 / F-DP-09 / F-DP-10）----
+
+  /** AI推奨と実際に適用した値の差異レポート */
+  intentVariance(hotelId: string, year: number, month: number): Promise<IntentVarianceReport> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/variance?hotelId=${hotelId}&year=${year}&month=${month}`),
+      () => mockIntentVariance(hotelId, year, month)
+    )
+  },
+
+  /** 価格判断（意向）の履歴 */
+  priceDecisions(hotelId: string, startDate?: string, endDate?: string): Promise<PriceDecision[]> {
+    const params = new URLSearchParams({ hotelId })
+    if (startDate) params.set("startDate", startDate)
+    if (endDate) params.set("endDate", endDate)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/decisions?${params.toString()}`),
+      () => []
+    )
+  },
+
+  /** 価格判断（意向）を記録する。判断種別はサーバ側でAI推奨との差から導出される */
+  createPriceDecision(input: CreatePriceDecisionInput): Promise<PriceDecision> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/pricing/decisions", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      () => {
+        // デモ時は記録内容をメモリに保持し、差異レポートに反映されることを確認できるようにする
+        if (input.appliedRank != null) {
+          mockRecordedDecisions.set(input.date, {
+            appliedRank: input.appliedRank,
+            intentReason: input.intentReason,
+            intentNote: input.intentNote,
+          })
+        }
+        return {
+          id: `mock-decision-${Date.now()}`,
+          hotelId: input.hotelId,
+          date: input.date,
+          aiRecommendedRank: null,
+          aiRecommendedPrice: null,
+          appliedRank: input.appliedRank ?? null,
+          appliedPrice: input.appliedPrice ?? (input.appliedRank != null ? mockRankToPrice1P(input.appliedRank) : null),
+          decisionType: "ACCEPTED" as PriceDecisionType,
+          intentReason: input.intentReason,
+          intentNote: input.intentNote ?? null,
+          decidedAt: new Date().toISOString(),
+        }
+      }
+    )
+  },
+
+  /** 学習済みの意向プロファイル */
+  preferenceProfiles(hotelId: string): Promise<OperatorPreferenceProfile[]> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/learning/profiles?hotelId=${hotelId}`),
+      () => getMockPreferenceProfiles(hotelId)
+    )
+  },
+
+  /** 意向プロファイルの再学習（MANAGER以上） */
+  recomputePreferenceProfiles(hotelId: string, lookbackDays?: number): Promise<RecomputeProfilesResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/pricing/learning/recompute", {
+          method: "POST",
+          body: JSON.stringify({ hotelId, ...(lookbackDays != null ? { lookbackDays } : {}) }),
+        }),
+      () => {
+        const profiles = getMockPreferenceProfiles(hotelId)
+        return {
+          hotelId,
+          lookbackDays: lookbackDays ?? 180,
+          sampleCount: profiles.reduce((sum, p) => sum + p.sampleCount, 0),
+          segmentCount: profiles.length,
+          modelVersion: "operator-calibration-v1",
+        }
+      }
+    )
+  },
+
+  /** 意向プロファイルを需要予測へ反映するかの切り替え（MANAGER以上） */
+  updatePreferenceProfile(id: string, hotelId: string, isEnabled: boolean): Promise<OperatorPreferenceProfile> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/pricing/learning/profiles/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ hotelId, isEnabled }),
+        }),
+      () => {
+        const target = getMockPreferenceProfiles(hotelId).find((p) => p.id === id)
+        if (!target) throw new ApiClientError(404, "意向プロファイルが見つかりません")
+        target.isEnabled = isEnabled
+        return target
       }
     )
   },

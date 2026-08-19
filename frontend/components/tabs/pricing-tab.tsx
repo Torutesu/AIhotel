@@ -23,6 +23,7 @@ import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Bar, C
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 import { useAuth } from "@/components/auth-provider"
+import { OperatorIntentPanel } from "@/components/operator-intent-panel"
 import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 
@@ -852,6 +853,14 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
           )}
         </CardContent>
       </Card>
+
+      {/* 運営担当者の意向とAI推奨の差異・継続学習（F-DP-08 / F-DP-09 / F-DP-10） */}
+      <OperatorIntentPanel
+        hotelId={hotelId}
+        year={Number(targetMonth.slice(0, 4))}
+        month={Number(targetMonth.slice(5, 7))}
+        defaultDate={highlightedDate ?? selectedDay?.day.date}
+      />
 
       {/* 当月のイベント情報（実API接続 — F-DP-07） */}
       <Card>
