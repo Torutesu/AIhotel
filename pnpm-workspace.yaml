@@ -2,4 +2,5 @@ packages:
   - 'frontend'
   - 'backend'
   - 'shared'
+  - 'connector-agent'
 

@@ -1,0 +1,20 @@
+{
+  "name": "@hotel-revenue-system/connector-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "クライアントPC常駐コネクタエージェント（現状はリンカーン調査ツールのみ）",
+  "scripts": {
+    "recon:lincoln": "tsx src/recon/lincoln-recon.ts",
+    "type-check": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "playwright": "^1.49.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
+  }
+}
