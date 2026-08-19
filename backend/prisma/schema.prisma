@@ -23,29 +23,31 @@ model Tenant {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  users                    User[]
-  hotels                   Hotel[]
-  roomTypes                RoomType[]
-  priceRanks               PriceRank[]
-  dailyData                DailyData[]
-  dailyRoomData            DailyRoomData[]
-  campaigns                Campaign[]
-  competitors              Competitor[]
-  competitorPriceData      CompetitorPriceData[]
-  events                   Event[]
-  auditLogs                AuditLog[]
-  refreshTokens            RefreshToken[]
-  monthlyBudgets           MonthlyBudget[]
-  pricingStrategyConfigs   PricingStrategyConfig[]
-  aiPriceRecommendations   AiPriceRecommendation[]
-  monthlyLandingSimulation MonthlyLandingSimulation[]
-  alerts                   Alert[]
-  aiComments               AiComment[]
-  bookingCurveData         BookingCurveData[]
-  otaChannelData           OtaChannelData[]
-  kpiSnapshots             KpiSnapshot[]
-  reviewScores             ReviewScore[]
-  groupBookings            GroupBooking[]
+  users                      User[]
+  hotels                     Hotel[]
+  roomTypes                  RoomType[]
+  priceRanks                 PriceRank[]
+  dailyData                  DailyData[]
+  dailyRoomData              DailyRoomData[]
+  campaigns                  Campaign[]
+  competitors                Competitor[]
+  competitorPriceData        CompetitorPriceData[]
+  events                     Event[]
+  auditLogs                  AuditLog[]
+  refreshTokens              RefreshToken[]
+  monthlyBudgets             MonthlyBudget[]
+  pricingStrategyConfigs     PricingStrategyConfig[]
+  aiPriceRecommendations     AiPriceRecommendation[]
+  monthlyLandingSimulation   MonthlyLandingSimulation[]
+  alerts                     Alert[]
+  aiComments                 AiComment[]
+  bookingCurveData           BookingCurveData[]
+  otaChannelData             OtaChannelData[]
+  kpiSnapshots               KpiSnapshot[]
+  reviewScores               ReviewScore[]
+  groupBookings              GroupBooking[]
+  priceDecisions             PriceDecision[]
+  operatorPreferenceProfiles OperatorPreferenceProfile[]
 }
 
 // ======================================
@@ -68,8 +70,9 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
+  refreshTokens  RefreshToken[]
+  auditLogs      AuditLog[]
+  priceDecisions PriceDecision[]
 
   @@index([tenantId])
   @@index([hotelId])
@@ -116,24 +119,26 @@ model Hotel {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  users                    User[]
-  roomTypes                RoomType[]
-  priceRanks               PriceRank[]
-  dailyData                DailyData[]
-  campaigns                Campaign[]
-  competitors              Competitor[]
-  events                   Event[]
-  monthlyBudgets           MonthlyBudget[]
-  pricingStrategyConfigs   PricingStrategyConfig[]
-  aiPriceRecommendations   AiPriceRecommendation[]
-  monthlyLandingSimulation MonthlyLandingSimulation[]
-  alerts                   Alert[]
-  aiComments               AiComment[]
-  bookingCurveData         BookingCurveData[]
-  otaChannelData           OtaChannelData[]
-  kpiSnapshots             KpiSnapshot[]
-  reviewScores             ReviewScore[]
-  groupBookings            GroupBooking[]
+  users                      User[]
+  roomTypes                  RoomType[]
+  priceRanks                 PriceRank[]
+  dailyData                  DailyData[]
+  campaigns                  Campaign[]
+  competitors                Competitor[]
+  events                     Event[]
+  monthlyBudgets             MonthlyBudget[]
+  pricingStrategyConfigs     PricingStrategyConfig[]
+  aiPriceRecommendations     AiPriceRecommendation[]
+  monthlyLandingSimulation   MonthlyLandingSimulation[]
+  alerts                     Alert[]
+  aiComments                 AiComment[]
+  bookingCurveData           BookingCurveData[]
+  otaChannelData             OtaChannelData[]
+  kpiSnapshots               KpiSnapshot[]
+  reviewScores               ReviewScore[]
+  groupBookings              GroupBooking[]
+  priceDecisions             PriceDecision[]
+  operatorPreferenceProfiles OperatorPreferenceProfile[]
 
   @@index([tenantId])
 }
@@ -155,6 +160,7 @@ model RoomType {
 
   dailyRoomData          DailyRoomData[]
   aiPriceRecommendations AiPriceRecommendation[]
+  priceDecisions         PriceDecision[]
 
   @@unique([hotelId, code])
   @@index([tenantId])
@@ -390,6 +396,115 @@ model MonthlyLandingSimulation {
 
   @@unique([hotelId, year, month])
   @@index([tenantId])
+}
+
+// ======================================
+// 運営担当者の意向と差異（F-DP-08 / F-DP-09 / F-DP-10）
+// ======================================
+
+// 運営担当者が実際に適用した価格判断の記録（追記のみ・更新しない）。
+//
+// AI推奨（AiPriceRecommendation）は再計算のたびに上書きされるため、判断した
+// 時点の推奨値をスナップショットとして保持する。これにより「AIが推奨した値」と
+// 「運営担当者が実際にやった値」の差異を、後から再計算の影響を受けずに追跡できる。
+// 1日に複数回判断が入りうる（意向の変遷そのものが学習材料）ため一意制約は付けない。
+model PriceDecision {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId    String
+  hotel      Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // null = ホテル全体の判断（AiPriceRecommendation と同じ粒度）
+  roomTypeId String?
+  roomType   RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
+  date       DateTime  @db.Date
+
+  // 判断時点のAI推奨スナップショット
+  aiRecommendedRank    Int?
+  aiRecommendedPrice   Int?
+  aiPredictedOccupancy Float?
+  aiPredictedAdr       Float?
+  aiDemandLevel        DemandLevel?
+  aiConfidence         Float?
+  aiModelVersion       String?
+
+  // 運営担当者が実際に適用した値
+  appliedRank  Int?
+  appliedPrice Int?
+
+  // 意向。decisionType はサーバ側で AI推奨との差から導出する（クライアント入力を信用しない）
+  decisionType PriceDecisionType
+  intentReason PriceIntentReason
+  intentNote   String? // 意向の自由記述（現場の言葉をそのまま残す）
+
+  decidedByUserId String?
+  decidedBy       User?    @relation(fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  decidedAt       DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, date])
+  @@index([hotelId, intentReason])
+}
+
+// AI推奨に対する運営担当者の動かし方（サーバ側で導出）
+enum PriceDecisionType {
+  ACCEPTED // AI推奨をそのまま適用
+  RAISED // AI推奨より上げた
+  LOWERED // AI推奨より下げた
+}
+
+// 運営担当者の意向カテゴリ。継続学習ではこの分類ごとに傾向を集計する
+enum PriceIntentReason {
+  FOLLOW_AI // AI推奨に従う
+  COMPETITOR_MOVE // 競合の動きに合わせた
+  EVENT_DEMAND // イベント・地域需要を織り込んだ
+  GROUP_BLOCK // 団体・グループ受入の都合
+  OTA_CAMPAIGN // OTAキャンペーン参加のため
+  BUDGET_PRESSURE // 予算達成のため
+  FIELD_INSIGHT // 現場の肌感覚・常連動向
+  OPERATION_LIMIT // 清掃・人員などのオペレーション制約
+  OTHER
+}
+
+// 継続学習（F-DP-10）: 蓄積された PriceDecision と実績から、運営担当者が
+// AI推奨をどちら向きにどれだけ動かす傾向があるかをセグメント別に学習した結果。
+//
+// 学習結果は自動では予測に反映しない。MANAGER が内容を確認して isEnabled を
+// true にしたセグメントのみ需要予測へ適用する（human-in-the-loop）。
+// 誤った意向をそのまま増幅しないための安全弁であり、適用値は
+// appliedRankDelta にクランプ済みの整数として保持する。
+model OperatorPreferenceProfile {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  // セグメント: 需要レベル × 曜日区分（例 "A:weekend"）
+  segmentKey  String
+  demandLevel DemandLevel?
+  dayType     String // weekend / weekday（Hotel.weekendDays 準拠）
+
+  sampleCount      Int // 学習に使った判断件数
+  avgRankDelta     Float // 適用ランク − AI推奨ランク の平均
+  medianRankDelta  Float // 同 中央値（外れ値に強い代表値）
+  appliedRankDelta Int // 予測に実際に適用する補正値（丸め・上限クランプ後）
+  outperformRate   Float? // 実績が判明した判断のうち、運営判断がAI推奨を上回った割合
+  evaluatedCount   Int    @default(0) // outperformRate の母数
+
+  dominantIntentReason PriceIntentReason? // そのセグメントで最も多かった意向
+
+  isEnabled       Boolean  @default(false) // true のセグメントのみ予測に反映
+  enabledByUserId String?
+  modelVersion    String
+  computedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([hotelId, segmentKey])
+  @@index([tenantId])
+  @@index([hotelId, isEnabled])
 }
 
 // ======================================
