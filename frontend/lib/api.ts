@@ -496,6 +496,129 @@ export interface RecomputeProfilesResult {
   modelVersion: string
 }
 
+// ---- AI予測とレベニュー担当予測の差異（F-DP-11 / F-DP-12）----
+
+export type ForecastVarianceReason =
+  | "BOOKING_PACE"
+  | "COMPETITOR_SUPPLY"
+  | "EVENT_LOCAL"
+  | "GROUP_CONTRACT"
+  | "REPEAT_GUEST"
+  | "MARKET_TREND"
+  | "OTA_CAMPAIGN"
+  | "RENOVATION_OPS"
+  | "DATA_DOUBT"
+  | "OTHER"
+
+/** 実績に近かったのはどちらか */
+export type CloserSide = "AI" | "OPERATOR" | "TIE"
+
+export type VarianceMetricKey = "occupancy" | "adr" | "revenue"
+
+export interface ForecastMetrics {
+  occupancy: number | null
+  adr: number | null
+  soldRooms: number | null
+  revenue: number | null
+}
+
+export interface MetricTotals extends ForecastMetrics {
+  days: number
+}
+
+export interface ForecastVarianceValues {
+  occupancyDelta: number | null
+  adrDelta: number | null
+  adrDeltaPct: number | null
+  soldRoomsDelta: number | null
+  revenueDelta: number | null
+  revenueDeltaPct: number | null
+}
+
+export interface AccuracyComparison {
+  occupancy: CloserSide | null
+  adr: CloserSide | null
+  revenue: CloserSide | null
+  overall: CloserSide | null
+}
+
+export interface ForecastVarianceDay {
+  date: string
+  dayType: "weekend" | "weekday"
+  demandLevel: "A" | "B" | "C" | "D" | "E" | null
+  ai: ForecastMetrics
+  operator: ForecastMetrics
+  operatorLatest: ForecastMetrics | null
+  revisionCount: number
+  actual: ForecastMetrics
+  variance: ForecastVarianceValues
+  exceededThreshold: boolean
+  breachedMetrics: VarianceMetricKey[]
+  varianceReason: ForecastVarianceReason | null
+  varianceNote: string | null
+  forecastedByName: string | null
+  forecastedAt: string | null
+  accuracy: AccuracyComparison
+}
+
+export interface ForecastReasonBreakdown {
+  key: ForecastVarianceReason
+  count: number
+  avgOccupancyDelta: number | null
+  avgAdrDeltaPct: number | null
+  avgRevenueDeltaPct: number | null
+  operatorCloserRate: number | null
+  evaluatedCount: number
+}
+
+export interface ForecastVarianceSummary {
+  totalDays: number
+  forecastedDays: number
+  exceededDays: number
+  explainedDays: number
+  avgOccupancyDelta: number | null
+  avgAdrDeltaPct: number | null
+  avgRevenueDeltaPct: number | null
+  operatorCloserRate: number | null
+  aiCloserRate: number | null
+  evaluatedDays: number
+  byReason: ForecastReasonBreakdown[]
+}
+
+export interface VarianceThresholds {
+  occupancyPtThreshold: number
+  adrPctThreshold: number
+  revenuePctThreshold: number
+}
+
+export interface ForecastVarianceReport {
+  hotelId: string
+  year: number
+  month: number
+  totalRooms: number
+  thresholds: VarianceThresholds
+  days: ForecastVarianceDay[]
+  monthly: { ai: MetricTotals; operator: MetricTotals; actual: MetricTotals }
+  summary: ForecastVarianceSummary
+}
+
+export interface OperatorForecastEntryInput {
+  date: string
+  occupancy?: number
+  adr?: number
+  soldRooms?: number
+  revenue?: number
+  varianceReason?: ForecastVarianceReason
+  varianceNote?: string
+}
+
+export interface SaveOperatorForecastsResult {
+  hotelId: string
+  saved: number
+  exceededCount: number
+  dates: string[]
+}
+
 export interface BookingCurve {
   hotelId: string
   stayDate: string
@@ -1062,6 +1185,230 @@ function mockSummarizeVariance(days: IntentVarianceDay[]): IntentVarianceSummary
     bySegment: segments.map((key) =>
       mockBreakdown(key, key, decided.filter((d) => `${d.demandLevel ?? "UNKNOWN"}:${d.dayType}` === key))
     ),
+  }
+}
+
+// ---- AI予測 vs 担当者予測のデモデータ ----
+
+const MOCK_TOTAL_ROOMS = 200
+
+let mockThresholds: VarianceThresholds = {
+  occupancyPtThreshold: 0.05,
+  adrPctThreshold: 0.05,
+  revenuePctThreshold: 0.1,
+}
+
+/** デモ中に画面から入力した担当者予測（日付 → 入力）。実APIが使える環境では使われない */
+const mockRecordedForecasts = new Map<string, OperatorForecastEntryInput>()
+
+function mockDeriveMetrics(
+  input: { occupancy?: number | null; adr?: number | null },
+  totalRooms: number
+): ForecastMetrics {
+  const occupancy = input.occupancy ?? null
+  const adr = input.adr ?? null
+  const soldRooms = occupancy != null ? Math.round(occupancy * totalRooms) : null
+  const revenue = soldRooms != null && adr != null ? Math.round(soldRooms * adr) : null
+  return { occupancy, adr, soldRooms, revenue }
+}
+
+function mockCloserOf(actual: number | null, ai: number | null, human: number | null): CloserSide | null {
+  if (actual == null || ai == null || human == null) return null
+  const aiErr = Math.abs(actual - ai)
+  const humanErr = Math.abs(actual - human)
+  if (aiErr === humanErr) return "TIE"
+  return humanErr < aiErr ? "OPERATOR" : "AI"
+}
+
+function mockAggregate(entries: ForecastMetrics[], totalRooms: number): MetricTotals {
+  const usable = entries.filter((e) => e.soldRooms != null || e.revenue != null)
+  const soldRooms = usable.reduce((sum, e) => sum + (e.soldRooms ?? 0), 0)
+  const revenue = usable.reduce((sum, e) => sum + (e.revenue ?? 0), 0)
+  const days = usable.length
+  return {
+    days,
+    soldRooms: days > 0 ? soldRooms : null,
+    revenue: days > 0 ? revenue : null,
+    occupancy: days > 0 ? Number((soldRooms / (totalRooms * days)).toFixed(4)) : null,
+    adr: soldRooms > 0 ? Number((revenue / soldRooms).toFixed(1)) : null,
+  }
+}
+
+function mockForecastVariance(hotelId: string, year: number, month: number): ForecastVarianceReport {
+  const { calendar } = mockPricingCalendar(hotelId, year, month)
+  const rng = createSeededRandom(year * 100 + month + 53)
+  const today = new Date()
+
+  const days: ForecastVarianceDay[] = calendar.map((day) => {
+    const date = new Date(day.date)
+    const weekend = isMockWeekend(date)
+    const recorded = mockRecordedForecasts.get(day.date)
+    const hasForecast = recorded != null || rng() < 0.78
+
+    const ai = mockDeriveMetrics(
+      { occupancy: day.predictedOccupancy, adr: day.predictedAdr },
+      MOCK_TOTAL_ROOMS
+    )
+
+    let occDelta = 0
+    let adrRate = 0
+    let varianceReason: ForecastVarianceReason | null = null
+    let varianceNote: string | null = null
+
+    if (weekend && (day.demandLevel === "A" || day.demandLevel === "B")) {
+      occDelta = 0.06
+      adrRate = 0.05
+      varianceReason = "GROUP_CONTRACT"
+      varianceNote = "法人の連泊が例年この週末に入るため、AI予測より強気に見ている"
+    } else if (!weekend && (day.demandLevel === "D" || day.demandLevel === "E")) {
+      occDelta = -0.05
+      adrRate = -0.03
+      varianceReason = "COMPETITOR_SUPPLY"
+      varianceNote = "近隣に新規開業があり、平日の取り込みが落ちると見ている"
+    } else {
+      occDelta = Number(((rng() - 0.5) * 0.04).toFixed(3))
+      adrRate = Number(((rng() - 0.5) * 0.04).toFixed(3))
+    }
+
+    const operator: ForecastMetrics = !hasForecast
+      ? { occupancy: null, adr: null, soldRooms: null, revenue: null }
+      : recorded
+        ? mockDeriveMetrics({ occupancy: recorded.occupancy, adr: recorded.adr }, MOCK_TOTAL_ROOMS)
+        : mockDeriveMetrics(
+            {
+              occupancy:
+                ai.occupancy != null
+                  ? Number(Math.min(1, Math.max(0, ai.occupancy + occDelta)).toFixed(3))
+                  : null,
+              adr: ai.adr != null ? Math.round(ai.adr * (1 + adrRate)) : null,
+            },
+            MOCK_TOTAL_ROOMS
+          )
+
+    const isPast = date < today
+    const actual = mockDeriveMetrics(
+      { occupancy: isPast ? day.actualOccupancy : null, adr: isPast ? day.actualAdr : null },
+      MOCK_TOTAL_ROOMS
+    )
+
+    const occupancyDelta =
+      ai.occupancy != null && operator.occupancy != null
+        ? Number((operator.occupancy - ai.occupancy).toFixed(4))
+        : null
+    const adrDelta = ai.adr != null && operator.adr != null ? operator.adr - ai.adr : null
+    const adrDeltaPct = adrDelta != null && ai.adr ? Number((adrDelta / ai.adr).toFixed(4)) : null
+    const revenueDelta = ai.revenue != null && operator.revenue != null ? operator.revenue - ai.revenue : null
+    const revenueDeltaPct =
+      revenueDelta != null && ai.revenue ? Number((revenueDelta / ai.revenue).toFixed(4)) : null
+
+    const breachedMetrics: VarianceMetricKey[] = []
+    if (occupancyDelta != null && Math.abs(occupancyDelta) >= mockThresholds.occupancyPtThreshold)
+      breachedMetrics.push("occupancy")
+    if (adrDeltaPct != null && Math.abs(adrDeltaPct) >= mockThresholds.adrPctThreshold)
+      breachedMetrics.push("adr")
+    if (revenueDeltaPct != null && Math.abs(revenueDeltaPct) >= mockThresholds.revenuePctThreshold)
+      breachedMetrics.push("revenue")
+
+    const exceededThreshold = breachedMetrics.length > 0
+
+    return {
+      date: day.date,
+      dayType: weekend ? "weekend" : "weekday",
+      demandLevel: day.demandLevel,
+      ai,
+      operator,
+      operatorLatest: null,
+      revisionCount: 0,
+      actual,
+      variance: {
+        occupancyDelta,
+        adrDelta,
+        adrDeltaPct,
+        soldRoomsDelta:
+          ai.soldRooms != null && operator.soldRooms != null ? operator.soldRooms - ai.soldRooms : null,
+        revenueDelta,
+        revenueDeltaPct,
+      },
+      exceededThreshold,
+      breachedMetrics,
+      varianceReason: recorded
+        ? recorded.varianceReason ?? null
+        : exceededThreshold
+          ? varianceReason
+          : null,
+      varianceNote: recorded ? recorded.varianceNote ?? null : exceededThreshold ? varianceNote : null,
+      forecastedByName: hasForecast ? "レベニューマネージャー" : null,
+      forecastedAt: hasForecast ? new Date(date.getTime() - 30 * 86_400_000).toISOString() : null,
+      accuracy: {
+        occupancy: mockCloserOf(actual.occupancy, ai.occupancy, operator.occupancy),
+        adr: mockCloserOf(actual.adr, ai.adr, operator.adr),
+        revenue: mockCloserOf(actual.revenue, ai.revenue, operator.revenue),
+        overall:
+          mockCloserOf(actual.revenue, ai.revenue, operator.revenue) ??
+          mockCloserOf(actual.occupancy, ai.occupancy, operator.occupancy),
+      },
+    }
+  })
+
+  const forecasted = days.filter((d) => d.operator.occupancy != null)
+  const evaluated = forecasted.filter((d) => d.accuracy.overall != null)
+  const exceeded = forecasted.filter((d) => d.exceededThreshold)
+
+  const reasonKeys = Array.from(
+    new Set(forecasted.map((d) => d.varianceReason).filter((r): r is ForecastVarianceReason => r != null))
+  )
+
+  return {
+    hotelId,
+    year,
+    month,
+    totalRooms: MOCK_TOTAL_ROOMS,
+    thresholds: mockThresholds,
+    days,
+    monthly: {
+      ai: mockAggregate(forecasted.map((d) => d.ai), MOCK_TOTAL_ROOMS),
+      operator: mockAggregate(forecasted.map((d) => d.operator), MOCK_TOTAL_ROOMS),
+      actual: mockAggregate(forecasted.map((d) => d.actual), MOCK_TOTAL_ROOMS),
+    },
+    summary: {
+      totalDays: days.length,
+      forecastedDays: forecasted.length,
+      exceededDays: exceeded.length,
+      explainedDays: exceeded.filter((d) => d.varianceReason != null).length,
+      avgOccupancyDelta: mockAverage(forecasted.map((d) => d.variance.occupancyDelta)),
+      avgAdrDeltaPct: mockAverage(forecasted.map((d) => d.variance.adrDeltaPct)),
+      avgRevenueDeltaPct: mockAverage(forecasted.map((d) => d.variance.revenueDeltaPct)),
+      operatorCloserRate:
+        evaluated.length > 0
+          ? Number((evaluated.filter((d) => d.accuracy.overall === "OPERATOR").length / evaluated.length).toFixed(4))
+          : null,
+      aiCloserRate:
+        evaluated.length > 0
+          ? Number((evaluated.filter((d) => d.accuracy.overall === "AI").length / evaluated.length).toFixed(4))
+          : null,
+      evaluatedDays: evaluated.length,
+      byReason: reasonKeys.map((key) => {
+        const group = forecasted.filter((d) => d.varianceReason === key)
+        const groupEvaluated = group.filter((d) => d.accuracy.overall != null)
+        return {
+          key,
+          count: group.length,
+          avgOccupancyDelta: mockAverage(group.map((d) => d.variance.occupancyDelta)),
+          avgAdrDeltaPct: mockAverage(group.map((d) => d.variance.adrDeltaPct)),
+          avgRevenueDeltaPct: mockAverage(group.map((d) => d.variance.revenueDeltaPct)),
+          operatorCloserRate:
+            groupEvaluated.length > 0
+              ? Number(
+                  (
+                    groupEvaluated.filter((d) => d.accuracy.overall === "OPERATOR").length /
+                    groupEvaluated.length
+                  ).toFixed(4)
+                )
+              : null,
+          evaluatedCount: groupEvaluated.length,
+        }
+      }),
+    },
   }
 }
 
@@ -1653,6 +2000,66 @@ export const api = {
         if (!target) throw new ApiClientError(404, "意向プロファイルが見つかりません")
         target.isEnabled = isEnabled
         return target
+      }
+    )
+  },
+
+  // ---- AI予測とレベニュー担当予測の差異（F-DP-11 / F-DP-12）----
+
+  /** AI予測・担当者予測・実績の差異レポート */
+  forecastVariance(hotelId: string, year: number, month: number): Promise<ForecastVarianceReport> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/forecast-variance?hotelId=${hotelId}&year=${year}&month=${month}`),
+      () => mockForecastVariance(hotelId, year, month)
+    )
+  },
+
+  /** レベニュー担当の日別予測をまとめて登録する（MANAGER以上） */
+  saveOperatorForecasts(
+    hotelId: string,
+    entries: OperatorForecastEntryInput[]
+  ): Promise<SaveOperatorForecastsResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/pricing/forecasts", {
+          method: "POST",
+          body: JSON.stringify({ hotelId, entries }),
+        }),
+      () => {
+        // デモ時は入力内容をメモリに保持し、差異レポートに反映されることを確認できるようにする
+        for (const entry of entries) mockRecordedForecasts.set(entry.date, entry)
+        return {
+          hotelId,
+          saved: entries.length,
+          exceededCount: 0,
+          dates: entries.map((e) => e.date),
+        }
+      }
+    )
+  },
+
+  /** 意図・背景を必須にする乖離幅の設定 */
+  forecastVarianceSetting(hotelId: string): Promise<VarianceThresholds & { hotelId: string }> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/forecast-variance/settings?hotelId=${hotelId}`),
+      () => ({ hotelId, ...mockThresholds })
+    )
+  },
+
+  /** 乖離幅の設定を更新する（MANAGER以上） */
+  updateForecastVarianceSetting(
+    hotelId: string,
+    thresholds: VarianceThresholds
+  ): Promise<VarianceThresholds & { hotelId: string }> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/pricing/forecast-variance/settings", {
+          method: "PUT",
+          body: JSON.stringify({ hotelId, ...thresholds }),
+        }),
+      () => {
+        mockThresholds = { ...thresholds }
+        return { hotelId, ...mockThresholds }
       }
     )
   },

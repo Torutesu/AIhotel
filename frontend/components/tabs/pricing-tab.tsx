@@ -24,6 +24,7 @@ import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger }
 
 import { useAuth } from "@/components/auth-provider"
 import { OperatorIntentPanel } from "@/components/operator-intent-panel"
+import { ForecastVariancePanel } from "@/components/forecast-variance-panel"
 import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 
@@ -853,6 +854,13 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
           )}
         </CardContent>
       </Card>
+
+      {/* AI予測とレベニュー担当予測の差異（F-DP-11 / F-DP-12） */}
+      <ForecastVariancePanel
+        hotelId={hotelId}
+        year={Number(targetMonth.slice(0, 4))}
+        month={Number(targetMonth.slice(5, 7))}
+      />
 
       {/* 運営担当者の意向とAI推奨の差異・継続学習（F-DP-08 / F-DP-09 / F-DP-10） */}
       <OperatorIntentPanel
