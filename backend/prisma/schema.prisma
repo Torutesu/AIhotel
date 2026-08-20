@@ -48,6 +48,8 @@ model Tenant {
   groupBookings              GroupBooking[]
   priceDecisions             PriceDecision[]
   operatorPreferenceProfiles OperatorPreferenceProfile[]
+  operatorForecasts          OperatorForecast[]
+  forecastVarianceSettings   ForecastVarianceSetting[]
 }
 
 // ======================================
@@ -70,9 +72,10 @@ model User {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  refreshTokens  RefreshToken[]
-  auditLogs      AuditLog[]
-  priceDecisions PriceDecision[]
+  refreshTokens     RefreshToken[]
+  auditLogs         AuditLog[]
+  priceDecisions    PriceDecision[]
+  operatorForecasts OperatorForecast[]
 
   @@index([tenantId])
   @@index([hotelId])
@@ -139,6 +142,8 @@ model Hotel {
   groupBookings              GroupBooking[]
   priceDecisions             PriceDecision[]
   operatorPreferenceProfiles OperatorPreferenceProfile[]
+  operatorForecasts          OperatorForecast[]
+  forecastVarianceSetting    ForecastVarianceSetting?
 
   @@index([tenantId])
 }
@@ -505,6 +510,98 @@ model OperatorPreferenceProfile {
   @@unique([hotelId, segmentKey])
   @@index([tenantId])
   @@index([hotelId, isEnabled])
+}
+
+// ======================================
+// AI予測とレベニュー担当予測の突き合わせ（F-DP-11 / F-DP-12）
+// ======================================
+
+// レベニュー担当が立てた日別予測。AI予測と同じ土俵で比較するための人間側の見立て。
+//
+// 同じ宿泊日に対して何度でも立て直せる。version=1 が「初期予測」で、これがAIの
+// 初期予測との差異分析の基準になる。以降の改訂は version をインクリメントして
+// 追記し、上書きしない（見立てがどう変わったかも分析対象になるため）。
+//
+// AI予測（AiPriceRecommendation）は再計算のたびに上書きされるため、記録時点の
+// AI予測をスナップショットとして焼き込む。これがないと「そのときAIは何と言って
+// いたか」が失われ、初期予測同士の差異が後から書き換わってしまう。
+model OperatorForecast {
+  id       String   @id @default(cuid())
+  tenantId String
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date     DateTime @db.Date
+  /// 1 = 初期予測。2以降は改訂
+  version  Int      @default(1)
+
+  // レベニュー担当の予測。稼働率とADRが基準で、室数・売上は未入力なら総室数から導出する
+  forecastOccupancy Float? // 0-1
+  forecastAdr       Float?
+  forecastSoldRooms Int?
+  forecastRevenue   Float?
+
+  // 記録時点のAI予測スナップショット
+  aiOccupancy    Float?
+  aiAdr          Float?
+  aiSoldRooms    Int?
+  aiRevenue      Float?
+  aiDemandLevel  DemandLevel?
+  aiConfidence   Float?
+  aiModelVersion String?
+
+  // 差異の意図・背景。閾値（ForecastVarianceSetting）を超えた日は理由を必須にする
+  exceededThreshold Boolean                 @default(false)
+  varianceReason    ForecastVarianceReason?
+  varianceNote      String?
+
+  createdByUserId String?
+  createdBy       User?    @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@unique([hotelId, date, version])
+  @@index([tenantId])
+  @@index([hotelId, date])
+  @@index([hotelId, varianceReason])
+}
+
+// 予測が食い違う背景の分類。価格判断の理由（PriceIntentReason）とは別軸で、
+// 「なぜAIと違う数字を見ているのか」を表す
+enum ForecastVarianceReason {
+  BOOKING_PACE // 予約の入り方が想定と違う
+  COMPETITOR_SUPPLY // 競合の供給・価格の状況
+  EVENT_LOCAL // 地域イベント・催事の影響度
+  GROUP_CONTRACT // 団体・法人契約の確度
+  REPEAT_GUEST // 常連・リピーターの動向
+  MARKET_TREND // 市況・季節性の見立て
+  OTA_CAMPAIGN // OTA施策の効き方
+  RENOVATION_OPS // 改装・客室閉鎖・人員などの運営制約
+  DATA_DOUBT // AI予測の前提データに疑義がある
+  OTHER
+}
+
+// 「意図・背景の記入を必須にする乖離幅」のホテル別設定（F-DP-12）。
+// 全件必須にすると形骸化し、全件任意にすると肝心の箇所が空欄で残るため、
+// 意味のある乖離にだけ理由を求める。
+model ForecastVarianceSetting {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String @unique
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  /// 稼働率の乖離幅（pt換算。0.05 = 5pt）
+  occupancyPtThreshold Float @default(0.05)
+  /// ADRの乖離率（0.05 = 5%）
+  adrPctThreshold      Float @default(0.05)
+  /// 売上の乖離率（0.10 = 10%）
+  revenuePctThreshold  Float @default(0.1)
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId])
 }
 
 // ======================================
