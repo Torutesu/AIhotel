@@ -346,6 +346,63 @@ export const updatePreferenceProfileSchema = z.object({
 })
 
 // ======================================
+// AI予測とレベニュー担当予測の差異 Validators（F-DP-11 / F-DP-12）
+// ======================================
+
+// Prisma の ForecastVarianceReason と対応。増減時は schema.prisma と揃えること
+export const FORECAST_VARIANCE_REASONS = [
+  'BOOKING_PACE',
+  'COMPETITOR_SUPPLY',
+  'EVENT_LOCAL',
+  'GROUP_CONTRACT',
+  'REPEAT_GUEST',
+  'MARKET_TREND',
+  'OTA_CAMPAIGN',
+  'RENOVATION_OPS',
+  'DATA_DOUBT',
+  'OTHER',
+] as const
+
+// 担当者は「稼働率＋ADR」でも「販売室数＋売上」でも入力できる。
+// 欠けている指標はホテルの総室数からサーバ側で導出する
+export const operatorForecastEntrySchema = z.object({
+  date: z.coerce.date(),
+  occupancy: z.number().min(0).max(1).optional(),
+  adr: z.number().min(0).optional(),
+  soldRooms: z.number().int().min(0).optional(),
+  revenue: z.number().min(0).optional(),
+  varianceReason: z.enum(FORECAST_VARIANCE_REASONS).optional(),
+  varianceNote: z.string().max(1000).optional(),
+}).refine(
+  (data) =>
+    data.occupancy != null || data.adr != null || data.soldRooms != null || data.revenue != null,
+  { message: '稼働率・ADR・販売室数・売上のいずれかは入力が必要です' }
+)
+
+// 乖離が閾値を超えた日の意図・背景（varianceReason）必須チェックは
+// ホテル別の閾値設定に依存するため、zodではなくサービス層で検証する
+export const saveOperatorForecastsSchema = z.object({
+  hotelId: entityIdSchema,
+  entries: z.array(operatorForecastEntrySchema).min(1).max(366),
+})
+
+export const operatorForecastsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+}).refine((data) => data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+// 閾値は割合で保持する（稼働率は pt 換算: 0.05 = 5pt）
+export const updateVarianceSettingSchema = z.object({
+  hotelId: entityIdSchema,
+  occupancyPtThreshold: z.number().min(0).max(1),
+  adrPctThreshold: z.number().min(0).max(1),
+  revenuePctThreshold: z.number().min(0).max(1),
+})
+
+// ======================================
 // Type Exports
 // ======================================
 
@@ -371,3 +428,6 @@ export type CreatePriceDecisionInput = z.infer<typeof createPriceDecisionSchema>
 export type PriceDecisionsQueryInput = z.infer<typeof priceDecisionsQuerySchema>
 export type RecomputePreferenceProfilesInput = z.infer<typeof recomputePreferenceProfilesSchema>
 export type UpdatePreferenceProfileInput = z.infer<typeof updatePreferenceProfileSchema>
+export type SaveOperatorForecastsInput = z.infer<typeof saveOperatorForecastsSchema>
+export type OperatorForecastsQueryInput = z.infer<typeof operatorForecastsQuerySchema>
+export type UpdateVarianceSettingInput = z.infer<typeof updateVarianceSettingSchema>

@@ -11,6 +11,9 @@ import {
   recomputePreferenceProfilesSchema,
   updatePreferenceProfileSchema,
   idParamSchema,
+  saveOperatorForecastsSchema,
+  operatorForecastsQuerySchema,
+  updateVarianceSettingSchema,
 } from '../lib/validators.js'
 import {
   getCalendar,
@@ -27,6 +30,13 @@ import {
   recomputePreferenceProfiles,
   updatePreferenceProfile,
 } from '../controllers/operatorIntentController.js'
+import {
+  saveOperatorForecasts,
+  getOperatorForecasts,
+  getForecastVariance,
+  getVarianceSetting,
+  updateVarianceSetting,
+} from '../controllers/forecastVarianceController.js'
 
 export const pricingRouter: ExpressRouter = Router()
 
@@ -130,4 +140,51 @@ pricingRouter.patch(
   validate(idParamSchema, 'params'),
   validate(updatePreferenceProfileSchema),
   updatePreferenceProfile
+)
+
+// ======================================
+// AI予測とレベニュー担当予測の差異（F-DP-11 / F-DP-12）
+// ======================================
+
+// POST /api/v1/pricing/forecasts — レベニュー担当の日別予測。予測を立てるのは
+// レベニューマネージャーの職掌のため MANAGER 以上に限定する
+pricingRouter.post(
+  '/forecasts',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(saveOperatorForecastsSchema),
+  saveOperatorForecasts
+)
+
+// GET /api/v1/pricing/forecasts?hotelId=&startDate=&endDate=
+pricingRouter.get(
+  '/forecasts',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(operatorForecastsQuerySchema, 'query'),
+  getOperatorForecasts
+)
+
+// GET /api/v1/pricing/forecast-variance/settings?hotelId=
+pricingRouter.get(
+  '/forecast-variance/settings',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getVarianceSetting
+)
+
+// PUT /api/v1/pricing/forecast-variance/settings — 閾値変更は MANAGER 以上（F-DP-12）
+pricingRouter.put(
+  '/forecast-variance/settings',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(updateVarianceSettingSchema),
+  updateVarianceSetting
+)
+
+// GET /api/v1/pricing/forecast-variance?hotelId=&year=&month=
+pricingRouter.get(
+  '/forecast-variance',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(monthQuerySchema, 'query'),
+  getForecastVariance
 )

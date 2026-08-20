@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, DemandLevel, AlertSeverity, PriceIntentReason } from '@prisma/client'
+import { PrismaClient, UserRole, DemandLevel, AlertSeverity, PriceIntentReason, ForecastVarianceReason } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
@@ -171,8 +171,25 @@ async function main() {
     const seasonBoost = 1 + 0.1 * Math.sin(((date.getUTCMonth() + 1) / 12) * Math.PI * 2)
 
     const baseOcc = (isWeekend ? 0.9 : 0.72) * seasonBoost
-    const occupancy = Math.min(1, Math.max(0.3, baseOcc + (rng() - 0.5) * 0.12))
-    const adr = Math.round((isWeekend ? 23000 : 16500) * seasonBoost + (rng() - 0.5) * 2000)
+
+    // 現場だけが把握している要因（団体契約の確度・競合の新規開業など）は実績には
+    // 効くが、過去実績ベースのAI予測には織り込まれない。レベニュー担当の予測が
+    // AIより当たる場面と外す場面が両方出るよう、6割の日にだけ要因を効かせる。
+    const shockRoll = rng()
+    let occShock = 0
+    let adrShock = 0
+    if (isWeekend && baseOcc > 0.82 && shockRoll < 0.6) {
+      occShock = 0.06
+      adrShock = 0.05
+    } else if (!isWeekend && baseOcc < 0.68 && shockRoll < 0.6) {
+      occShock = -0.05
+      adrShock = -0.03
+    }
+
+    const occupancy = Math.min(1, Math.max(0.3, baseOcc + occShock + (rng() - 0.5) * 0.12))
+    const adr = Math.round(
+      (isWeekend ? 23000 : 16500) * seasonBoost * (1 + adrShock) + (rng() - 0.5) * 2000
+    )
     const soldRooms = Math.round(totalRooms * occupancy)
     const totalRevenue = soldRooms * adr
     const revPar = Math.round(totalRevenue / totalRooms)
@@ -295,6 +312,106 @@ async function main() {
 
   // 8-c. 意向プロファイル（継続学習の結果）は seed では作らない。
   // POST /api/v1/pricing/learning/recompute を叩くと上の判断履歴から学習される。
+
+  // 8-d. レベニュー担当の日別予測（OperatorForecast）— F-DP-11 / F-DP-12 のデモデータ。
+  // 「AIの予測」と「担当者の予測」が初期段階で両方あり、その差異と背景が残っている、
+  // という状態を決定的に再現する。
+  await prisma.forecastVarianceSetting.upsert({
+    where: { hotelId: hotel.id },
+    update: {},
+    create: {
+      hotelId: hotel.id,
+      tenantId: tenant.id,
+      occupancyPtThreshold: 0.05,
+      adrPctThreshold: 0.05,
+      revenuePctThreshold: 0.1,
+    },
+  })
+
+  await prisma.operatorForecast.deleteMany({ where: { hotelId: hotel.id } })
+
+  const forecastRows = []
+  for (const ai of aiRows) {
+    const offsetDays = Math.round((ai.date.getTime() - today.getTime()) / 86_400_000)
+    // 過去60日〜先30日を「予測を立てた期間」とする
+    if (offsetDays < -60 || offsetDays > 30) continue
+    if (rng() > 0.78) continue // 全日に予測があるわけではない
+
+    const dow = ai.date.getUTCDay()
+    const isWeekend = dow === 5 || dow === 6
+
+    // 担当者の癖: 週末の高需要日は強気、平日の低需要日は弱気に見る
+    let occDelta = 0
+    let adrRate = 0
+    let varianceReason: ForecastVarianceReason | null = null
+    let varianceNote: string | null = null
+
+    if (isWeekend && (ai.demandLevel === DemandLevel.A || ai.demandLevel === DemandLevel.B)) {
+      // 実績側に効かせた要因と同じ幅で見込んでいる想定（要因が出た日は担当者が的中する）
+      occDelta = 0.06
+      adrRate = 0.05
+      varianceReason = ForecastVarianceReason.GROUP_CONTRACT
+      varianceNote = '法人の連泊が例年この週末に入るため、AI予測より強気に見ている'
+    } else if (!isWeekend && (ai.demandLevel === DemandLevel.D || ai.demandLevel === DemandLevel.E)) {
+      occDelta = -0.05
+      adrRate = -0.03
+      varianceReason = ForecastVarianceReason.COMPETITOR_SUPPLY
+      varianceNote = '近隣に新規開業があり、平日の取り込みが落ちると見ている'
+    } else if (rng() > 0.8) {
+      occDelta = 0.055
+      adrRate = 0.01
+      varianceReason = ForecastVarianceReason.BOOKING_PACE
+      varianceNote = 'ブッキングカーブが前年より前倒しで立ち上がっている'
+    } else {
+      // 閾値内の小さなズレ（理由の入力は不要）
+      occDelta = Math.round((rng() - 0.5) * 0.04 * 1000) / 1000
+      adrRate = Math.round((rng() - 0.5) * 0.04 * 1000) / 1000
+    }
+
+    const aiOccupancy = ai.predictedOccupancy
+    const aiAdr = ai.predictedAdr
+    const aiSoldRooms = Math.round(aiOccupancy * totalRooms)
+    const aiRevenue = Math.round(aiSoldRooms * aiAdr)
+
+    const forecastOccupancy = Math.round(Math.min(1, Math.max(0, aiOccupancy + occDelta)) * 1000) / 1000
+    const forecastAdr = Math.round(aiAdr * (1 + adrRate))
+    const forecastSoldRooms = Math.round(forecastOccupancy * totalRooms)
+    const forecastRevenue = Math.round(forecastSoldRooms * forecastAdr)
+
+    // 閾値判定（既定値: 稼働率5pt / ADR5% / 売上10%）
+    const revenueRate = aiRevenue > 0 ? (forecastRevenue - aiRevenue) / aiRevenue : 0
+    const exceededThreshold =
+      Math.abs(forecastOccupancy - aiOccupancy) >= 0.05 ||
+      Math.abs(adrRate) >= 0.05 ||
+      Math.abs(revenueRate) >= 0.1
+
+    forecastRows.push({
+      hotelId: hotel.id,
+      tenantId: tenant.id,
+      date: ai.date,
+      version: 1,
+      forecastOccupancy,
+      forecastAdr,
+      forecastSoldRooms,
+      forecastRevenue,
+      aiOccupancy,
+      aiAdr,
+      aiSoldRooms,
+      aiRevenue,
+      aiDemandLevel: ai.demandLevel,
+      aiConfidence: ai.confidence,
+      aiModelVersion: ai.modelVersion,
+      exceededThreshold,
+      // 閾値内なら理由は空のまま（必須ではない）
+      varianceReason: exceededThreshold ? varianceReason : null,
+      varianceNote: exceededThreshold ? varianceNote : null,
+      createdByUserId: managerUser?.id ?? null,
+      // 宿泊日の30日前に初期予測を立てた想定
+      createdAt: addDays(ai.date, -30),
+    })
+  }
+  await prisma.operatorForecast.createMany({ data: forecastRows })
+  console.log(`✅ Operator forecasts (担当者予測): ${forecastRows.length}`)
 
   // 9. ブッキングカーブ（今後30日の宿泊日 × リードタイム）
   const curveRows = []
