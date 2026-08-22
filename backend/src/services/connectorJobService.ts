@@ -402,6 +402,28 @@ export async function applyFailureDecision(
 // ======================================
 
 /**
+ * 定期READスケジューラの設定変更（管理APIから）
+ */
+export async function updateSyncConfig(
+  hotelId: string,
+  data: { autoReadEnabled?: boolean; readIntervalMinutes?: number }
+): Promise<{ tenantId: string; autoReadEnabled: boolean; readIntervalMinutes: number }> {
+  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId }, select: { tenantId: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  const state = await prisma.hotelSyncState.upsert({
+    where: { hotelId },
+    create: { tenantId: hotel.tenantId, hotelId, ...data },
+    update: data,
+  })
+  return {
+    tenantId: hotel.tenantId,
+    autoReadEnabled: state.autoReadEnabled,
+    readIntervalMinutes: state.readIntervalMinutes,
+  }
+}
+
+/**
  * 凍結スイッチの手動操作（管理APIから）。ホテル存在確認と tenantId 解決を含む。
  */
 export async function setWriteFrozenForHotel(

@@ -2,8 +2,8 @@ import { prisma } from '../lib/prisma.js'
 import { config } from '../lib/config.js'
 import { storage } from '../lib/storage.js'
 import { logger } from '../utils/logger.js'
-import { decideLeaseExpiry, evaluateHotelHealth } from '../lib/connectorPolicy.js'
-import { applyFailureDecision } from './connectorJobService.js'
+import { decideLeaseExpiry, evaluateHotelHealth, shouldScheduleRead } from '../lib/connectorPolicy.js'
+import { applyFailureDecision, createSyncJob } from './connectorJobService.js'
 import { notifyOps, resolveOps } from './opsNotifierService.js'
 
 // デッドマン方式の定期スイープ（docs/コネクタ連携設計.md §14.1）。
@@ -18,13 +18,15 @@ export async function runSweepOnce(now: Date = new Date()): Promise<{
   reclaimedLeases: number
   cancelledExpired: number
   hotelsEvaluated: number
+  scheduledReads: number
   snapshotsPurged: number
 }> {
   const reclaimedLeases = await reclaimExpiredLeases(now)
   const cancelledExpired = await cancelExpiredJobs(now)
   const hotelsEvaluated = await evaluateAllHotels(now)
+  const scheduledReads = await scheduleReadJobs(now)
   const snapshotsPurged = await purgeExpiredSnapshots(now)
-  return { reclaimedLeases, cancelledExpired, hotelsEvaluated, snapshotsPurged }
+  return { reclaimedLeases, cancelledExpired, hotelsEvaluated, scheduledReads, snapshotsPurged }
 }
 
 /** リース期限切れRUNNINGジョブの回収（§10.4 リース方式） */
@@ -93,6 +95,62 @@ async function evaluateAllHotels(now: Date): Promise<number> {
     }
   }
   return hotelIds.size
+}
+
+/**
+ * 定期READジョブの自動生成（無人運転の心臓部 — §2, §14.1）。
+ * エージェントが稼働しているホテルに対し、鮮度が readIntervalMinutes を超えたら
+ * READジョブを生成する。失敗が続く場合は READ_RESCHEDULE_COOLDOWN_MS を空けて
+ * 対象システムへのアクセス頻度を抑える（ブロック誘発の予防）。
+ */
+async function scheduleReadJobs(now: Date): Promise<number> {
+  // 対象 = アクティブなデバイスが1台以上あるホテル（エージェント未導入は対象外）
+  const devices = await prisma.agentDevice.findMany({
+    where: { revokedAt: null, isActive: true },
+    select: { hotelId: true },
+    distinct: ['hotelId'],
+  })
+
+  let scheduled = 0
+  for (const { hotelId } of devices) {
+    const [state, openReadJob, lastReadJob] = await Promise.all([
+      prisma.hotelSyncState.findUnique({ where: { hotelId } }),
+      prisma.syncJob.findFirst({
+        where: { hotelId, direction: 'READ', status: { in: ['PENDING', 'RUNNING'] } },
+        select: { id: true },
+      }),
+      prisma.syncJob.findFirst({
+        where: { hotelId, direction: 'READ' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+    ])
+
+    const due = shouldScheduleRead({
+      now,
+      autoReadEnabled: state?.autoReadEnabled ?? true,
+      readIntervalMinutes: state?.readIntervalMinutes ?? 360,
+      lastSuccessfulReadAt: state?.lastSuccessfulReadAt ?? null,
+      hasOpenReadJob: openReadJob !== null,
+      lastReadJobCreatedAt: lastReadJob?.createdAt ?? null,
+    })
+    if (!due) continue
+
+    try {
+      // 現状の定常READ対象はリンカーンのみ（ねほっぷすのREADは反映確認用で定常取得しない — §1）
+      const job = await createSyncJob({
+        hotelId,
+        target: 'LINCOLN',
+        direction: 'READ',
+        payload: { kind: 'PRICE_RANKS' },
+      })
+      scheduled += 1
+      logger.info({ hotelId, jobId: job.id }, '定期READジョブを生成しました')
+    } catch (error) {
+      logger.error({ err: error, hotelId }, '定期READジョブの生成に失敗しました')
+    }
+  }
+  return scheduled
 }
 
 /** 保持期限切れスナップショットの削除（§4 deleteAfter） */

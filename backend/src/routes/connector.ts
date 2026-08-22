@@ -12,6 +12,7 @@ import {
   issuePairingCodeSchema,
   createSyncJobSchema,
   writeFreezeSchema,
+  updateSyncConfigSchema,
   listSyncJobsQuerySchema,
 } from '../lib/validators.js'
 import {
@@ -32,6 +33,7 @@ import {
   getJobs,
   createJob,
   setFreeze,
+  putSyncConfig,
 } from '../controllers/connectorAdminController.js'
 
 // コネクタ連携ルート（docs/コネクタ連携設計.md §5）。
@@ -122,4 +124,12 @@ connectorAdminRouter.post(
   requireHotelAccess((req) => req.params.hotelId),
   validate(writeFreezeSchema),
   setFreeze
+)
+
+connectorAdminRouter.put(
+  '/hotels/:hotelId/sync-config',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.params.hotelId),
+  validate(updateSyncConfigSchema),
+  putSyncConfig
 )

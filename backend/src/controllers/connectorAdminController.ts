@@ -12,6 +12,7 @@ import {
   getSyncStatus,
   listSyncJobs,
   setWriteFrozenForHotel,
+  updateSyncConfig,
 } from '../services/connectorJobService.js'
 
 // コネクタ管理エンドポイント（ユーザーJWT認証 — 手動操作のみ。定常運用は無人 §2）
@@ -131,4 +132,24 @@ export const setFreeze = asyncHandler(async (req: Request, res: Response) => {
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, { writeFrozen: frozen }, 200, frozen ? '自動書き込みを凍結しました' : '凍結を解除しました')
+})
+
+/**
+ * 定期READスケジューラ設定（自動取得の有効/無効・取得間隔）
+ * PUT /api/v1/connector/hotels/:hotelId/sync-config
+ */
+export const putSyncConfig = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.params
+  const result = await updateSyncConfig(hotelId, req.body)
+  await writeAuditLog({
+    tenantId: result.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'HotelSyncState',
+    entityId: hotelId,
+    newValue: req.body,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, '定期取得の設定を更新しました')
 })

@@ -250,6 +250,51 @@ export function evaluateHotelHealth(input: HotelHealthInput): HotelHealthResult 
   return { fire, resolve }
 }
 
+// ======================================
+// 定期READスケジューラ（スイープがREADジョブを自動生成する — §14.1）
+// ======================================
+
+/**
+ * 取得失敗が続いているときにジョブを乱発しないための再スケジュール間隔。
+ * 終局FAILEDのたびに次スイープ（5分毎）で即再生成すると、対象システムへの
+ * アクセス頻度が跳ね上がりブロックを誘発するため、最低この間隔は空ける
+ */
+export const READ_RESCHEDULE_COOLDOWN_MS = 30 * 60 * 1000
+
+export interface ReadScheduleInput {
+  now: Date
+  autoReadEnabled: boolean
+  readIntervalMinutes: number
+  lastSuccessfulReadAt: Date | null
+  /** PENDING/RUNNING のREADジョブが既にあるか（二重生成防止） */
+  hasOpenReadJob: boolean
+  /** 直近のREADジョブ生成時刻（失敗連発時のクールダウン基準） */
+  lastReadJobCreatedAt: Date | null
+}
+
+/**
+ * 定期READジョブを今生成すべきか（純関数）。
+ * 「鮮度が interval を超えた」「未完了ジョブが無い」「クールダウンを空けた」の3条件で判定する。
+ */
+export function shouldScheduleRead(input: ReadScheduleInput): boolean {
+  if (!input.autoReadEnabled) return false
+  if (input.hasOpenReadJob) return false
+
+  const now = input.now.getTime()
+  const intervalMs = input.readIntervalMinutes * 60 * 1000
+  const due =
+    input.lastSuccessfulReadAt === null || now - input.lastSuccessfulReadAt.getTime() >= intervalMs
+  if (!due) return false
+
+  if (
+    input.lastReadJobCreatedAt !== null &&
+    now - input.lastReadJobCreatedAt.getTime() < READ_RESCHEDULE_COOLDOWN_MS
+  ) {
+    return false
+  }
+  return true
+}
+
 /**
  * 鮮度SLOに基づき、このホテルの取得データをAI価格推奨の入力に使ってよいか（§10.5）。
  * 24時間超のstaleデータで推奨を出さないためのガード。

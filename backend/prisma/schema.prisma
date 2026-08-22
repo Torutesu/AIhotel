@@ -816,6 +816,9 @@ model HotelSyncState {
   writeFrozen           Boolean   @default(false) // 凍結スイッチ（READは継続、WRITEのみ停止）
   writeFrozenReason     String?
   manualModeActive      Boolean   @default(false) // 手動反映モード（デフォルト無効。発動は開発側判断）
+  // 定期READスケジューラ（スイープが鮮度に応じてREADジョブを自動生成する — §14.1）
+  autoReadEnabled       Boolean   @default(true)
+  readIntervalMinutes   Int       @default(360) // 鮮度SLO 6時間（§10.5）に合わせた既定値
   updatedAt             DateTime  @updatedAt
 
   @@index([tenantId])

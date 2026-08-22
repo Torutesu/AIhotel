@@ -414,6 +414,14 @@ export const writeFreezeSchema = z.object({
   reason: z.string().max(200).optional(),
 })
 
+// 定期READスケジューラ設定。間隔は30分〜24時間（鮮度SLO 6時間が既定）
+export const updateSyncConfigSchema = z
+  .object({
+    autoReadEnabled: z.boolean().optional(),
+    readIntervalMinutes: z.number().int().min(30).max(1440).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目がありません' })
+
 export const listSyncJobsQuerySchema = z.object({
   status: z.enum(['PENDING', 'RUNNING', 'DONE', 'FAILED', 'CANCELLED', 'NEEDS_REVIEW']).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),

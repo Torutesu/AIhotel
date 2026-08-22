@@ -5,7 +5,9 @@ import {
   decideLeaseExpiry,
   evaluateHotelHealth,
   isReadDataUsableForRecommendation,
+  shouldScheduleRead,
   READ_MAX_ATTEMPTS,
+  READ_RESCHEDULE_COOLDOWN_MS,
   WRITE_MAX_ATTEMPTS,
 } from './connectorPolicy.js'
 
@@ -189,6 +191,44 @@ describe('evaluateHotelHealth（デッドマン方式 §14.1）', () => {
       deviceLastSeenAts: [new Date(now.getTime() - 1000)],
     })
     expect(result.fire.find((f) => f.eventKey === 'READ_FAILING')?.severity).toBe('SEV2')
+  })
+})
+
+describe('shouldScheduleRead（定期READスケジューラ）', () => {
+  const base = {
+    now,
+    autoReadEnabled: true,
+    readIntervalMinutes: 360,
+    lastSuccessfulReadAt: new Date(now.getTime() - 7 * HOUR), // 間隔6時間を超過
+    hasOpenReadJob: false,
+    lastReadJobCreatedAt: new Date(now.getTime() - 7 * HOUR),
+  }
+
+  it('鮮度が取得間隔を超えたらジョブを生成する', () => {
+    expect(shouldScheduleRead(base)).toBe(true)
+  })
+
+  it('一度も取得していないホテル（導入直後）は即生成する', () => {
+    expect(shouldScheduleRead({ ...base, lastSuccessfulReadAt: null, lastReadJobCreatedAt: null })).toBe(true)
+  })
+
+  it('鮮度が間隔内なら生成しない', () => {
+    expect(shouldScheduleRead({ ...base, lastSuccessfulReadAt: new Date(now.getTime() - HOUR) })).toBe(false)
+  })
+
+  it('未完了のREADジョブがあれば二重生成しない', () => {
+    expect(shouldScheduleRead({ ...base, hasOpenReadJob: true })).toBe(false)
+  })
+
+  it('失敗が続いてもクールダウン内はジョブを乱発しない（アクセス頻度の抑制）', () => {
+    const recentlyCreated = new Date(now.getTime() - READ_RESCHEDULE_COOLDOWN_MS + 60_000)
+    expect(shouldScheduleRead({ ...base, lastReadJobCreatedAt: recentlyCreated })).toBe(false)
+    const cooledDown = new Date(now.getTime() - READ_RESCHEDULE_COOLDOWN_MS - 60_000)
+    expect(shouldScheduleRead({ ...base, lastReadJobCreatedAt: cooledDown })).toBe(true)
+  })
+
+  it('autoReadEnabled=false のホテルは対象外', () => {
+    expect(shouldScheduleRead({ ...base, autoReadEnabled: false })).toBe(false)
   })
 })
 
