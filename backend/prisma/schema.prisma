@@ -46,6 +46,11 @@ model Tenant {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  agentDevices             AgentDevice[]
+  agentPairingCodes        AgentPairingCode[]
+  syncJobs                 SyncJob[]
+  syncSnapshots            SyncSnapshot[]
+  hotelSyncStates          HotelSyncState[]
 }
 
 // ======================================
@@ -134,6 +139,11 @@ model Hotel {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  agentDevices             AgentDevice[]
+  agentPairingCodes        AgentPairingCode[]
+  syncJobs                 SyncJob[]
+  syncSnapshots            SyncSnapshot[]
+  hotelSyncState           HotelSyncState?
 
   @@index([tenantId])
 }
@@ -646,4 +656,188 @@ model AuditLog {
   @@index([userId])
   @@index([entity, entityId])
   @@index([createdAt])
+}
+
+// ======================================
+// Connector（サイトコントローラー/PMS 画面操作連携 — docs/コネクタ連携設計.md）
+// クライアントPC常駐エージェントとのPull型ジョブキュー。無人運転が既定。
+// ======================================
+
+// 連携対象システム
+enum SyncTarget {
+  LINCOLN
+  NEHOPPS
+}
+
+enum SyncDirection {
+  READ
+  WRITE
+}
+
+// NEEDS_REVIEW: 自動で安全に進められず開発側対応待ち（当該ホテルWRITEは自動凍結）
+enum SyncJobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+  NEEDS_REVIEW
+}
+
+enum AgentDeviceRole {
+  PRIMARY
+  STANDBY
+}
+
+// エージェントのデバイス登録。トークンは SHA-256 ハッシュのみ保存（hashToken() 踏襲）
+model AgentDevice {
+  id             String          @id @default(cuid())
+  tenantId       String
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId        String
+  hotel          Hotel           @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name           String // 例: フロントPC1
+  role           AgentDeviceRole @default(PRIMARY)
+  tokenHash      String          @unique
+  tokenRotatedAt DateTime?
+  agentVersion   String?
+  lastSeenAt     DateTime?
+  // kill switch: 失効後のリクエストは即401。isActive=false は一時停止（再有効化可能）
+  revokedAt      DateTime?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  syncJobs SyncJob[]
+
+  @@index([tenantId])
+  @@index([hotelId])
+}
+
+// ペアリング用ワンタイムコード（10分有効・1回限り）。コードもハッシュのみ保存
+model AgentPairingCode {
+  id            String          @id @default(cuid())
+  tenantId      String
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId       String
+  hotel         Hotel           @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  codeHash      String          @unique
+  deviceName    String
+  deviceRole    AgentDeviceRole @default(PRIMARY)
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId])
+}
+
+model SyncJob {
+  id             String        @id @default(cuid())
+  tenantId       String
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId        String
+  hotel          Hotel         @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  target         SyncTarget
+  direction      SyncDirection
+  // 再実行安全のための冪等キー（生成元が決める。例: write:{hotelId}:{date}:{configVersion}）
+  idempotencyKey String        @unique
+  payload        Json // WRITE: 書き込む料金ランク差分 / READ: 取得範囲
+  dryRun         Boolean       @default(false) // 入力まで行い送信しない（導入初期の検証運転用）
+  status         SyncJobStatus @default(PENDING)
+  priority       Int           @default(0)
+  attemptCount   Int           @default(0)
+  maxAttempts    Int           @default(3)
+  notBefore      DateTime? // バックオフ再試行のスケジュール
+  expiresAt      DateTime? // 期限切れの古いジョブは実行せずCANCELLED（陳腐化した価格を書かない）
+  leaseExpiresAt DateTime? // リース方式: 期限切れRUNNINGはスイープが回収する
+  result         Json? // READ結果 / 検証結果 / item単位の成否（部分失敗の再開用）
+  errorCode      String? // エラー分類（AUTH_FAILED / SELECTOR_MISMATCH / VERIFY_MISMATCH 等）
+  errorMessage   String?
+  requestedById  String? // 手動作成時のユーザー。定常の自動生成ジョブはnull
+  deviceId       String?
+  device         AgentDevice?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  snapshots SyncSnapshot[]
+
+  @@index([tenantId])
+  @@index([hotelId, status])
+  @@index([status, notBefore])
+}
+
+enum SnapshotKind {
+  READ_RAW
+  PRE_WRITE
+  POST_WRITE
+  FAILURE_EVIDENCE
+}
+
+// 生スナップショット。本体（HTML/スクショ）は lib/storage.ts 経由で保存し、DBには参照とメタのみ。
+// READ_RAW は再パース（re-ingest）用、PRE_WRITE はロールバック用（docs/コネクタ連携設計.md §13）
+model SyncSnapshot {
+  id          String       @id @default(cuid())
+  tenantId    String
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel        @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  jobId       String?
+  job         SyncJob?     @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  target      SyncTarget
+  kind        SnapshotKind
+  storageKey  String // lib/storage.ts の論理キー
+  contentType String       @default("text/html")
+  contentHash String // SHA-256（改ざん検知・重複排除）
+  sanitized   Boolean      @default(false) // Cookie等マスク済みか（未サニタイズはAPIが受理しない）
+  extracted   Json? // 抽出済み正規化データ（再パース時に更新）
+  capturedAt  DateTime
+  deleteAfter DateTime // 保持期限（READ_RAW/FAILURE_EVIDENCE 30日、PRE_WRITE/POST_WRITE 90日）
+  createdAt   DateTime     @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, kind, capturedAt])
+  @@index([deleteAfter])
+}
+
+// ホテル単位の連携ヘルス状態（鮮度SLO・凍結スイッチ・デッドマン検知の基準テーブル）
+model HotelSyncState {
+  id                    String    @id @default(cuid())
+  tenantId              String
+  tenant                Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId               String    @unique
+  hotel                 Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  lastSuccessfulReadAt  DateTime?
+  lastSuccessfulWriteAt DateTime?
+  consecutiveReadFails  Int       @default(0)
+  writeFrozen           Boolean   @default(false) // 凍結スイッチ（READは継続、WRITEのみ停止）
+  writeFrozenReason     String?
+  manualModeActive      Boolean   @default(false) // 手動反映モード（デフォルト無効。発動は開発側判断）
+  updatedAt             DateTime  @updatedAt
+
+  @@index([tenantId])
+}
+
+// 開発側通知（Ops Alerting）の抑制状態。hotel × 事象種別のdedupeとクールダウン管理（§14.4）
+model OpsAlertState {
+  id             String    @id @default(cuid())
+  // 全テナント横断の運用テーブルだがテナント分離規約に従い tenantId を保持する
+  tenantId       String
+  hotelId        String
+  eventKey       String // 事象種別（AUTH_FAILED / STALE_READ_12H / ALL_DEVICES_DOWN 等）
+  severity       String // SEV1 / SEV2 / SEV3
+  firstFiredAt   DateTime
+  lastFiredAt    DateTime
+  lastNotifiedAt DateTime?
+  resolvedAt     DateTime?
+  fireCount      Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([hotelId, eventKey])
+  @@index([tenantId])
+  @@index([resolvedAt])
 }
