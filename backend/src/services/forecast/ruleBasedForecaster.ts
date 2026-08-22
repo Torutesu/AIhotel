@@ -8,20 +8,37 @@ import type { DailyForecast, DemandForecaster, ForecastDemandLevel, ForecastInpu
 
 export const MODEL_VERSION = 'rule-based-v1'
 const DEFAULT_MAX_RANK = 40 // F-SET-02: 料金ランクは最大40段階（PriceRank未設定時のフォールバック）
-const MOVING_AVERAGE_WINDOW_DAYS = 28
 const YEAR_OVER_YEAR_TOLERANCE_DAYS = 3
-const FALLBACK_OCCUPANCY = 0.6
 
-// イベント影響度（pt = 稼働率への加算幅。0.15 = 15pt）
-const EVENT_IMPACT_PT: Record<string, number> = {
-  high: 0.15,
-  medium: 0.08,
-  low: 0.03,
+/**
+ * 予測モデルパラメータ。ホテル×年の ForecastModelConfig（year=0 はホテルのデフォルト）で
+ * 上書きできる（「場所や年でロジックが変わる」要件）。未設定時は組み込みデフォルト値を使う。
+ */
+export interface ForecastModelParams {
+  movingAverageWindowDays: number
+  /** 移動平均の重み（残り 1-w は前年同時期） */
+  movingAverageWeight: number
+  /** イベント影響度（pt = 稼働率への加算幅。0.15 = 15pt） */
+  eventImpactHighPt: number
+  eventImpactMediumPt: number
+  eventImpactLowPt: number
+  /**
+   * 週末補正（Hotel.weekendDays を参照 — ハードコード禁止）。
+   * 同曜日移動平均が既に週末パターンを反映しているため控えめな値とする
+   */
+  weekendAdjustmentPt: number
+  fallbackOccupancy: number
 }
 
-// 週末補正（Hotel.weekendDays を参照 — ハードコード禁止）。
-// 同曜日移動平均が既に週末パターンを反映しているため控えめな値とする
-const WEEKEND_ADJUSTMENT_PT = 0.05
+export const DEFAULT_FORECAST_MODEL_PARAMS: ForecastModelParams = {
+  movingAverageWindowDays: 28,
+  movingAverageWeight: 0.7,
+  eventImpactHighPt: 0.15,
+  eventImpactMediumPt: 0.08,
+  eventImpactLowPt: 0.03,
+  weekendAdjustmentPt: 0.05,
+  fallbackOccupancy: 0.6,
+}
 
 export interface OccupancyRecord {
   date: Date
@@ -40,7 +57,7 @@ export interface EventImpactRecord {
 export function computeMovingAverageBySameWeekday(
   history: OccupancyRecord[],
   targetDate: Date,
-  windowDays = MOVING_AVERAGE_WINDOW_DAYS
+  windowDays = DEFAULT_FORECAST_MODEL_PARAMS.movingAverageWindowDays
 ): number | null {
   const targetDow = targetDate.getUTCDay()
   const windowStart = new Date(targetDate)
@@ -75,14 +92,23 @@ export function computeYearOverYearOccupancy(
 }
 
 /**
- * 期間内イベントの影響度合計（expectedImpact: high=+15pt / medium=+8pt / low=+3pt）
+ * 期間内イベントの影響度合計（デフォルト: high=+15pt / medium=+8pt / low=+3pt）
  */
-export function computeEventImpact(events: EventImpactRecord[], targetDate: Date): number {
+export function computeEventImpact(
+  events: EventImpactRecord[],
+  targetDate: Date,
+  params: ForecastModelParams = DEFAULT_FORECAST_MODEL_PARAMS
+): number {
+  const impactPt: Record<string, number> = {
+    high: params.eventImpactHighPt,
+    medium: params.eventImpactMediumPt,
+    low: params.eventImpactLowPt,
+  }
   let impact = 0
   for (const e of events) {
     if (targetDate >= e.startDate && targetDate <= e.endDate) {
       const key = (e.expectedImpact ?? '').toLowerCase()
-      impact += EVENT_IMPACT_PT[key] ?? 0
+      impact += impactPt[key] ?? 0
     }
   }
   return impact
@@ -91,8 +117,12 @@ export function computeEventImpact(events: EventImpactRecord[], targetDate: Date
 /**
  * 週末補正（Hotel.weekendDays 準拠。デフォルト値のハードコード禁止のため呼び出し側で渡す）
  */
-export function computeWeekendAdjustment(targetDate: Date, weekendDays: number[]): number {
-  return weekendDays.includes(targetDate.getUTCDay()) ? WEEKEND_ADJUSTMENT_PT : 0
+export function computeWeekendAdjustment(
+  targetDate: Date,
+  weekendDays: number[],
+  adjustmentPt = DEFAULT_FORECAST_MODEL_PARAMS.weekendAdjustmentPt
+): number {
+  return weekendDays.includes(targetDate.getUTCDay()) ? adjustmentPt : 0
 }
 
 /**
@@ -116,8 +146,9 @@ export function mapOccupancyToRank(occupancy: number, maxRank = DEFAULT_MAX_RANK
 
 /**
  * 移動平均・前年同曜日比較・イベント補正・週末補正を合成して予測稼働率を算出する。
- * 移動平均と前年比較の両方があれば 0.7:0.3 で加重平均し、どちらか一方のみなら
- * それを採用、どちらもなければ FALLBACK_OCCUPANCY を基準値とする。
+ * 移動平均と前年比較の両方があれば movingAverageWeight : (1 - movingAverageWeight) で
+ * 加重平均（デフォルト 0.7:0.3）し、どちらか一方のみならそれを採用、
+ * どちらもなければ fallback（デフォルト fallbackOccupancy = 0.6）を基準値とする。
  */
 export function computePredictedOccupancy(params: {
   movingAverage: number | null
@@ -125,12 +156,20 @@ export function computePredictedOccupancy(params: {
   eventImpact: number
   weekendAdjustment: number
   fallback?: number
+  movingAverageWeight?: number
 }): number {
-  const { movingAverage, yearOverYear, eventImpact, weekendAdjustment, fallback = FALLBACK_OCCUPANCY } = params
+  const {
+    movingAverage,
+    yearOverYear,
+    eventImpact,
+    weekendAdjustment,
+    fallback = DEFAULT_FORECAST_MODEL_PARAMS.fallbackOccupancy,
+    movingAverageWeight = DEFAULT_FORECAST_MODEL_PARAMS.movingAverageWeight,
+  } = params
 
   let base: number
   if (movingAverage != null && yearOverYear != null) {
-    base = movingAverage * 0.7 + yearOverYear * 0.3
+    base = movingAverage * movingAverageWeight + yearOverYear * (1 - movingAverageWeight)
   } else if (movingAverage != null) {
     base = movingAverage
   } else if (yearOverYear != null) {
@@ -161,18 +200,21 @@ export function computeDailyForecastCore(
   history: OccupancyRecord[],
   events: EventImpactRecord[],
   weekendDays: number[],
-  maxRank = DEFAULT_MAX_RANK
+  maxRank = DEFAULT_MAX_RANK,
+  params: ForecastModelParams = DEFAULT_FORECAST_MODEL_PARAMS
 ): Omit<DailyForecast, 'recommendedPrice' | 'modelVersion'> {
-  const movingAverage = computeMovingAverageBySameWeekday(history, targetDate)
+  const movingAverage = computeMovingAverageBySameWeekday(history, targetDate, params.movingAverageWindowDays)
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
-  const eventImpact = computeEventImpact(events, targetDate)
-  const weekendAdjustment = computeWeekendAdjustment(targetDate, weekendDays)
+  const eventImpact = computeEventImpact(events, targetDate, params)
+  const weekendAdjustment = computeWeekendAdjustment(targetDate, weekendDays, params.weekendAdjustmentPt)
 
   const predictedOccupancy = computePredictedOccupancy({
     movingAverage,
     yearOverYear,
     eventImpact,
     weekendAdjustment,
+    fallback: params.fallbackOccupancy,
+    movingAverageWeight: params.movingAverageWeight,
   })
 
   return {
@@ -203,7 +245,7 @@ export const ruleBasedForecaster: DemandForecaster = {
     // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得
     const historyWindowStart = addUtcDays(startDate, -400)
 
-    const [dailyData, events, priceRanks] = await Promise.all([
+    const [dailyData, events, priceRanks, modelConfigs] = await Promise.all([
       prisma.dailyData.findMany({
         where: {
           hotelId,
@@ -221,7 +263,26 @@ export const ruleBasedForecaster: DemandForecaster = {
         where: { hotelId, isActive: true },
         orderBy: { rank: 'asc' },
       }),
+      prisma.forecastModelConfig.findMany({ where: { hotelId } }),
     ])
+
+    // 対象年の設定 → year=0（ホテルデフォルト） → 組み込みデフォルトの順に解決
+    const paramsByYear = new Map<number, ForecastModelParams>(
+      modelConfigs.map((c) => [
+        c.year,
+        {
+          movingAverageWindowDays: c.movingAverageWindowDays,
+          movingAverageWeight: c.movingAverageWeight,
+          eventImpactHighPt: c.eventImpactHighPt,
+          eventImpactMediumPt: c.eventImpactMediumPt,
+          eventImpactLowPt: c.eventImpactLowPt,
+          weekendAdjustmentPt: c.weekendAdjustmentPt,
+          fallbackOccupancy: c.fallbackOccupancy,
+        },
+      ])
+    )
+    const resolveParams = (date: Date): ForecastModelParams =>
+      paramsByYear.get(date.getUTCFullYear()) ?? paramsByYear.get(0) ?? DEFAULT_FORECAST_MODEL_PARAMS
 
     const history: OccupancyRecord[] = dailyData
       .filter((d): d is typeof d & { occupancy: number } => d.occupancy != null)
@@ -234,7 +295,7 @@ export const ruleBasedForecaster: DemandForecaster = {
     const results: DailyForecast[] = []
     for (let i = 0; i < totalDays; i++) {
       const date = addUtcDays(startDate, i)
-      const core = computeDailyForecastCore(date, history, events, weekendDays, maxRank)
+      const core = computeDailyForecastCore(date, history, events, weekendDays, maxRank, resolveParams(date))
       results.push({
         ...core,
         recommendedPrice: core.recommendedRank != null ? priceByRank.get(core.recommendedRank) ?? null : null,

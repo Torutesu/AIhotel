@@ -8,8 +8,11 @@ import {
   mapOccupancyToRank,
   computePredictedOccupancy,
   computeConfidence,
+  computeDailyForecastCore,
+  DEFAULT_FORECAST_MODEL_PARAMS,
   type OccupancyRecord,
   type EventImpactRecord,
+  type ForecastModelParams,
 } from './ruleBasedForecaster.js'
 
 // UTC固定の日付ヘルパー（タイムゾーン依存の失敗を避ける）
@@ -156,6 +159,65 @@ describe('computePredictedOccupancy', () => {
       fallback: 0,
     })
     expect(result).toBe(0)
+  })
+})
+
+describe('予測モデルパラメータの上書き（場所×年で可変 — ForecastModelConfig）', () => {
+  it('イベント影響度をパラメータで上書きできる', () => {
+    const target = d(2026, 7, 10)
+    const events: EventImpactRecord[] = [
+      { startDate: d(2026, 7, 9), endDate: d(2026, 7, 11), expectedImpact: 'high' },
+    ]
+    const params: ForecastModelParams = { ...DEFAULT_FORECAST_MODEL_PARAMS, eventImpactHighPt: 0.3 }
+    expect(computeEventImpact(events, target, params)).toBeCloseTo(0.3, 5)
+  })
+
+  it('週末補正幅をパラメータで上書きできる', () => {
+    const friday = d(2026, 7, 10)
+    expect(computeWeekendAdjustment(friday, [5, 6], 0.12)).toBeCloseTo(0.12, 5)
+  })
+
+  it('移動平均の重みをパラメータで上書きできる', () => {
+    const result = computePredictedOccupancy({
+      movingAverage: 0.8,
+      yearOverYear: 0.6,
+      eventImpact: 0,
+      weekendAdjustment: 0,
+      movingAverageWeight: 0.5,
+    })
+    expect(result).toBeCloseTo(0.8 * 0.5 + 0.6 * 0.5, 5)
+  })
+
+  it('computeDailyForecastCore はパラメータ未指定なら組み込みデフォルトを使う', () => {
+    const target = d(2026, 7, 10)
+    const withDefault = computeDailyForecastCore(target, [], [], [5, 6])
+    const withExplicit = computeDailyForecastCore(target, [], [], [5, 6], 40, DEFAULT_FORECAST_MODEL_PARAMS)
+    expect(withDefault).toEqual(withExplicit)
+    // 実績なし → fallback 0.6 + 週末補正 0.05
+    expect(withDefault.predictedOccupancy).toBeCloseTo(0.65, 5)
+  })
+
+  it('computeDailyForecastCore にフォールバック稼働率と週末補正の上書きが反映される', () => {
+    const target = d(2026, 7, 10) // 金曜（週末扱い）
+    const params: ForecastModelParams = {
+      ...DEFAULT_FORECAST_MODEL_PARAMS,
+      fallbackOccupancy: 0.4,
+      weekendAdjustmentPt: 0.1,
+    }
+    const result = computeDailyForecastCore(target, [], [], [5, 6], 40, params)
+    expect(result.predictedOccupancy).toBeCloseTo(0.5, 5)
+  })
+
+  it('移動平均の参照日数をパラメータで狭められる', () => {
+    const target = d(2026, 7, 10) // 金曜
+    const history: OccupancyRecord[] = [
+      { date: d(2026, 7, 3), occupancy: 0.8 }, // 7日前の金曜
+      { date: d(2026, 6, 26), occupancy: 0.4 }, // 14日前の金曜
+    ]
+    const params: ForecastModelParams = { ...DEFAULT_FORECAST_MODEL_PARAMS, movingAverageWindowDays: 10 }
+    const result = computeDailyForecastCore(target, history, [], [], 40, params)
+    // 窓10日 → 7日前の0.8のみ参照
+    expect(result.predictedOccupancy).toBeCloseTo(0.8, 5)
   })
 })
 
