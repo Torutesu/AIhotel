@@ -8,6 +8,11 @@ import { ruleBasedForecaster } from './ruleBasedForecaster.js'
 // F-DP-03（AI予測値へのリセット）のバックエンドとしても機能する:
 // 手動で価格ランクを編集した後でも、このサービスを呼べば AiPriceRecommendation が
 // 最新のルールベース予測で上書きされ、AI推奨値に戻せる。
+//
+// AiPriceRecommendation（最新値・上書き）とは別に、ForecastSnapshot へ
+// 予測実施日ごとの値を追記保存する（P-6）。これによりリードタイム別の
+// backtest（n日前時点の予測 vs 実績）が可能になる。同一予測実施日の
+// 再実行は削除→再作成で冪等。
 
 const DEFAULT_FORECAST_DAYS = 90
 
@@ -57,6 +62,39 @@ async function upsertHotelWideRecommendation(hotelId: string, tenantId: string, 
   }
 }
 
+/**
+ * 予測スナップショットを保存する（P-6）。
+ * 同じ forecastDate × modelVersion の再実行は上書き（冪等）。
+ */
+async function saveForecastSnapshots(
+  hotelId: string,
+  tenantId: string,
+  forecastDate: Date,
+  forecasts: DailyForecast[],
+  modelVersion: string
+): Promise<void> {
+  await prisma.forecastSnapshot.deleteMany({
+    where: { hotelId, forecastDate, modelVersion },
+  })
+  await prisma.forecastSnapshot.createMany({
+    data: forecasts.map((f) => ({
+      hotelId,
+      tenantId,
+      stayDate: f.date,
+      forecastDate,
+      leadTimeDays: Math.round((f.date.getTime() - forecastDate.getTime()) / 86_400_000),
+      predictedOccupancy: f.predictedOccupancy,
+      predictedOccupancyP10: f.predictedOccupancyP10,
+      predictedOccupancyP90: f.predictedOccupancyP90,
+      demandLevel: f.demandLevel as DemandLevel,
+      recommendedRank: f.recommendedRank,
+      recommendedPrice: f.recommendedPrice,
+      confidence: f.confidence,
+      modelVersion,
+    })),
+  })
+}
+
 export interface RecomputeForecastResult {
   count: number
   modelVersion: string
@@ -86,6 +124,9 @@ export async function recomputeForecastService(
   for (const forecast of forecasts) {
     await upsertHotelWideRecommendation(hotelId, hotel.tenantId, forecast)
   }
+
+  // リードタイム別backtest用のスナップショット（予測実施日=今日で追記保存 — P-6）
+  await saveForecastSnapshots(hotelId, hotel.tenantId, dateOnly(new Date()), forecasts, forecaster.name)
 
   return {
     count: forecasts.length,
