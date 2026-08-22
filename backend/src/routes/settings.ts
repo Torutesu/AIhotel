@@ -6,6 +6,10 @@ import {
   createPriceRankSchema,
   updatePriceRankSchema,
   updateHotelSettingsSchema,
+  upsertForecastModelConfigSchema,
+  createOutOfOrderRoomSchema,
+  updateOutOfOrderRoomSchema,
+  outOfOrderRoomsQuerySchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
@@ -13,6 +17,13 @@ import {
   updatePriceRank,
   deletePriceRank,
   updateHotelSettings,
+  getForecastModelConfigs,
+  upsertForecastModelConfig,
+  deleteForecastModelConfig,
+  getOutOfOrderRooms,
+  createOutOfOrderRoom,
+  updateOutOfOrderRoom,
+  deleteOutOfOrderRoom,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -59,4 +70,63 @@ settingsRouter.put(
   requireHotelAccess((req) => req.params.id),
   validate(updateHotelSettingsSchema),
   updateHotelSettings
+)
+
+// ---- 予測モデル設定（ホテル×年 — 「場所や年でロジックが変わる」対応） ----
+
+// GET /api/v1/settings/forecast-model-configs?hotelId=
+settingsRouter.get(
+  '/forecast-model-configs',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getForecastModelConfigs
+)
+
+settingsRouter.put(
+  '/forecast-model-configs',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(upsertForecastModelConfigSchema),
+  upsertForecastModelConfig
+)
+
+settingsRouter.delete(
+  '/forecast-model-configs/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  deleteForecastModelConfig
+)
+
+// ---- 故障部屋（Out of Order） ----
+
+// GET /api/v1/settings/out-of-order-rooms?hotelId=&startDate=&endDate=
+settingsRouter.get(
+  '/out-of-order-rooms',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(outOfOrderRoomsQuerySchema, 'query'),
+  getOutOfOrderRooms
+)
+
+settingsRouter.post(
+  '/out-of-order-rooms',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(createOutOfOrderRoomSchema),
+  createOutOfOrderRoom
+)
+
+settingsRouter.put(
+  '/out-of-order-rooms/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(updateOutOfOrderRoomSchema),
+  updateOutOfOrderRoom
+)
+
+settingsRouter.delete(
+  '/out-of-order-rooms/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  deleteOutOfOrderRoom
 )

@@ -295,6 +295,89 @@ export const updateStrategySchema = z.object({
 })
 
 // ======================================
+// Forecast Model Config Validators（予測モデルの可変化 — ホテル×年）
+// ======================================
+
+// year = 0 はホテルのデフォルト設定（全年共通）
+export const upsertForecastModelConfigSchema = z.object({
+  hotelId: entityIdSchema,
+  year: z.number().int().refine((y) => y === 0 || (y >= 2020 && y <= 2100), {
+    message: '年は0（デフォルト）または2020〜2100を指定してください',
+  }),
+  movingAverageWindowDays: z.number().int().min(7).max(120).optional(),
+  movingAverageWeight: z.number().min(0).max(1).optional(),
+  eventImpactHighPt: z.number().min(0).max(0.5).optional(),
+  eventImpactMediumPt: z.number().min(0).max(0.5).optional(),
+  eventImpactLowPt: z.number().min(0).max(0.5).optional(),
+  weekendAdjustmentPt: z.number().min(0).max(0.5).optional(),
+  fallbackOccupancy: z.number().min(0).max(1).optional(),
+  notes: z.string().max(500).optional(),
+})
+
+// ======================================
+// Out of Order Room Validators（故障部屋）
+// ======================================
+
+const outOfOrderRoomBaseSchema = z.object({
+  hotelId: entityIdSchema,
+  roomTypeId: entityIdSchema.optional(),
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+  rooms: z.number().int().min(1, '室数は1以上である必要があります').max(10000),
+  reason: z.string().max(500).optional(),
+})
+
+export const createOutOfOrderRoomSchema = outOfOrderRoomBaseSchema.refine(
+  (data) => data.startDate <= data.endDate,
+  { message: '開始日は終了日以前である必要があります' }
+)
+
+export const updateOutOfOrderRoomSchema = outOfOrderRoomBaseSchema
+  .omit({ hotelId: true })
+  .partial()
+  .refine(
+    (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
+    { message: '開始日は終了日以前である必要があります' }
+  )
+
+export const outOfOrderRoomsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+}).refine(
+  (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
+  { message: '開始日は終了日以前である必要があります' }
+)
+
+// ======================================
+// Excel Import Validators（手動アップロードによるデータ取込）
+// ======================================
+
+export const IMPORT_TYPES = ['price_ranks', 'daily_actual'] as const
+
+// Excel本体はbase64で受け取る（express.json の10MB上限内に収まるよう約6MBまで）
+export const createImportSchema = z.object({
+  hotelId: entityIdSchema,
+  type: z.enum(IMPORT_TYPES),
+  fileName: z.string().min(1).max(255),
+  fileBase64: z
+    .string()
+    .min(1, 'ファイルは必須です')
+    .max(8_000_000, 'ファイルサイズは約6MB以下にしてください')
+    .regex(/^[A-Za-z0-9+/=]+$/, 'ファイルデータの形式が不正です'),
+})
+
+export const importTemplateQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  type: z.enum(IMPORT_TYPES),
+})
+
+export const importJobsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  limit: z.coerce.number().int().min(1).max(50).default(10),
+})
+
+// ======================================
 // Type Exports
 // ======================================
 
@@ -316,3 +399,8 @@ export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
+export type UpsertForecastModelConfigInput = z.infer<typeof upsertForecastModelConfigSchema>
+export type CreateOutOfOrderRoomInput = z.infer<typeof createOutOfOrderRoomSchema>
+export type UpdateOutOfOrderRoomInput = z.infer<typeof updateOutOfOrderRoomSchema>
+export type CreateImportInput = z.infer<typeof createImportSchema>
+export type ImportType = (typeof IMPORT_TYPES)[number]

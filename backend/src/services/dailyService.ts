@@ -1,27 +1,38 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
+import { getSellableRoomsByDateService } from './settingsService.js'
 
 /**
  * ブッキングカーブ（F-DAILY-01）
  * X軸 = 宿泊日までの残日数（降順で右肩上がりになる）
+ * 稼働率の分母は販売可能室数（totalRooms − 故障部屋）を使う
  */
 export async function getBookingCurveService(hotelId: string, stayDate: Date) {
   const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
   if (!hotel) throw new NotFoundError('ホテル')
 
-  const points = await prisma.bookingCurveData.findMany({
-    where: { hotelId, stayDate },
-    orderBy: { daysBefore: 'desc' },
-  })
+  const [points, sellableByDate] = await Promise.all([
+    prisma.bookingCurveData.findMany({
+      where: { hotelId, stayDate },
+      orderBy: { daysBefore: 'desc' },
+    }),
+    getSellableRoomsByDateService(hotelId, stayDate, stayDate),
+  ])
+
+  const sellableRooms =
+    sellableByDate.get(stayDate.toISOString().slice(0, 10)) ?? hotel.totalRooms
 
   return {
     hotelId,
     stayDate: stayDate.toISOString().slice(0, 10),
     totalRooms: hotel.totalRooms,
+    sellableRooms,
     points: points.map((p) => ({
       daysBefore: p.daysBefore,
       roomsBooked: p.roomsBooked,
-      occupancy: Math.round((p.roomsBooked / hotel.totalRooms) * 1000) / 1000,
+      // 全室故障（sellable=0）の場合は総客室数を分母にフォールバックし、APIの型を保つ
+      occupancy:
+        Math.round((p.roomsBooked / (sellableRooms > 0 ? sellableRooms : hotel.totalRooms)) * 1000) / 1000,
     })),
   }
 }
