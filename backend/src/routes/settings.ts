@@ -5,6 +5,7 @@ import {
   hotelIdQuerySchema,
   createPriceRankSchema,
   updatePriceRankSchema,
+  generatePriceRanksSchema,
   updateHotelSettingsSchema,
 } from '../lib/validators.js'
 import {
@@ -12,6 +13,7 @@ import {
   createPriceRank,
   updatePriceRank,
   deletePriceRank,
+  generatePriceRanks,
   updateHotelSettings,
 } from '../controllers/settingsController.js'
 
@@ -35,6 +37,15 @@ settingsRouter.post(
   requireHotelAccess((req) => req.body?.hotelId),
   validate(createPriceRankSchema),
   createPriceRank
+)
+
+// POST /api/v1/settings/price-ranks/generate — 下限〜上限価格から最大40段階を一括生成（Step 2）
+settingsRouter.post(
+  '/price-ranks/generate',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(generatePriceRanksSchema),
+  generatePriceRanks
 )
 
 settingsRouter.put(

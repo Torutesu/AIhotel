@@ -9,6 +9,7 @@ import {
   deletePriceRankService,
   updateHotelSettingsService,
 } from '../services/settingsService.js'
+import { generatePriceRanksService } from '../services/provisioningService.js'
 
 /**
  * 料金ランク一覧
@@ -75,6 +76,25 @@ export const deletePriceRank = asyncHandler(async (req: Request, res: Response) 
     userAgent: req.headers['user-agent'],
   })
   sendDeleted(res)
+})
+
+/**
+ * 料金ランク一括自動生成（MANAGER 以上・監査対象 — F-SET-02 / SAAS_ONBOARDING.md Step 2）
+ * POST /api/v1/settings/price-ranks/generate
+ */
+export const generatePriceRanks = asyncHandler(async (req: Request, res: Response) => {
+  const ranks = await generatePriceRanksService(req.body)
+  await writeAuditLog({
+    tenantId: ranks[0]?.tenantId,
+    userId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'PriceRank',
+    entityId: req.body.hotelId,
+    newValue: req.body,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendCreated(res, ranks, `料金ランクを${ranks.length}段階生成しました`)
 })
 
 /**
