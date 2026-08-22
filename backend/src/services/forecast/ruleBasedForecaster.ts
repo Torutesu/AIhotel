@@ -31,6 +31,15 @@ const WEEKEND_ADJUSTMENT_PT = 0.05
 const HOLIDAY_EVE_ADJUSTMENT_PT = 0.05
 const LONG_HOLIDAY_ADJUSTMENT_PT = 0.05
 
+// 予測区間（P-7）: 同曜日実績のばらつきから80%区間を正規近似で作る。
+// z(90%)=1.28。ばらつきが計算できない場合は既定幅にフォールバック。
+// v2 で conformal prediction による較正済み区間に置き換える
+const INTERVAL_Z80 = 1.28
+const INTERVAL_MIN_HALF_WIDTH = 0.03
+const INTERVAL_MAX_HALF_WIDTH = 0.3
+const INTERVAL_FALLBACK_HALF_WIDTH_PARTIAL = 0.12 // データが薄い（同曜日<3件 or 前年のみ）
+const INTERVAL_FALLBACK_HALF_WIDTH_NONE = 0.2 // 参照データなし
+
 export interface OccupancyRecord {
   date: Date
   occupancy: number
@@ -43,6 +52,23 @@ export interface EventImpactRecord {
 }
 
 /**
+ * 直近windowDays以内の同曜日実績値のリスト（移動平均と予測区間の共通材料）
+ */
+export function getSameWeekdayValues(
+  history: OccupancyRecord[],
+  targetDate: Date,
+  windowDays = MOVING_AVERAGE_WINDOW_DAYS
+): number[] {
+  const targetDow = targetDate.getUTCDay()
+  const windowStart = new Date(targetDate)
+  windowStart.setUTCDate(windowStart.getUTCDate() - windowDays)
+
+  return history
+    .filter((h) => h.date >= windowStart && h.date < targetDate && h.date.getUTCDay() === targetDow)
+    .map((h) => h.occupancy)
+}
+
+/**
  * 直近28日の同曜日平均稼働率（移動平均）。データがなければ null
  */
 export function computeMovingAverageBySameWeekday(
@@ -50,15 +76,9 @@ export function computeMovingAverageBySameWeekday(
   targetDate: Date,
   windowDays = MOVING_AVERAGE_WINDOW_DAYS
 ): number | null {
-  const targetDow = targetDate.getUTCDay()
-  const windowStart = new Date(targetDate)
-  windowStart.setUTCDate(windowStart.getUTCDate() - windowDays)
-
-  const matches = history.filter(
-    (h) => h.date >= windowStart && h.date < targetDate && h.date.getUTCDay() === targetDow
-  )
-  if (matches.length === 0) return null
-  return matches.reduce((sum, m) => sum + m.occupancy, 0) / matches.length
+  const values = getSameWeekdayValues(history, targetDate, windowDays)
+  if (values.length === 0) return null
+  return values.reduce((sum, v) => sum + v, 0) / values.length
 }
 
 /**
@@ -184,13 +204,55 @@ export function computePredictedOccupancy(params: {
 }
 
 /**
- * 予測の確信度（利用できたデータソースが多いほど高い）
+ * 80%予測区間（P10/P90）。同曜日実績のばらつき（不偏標準偏差）から正規近似で作る（P-7）。
+ * 同曜日実績が3件未満のときは既定幅にフォールバックする
  */
-export function computeConfidence(params: { movingAverage: number | null; yearOverYear: number | null }): number {
-  if (params.movingAverage != null && params.yearOverYear != null) return 0.85
-  if (params.movingAverage != null) return 0.7
-  if (params.yearOverYear != null) return 0.6
-  return 0.4
+export function computePredictionInterval(params: {
+  predicted: number
+  sameWeekdayValues: number[]
+  yearOverYear: number | null
+}): { p10: number; p90: number } {
+  const { predicted, sameWeekdayValues, yearOverYear } = params
+  const n = sameWeekdayValues.length
+
+  let halfWidth: number
+  if (n >= 3) {
+    const mean = sameWeekdayValues.reduce((s, v) => s + v, 0) / n
+    const variance = sameWeekdayValues.reduce((s, v) => s + (v - mean) ** 2, 0) / (n - 1)
+    const sigma = Math.sqrt(variance)
+    halfWidth = Math.min(INTERVAL_MAX_HALF_WIDTH, Math.max(INTERVAL_MIN_HALF_WIDTH, INTERVAL_Z80 * sigma))
+  } else if (n > 0 || yearOverYear != null) {
+    halfWidth = INTERVAL_FALLBACK_HALF_WIDTH_PARTIAL
+  } else {
+    halfWidth = INTERVAL_FALLBACK_HALF_WIDTH_NONE
+  }
+
+  return {
+    p10: Math.max(0, Math.round((predicted - halfWidth) * 1000) / 1000),
+    p90: Math.min(1, Math.round((predicted + halfWidth) * 1000) / 1000),
+  }
+}
+
+/**
+ * 予測の確信度（P-7: 80%予測区間の幅から導出。区間が狭いほど高い）。
+ * データソースが欠けている場合は上限を絞り、高い確信度を主張しない。
+ * 従来のデータソース数のみによる定数（0.85/0.7/0.6/0.4）を置き換えるもの
+ */
+export function computeConfidence(params: {
+  intervalWidth: number
+  movingAverage: number | null
+  yearOverYear: number | null
+}): number {
+  const { intervalWidth, movingAverage, yearOverYear } = params
+
+  let confidence = 1 - intervalWidth * 2
+  if (movingAverage == null && yearOverYear == null) {
+    confidence = Math.min(confidence, 0.4)
+  } else if (movingAverage == null || yearOverYear == null) {
+    confidence = Math.min(confidence, 0.7)
+  }
+
+  return Math.min(0.95, Math.max(0.2, Math.round(confidence * 100) / 100))
 }
 
 /**
@@ -203,7 +265,11 @@ export function computeDailyForecastCore(
   weekendDays: number[],
   maxRank = DEFAULT_MAX_RANK
 ): Omit<DailyForecast, 'recommendedPrice' | 'modelVersion'> {
-  const movingAverage = computeMovingAverageBySameWeekday(history, targetDate)
+  const sameWeekdayValues = getSameWeekdayValues(history, targetDate)
+  const movingAverage =
+    sameWeekdayValues.length > 0
+      ? sameWeekdayValues.reduce((s, v) => s + v, 0) / sameWeekdayValues.length
+      : null
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
   const eventImpact = computeEventImpact(events, targetDate)
   const weekendAdjustment = computeWeekendAdjustment(targetDate, weekendDays)
@@ -217,12 +283,20 @@ export function computeDailyForecastCore(
     holidayAdjustment,
   })
 
+  const { p10, p90 } = computePredictionInterval({
+    predicted: predictedOccupancy,
+    sameWeekdayValues,
+    yearOverYear,
+  })
+
   return {
     date: targetDate,
     predictedOccupancy,
+    predictedOccupancyP10: p10,
+    predictedOccupancyP90: p90,
     demandLevel: mapOccupancyToDemandLevel(predictedOccupancy),
     recommendedRank: mapOccupancyToRank(predictedOccupancy, maxRank),
-    confidence: computeConfidence({ movingAverage, yearOverYear }),
+    confidence: computeConfidence({ intervalWidth: p90 - p10, movingAverage, yearOverYear }),
   }
 }
 

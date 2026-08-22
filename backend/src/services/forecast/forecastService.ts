@@ -38,6 +38,8 @@ async function upsertHotelWideRecommendation(hotelId: string, tenantId: string, 
 
   const data = {
     predictedOccupancy: forecast.predictedOccupancy,
+    predictedOccupancyP10: forecast.predictedOccupancyP10,
+    predictedOccupancyP90: forecast.predictedOccupancyP90,
     recommendedRank: forecast.recommendedRank,
     recommendedPrice: forecast.recommendedPrice,
     demandLevel: forecast.demandLevel as DemandLevel,

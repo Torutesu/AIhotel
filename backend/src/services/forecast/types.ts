@@ -16,6 +16,9 @@ export interface ForecastInput {
 export interface DailyForecast {
   date: Date
   predictedOccupancy: number
+  // 80%予測区間（P-7 — confidence の根拠）
+  predictedOccupancyP10: number
+  predictedOccupancyP90: number
   demandLevel: ForecastDemandLevel
   recommendedRank: number | null
   recommendedPrice: number | null

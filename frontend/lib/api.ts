@@ -341,6 +341,9 @@ export interface PricingCalendarDay {
   price2P: number | null
   price3P: number | null
   predictedOccupancy: number | null
+  // 80%予測区間（P-7）。旧データでは未設定のため optional
+  predictedOccupancyP10?: number | null
+  predictedOccupancyP90?: number | null
   predictedAdr: number | null
   actualOccupancy: number | null
   actualAdr: number | null
