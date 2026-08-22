@@ -8,6 +8,7 @@ import {
   mapOccupancyToRank,
   computePredictedOccupancy,
   computeConfidence,
+  computeHolidayAdjustment,
   type OccupancyRecord,
   type EventImpactRecord,
 } from './ruleBasedForecaster.js'
@@ -166,5 +167,35 @@ describe('computeConfidence', () => {
 
   it('データが全くなければ最も低い確信度を返す', () => {
     expect(computeConfidence({ movingAverage: null, yearOverYear: null })).toBe(0.4)
+  })
+})
+
+describe('computeHolidayAdjustment', () => {
+  it('翌日が祝日の平日夜には補正を加える', () => {
+    // 2026-02-22(日) の夜: 翌日2/23が天皇誕生日
+    expect(computeHolidayAdjustment(d(2026, 2, 22), [5, 6])).toBeGreaterThan(0)
+  })
+
+  it('weekendDays に含まれる曜日は週末補正と二重加算しない', () => {
+    // 2025-05-02(金): 翌日5/3が憲法記念日だが、金曜は週末補正の対象
+    const friday = d(2025, 5, 2)
+    const withWeekendDef = computeHolidayAdjustment(friday, [5, 6])
+    const withoutWeekendDef = computeHolidayAdjustment(friday, [0, 1])
+    expect(withoutWeekendDef).toBeGreaterThan(withWeekendDef)
+  })
+
+  it('3連休以上の中日にはさらに補正を加える', () => {
+    // 2026 GW: 5/2(土)〜5/6(水)の5連休。5/4は中日
+    const midBlock = computeHolidayAdjustment(d(2026, 5, 4), [5, 6])
+    expect(midBlock).toBeGreaterThan(0)
+  })
+
+  it('連休最終日（翌日から平日）は連休補正を加えない', () => {
+    // 2026-05-06(水・振替): 連休最終日。翌日は平日
+    expect(computeHolidayAdjustment(d(2026, 5, 6), [5, 6])).toBe(0)
+  })
+
+  it('祝日と無関係な平日は補正なし', () => {
+    expect(computeHolidayAdjustment(d(2026, 6, 16), [5, 6])).toBe(0)
   })
 })

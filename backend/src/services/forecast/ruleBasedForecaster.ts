@@ -1,12 +1,15 @@
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
+import { getConsecutiveHolidayBlock, isJpHoliday } from '../../lib/jpHolidays.js'
 import type { DailyForecast, DemandForecaster, ForecastDemandLevel, ForecastInput } from './types.js'
 
 // ルールベース需要予測（F-DP-05 の前段。将来 ML モデルに差し替え予定）。
+// v1.5: 祝日・連休補正、予測区間ベースの確信度、価格戦略の重み接続を追加
+// （docs/algorithm-design.md §5 の v1.5 スコープ）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
 // 関数として分離し、forecast() はそれらを組み合わせて DB アクセスを行う。
 
-export const MODEL_VERSION = 'rule-based-v1'
+export const MODEL_VERSION = 'rule-based-v1.5'
 const DEFAULT_MAX_RANK = 40 // F-SET-02: 料金ランクは最大40段階（PriceRank未設定時のフォールバック）
 const MOVING_AVERAGE_WINDOW_DAYS = 28
 const YEAR_OVER_YEAR_TOLERANCE_DAYS = 3
@@ -22,6 +25,11 @@ const EVENT_IMPACT_PT: Record<string, number> = {
 // 週末補正（Hotel.weekendDays を参照 — ハードコード禁止）。
 // 同曜日移動平均が既に週末パターンを反映しているため控えめな値とする
 const WEEKEND_ADJUSTMENT_PT = 0.05
+
+// 祝日補正（P-9）。翌日が祝日の夜は宿泊需要が高い（翌日が休みなので泊まれる）。
+// 3連休以上の中日はさらに高い。値は v2 で学習ベース（f_holiday）に置き換える暫定値
+const HOLIDAY_EVE_ADJUSTMENT_PT = 0.05
+const LONG_HOLIDAY_ADJUSTMENT_PT = 0.05
 
 export interface OccupancyRecord {
   date: Date
@@ -96,6 +104,30 @@ export function computeWeekendAdjustment(targetDate: Date, weekendDays: number[]
 }
 
 /**
+ * 祝日・連休補正（P-9 / docs/algorithm-design.md §3.4）。
+ * - 翌日が祝日の夜: +5pt（宿泊できる夜）。ただし weekendDays に含まれる曜日は
+ *   週末補正と二重加算になるため加算しない
+ * - 3連休以上の中の泊まれる夜（連休最終日以外）: さらに +5pt
+ * 祝日データのカバー範囲外の年は補正なし（jpHolidays 側で判定）
+ */
+export function computeHolidayAdjustment(targetDate: Date, weekendDays: number[]): number {
+  let adjustment = 0
+
+  const nextDay = new Date(targetDate)
+  nextDay.setUTCDate(nextDay.getUTCDate() + 1)
+  if (isJpHoliday(nextDay) && !weekendDays.includes(targetDate.getUTCDay())) {
+    adjustment += HOLIDAY_EVE_ADJUSTMENT_PT
+  }
+
+  const block = getConsecutiveHolidayBlock(targetDate)
+  if (block && block.length >= 3 && block.position < block.length) {
+    adjustment += LONG_HOLIDAY_ADJUSTMENT_PT
+  }
+
+  return adjustment
+}
+
+/**
  * 需要レベル5段階（A>0.9, B>0.8, C>0.65, D>0.5, それ以外E）
  */
 export function mapOccupancyToDemandLevel(occupancy: number): ForecastDemandLevel {
@@ -124,9 +156,17 @@ export function computePredictedOccupancy(params: {
   yearOverYear: number | null
   eventImpact: number
   weekendAdjustment: number
+  holidayAdjustment?: number
   fallback?: number
 }): number {
-  const { movingAverage, yearOverYear, eventImpact, weekendAdjustment, fallback = FALLBACK_OCCUPANCY } = params
+  const {
+    movingAverage,
+    yearOverYear,
+    eventImpact,
+    weekendAdjustment,
+    holidayAdjustment = 0,
+    fallback = FALLBACK_OCCUPANCY,
+  } = params
 
   let base: number
   if (movingAverage != null && yearOverYear != null) {
@@ -139,7 +179,7 @@ export function computePredictedOccupancy(params: {
     base = fallback
   }
 
-  const predicted = base + eventImpact + weekendAdjustment
+  const predicted = base + eventImpact + weekendAdjustment + holidayAdjustment
   return Math.min(1, Math.max(0, Math.round(predicted * 1000) / 1000))
 }
 
@@ -167,12 +207,14 @@ export function computeDailyForecastCore(
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
   const eventImpact = computeEventImpact(events, targetDate)
   const weekendAdjustment = computeWeekendAdjustment(targetDate, weekendDays)
+  const holidayAdjustment = computeHolidayAdjustment(targetDate, weekendDays)
 
   const predictedOccupancy = computePredictedOccupancy({
     movingAverage,
     yearOverYear,
     eventImpact,
     weekendAdjustment,
+    holidayAdjustment,
   })
 
   return {
