@@ -46,6 +46,9 @@ model Tenant {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  outOfOrderRooms          OutOfOrderRoom[]
+  forecastModelConfigs     ForecastModelConfig[]
+  importJobs               ImportJob[]
 }
 
 // ======================================
@@ -134,6 +137,9 @@ model Hotel {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  outOfOrderRooms          OutOfOrderRoom[]
+  forecastModelConfigs     ForecastModelConfig[]
+  importJobs               ImportJob[]
 
   @@index([tenantId])
 }
@@ -155,6 +161,7 @@ model RoomType {
 
   dailyRoomData          DailyRoomData[]
   aiPriceRecommendations AiPriceRecommendation[]
+  outOfOrderRooms        OutOfOrderRoom[]
 
   @@unique([hotelId, code])
   @@index([tenantId])
@@ -594,6 +601,91 @@ model GroupBooking {
 
   @@index([tenantId])
   @@index([hotelId, stayStartDate])
+}
+
+// ======================================
+// Out of Order Rooms（故障部屋 — 期間中は販売可能室数から差し引く）
+// ======================================
+
+model OutOfOrderRoom {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId    String
+  hotel      Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // 特定の部屋タイプに紐づかない場合は null（ホテル全体から差し引く）
+  roomTypeId String?
+  roomType   RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
+  startDate  DateTime  @db.Date
+  endDate    DateTime  @db.Date
+  rooms      Int // 故障・販売停止中の室数
+  reason     String? // 修繕・水漏れ等
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([hotelId, startDate, endDate])
+}
+
+// ======================================
+// Forecast Model Config（予測モデルパラメータの可変化 — 場所=ホテル × 年）
+// ======================================
+
+// ルールベース予測のパラメータをホテル×年で上書きする。
+// year = 0 はそのホテルのデフォルト設定（全年共通）。対象年の設定がなければ year=0 →
+// 組み込みデフォルト値の順にフォールバックする。
+model ForecastModelConfig {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  year     Int    @default(0) // 0 = デフォルト（全年共通）
+
+  movingAverageWindowDays Int   @default(28) // 同曜日移動平均の参照日数
+  movingAverageWeight     Float @default(0.7) // 移動平均の重み（残りは前年同時期）
+  eventImpactHighPt       Float @default(0.15) // イベント補正 high（稼働率への加算幅）
+  eventImpactMediumPt     Float @default(0.08)
+  eventImpactLowPt        Float @default(0.03)
+  weekendAdjustmentPt     Float @default(0.05) // 週末補正
+  fallbackOccupancy       Float @default(0.6) // 実績が無い場合の基準稼働率
+
+  notes           String?
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([hotelId, year])
+  @@index([tenantId])
+}
+
+// ======================================
+// Import Jobs（Excel手動アップロードによるデータ取込履歴）
+// ======================================
+
+model ImportJob {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  type     String // price_ranks / daily_actual
+  fileName String
+  status   String // completed / failed
+
+  rowCount     Int   @default(0) // 読み取った行数
+  createdCount Int   @default(0)
+  updatedCount Int   @default(0)
+  errorCount   Int   @default(0)
+  errors       Json? // [{row, message}] 行単位のエラー詳細
+
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, createdAt])
 }
 
 // ======================================

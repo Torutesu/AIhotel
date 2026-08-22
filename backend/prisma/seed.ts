@@ -398,6 +398,33 @@ async function main() {
   })
   console.log('✅ Landing simulation')
 
+  // 14. 予測モデル設定（year=0 はホテルのデフォルト設定）
+  await prisma.forecastModelConfig.upsert({
+    where: { hotelId_year: { hotelId: hotel.id, year: 0 } },
+    update: {},
+    create: {
+      hotelId: hotel.id,
+      tenantId: tenant.id,
+      year: 0,
+      notes: 'デフォルト設定（組み込み値と同一）',
+    },
+  })
+  console.log('✅ Forecast model config')
+
+  // 15. 故障部屋（冪等にするため既存を削除して再作成）
+  await prisma.outOfOrderRoom.deleteMany({ where: { hotelId: hotel.id } })
+  await prisma.outOfOrderRoom.create({
+    data: {
+      hotelId: hotel.id,
+      tenantId: tenant.id,
+      startDate: addDays(today, 3),
+      endDate: addDays(today, 10),
+      rooms: 2,
+      reason: '空調設備の修繕',
+    },
+  })
+  console.log('✅ Out of order rooms')
+
   console.log('✨ Seeding completed!')
 }
 
