@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import ExcelJS from 'exceljs'
-import { parsePriceRankSheet, parseDailyActualSheet } from './importService.js'
+import { parsePriceRankSheet, parseDailyActualSheet, parseOtaChannelSheet } from './importService.js'
 
 // Excel取込のパースロジック（DB非依存の純粋処理）のテスト。
 // exceljs でワークシートを組み立てて直接パーサーに渡す。
@@ -120,5 +120,50 @@ describe('parseDailyActualSheet', () => {
   it('ヘッダーが一致しないファイルは拒否する', () => {
     const sheet = buildSheet(['Date', 'Rooms', 'ADR', 'Rev', 'Guests', 'Occ', 'Note'], [])
     expect(() => parseDailyActualSheet(sheet)).toThrowError(/ヘッダーが一致しません/)
+  })
+})
+
+const OTA_HEADERS = ['日付', 'チャネル', '販売室数', 'ADR', '売上', 'キャンペーン(1=あり)']
+
+describe('parseOtaChannelSheet', () => {
+  it('正常な行をパースし、キャンペーンフラグの各表記（1・○・空欄）を解釈する', () => {
+    const sheet = buildSheet(OTA_HEADERS, [
+      ['2026-08-01', '楽天トラベル', 45, 17800, 801000, 1],
+      ['2026-08-01', '公式サイト', 30, 19200, null, '○'],
+      ['2026-08-01', 'じゃらん', 25, null, 430000, null],
+    ])
+    const { rows, errors } = parseOtaChannelSheet(sheet)
+    expect(errors).toEqual([])
+    expect(rows).toHaveLength(3)
+    expect(rows[0]).toMatchObject({ channel: '楽天トラベル', roomsSold: 45, campaignFlag: true })
+    expect(rows[1].campaignFlag).toBe(true)
+    expect(rows[2].campaignFlag).toBe(false)
+  })
+
+  it('同一の日付×チャネルの重複行はエラーになる', () => {
+    const sheet = buildSheet(OTA_HEADERS, [
+      ['2026-08-01', '楽天トラベル', 45, null, null, null],
+      ['2026-08-01', '楽天トラベル', 50, null, null, null],
+    ])
+    const { rows, errors } = parseOtaChannelSheet(sheet)
+    expect(rows).toHaveLength(1)
+    expect(errors[0].message).toContain('重複')
+  })
+
+  it('チャネル空欄・実績値なしの行はエラーになる', () => {
+    const sheet = buildSheet(OTA_HEADERS, [
+      ['2026-08-01', null, 45, null, null, null],
+      ['2026-08-02', '一休', null, null, null, null],
+    ])
+    const { rows, errors } = parseOtaChannelSheet(sheet)
+    expect(rows).toHaveLength(0)
+    expect(errors).toHaveLength(2)
+    expect(errors[0].message).toContain('チャネルは必須')
+    expect(errors[1].message).toContain('いずれかを入力')
+  })
+
+  it('ヘッダーが一致しないファイルは拒否する', () => {
+    const sheet = buildSheet(['Date', 'Channel', 'Rooms', 'ADR', 'Rev', 'Camp'], [])
+    expect(() => parseOtaChannelSheet(sheet)).toThrowError(/ヘッダーが一致しません/)
   })
 })

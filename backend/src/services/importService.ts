@@ -39,6 +39,8 @@ export interface ImportResult {
 
 const PRICE_RANK_HEADERS = ['ランク', 'ラベル', '1名料金', '2名料金', '3名料金', '4名料金'] as const
 const DAILY_ACTUAL_HEADERS = ['日付', '販売室数', 'ADR', '売上', '宿泊者数', '稼働率(%)', '備考'] as const
+const OTA_CHANNEL_HEADERS = ['日付', 'チャネル', '販売室数', 'ADR', '売上', 'キャンペーン(1=あり)'] as const
+const MAX_OTA_ROWS = 3000 // 約330日×主要OTAチャネル数＋余裕分
 
 const priceRankRowSchema = z.object({
   rank: z.number().int('ランクは整数で入力してください').min(1).max(MAX_PRICE_RANKS, `ランクは最大${MAX_PRICE_RANKS}段階です`),
@@ -63,6 +65,19 @@ const dailyActualRowSchema = z
     (r) => r.soldRooms != null || r.adr != null || r.totalRevenue != null || r.guests != null || r.occupancy != null,
     { message: '実績値（販売室数・ADR・売上・宿泊者数・稼働率）のいずれかを入力してください' }
   )
+
+const otaChannelRowSchema = z
+  .object({
+    date: z.date({ invalid_type_error: '日付の形式が不正です（例: 2026-08-22）' }),
+    channel: z.string().min(1, 'チャネルは必須です').max(100),
+    roomsSold: z.number().int('販売室数は整数で入力してください').min(0).nullable(),
+    adr: z.number().min(0).nullable(),
+    revenue: z.number().min(0).nullable(),
+    campaignFlag: z.boolean(),
+  })
+  .refine((r) => r.roomsSold != null || r.adr != null || r.revenue != null, {
+    message: '実績値（販売室数・ADR・売上）のいずれかを入力してください',
+  })
 
 // ======================================
 // セル値の変換ヘルパー（exceljs のセルは数値・文字列・日付・数式結果など多形）
@@ -110,6 +125,13 @@ function cellToDate(value: CellValue): Date | null | undefined {
     return Number.isNaN(d.getTime()) ? undefined : d
   }
   return undefined
+}
+
+/** キャンペーンフラグ: 1・○・true・はい を「あり」とみなす（空欄=なし） */
+function cellToBoolean(value: CellValue): boolean {
+  const s = cellToString(value)
+  if (s == null) return false
+  return ['1', '○', '〇', 'true', 'TRUE', 'はい', 'あり'].includes(s)
 }
 
 /** 稼働率: 1より大きい値は%表記（85 → 0.85）とみなす */
@@ -167,6 +189,31 @@ export async function generateImportTemplateService(
       ['・アップロード時に全行を検証し、エラーが1件でもあれば反映されません'],
     ])
     guide.getColumn(1).width = 70
+  } else if (type === 'ota_channel') {
+    const sheet = workbook.addWorksheet('OTAチャネル実績')
+    sheet.addRow([...OTA_CHANNEL_HEADERS])
+    sheet.getRow(1).font = { bold: true }
+    sheet.columns.forEach((c) => (c.width = 16))
+
+    const today = new Date()
+    const sample = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+      .toISOString()
+      .slice(0, 10)
+    sheet.addRow([sample, '楽天トラベル', 45, 17800, 801000, 1])
+    sheet.addRow([sample, '公式サイト', 30, 19200, 576000, ''])
+
+    const guide = workbook.addWorksheet('記入方法')
+    guide.addRows([
+      ['OTAチャネル実績テンプレートの記入方法'],
+      ['・1行目のヘッダーは変更しないでください'],
+      ['・日付は YYYY-MM-DD 形式または日付セル。同じ日付×チャネルの既存データは上書き更新されます'],
+      ['・チャネル名は自由入力（例: 楽天トラベル、じゃらん、一休、Expedia、Agoda、公式サイト）'],
+      ['・キャンペーン列は参画日に 1（または○）を入力。空欄=なし'],
+      ['・ADRが空欄の場合は売上÷販売室数から自動計算します'],
+      [`・一度に取り込めるのは${MAX_OTA_ROWS}行までです`],
+      ['・アップロード時に全行を検証し、エラーが1件でもあれば反映されません'],
+    ])
+    guide.getColumn(1).width = 70
   } else {
     const sheet = workbook.addWorksheet('日次実績')
     sheet.addRow([...DAILY_ACTUAL_HEADERS])
@@ -193,7 +240,7 @@ export async function generateImportTemplateService(
   }
 
   const buffer = Buffer.from(await workbook.xlsx.writeBuffer())
-  const filename = type === 'price_ranks' ? 'price_ranks_template.xlsx' : 'daily_actual_template.xlsx'
+  const filename = `${type}_template.xlsx`
   return {
     buffer,
     contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -222,6 +269,15 @@ interface ParsedDailyActualRow {
   guests: number | null
   occupancy: number | null
   notes: string | null
+}
+
+interface ParsedOtaChannelRow {
+  date: Date
+  channel: string
+  roomsSold: number | null
+  adr: number | null
+  revenue: number | null
+  campaignFlag: boolean
 }
 
 function assertHeaderMatches(
@@ -350,6 +406,57 @@ export function parseDailyActualSheet(sheet: ExcelJS.Worksheet): { rows: ParsedD
   return { rows, errors }
 }
 
+export function parseOtaChannelSheet(sheet: ExcelJS.Worksheet): { rows: ParsedOtaChannelRow[]; errors: ImportRowError[] } {
+  assertHeaderMatches(sheet, OTA_CHANNEL_HEADERS)
+  const rows: ParsedOtaChannelRow[] = []
+  const errors: ImportRowError[] = []
+  const seenKeys = new Set<string>()
+
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1 || isRowEmpty(row, OTA_CHANNEL_HEADERS.length)) return
+
+    const date = cellToDate(row.getCell(1).value)
+    if (date === undefined || date === null) {
+      errors.push({ row: rowNumber, message: '日付の形式が不正です（例: 2026-08-22）' })
+      return
+    }
+    const numbers = [3, 4, 5].map((col) => cellToNumber(row.getCell(col).value))
+    if (numbers.some((n) => n === undefined)) {
+      errors.push({ row: rowNumber, message: '数値として解釈できないセルがあります' })
+      return
+    }
+    const [roomsSold, adr, revenue] = numbers as (number | null)[]
+
+    const parsed = otaChannelRowSchema.safeParse({
+      date,
+      channel: cellToString(row.getCell(2).value) ?? '',
+      roomsSold,
+      adr,
+      revenue,
+      campaignFlag: cellToBoolean(row.getCell(6).value),
+    })
+    if (!parsed.success) {
+      errors.push({ row: rowNumber, message: zodMessages(parsed.error) })
+      return
+    }
+    const key = `${parsed.data.date.toISOString().slice(0, 10)}|${parsed.data.channel}`
+    if (seenKeys.has(key)) {
+      errors.push({ row: rowNumber, message: `日付×チャネル（${key.replace('|', ' / ')}）が重複しています` })
+      return
+    }
+    seenKeys.add(key)
+    rows.push(parsed.data)
+  })
+
+  if (rows.length === 0 && errors.length === 0) {
+    errors.push({ row: 2, message: '取り込める行がありません' })
+  }
+  if (rows.length > MAX_OTA_ROWS) {
+    errors.push({ row: 1, message: `一度に取り込めるのは${MAX_OTA_ROWS}行までです` })
+  }
+  return { rows, errors }
+}
+
 /**
  * Excelファイルを取り込みDBへ反映する。
  * 全行検証 → エラーが1件でもあれば反映せず ImportJob(failed) を記録して返す。
@@ -377,7 +484,11 @@ export async function createImportService(
   if (!sheet) throw new BadRequestError('ワークシートが見つかりません')
 
   const { rows, errors } =
-    input.type === 'price_ranks' ? parsePriceRankSheet(sheet) : parseDailyActualSheet(sheet)
+    input.type === 'price_ranks'
+      ? parsePriceRankSheet(sheet)
+      : input.type === 'ota_channel'
+        ? parseOtaChannelSheet(sheet)
+        : parseDailyActualSheet(sheet)
   const rowCount = rows.length + errors.length
 
   if (errors.length > 0) {
@@ -446,6 +557,34 @@ export async function createImportService(
       },
       { timeout: IMPORT_TX_TIMEOUT_MS }
     )
+  } else if (input.type === 'ota_channel') {
+    await prisma.$transaction(
+      async (tx) => {
+        for (const r of rows as ParsedOtaChannelRow[]) {
+          // ADR・売上は入力値から相互に導出する
+          const adr =
+            r.adr ??
+            (r.revenue != null && r.roomsSold != null && r.roomsSold > 0
+              ? Math.round(r.revenue / r.roomsSold)
+              : null)
+          const revenue = r.revenue ?? (adr != null && r.roomsSold != null ? adr * r.roomsSold : null)
+
+          const data = { roomsSold: r.roomsSold, adr, revenue, campaignFlag: r.campaignFlag }
+          const where = {
+            hotelId_date_channel: { hotelId: hotel.id, date: r.date, channel: r.channel },
+          }
+          const existing = await tx.otaChannelData.findUnique({ where, select: { id: true } })
+          await tx.otaChannelData.upsert({
+            where,
+            update: data,
+            create: { hotelId: hotel.id, tenantId: hotel.tenantId, date: r.date, channel: r.channel, ...data },
+          })
+          if (existing) updatedCount++
+          else createdCount++
+        }
+      },
+      { timeout: IMPORT_TX_TIMEOUT_MS }
+    )
   } else {
     await prisma.$transaction(
       async (tx) => {
@@ -494,14 +633,17 @@ export async function createImportService(
     )
   }
 
-  // 実績・ランク表の反映後にAI予測を再計算し、アップロード内容を推奨価格へ反映する。
+  // 実績・ランク表の反映後にAI予測を再計算し、アップロード内容を推奨価格へ反映する
+  // （OTAチャネル実績は現在の予測入力に含まれないため再計算しない）。
   // 再計算の失敗で取込自体を巻き戻さない（取込は完了済み・予測は次回再計算で追いつく）
   let forecastRecomputed = false
-  try {
-    await recomputeForecastService(hotel.id)
-    forecastRecomputed = true
-  } catch {
-    forecastRecomputed = false
+  if (input.type !== 'ota_channel') {
+    try {
+      await recomputeForecastService(hotel.id)
+      forecastRecomputed = true
+    } catch {
+      forecastRecomputed = false
+    }
   }
 
   const job = await prisma.importJob.create({
