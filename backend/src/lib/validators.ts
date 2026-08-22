@@ -297,6 +297,137 @@ export const updateStrategySchema = z.object({
 // ======================================
 // Type Exports
 // ======================================
+// Connector Validators（コネクタ連携 — docs/コネクタ連携設計.md §5）
+// ======================================
+
+export const syncTargetSchema = z.enum(['LINCOLN', 'NEHOPPS'])
+
+export const syncErrorCodeSchema = z.enum([
+  'NETWORK',
+  'SESSION_EXPIRED',
+  'AUTH_FAILED',
+  'CAPTCHA_BLOCKED',
+  'SELECTOR_MISMATCH',
+  'TARGET_MAINTENANCE',
+  'VERIFY_MISMATCH',
+  'PRECONDITION_CHANGED',
+  'GUARDRAIL_VIOLATION',
+  'UNSUPPORTED',
+  'UNKNOWN',
+])
+
+// 料金ランク1件分（最大40段階 — F-SET-02）
+export const syncPriceRankItemSchema = z.object({
+  rank: z.number().int().min(1).max(40),
+  label: z.string().max(50).optional(),
+  price1P: z.number().int().positive(),
+  price2P: z.number().int().positive(),
+  price3P: z.number().int().positive().nullable().optional(),
+  price4P: z.number().int().positive().nullable().optional(),
+})
+
+export const readJobPayloadSchema = z.object({
+  kind: z.literal('PRICE_RANKS'),
+})
+
+export const writeJobPayloadSchema = z.object({
+  kind: z.literal('PRICE_RANKS'),
+  items: z.array(syncPriceRankItemSchema).min(1).max(40),
+})
+
+export const pairDeviceSchema = z.object({
+  code: z.string().length(32).regex(/^[0-9a-f]+$/, 'ペアリングコードの形式が不正です'),
+  agentVersion: z.string().max(50).optional(),
+})
+
+export const heartbeatSchema = z.object({
+  agentVersion: z.string().max(50).optional(),
+})
+
+export const jobResultSchema = z
+  .object({
+    status: z.enum(['DONE', 'FAILED', 'NEEDS_REVIEW']),
+    errorCode: syncErrorCodeSchema.optional(),
+    errorMessage: z.string().max(2000).optional(),
+    readData: z
+      .object({
+        kind: z.literal('PRICE_RANKS'),
+        capturedAt: z.string().datetime(),
+        items: z.array(syncPriceRankItemSchema).min(1).max(40),
+      })
+      .optional(),
+    writeVerification: z
+      .object({
+        verifiedAt: z.string().datetime(),
+        itemResults: z.array(
+          z.object({
+            rank: z.number().int().min(1).max(40),
+            ok: z.boolean(),
+            message: z.string().max(500).optional(),
+          })
+        ),
+      })
+      .optional(),
+  })
+  .refine((data) => data.status === 'DONE' || data.errorCode !== undefined, {
+    message: '失敗報告には errorCode が必要です',
+    path: ['errorCode'],
+  })
+
+// 証跡は base64 で最大8MB相当（express の body 上限 10mb と整合）。
+// sanitized は literal(true) — 未サニタイズの証跡はスキーマレベルで受理しない（§12）
+export const jobArtifactSchema = z.object({
+  kind: z.enum(['READ_RAW', 'PRE_WRITE', 'POST_WRITE', 'FAILURE_EVIDENCE']),
+  contentType: z.enum(['text/html', 'image/png', 'application/json']),
+  dataBase64: z.string().min(1).max(8_000_000),
+  capturedAt: z.string().datetime(),
+  sanitized: z.literal(true, {
+    errorMap: () => ({ message: 'サニタイズ済み（sanitized: true）の証跡のみ受理します' }),
+  }),
+})
+
+export const definitionsQuerySchema = z.object({
+  target: syncTargetSchema,
+})
+
+export const issuePairingCodeSchema = z.object({
+  deviceName: z.string().min(1, 'デバイス名は必須です').max(100),
+  deviceRole: z.enum(['PRIMARY', 'STANDBY']).optional(),
+})
+
+export const createSyncJobSchema = z
+  .object({
+    target: syncTargetSchema,
+    direction: z.enum(['READ', 'WRITE']),
+    payload: z.union([writeJobPayloadSchema, readJobPayloadSchema]),
+    dryRun: z.boolean().optional(),
+    priority: z.number().int().min(-10).max(10).optional(),
+    expiresAt: z.coerce.date().optional(),
+  })
+  .refine((data) => data.direction === 'READ' || 'items' in data.payload, {
+    message: 'WRITEジョブのpayloadにはitemsが必要です',
+    path: ['payload'],
+  })
+
+export const writeFreezeSchema = z.object({
+  frozen: z.boolean(),
+  reason: z.string().max(200).optional(),
+})
+
+// 定期READスケジューラ設定。間隔は30分〜24時間（鮮度SLO 6時間が既定）
+export const updateSyncConfigSchema = z
+  .object({
+    autoReadEnabled: z.boolean().optional(),
+    readIntervalMinutes: z.number().int().min(30).max(1440).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目がありません' })
+
+export const listSyncJobsQuerySchema = z.object({
+  status: z.enum(['PENDING', 'RUNNING', 'DONE', 'FAILED', 'CANCELLED', 'NEEDS_REVIEW']).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+})
+
+// ======================================
 
 export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
@@ -316,3 +447,9 @@ export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
+export type PairDeviceInput = z.infer<typeof pairDeviceSchema>
+export type JobResultInputSchema = z.infer<typeof jobResultSchema>
+export type JobArtifactInput = z.infer<typeof jobArtifactSchema>
+export type IssuePairingCodeInput = z.infer<typeof issuePairingCodeSchema>
+export type CreateSyncJobSchemaInput = z.infer<typeof createSyncJobSchema>
+export type WriteFreezeInput = z.infer<typeof writeFreezeSchema>

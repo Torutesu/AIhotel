@@ -401,3 +401,6 @@ export interface MonthlyForecast {
   access: number
   label: string
 }
+
+// コネクタ連携（サイトコントローラー/PMS）の共有型
+export * from './connector'

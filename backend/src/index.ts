@@ -17,6 +17,10 @@ import { analysisRouter } from './routes/analysis.js'
 import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
 import { reportsRouter } from './routes/reports.js'
+import { connectorDeviceRouter, connectorAdminRouter } from './routes/connector.js'
+
+// コネクタスイープ（デッドマン方式の停止検知 — docs/コネクタ連携設計.md §14.1）
+import { startSweepScheduler, stopSweepScheduler } from './services/syncSweepService.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -119,6 +123,8 @@ app.use('/api/v1/analysis', analysisRouter)
 app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/reports', reportsRouter)
+app.use('/api/v1/connector', connectorAdminRouter)
+app.use('/api/v1/connector', connectorDeviceRouter)
 
 // ======================================
 // Error Handling
@@ -142,10 +148,14 @@ const server = app.listen(PORT, () => {
   }, `🚀 Backend server running on http://localhost:${PORT}`)
 })
 
+// デッドマン方式スイープ（CONNECTOR_SWEEP_ENABLED=true のときのみ動作）
+startSweepScheduler()
+
 // Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
   logger.info(`${signal} received. Starting graceful shutdown...`)
-  
+
+  stopSweepScheduler()
   server.close(() => {
     logger.info('HTTP server closed')
     process.exit(0)

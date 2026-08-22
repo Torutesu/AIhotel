@@ -1,0 +1,22 @@
+{
+  "name": "@hotel-revenue-system/connector-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "クライアントPC常駐コネクタエージェント（ジョブポーリング・Playwright実行器・調査ツール）",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "recon:lincoln": "tsx src/recon/lincoln-recon.ts",
+    "type-check": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@hotel-revenue-system/shared": "workspace:*",
+    "playwright": "^1.49.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5"
+  }
+}
