@@ -353,7 +353,7 @@ export const outOfOrderRoomsQuerySchema = z.object({
 // Excel Import Validators（手動アップロードによるデータ取込）
 // ======================================
 
-export const IMPORT_TYPES = ['price_ranks', 'daily_actual'] as const
+export const IMPORT_TYPES = ['price_ranks', 'daily_actual', 'ota_channel'] as const
 
 // Excel本体はbase64で受け取る（express.json の10MB上限内に収まるよう約6MBまで）
 export const createImportSchema = z.object({
@@ -375,6 +375,27 @@ export const importTemplateQuerySchema = z.object({
 export const importJobsQuerySchema = z.object({
   hotelId: entityIdSchema,
   limit: z.coerce.number().int().min(1).max(50).default(10),
+})
+
+// ======================================
+// Review Score Validators（レピュテーション管理 — F-ANA-04）
+// ======================================
+
+export const createReviewScoreSchema = z.object({
+  hotelId: entityIdSchema,
+  source: z.string().min(1, '取得元は必須です').max(50),
+  score: z.number().min(0).max(5, '評価点は0〜5で入力してください'),
+  reviewCount: z.number().int().min(0).optional(),
+  capturedAt: z.coerce.date().optional(),
+})
+
+// ======================================
+// Long Range Outlook Validators（1年先の推奨価格 — 330日先を見る運用）
+// ======================================
+
+export const longRangeQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  days: z.coerce.number().int().min(30).max(400).default(365),
 })
 
 // ======================================
@@ -404,3 +425,4 @@ export type CreateOutOfOrderRoomInput = z.infer<typeof createOutOfOrderRoomSchem
 export type UpdateOutOfOrderRoomInput = z.infer<typeof updateOutOfOrderRoomSchema>
 export type CreateImportInput = z.infer<typeof createImportSchema>
 export type ImportType = (typeof IMPORT_TYPES)[number]
+export type CreateReviewScoreInput = z.infer<typeof createReviewScoreSchema>
