@@ -19,6 +19,7 @@ import { api, ApiClientError, type ImportJob, type ImportResult, type ImportType
 const IMPORT_TYPE_LABELS: Record<ImportType, string> = {
   price_ranks: "料金ランク表",
   daily_actual: "日次実績",
+  ota_channel: "OTAチャネル実績",
 }
 
 /** File を base64 文字列へ変換する（スタック溢れを避けるためチャンク処理） */
@@ -142,6 +143,7 @@ export function ExcelImportCard({ hotelId, canManage }: { hotelId: string | null
               <SelectContent>
                 <SelectItem value="daily_actual">日次実績（稼働・ADR・売上）</SelectItem>
                 <SelectItem value="price_ranks">料金ランク表（最大40段階）</SelectItem>
+                <SelectItem value="ota_channel">OTAチャネル実績（チャネル別販売・キャンペーン）</SelectItem>
               </SelectContent>
             </Select>
           </div>
