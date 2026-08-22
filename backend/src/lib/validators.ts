@@ -38,13 +38,16 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'パスワードは必須です'),
 })
 
+// 登録・プロビジョニング時に強制するパスワード強度
+export const strongPasswordSchema = z.string()
+  .min(8, 'パスワードは8文字以上である必要があります')
+  .regex(/[A-Z]/, '大文字を含める必要があります')
+  .regex(/[a-z]/, '小文字を含める必要があります')
+  .regex(/[0-9]/, '数字を含める必要があります')
+
 export const registerSchema = z.object({
   email: z.string().email('有効なメールアドレスを入力してください'),
-  password: z.string()
-    .min(8, 'パスワードは8文字以上である必要があります')
-    .regex(/[A-Z]/, '大文字を含める必要があります')
-    .regex(/[a-z]/, '小文字を含める必要があります')
-    .regex(/[0-9]/, '数字を含める必要があります'),
+  password: strongPasswordSchema,
   name: z.string().min(1, '名前は必須です').max(100),
   role: z.enum(['ADMIN', 'MANAGER', 'OPERATOR']).optional(),
   hotelId: entityIdSchema.optional(),
@@ -100,6 +103,82 @@ export const createPriceRankSchema = z.object({
 })
 
 export const updatePriceRankSchema = createPriceRankSchema.omit({ hotelId: true, rank: true }).partial()
+
+// 料金ランク自動生成（SAAS_ONBOARDING.md Step 2）:
+// 1名利用の下限・上限価格から線形補間で最大40段階を機械生成する
+const priceRankGenerationBaseSchema = z.object({
+  count: z.number().int().min(1).max(40, '料金ランクは最大40段階です').default(40),
+  minPrice1P: z.number().int().min(0),
+  maxPrice1P: z.number().int().min(0),
+  multiplier2P: z.number().min(1).max(10).default(1.4),
+  multiplier3P: z.number().min(1).max(10).default(1.8),
+  multiplier4P: z.number().min(1).max(10).optional(),
+  // 生成価格の丸め単位（円）。100 なら 100円単位
+  roundTo: z.number().int().min(1).max(1000).default(100),
+})
+
+const priceRankRangeRefinement = {
+  check: (data: { minPrice1P: number; maxPrice1P: number }) => data.minPrice1P <= data.maxPrice1P,
+  message: '下限価格は上限価格以下である必要があります',
+}
+
+export const priceRankGenerationParamsSchema = priceRankGenerationBaseSchema.refine(
+  priceRankRangeRefinement.check,
+  { message: priceRankRangeRefinement.message }
+)
+
+export const generatePriceRanksSchema = priceRankGenerationBaseSchema.extend({
+  hotelId: entityIdSchema,
+  // 既存ランクがある場合に置き換えるか。false のまま既存があればエラー（誤爆防止）
+  replaceExisting: z.boolean().default(false),
+}).refine(priceRankRangeRefinement.check, { message: priceRankRangeRefinement.message })
+
+// ======================================
+// CSV Import Validators（SAAS_ONBOARDING.md Step 3）
+// ======================================
+
+// 行の中身の検証は importService 側の行スキーマで実施する
+export const csvImportSchema = z.object({
+  hotelId: entityIdSchema,
+  csv: z.string().min(1, 'CSVは必須です').max(1_000_000, 'CSVは1MB以内にしてください'),
+})
+
+// ======================================
+// Tenant Provisioning Validators（SAAS_ONBOARDING.md Step 1）
+// ======================================
+
+// 顧客側の初期ユーザー。ADMIN はシステム提供側専用のためここでは作成させない
+const provisionUserSchema = z.object({
+  email: z.string().email('有効なメールアドレスを入力してください'),
+  password: strongPasswordSchema,
+  name: z.string().min(1, '名前は必須です').max(100),
+  role: z.enum(['MANAGER', 'OPERATOR']),
+})
+
+export const provisionTenantSchema = z.object({
+  tenant: z.object({
+    name: z.string().min(1, 'テナント名は必須です').max(200),
+    code: z.string().min(2).max(50).regex(
+      /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/,
+      'テナントコードは英小文字・数字・ハイフンのみ（先頭末尾は英数字）です'
+    ),
+  }),
+  hotel: z.object({
+    name: z.string().min(1, 'ホテル名は必須です').max(200),
+    address: z.string().max(500).optional(),
+    phone: z.string().max(20).optional(),
+    email: z.string().email().optional(),
+    totalRooms: z.number().int().min(1, '部屋数は1以上である必要があります'),
+    // 省略時はDBデフォルトの金・土 [5, 6]
+    weekendDays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  }),
+  users: z.array(provisionUserSchema).min(1, '初期ユーザーは1名以上必要です').max(20),
+  // 指定時は料金ランク40段階も同時生成する（Step 2 と同じパラメータ）
+  priceRanks: priceRankGenerationParamsSchema.optional(),
+}).refine(
+  (data) => new Set(data.users.map((u) => u.email)).size === data.users.length,
+  { message: '初期ユーザーのメールアドレスが重複しています' }
+)
 
 // ======================================
 // Daily Data Validators
@@ -312,6 +391,10 @@ export type UpdateCampaignInput = z.infer<typeof updateCampaignSchema>
 export type CreateEventInput = z.infer<typeof createEventSchema>
 export type UpdateEventInput = z.infer<typeof updateEventSchema>
 export type UpdateHotelSettingsInput = z.infer<typeof updateHotelSettingsSchema>
+export type PriceRankGenerationParams = z.infer<typeof priceRankGenerationParamsSchema>
+export type GeneratePriceRanksInput = z.infer<typeof generatePriceRanksSchema>
+export type ProvisionTenantInput = z.infer<typeof provisionTenantSchema>
+export type CsvImportInput = z.infer<typeof csvImportSchema>
 export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
