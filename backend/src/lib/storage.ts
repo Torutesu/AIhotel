@@ -13,6 +13,8 @@ export interface StorageAdapter {
   put(key: string, data: Buffer, contentType: string): Promise<void>
   get(key: string): Promise<Buffer>
   exists(key: string): Promise<boolean>
+  /** 保持期限切れスナップショットの削除用（存在しないキーはエラーにしない） */
+  delete(key: string): Promise<void>
 }
 
 /**
@@ -48,6 +50,15 @@ class LocalDiskStorage implements StorageAdapter {
       return true
     } catch {
       return false
+    }
+  }
+
+  async delete(key: string): Promise<void> {
+    try {
+      await fs.unlink(this.resolveKeyPath(key))
+    } catch (error) {
+      // 存在しないキーの削除は冪等に成功扱いとする
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
   }
 }

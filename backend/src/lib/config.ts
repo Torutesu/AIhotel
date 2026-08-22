@@ -40,6 +40,13 @@ const envSchema = z.object({
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
   STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
+
+  // コネクタ連携（docs/コネクタ連携設計.md）
+  // デッドマン方式スイープ（§14.1）。無効化はローカル開発・テスト用
+  CONNECTOR_SWEEP_ENABLED: z.enum(['true', 'false']).default('false'),
+  CONNECTOR_SWEEP_INTERVAL_MS: z.coerce.number().int().min(60_000).default(300_000),
+  // 開発側通知（Ops Alerting §14.2）。未設定時は構造化ログのみに出力される
+  OPS_SLACK_WEBHOOK_URL: z.string().url().optional(),
 })
 
 function loadConfig() {
@@ -57,6 +64,7 @@ function loadConfig() {
     isDevelopment: env.NODE_ENV === 'development',
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
+    connectorSweepEnabled: env.CONNECTOR_SWEEP_ENABLED === 'true',
     // package.json 経由でのみ設定される値（検証対象外）
     appVersion: process.env.npm_package_version || '1.0.0',
   }
