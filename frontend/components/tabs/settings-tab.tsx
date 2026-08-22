@@ -23,6 +23,9 @@ import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
 import type { Hotel } from "@shared/types"
+import { ExcelImportCard } from "@/components/settings/excel-import-card"
+import { OutOfOrderCard } from "@/components/settings/out-of-order-card"
+import { ForecastModelCard } from "@/components/settings/forecast-model-card"
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
 const DEFAULT_WEEKEND_DAYS = [5, 6] // 金・土（要件定義書 §4）
@@ -508,6 +511,15 @@ export function SettingsTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* Excelデータ取込（ランク表・日次実績の手動アップロード） */}
+      <ExcelImportCard hotelId={hotelId} canManage={canManageHotel} />
+
+      {/* 故障部屋設定（販売可能室数の調整） */}
+      <OutOfOrderCard hotelId={hotelId} canManage={canManageHotel} />
+
+      {/* 予測モデル設定（ホテル×年でパラメータ調整） */}
+      <ForecastModelCard hotelId={hotelId} canManage={canManageHotel} />
 
       {/* 料金ランク編集ダイアログ */}
       <Dialog open={editingRank !== null} onOpenChange={(open) => !open && setEditingRank(null)}>

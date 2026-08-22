@@ -25,6 +25,7 @@ import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger }
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
+import { LongRangeOutlookSection } from "@/components/pricing/long-range-outlook"
 
 const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "concert", label: "コンサート" },
@@ -507,6 +508,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
           </div>
         </CardContent>
       </Card>
+
+      {/* 1年先アウトルック（330日先を見る運用向けの月別集計 — 実データ: AiPriceRecommendation） */}
+      <LongRangeOutlookSection />
 
       {/* 価格設定パラメータとサマリーを1つのCardに統合 */}
       <Card>

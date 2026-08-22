@@ -6,6 +6,7 @@ import {
   hotelIdQuerySchema,
   updateStrategySchema,
   recomputeForecastSchema,
+  longRangeQuerySchema,
 } from '../lib/validators.js'
 import {
   getCalendar,
@@ -13,6 +14,7 @@ import {
   updateStrategy,
   getSimulation,
   recomputeForecast,
+  getLongRangeOutlook,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -51,6 +53,14 @@ pricingRouter.get(
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(monthQuerySchema, 'query'),
   getSimulation
+)
+
+// GET /api/v1/pricing/long-range?hotelId=&days= — 1年先アウトルック（月別集計）
+pricingRouter.get(
+  '/long-range',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(longRangeQuerySchema, 'query'),
+  getLongRangeOutlook
 )
 
 // POST /api/v1/pricing/recompute — 需要予測の再計算は MANAGER 以上（F-DP-05, F-DP-03）

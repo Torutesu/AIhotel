@@ -623,7 +623,8 @@ export function BookingCurveSection({
 
   // X軸: daysBefore を右肩上がり（宿泊日に近づくほど右）に表示するため降順のまま reversed 指定。
   // 現在ADR・現在稼働率とそれぞれのAI予測（当日以降は破線）、前年実績・予算を表示する。
-  // ADR・前年・予算は対応APIが未整備のため実測カーブから決定的に導出したモック値
+  // ADRは booking-curve API の実データ（日の経過に対するADR遷移）を優先し、
+  // データがない時点のみ実測カーブから決定的に導出した参考値。前年・予算は対応API未整備のためモック値
   const bookingCurveData = useMemo(() => {
     if (!bookingCurve) return []
     const sorted = [...bookingCurve.points].sort((a, b) => b.daysBefore - a.daysBefore)
@@ -633,7 +634,8 @@ export function BookingCurveSection({
       const next = sorted[idx + 1]
       const isBoundary = observed && !!next && next.daysBefore < daysUntilStay
       const occ = Math.round(p.occupancy * curveSegment.occFactor * 1000) / 10
-      const adr = Math.round(((14000 + p.occupancy * 5500) * curveSegment.adrFactor) / 10) * 10
+      const adrBase = p.adr ?? 14000 + p.occupancy * 5500
+      const adr = Math.round((adrBase * curveSegment.adrFactor) / 10) * 10
       const progress = maxDays > 0 ? (maxDays - p.daysBefore) / maxDays : 1
       const lastYearOcc = Math.round(occ * 0.92 * 10) / 10
       const budgetOcc = Math.round(85 * curveSegment.occFactor * Math.pow(progress, 0.7) * 10) / 10

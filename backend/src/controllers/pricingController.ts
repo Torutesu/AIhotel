@@ -7,6 +7,7 @@ import {
   getStrategyService,
   updateStrategyService,
   getSimulationService,
+  getLongRangeOutlookService,
 } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
 
@@ -97,4 +98,14 @@ export const recomputeForecast = asyncHandler(async (req: Request, res: Response
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, result, 200, `需要予測を再計算しました（${result.count}件）`)
+})
+
+/**
+ * 1年先アウトルック（今後 days 日分のAI推奨を月別に集計 — 330日先を見る運用向け）
+ * GET /api/v1/pricing/long-range?hotelId=&days=
+ */
+export const getLongRangeOutlook = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, days } = req.query as unknown as { hotelId: string; days: number }
+  const result = await getLongRangeOutlookService(hotelId, days)
+  sendSuccess(res, result)
 })

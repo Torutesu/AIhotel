@@ -9,7 +9,9 @@ import { ruleBasedForecaster } from './ruleBasedForecaster.js'
 // 手動で価格ランクを編集した後でも、このサービスを呼べば AiPriceRecommendation が
 // 最新のルールベース予測で上書きされ、AI推奨値に戻せる。
 
-const DEFAULT_FORECAST_DAYS = 90
+// レベニュー担当者は約330日先を見る運用のため、1年先まで既定で予測する
+// （F-DP-05。Excel取込後の自動再計算も同じ期間で行われる）
+const DEFAULT_FORECAST_DAYS = 365
 
 function addUtcDays(date: Date, days: number): Date {
   const d = new Date(date)

@@ -20,6 +20,9 @@ import {
   WeekdayPerformanceSection,
   DailyCompetitorSection,
 } from "@/components/tabs/daily-analysis-tab"
+import { OtaChannelSection } from "@/components/analysis/ota-channel-section"
+import { ReputationSection } from "@/components/analysis/reputation-section"
+import { LandingForecastSection } from "@/components/analysis/landing-forecast-section"
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type MonthlyTrend, type CompetitorAnalysis } from "@/lib/api"
@@ -1804,6 +1807,7 @@ const ANALYSIS_VIEWS = [
   { value: "composition", label: "需要構成", description: "チャネル・部屋タイプ・顧客セグメント別に需要の内訳を見る" },
   { value: "booking", label: "予約動向", description: "宿泊日までのリードタイムで予約の入り方を見る" },
   { value: "competitor", label: "競合比較", description: "競合ホテルとの価格を日別・期間集計で比較する" },
+  { value: "reputation", label: "レピュテーション", description: "口コミ評価点をサイト別に記録し推移を見る（価格算定には使用しない参考指標）" },
   { value: "free", label: "フリー分析", description: "任意の軸を組み合わせて分析し、販促参画データを管理する" },
 ]
 
@@ -1912,11 +1916,15 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
             }}
           />
           <WeekdayPerformanceSection />
+          {/* 当月着地予測（実績＋AI予測による着地遷移 — F-DP-04） */}
+          <LandingForecastSection />
           <YearlyTrendSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
         </TabsContent>
 
         {/* 需要構成: どこから・何を・誰が */}
         <TabsContent value="composition" className="space-y-4">
+          {/* OTAチャネル別実績（実データ: OtaChannelData） */}
+          <OtaChannelSection />
           <ChannelAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
           <RoomTypeAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
           <SegmentAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
@@ -1932,6 +1940,11 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
         <TabsContent value="competitor" className="space-y-4">
           <DailyCompetitorSection />
           <CompetitorAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+        </TabsContent>
+
+        {/* レピュテーション管理（価格には関係しない参考指標） */}
+        <TabsContent value="reputation" className="space-y-4">
+          <ReputationSection />
         </TabsContent>
 
         {/* フリー分析と販促データ管理 */}
