@@ -940,6 +940,92 @@ function getMockEvents(hotelId: string): HotelEvent[] {
 
 // ---- API surface ----
 
+// ---- コネクタ連携（サイトコントローラー/PMS — docs/コネクタ連携設計.md） ----
+
+export interface ConnectorDevice {
+  id: string
+  name: string
+  role: "PRIMARY" | "STANDBY"
+  agentVersion: string | null
+  lastSeenAt: string | null
+  isActive: boolean
+}
+
+export interface ConnectorSyncState {
+  lastSuccessfulReadAt: string | null
+  lastSuccessfulWriteAt: string | null
+  consecutiveReadFails: number
+  writeFrozen: boolean
+  writeFrozenReason: string | null
+  manualModeActive: boolean
+  autoReadEnabled: boolean
+  readIntervalMinutes: number
+}
+
+export interface ConnectorJobSummary {
+  id: string
+  target: "LINCOLN" | "NEHOPPS"
+  direction: "READ" | "WRITE"
+  status: "PENDING" | "RUNNING" | "DONE" | "FAILED" | "CANCELLED" | "NEEDS_REVIEW"
+  errorCode: string | null
+  attemptCount: number
+  dryRun: boolean
+  createdAt: string
+  finishedAt: string | null
+}
+
+export interface ConnectorOpenAlert {
+  eventKey: string
+  severity: "SEV1" | "SEV2" | "SEV3"
+  firstFiredAt: string
+  fireCount: number
+}
+
+export interface ConnectorStatus {
+  state: ConnectorSyncState | null
+  devices: ConnectorDevice[]
+  recentJobs: ConnectorJobSummary[]
+  openAlerts: ConnectorOpenAlert[]
+}
+
+// デモモード用のコネクタ状態（バナー表示付きフォールバック。実APIが応答すれば常にそちらを使う）
+const mockConnectorStatus: ConnectorStatus = {
+  state: {
+    lastSuccessfulReadAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    lastSuccessfulWriteAt: null,
+    consecutiveReadFails: 0,
+    writeFrozen: false,
+    writeFrozenReason: null,
+    manualModeActive: false,
+    autoReadEnabled: true,
+    readIntervalMinutes: 360,
+  },
+  devices: [
+    {
+      id: "mock-device-1",
+      name: "フロントPC1",
+      role: "PRIMARY",
+      agentVersion: "0.1.0",
+      lastSeenAt: new Date(Date.now() - 30 * 1000).toISOString(),
+      isActive: true,
+    },
+  ],
+  recentJobs: [
+    {
+      id: "mock-job-1",
+      target: "LINCOLN",
+      direction: "READ",
+      status: "DONE",
+      errorCode: null,
+      attemptCount: 1,
+      dryRun: false,
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      finishedAt: new Date(Date.now() - 2 * 60 * 60 * 1000 + 90 * 1000).toISOString(),
+    },
+  ],
+  openAlerts: [],
+}
+
 export const api = {
   async login(email: string, password: string): Promise<LoginResult> {
     try {
@@ -1174,6 +1260,111 @@ export const api = {
         }),
       () => {
         mockEvents = getMockEvents(hotelId).filter((e) => e.id !== id)
+      }
+    )
+  },
+
+  // ---- コネクタ連携 ----
+
+  connectorStatus(hotelId: string): Promise<ConnectorStatus> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/connector/hotels/${hotelId}/status`),
+      () => mockConnectorStatus
+    )
+  },
+
+  connectorCreatePairingCode(
+    hotelId: string,
+    deviceName: string,
+    deviceRole?: "PRIMARY" | "STANDBY"
+  ): Promise<{ code: string; expiresAt: string }> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/connector/hotels/${hotelId}/pairing-codes`, {
+          method: "POST",
+          body: JSON.stringify({ deviceName, ...(deviceRole ? { deviceRole } : {}) }),
+        }),
+      () => ({
+        code: "demo0000demo0000demo0000demo0000",
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      })
+    )
+  },
+
+  connectorSetFreeze(hotelId: string, frozen: boolean, reason?: string): Promise<{ writeFrozen: boolean }> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/connector/hotels/${hotelId}/freeze`, {
+          method: "POST",
+          body: JSON.stringify({ frozen, ...(reason ? { reason } : {}) }),
+        }),
+      () => {
+        if (mockConnectorStatus.state) mockConnectorStatus.state.writeFrozen = frozen
+        return { writeFrozen: frozen }
+      }
+    )
+  },
+
+  connectorUpdateSyncConfig(
+    hotelId: string,
+    config: { autoReadEnabled?: boolean; readIntervalMinutes?: number }
+  ): Promise<{ autoReadEnabled: boolean; readIntervalMinutes: number }> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/connector/hotels/${hotelId}/sync-config`, {
+          method: "PUT",
+          body: JSON.stringify(config),
+        }),
+      () => {
+        if (mockConnectorStatus.state) Object.assign(mockConnectorStatus.state, config)
+        return {
+          autoReadEnabled: mockConnectorStatus.state?.autoReadEnabled ?? true,
+          readIntervalMinutes: mockConnectorStatus.state?.readIntervalMinutes ?? 360,
+        }
+      }
+    )
+  },
+
+  /** 臨時のREADジョブを即時投入する（定常は自動スケジュール） */
+  connectorRunReadNow(hotelId: string): Promise<ConnectorJobSummary> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/connector/hotels/${hotelId}/jobs`, {
+          method: "POST",
+          body: JSON.stringify({
+            target: "LINCOLN",
+            direction: "READ",
+            payload: { kind: "PRICE_RANKS" },
+            priority: 5,
+          }),
+        }),
+      () => {
+        const job: ConnectorJobSummary = {
+          id: `mock-job-${Date.now()}`,
+          target: "LINCOLN",
+          direction: "READ",
+          status: "PENDING",
+          errorCode: null,
+          attemptCount: 0,
+          dryRun: false,
+          createdAt: new Date().toISOString(),
+          finishedAt: null,
+        }
+        mockConnectorStatus.recentJobs = [job, ...mockConnectorStatus.recentJobs].slice(0, 20)
+        return job
+      }
+    )
+  },
+
+  connectorRevokeDevice(hotelId: string, deviceId: string): Promise<void> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/connector/hotels/${hotelId}/devices/${deviceId}/revoke`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        }),
+      () => {
+        mockConnectorStatus.devices = mockConnectorStatus.devices.filter((d) => d.id !== deviceId)
       }
     )
   },

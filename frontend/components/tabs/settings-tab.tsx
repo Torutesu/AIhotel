@@ -22,6 +22,7 @@ import { useToast } from "@/hooks/use-toast"
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
+import { ConnectorStatusCard } from "@/components/connector-status-card"
 import type { Hotel } from "@shared/types"
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
@@ -508,6 +509,9 @@ export function SettingsTab() {
           )}
         </CardContent>
       </Card>
+
+      {/* サイトコントローラー連携ステータス（docs/コネクタ連携設計.md §14） */}
+      <ConnectorStatusCard />
 
       {/* 料金ランク編集ダイアログ */}
       <Dialog open={editingRank !== null} onOpenChange={(open) => !open && setEditingRank(null)}>
