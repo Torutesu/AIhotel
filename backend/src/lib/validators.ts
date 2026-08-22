@@ -134,6 +134,16 @@ export const generatePriceRanksSchema = priceRankGenerationBaseSchema.extend({
 }).refine(priceRankRangeRefinement.check, { message: priceRankRangeRefinement.message })
 
 // ======================================
+// CSV Import Validators（SAAS_ONBOARDING.md Step 3）
+// ======================================
+
+// 行の中身の検証は importService 側の行スキーマで実施する
+export const csvImportSchema = z.object({
+  hotelId: entityIdSchema,
+  csv: z.string().min(1, 'CSVは必須です').max(1_000_000, 'CSVは1MB以内にしてください'),
+})
+
+// ======================================
 // Tenant Provisioning Validators（SAAS_ONBOARDING.md Step 1）
 // ======================================
 
@@ -384,6 +394,7 @@ export type UpdateHotelSettingsInput = z.infer<typeof updateHotelSettingsSchema>
 export type PriceRankGenerationParams = z.infer<typeof priceRankGenerationParamsSchema>
 export type GeneratePriceRanksInput = z.infer<typeof generatePriceRanksSchema>
 export type ProvisionTenantInput = z.infer<typeof provisionTenantSchema>
+export type CsvImportInput = z.infer<typeof csvImportSchema>
 export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>

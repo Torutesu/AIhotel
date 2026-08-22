@@ -7,6 +7,7 @@ import {
   updatePriceRankSchema,
   generatePriceRanksSchema,
   updateHotelSettingsSchema,
+  csvImportSchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
@@ -15,6 +16,10 @@ import {
   deletePriceRank,
   generatePriceRanks,
   updateHotelSettings,
+  importRoomTypes,
+  importMonthlyBudgets,
+  importDailyData,
+  getOnboardingStatus,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -61,6 +66,37 @@ settingsRouter.delete(
   requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   deletePriceRank
+)
+
+// GET /api/v1/settings/onboarding-status?hotelId= — 初期設定の完了状況（Step 5）
+settingsRouter.get(
+  '/onboarding-status',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getOnboardingStatus
+)
+
+// CSVインポート3種（Step 3）。変更系のため MANAGER 以上
+settingsRouter.post(
+  '/import/room-types',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(csvImportSchema),
+  importRoomTypes
+)
+settingsRouter.post(
+  '/import/budgets',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(csvImportSchema),
+  importMonthlyBudgets
+)
+settingsRouter.post(
+  '/import/daily-data',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(csvImportSchema),
+  importDailyData
 )
 
 // PUT /api/v1/settings/hotel/:id — ホテル設定（名称・週末定義等）変更は MANAGER 以上（F-SET-01）
