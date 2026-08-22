@@ -1,6 +1,11 @@
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
 import { getConsecutiveHolidayBlock, isJpHoliday } from '../../lib/jpHolidays.js'
+import {
+  DEFAULT_STRATEGY_WEIGHTS,
+  selectRecommendedRank,
+  type StrategyWeights,
+} from './rankOptimizer.js'
 import type { DailyForecast, DemandForecaster, ForecastDemandLevel, ForecastInput } from './types.js'
 
 // ルールベース需要予測（F-DP-05 の前段。将来 ML モデルに差し替え予定）。
@@ -319,7 +324,7 @@ export const ruleBasedForecaster: DemandForecaster = {
     // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得
     const historyWindowStart = addUtcDays(startDate, -400)
 
-    const [dailyData, events, priceRanks] = await Promise.all([
+    const [dailyData, events, priceRanks, strategyConfig, competitorPrices] = await Promise.all([
       prisma.dailyData.findMany({
         where: {
           hotelId,
@@ -337,6 +342,13 @@ export const ruleBasedForecaster: DemandForecaster = {
         where: { hotelId, isActive: true },
         orderBy: { rank: 'asc' },
       }),
+      // 価格戦略の重み（F-DP-02）。未設定ならスキーマ既定値と同じ 40/40/20
+      prisma.pricingStrategyConfig.findUnique({ where: { hotelId } }),
+      // 競合平均価格（競合追従スコア用）。対象期間分のみ
+      prisma.competitorPriceData.findMany({
+        where: { date: { gte: startDate, lte: endDate }, competitor: { hotelId, isActive: true } },
+        select: { date: true, price1P: true },
+      }),
     ])
 
     const history: OccupancyRecord[] = dailyData
@@ -346,14 +358,53 @@ export const ruleBasedForecaster: DemandForecaster = {
     const maxRank = priceRanks.length > 0 ? Math.max(...priceRanks.map((r) => r.rank)) : DEFAULT_MAX_RANK
     const priceByRank = new Map(priceRanks.map((r) => [r.rank, r.price1P]))
 
+    const weights: StrategyWeights = strategyConfig
+      ? {
+          weightOccupancy: strategyConfig.weightOccupancy,
+          weightAdr: strategyConfig.weightAdr,
+          weightCompetitor: strategyConfig.weightCompetitor,
+        }
+      : DEFAULT_STRATEGY_WEIGHTS
+
+    // 競合平均価格（日別）
+    const competitorPricesByDate = new Map<string, number[]>()
+    for (const cp of competitorPrices) {
+      if (cp.price1P == null) continue
+      const key = cp.date.toISOString().slice(0, 10)
+      const list = competitorPricesByDate.get(key) ?? []
+      list.push(cp.price1P)
+      competitorPricesByDate.set(key, list)
+    }
+
     const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
     const results: DailyForecast[] = []
     for (let i = 0; i < totalDays; i++) {
       const date = addUtcDays(startDate, i)
       const core = computeDailyForecastCore(date, history, events, weekendDays, maxRank)
+
+      // 価格戦略の重みでベースライン近傍を再スコアリング（P-2 / F-DP-02）
+      const dateKey = date.toISOString().slice(0, 10)
+      const dayCompetitorPrices = competitorPricesByDate.get(dateKey)
+      const competitorAvgPrice =
+        dayCompetitorPrices && dayCompetitorPrices.length > 0
+          ? dayCompetitorPrices.reduce((a, b) => a + b, 0) / dayCompetitorPrices.length
+          : null
+      const selected =
+        core.recommendedRank != null
+          ? selectRecommendedRank({
+              baselineRank: core.recommendedRank,
+              predictedOccupancy: core.predictedOccupancy,
+              priceByRank,
+              weights,
+              competitorAvgPrice,
+              maxRank,
+            })
+          : null
+
       results.push({
         ...core,
-        recommendedPrice: core.recommendedRank != null ? priceByRank.get(core.recommendedRank) ?? null : null,
+        recommendedRank: selected?.rank ?? core.recommendedRank,
+        recommendedPrice: selected?.price ?? null,
         modelVersion: MODEL_VERSION,
       })
     }
