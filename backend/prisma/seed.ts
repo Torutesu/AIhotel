@@ -228,6 +228,7 @@ async function main() {
     const dow = stayDate.getUTCDay()
     const isWeekend = dow === 5 || dow === 6
     const finalRooms = Math.round(totalRooms * (isWeekend ? 0.93 : 0.75))
+    const finalAdr = Math.round((isWeekend ? 23000 : 16500) * (0.97 + rng() * 0.06))
     for (const daysBefore of [90, 60, 45, 30, 21, 14, 7, 3, 1, 0]) {
       if (daysBefore < offset) continue // まだ到来していない時点は積上げ済みのみ
       const progress = Math.pow(1 - daysBefore / 90, 1.6)
@@ -237,6 +238,8 @@ async function main() {
         stayDate,
         daysBefore,
         roomsBooked: Math.round(finalRooms * Math.min(1, progress + rng() * 0.05)),
+        // 日の経過に対するADR遷移: 早期予約は安く、直前に向けて上がっていく
+        adr: Math.round(finalAdr * (0.82 + 0.18 * progress) + (rng() - 0.5) * 500),
       })
     }
   }
@@ -424,6 +427,69 @@ async function main() {
     },
   })
   console.log('✅ Out of order rooms')
+
+  // 16. OTAチャネル別実績（過去90日。冪等にするため削除して再作成）
+  await prisma.otaChannelData.deleteMany({ where: { hotelId: hotel.id } })
+  const OTA_CHANNELS = [
+    { channel: '楽天トラベル', share: 0.28, adrFactor: 0.97 },
+    { channel: 'じゃらん', share: 0.22, adrFactor: 0.96 },
+    { channel: '一休', share: 0.08, adrFactor: 1.12 },
+    { channel: 'Expedia', share: 0.12, adrFactor: 1.02 },
+    { channel: 'Agoda', share: 0.1, adrFactor: 0.99 },
+    { channel: '公式サイト', share: 0.2, adrFactor: 1.05 },
+  ]
+  const otaRows = []
+  for (let offset = -90; offset <= 0; offset++) {
+    const date = addDays(today, offset)
+    const dow = date.getUTCDay()
+    const isWeekend = dow === 5 || dow === 6
+    const dayRooms = Math.round(totalRooms * (isWeekend ? 0.9 : 0.72))
+    const dayAdr = isWeekend ? 23000 : 16500
+    // 月初〜10日は楽天スーパーセール想定のキャンペーン期間とする
+    const isCampaign = date.getUTCDate() <= 10
+    for (const ota of OTA_CHANNELS) {
+      const campaignBoost = isCampaign && ota.channel === '楽天トラベル' ? 1.35 : 1
+      const roomsSold = Math.max(0, Math.round(dayRooms * ota.share * campaignBoost + (rng() - 0.5) * 4))
+      const adr = Math.round(dayAdr * ota.adrFactor * (isCampaign && campaignBoost > 1 ? 0.93 : 1))
+      otaRows.push({
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        date,
+        channel: ota.channel,
+        roomsSold,
+        adr,
+        revenue: roomsSold * adr,
+        campaignFlag: isCampaign && ota.channel === '楽天トラベル',
+      })
+    }
+  }
+  await prisma.otaChannelData.createMany({ data: otaRows })
+  console.log(`✅ OTA channel data: ${otaRows.length}`)
+
+  // 17. 口コミ評価点（過去6ヶ月の月次スナップショット。冪等にするため削除して再作成）
+  await prisma.reviewScore.deleteMany({ where: { hotelId: hotel.id } })
+  const REVIEW_SOURCES = [
+    { source: 'google', base: 4.1, max: 5, reviews: 1250 },
+    { source: 'tripadvisor', base: 4.0, max: 5, reviews: 480 },
+    { source: 'rakuten', base: 4.2, max: 5, reviews: 900 },
+    { source: 'jalan', base: 4.3, max: 5, reviews: 760 },
+  ]
+  const reviewRows = []
+  for (let m = 5; m >= 0; m--) {
+    const capturedAt = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - m, 1))
+    for (const src of REVIEW_SOURCES) {
+      reviewRows.push({
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        source: src.source,
+        score: Math.round((src.base + (5 - m) * 0.02 + (rng() - 0.5) * 0.1) * 100) / 100,
+        reviewCount: src.reviews + (5 - m) * 25,
+        capturedAt,
+      })
+    }
+  }
+  await prisma.reviewScore.createMany({ data: reviewRows })
+  console.log(`✅ Review scores: ${reviewRows.length}`)
 
   console.log('✨ Seeding completed!')
 }

@@ -312,6 +312,7 @@ model BookingCurveData {
   stayDate    DateTime @db.Date // 宿泊日
   daysBefore  Int // 宿泊日までの残日数（0 = 当日）
   roomsBooked Int // その時点の予約積上室数
+  adr         Float? // その時点の予約分ADR（日の経過に対するADR遷移 — F-DAILY-01）
   capturedAt  DateTime @default(now())
 
   @@unique([hotelId, stayDate, daysBefore])
