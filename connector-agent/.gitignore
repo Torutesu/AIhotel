@@ -1,3 +1,4 @@
 dist/
 recon-out/
 .recon-profile/
+.agent-data/

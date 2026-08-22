@@ -106,6 +106,9 @@ importers:
 
   connector-agent:
     dependencies:
+      '@hotel-revenue-system/shared':
+        specifier: workspace:*
+        version: link:../shared
       playwright:
         specifier: ^1.49.1
         version: 1.62.1

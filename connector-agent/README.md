@@ -1,9 +1,32 @@
 # connector-agent — クライアントPC常駐コネクタエージェント
 
 リンカーン（Web）・ねほっぷす（ネイティブWindows）への画面操作ベース読み書きを担う
-常駐エージェントのワークスペース。設計は `docs/コネクタ連携設計.md` を参照。
+常駐エージェント。設計は `docs/コネクタ連携設計.md` を参照。
 
-**現状は調査（recon）ツールのみ。** ジョブポーリング・実行本体は調査完了後にここへ実装する。
+実装済み: ジョブポーリング（バックオフ）・ローカルスプール（結果の永続化→再送）・heartbeat・
+定義駆動のリンカーンREAD/WRITE実行器（前提値照合・読み戻し検証・dry-run対応）・証跡サニタイズ。
+リンカーンの実セレクタは recon 調査後に backend の定義（`backend/src/lib/connectorDefinitions.ts`）へ
+反映する。ねほっぷす実行器は FlaUI CLI 確定まで UNSUPPORTED を返すスタブ。
+
+## 常駐実行（クライアントPC）
+
+```powershell
+# 1) SaaS管理画面でペアリングコードを発行（ADMIN/MANAGER、10分有効・1回限り）
+# 2) 初回ペアリング（デバイストークンが .agent-data/ に保存される）
+$env:CONNECTOR_BACKEND_URL = "https://api.example.com"
+pnpm --filter @hotel-revenue-system/connector-agent start pair <ペアリングコード>
+
+# 3) 常駐実行（Windowsサービス化はこのコマンドをサービスラッパーで包む）
+$env:CONNECTOR_LINCOLN_USER = "..."      # リンカーンのログインID
+$env:CONNECTOR_LINCOLN_PASSWORD = "..."  # 同パスワード（TODO: DPAPI保管へ移行）
+pnpm --filter @hotel-revenue-system/connector-agent start run
+
+# 動作確認用（1サイクルだけ実行）
+pnpm --filter @hotel-revenue-system/connector-agent start once
+```
+
+環境変数: `CONNECTOR_BACKEND_URL`（必須）/ `CONNECTOR_DATA_DIR`（既定 .agent-data）/
+`CONNECTOR_POLL_INTERVAL_MS`（既定15秒）/ `CONNECTOR_HEADLESS=true`（既定はheaded）
 
 ## セットアップ（クライアントPC / Windows）
 
