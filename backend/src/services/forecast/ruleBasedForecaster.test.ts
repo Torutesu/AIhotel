@@ -8,6 +8,9 @@ import {
   mapOccupancyToRank,
   computePredictedOccupancy,
   computeConfidence,
+  computeHolidayAdjustment,
+  computePredictionInterval,
+  getSameWeekdayValues,
   type OccupancyRecord,
   type EventImpactRecord,
 } from './ruleBasedForecaster.js'
@@ -159,12 +162,108 @@ describe('computePredictedOccupancy', () => {
   })
 })
 
-describe('computeConfidence', () => {
-  it('移動平均と前年比較の両方があれば最も高い確信度を返す', () => {
-    expect(computeConfidence({ movingAverage: 0.8, yearOverYear: 0.7 })).toBe(0.85)
+describe('computePredictionInterval', () => {
+  it('同曜日実績のばらつきが小さいほど区間が狭い', () => {
+    const tight = computePredictionInterval({
+      predicted: 0.8,
+      sameWeekdayValues: [0.79, 0.8, 0.81, 0.8],
+      yearOverYear: 0.8,
+    })
+    const wide = computePredictionInterval({
+      predicted: 0.8,
+      sameWeekdayValues: [0.5, 0.95, 0.65, 0.9],
+      yearOverYear: 0.8,
+    })
+    expect(tight.p90 - tight.p10).toBeLessThan(wide.p90 - wide.p10)
   })
 
-  it('データが全くなければ最も低い確信度を返す', () => {
-    expect(computeConfidence({ movingAverage: null, yearOverYear: null })).toBe(0.4)
+  it('区間は予測値を挟み [0,1] にclampされる', () => {
+    const r = computePredictionInterval({
+      predicted: 0.98,
+      sameWeekdayValues: [0.5, 0.95, 0.65, 0.9],
+      yearOverYear: null,
+    })
+    expect(r.p10).toBeLessThanOrEqual(0.98)
+    expect(r.p90).toBeLessThanOrEqual(1)
+    expect(r.p10).toBeGreaterThanOrEqual(0)
+  })
+
+  it('同曜日実績が3件未満なら既定幅、参照データが皆無ならさらに広い幅を使う', () => {
+    const partial = computePredictionInterval({
+      predicted: 0.6,
+      sameWeekdayValues: [0.6],
+      yearOverYear: null,
+    })
+    const none = computePredictionInterval({
+      predicted: 0.6,
+      sameWeekdayValues: [],
+      yearOverYear: null,
+    })
+    expect(none.p90 - none.p10).toBeGreaterThan(partial.p90 - partial.p10)
+  })
+})
+
+describe('computeConfidence', () => {
+  it('予測区間が狭いほど確信度が高い（P-7: 区間幅から導出）', () => {
+    const narrow = computeConfidence({ intervalWidth: 0.06, movingAverage: 0.8, yearOverYear: 0.7 })
+    const wide = computeConfidence({ intervalWidth: 0.3, movingAverage: 0.8, yearOverYear: 0.7 })
+    expect(narrow).toBeGreaterThan(wide)
+  })
+
+  it('データソースが片方しかなければ上限0.7、皆無なら上限0.4に絞る', () => {
+    expect(
+      computeConfidence({ intervalWidth: 0.06, movingAverage: 0.8, yearOverYear: null })
+    ).toBeLessThanOrEqual(0.7)
+    expect(
+      computeConfidence({ intervalWidth: 0.06, movingAverage: null, yearOverYear: null })
+    ).toBeLessThanOrEqual(0.4)
+  })
+
+  it('[0.2, 0.95] の範囲にclampされる', () => {
+    expect(computeConfidence({ intervalWidth: 1, movingAverage: 0.8, yearOverYear: 0.7 })).toBe(0.2)
+    expect(computeConfidence({ intervalWidth: 0, movingAverage: 0.8, yearOverYear: 0.7 })).toBe(0.95)
+  })
+})
+
+describe('getSameWeekdayValues', () => {
+  it('移動平均と同じ窓・同曜日条件で実績値リストを返す', () => {
+    const target = d(2026, 7, 10) // 金曜
+    const history: OccupancyRecord[] = [
+      { date: d(2026, 7, 3), occupancy: 0.8 }, // 金曜（窓内）
+      { date: d(2026, 6, 26), occupancy: 0.9 }, // 金曜（窓内）
+      { date: d(2026, 6, 4), occupancy: 0.5 }, // 木曜 → 除外
+      { date: d(2026, 5, 1), occupancy: 0.99 }, // 窓外 → 除外
+    ]
+    expect(getSameWeekdayValues(history, target).sort()).toEqual([0.8, 0.9])
+  })
+})
+
+describe('computeHolidayAdjustment', () => {
+  it('翌日が祝日の平日夜には補正を加える', () => {
+    // 2026-02-22(日) の夜: 翌日2/23が天皇誕生日
+    expect(computeHolidayAdjustment(d(2026, 2, 22), [5, 6])).toBeGreaterThan(0)
+  })
+
+  it('weekendDays に含まれる曜日は週末補正と二重加算しない', () => {
+    // 2025-05-02(金): 翌日5/3が憲法記念日だが、金曜は週末補正の対象
+    const friday = d(2025, 5, 2)
+    const withWeekendDef = computeHolidayAdjustment(friday, [5, 6])
+    const withoutWeekendDef = computeHolidayAdjustment(friday, [0, 1])
+    expect(withoutWeekendDef).toBeGreaterThan(withWeekendDef)
+  })
+
+  it('3連休以上の中日にはさらに補正を加える', () => {
+    // 2026 GW: 5/2(土)〜5/6(水)の5連休。5/4は中日
+    const midBlock = computeHolidayAdjustment(d(2026, 5, 4), [5, 6])
+    expect(midBlock).toBeGreaterThan(0)
+  })
+
+  it('連休最終日（翌日から平日）は連休補正を加えない', () => {
+    // 2026-05-06(水・振替): 連休最終日。翌日は平日
+    expect(computeHolidayAdjustment(d(2026, 5, 6), [5, 6])).toBe(0)
+  })
+
+  it('祝日と無関係な平日は補正なし', () => {
+    expect(computeHolidayAdjustment(d(2026, 6, 16), [5, 6])).toBe(0)
   })
 })

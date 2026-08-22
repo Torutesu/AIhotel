@@ -46,6 +46,7 @@ model Tenant {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  forecastSnapshots        ForecastSnapshot[]
 }
 
 // ======================================
@@ -134,6 +135,7 @@ model Hotel {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  forecastSnapshots        ForecastSnapshot[]
 
   @@index([tenantId])
 }
@@ -349,6 +351,9 @@ model AiPriceRecommendation {
   date       DateTime  @db.Date
 
   predictedOccupancy Float?
+  // 予測区間（10/90パーセンタイル — confidence の根拠。docs/algorithm-design.md P-7）
+  predictedOccupancyP10 Float?
+  predictedOccupancyP90 Float?
   predictedAdr       Float?
   recommendedRank    Int?
   recommendedPrice   Int?
@@ -360,6 +365,36 @@ model AiPriceRecommendation {
   @@unique([hotelId, date, roomTypeId])
   @@index([tenantId])
   @@index([hotelId, date])
+}
+
+// 予測スナップショット（リードタイム別の精度検証用 — docs/algorithm-design.md P-6）。
+// AiPriceRecommendation は最新値で上書きされるため、予測実施日ごとの値を
+// 追記保存し「n日前時点の予測 vs 実績」の backtest を可能にする。
+model ForecastSnapshot {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId  String
+  hotel    Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+
+  stayDate     DateTime @db.Date // 宿泊日
+  forecastDate DateTime @db.Date // 予測実施日（同日の再実行は上書き＝冪等）
+  leadTimeDays Int // stayDate - forecastDate（0 = 当日）
+
+  predictedOccupancy    Float?
+  predictedOccupancyP10 Float?
+  predictedOccupancyP90 Float?
+  demandLevel           DemandLevel?
+  recommendedRank       Int?
+  recommendedPrice      Int?
+  confidence            Float?
+  modelVersion          String
+  computedAt            DateTime     @default(now())
+
+  @@unique([hotelId, stayDate, forecastDate, modelVersion])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+  @@index([hotelId, forecastDate])
 }
 
 // 需要予測レベル5段階（F-DP-05）
