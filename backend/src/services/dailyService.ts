@@ -33,6 +33,8 @@ export async function getBookingCurveService(hotelId: string, stayDate: Date) {
       // 全室故障（sellable=0）の場合は総客室数を分母にフォールバックし、APIの型を保つ
       occupancy:
         Math.round((p.roomsBooked / (sellableRooms > 0 ? sellableRooms : hotel.totalRooms)) * 1000) / 1000,
+      // 日の経過に対するADR遷移（その時点の予約分ADR）
+      adr: p.adr != null ? Math.round(p.adr) : null,
     })),
   }
 }
