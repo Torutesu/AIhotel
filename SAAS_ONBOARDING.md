@@ -86,7 +86,7 @@ SaaSとして複数テナントに販売していく前提で、**可変（テ�
 | 1 | テナント | `Tenant` | name, code（一意） | `POST /api/v1/admin/tenants`（一括プロビジョニング） |
 | 2 | ホテル | `Hotel` | name, totalRooms, address/phone/email | 同上（更新は `PUT /api/v1/settings/hotel/:id`） |
 | 3 | 初期ユーザー | `User` | 顧客側 MANAGER/OPERATOR ＋提供側 ADMIN | 同上（MANAGER/OPERATORを同時作成。ADMINは対象外） |
-| 4 | 客室タイプ | `RoomType` | code, name, capacity, count, sortOrder | DB直接（API未実装） |
+| 4 | 客室タイプ | `RoomType` | code, name, capacity, count, sortOrder | `POST /api/v1/settings/import/room-types`（CSV一括） |
 | 5 | 料金ランク | `PriceRank` | rank(1〜40), label, price1P/2P/3P/4P | `POST /api/v1/settings/price-ranks/generate`（一括生成）＋ `POST/PUT /api/v1/settings/price-ranks`（個別調整） |
 
 ### 4.2 デフォルトありで稼働可（後から調整）
@@ -145,8 +145,8 @@ Day 2〜 顧客側作業（デフォルトのまま開始可）
 
 ## 6. 初期設定の省力化・自動化ロードマップ
 
-現状の `backend/prisma/seed.ts` は**デモデータ専用**（demo-tenant 固定・擬似乱数で実績生成）であり、
-本番テナントのプロビジョニングには使えない。以下を段階的に実装する。
+`backend/prisma/seed.ts` は**デモデータ専用**（demo-tenant 固定・擬似乱数で実績生成）であり、
+本番テナントのプロビジョニングには使わない。Step 1〜5 はすべて実装済み。
 
 ### Step 1: テナントプロビジョニングの一括化 — **実装済み**
 - `POST /api/v1/admin/tenants`（ADMIN専用・監査ログ記録）。
@@ -162,17 +162,30 @@ Day 2〜 顧客側作業（デフォルトのまま開始可）
   明示しない限りエラー（誤上書き防止）。生成後は既存の個別更新APIで微調整する運用
 - 実装: `provisioningService.ts` の `generatePriceRankRows()`（純粋関数・テスト付き）
 
-### Step 3: CSV一括インポート
-- 対象: RoomType / MonthlyBudget（前年実績含む）/ 過去 DailyData
-- ヒアリングシート（スプレッドシート）の様式とCSVカラムを一致させ、転記作業を廃止
+### Step 3: CSV一括インポート — **実装済み**
+- `POST /api/v1/settings/import/room-types` / `import/budgets` / `import/daily-data`（MANAGER以上・監査ログ記録）
+- リクエストは `{ hotelId, csv }`。1行目はヘッダー、全行検証してエラーが1件でもあれば取り込まない
+  （all-or-nothing。エラーは行番号付きで最大20件返す）。キー（code / year+month / date）単位で upsert
+- 列様式（＝ヒアリングシートの様式）:
+  - 客室タイプ: `code,name,capacity,count,sortOrder`（sortOrder 任意）
+  - 月次予算: `year,month,budgetRevenue,budgetRooms,budgetAdr,budgetOccupancy,budgetGuests,lastYearRevenue,lastYearRooms,lastYearAdr,lastYearOccupancy,lastYearGuests`
+  - 日次実績: `date,occupancy,adr,revPar,totalRevenue,soldRooms,guests`（稼働率は 0〜1）
+- 実装: `backend/src/services/importService.ts`＋`backend/src/lib/csv.ts`（RFC 4180相当・BOM対応）
 
-### Step 4: セットアップウィザードUI
-- 設定タブに「初期設定ウィザード」を追加し、4.1 の必須5項目を順に入力させる
-- 未完了項目は既存のアラート基盤（level 2「翌月の予算未登録」と同様のパターン）で可視化
+### Step 4: セットアップウィザードUI — **実装済み**
+- 設定タブ先頭に「初期設定（オンボーディング）」カードを追加
+  （`frontend/components/onboarding-setup-card.tsx`）
+- 必須5項目＋任意3項目の完了チェックリスト（Step 5 のAPIを参照）、
+  料金ランク一括生成フォーム、CSVインポート（ファイル選択／貼り付け）を提供
+- 閲覧は全ロール可、投入操作は MANAGER 以上のみ表示
 
-### Step 5: オンボーディング完了率の計測
-- テナントごとの必須項目充足状況を返す `GET /api/v1/admin/tenants/:id/onboarding-status` を用意し、
-  導入担当のダッシュボードとする
+### Step 5: オンボーディング完了率の計測 — **実装済み**
+- `GET /api/v1/settings/onboarding-status?hotelId=` — ホテル単位の充足状況（ウィザードUIが参照）
+- `GET /api/v1/admin/tenants` / `GET /api/v1/admin/tenants/:id/onboarding-status`（ADMIN専用）
+  — 導入担当がテナント横断で完了状況を確認する
+- 必須判定: ホテル基本情報 / MANAGER 1名以上 / 客室タイプ / 料金ランク / 価格戦略。
+  客室タイプ合計室数と `Hotel.totalRooms` の不一致も detail で警告する
+- 実装: `backend/src/services/onboardingService.ts`
 
 ---
 
