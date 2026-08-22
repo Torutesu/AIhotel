@@ -22,10 +22,18 @@ export class ApiClientError extends Error {
   status: number
   /** バックエンド自体に到達できなかった（接続失敗/非JSON応答）場合のみ true。開発用モックログインの発火条件に使う。 */
   isBackendUnreachable: boolean
-  constructor(status: number, message: string, isBackendUnreachable = false) {
+  /** バリデーション等の項目別エラー詳細（CSVインポートの行エラー表示などに使う） */
+  errors?: Array<{ field: string; message: string }>
+  constructor(
+    status: number,
+    message: string,
+    isBackendUnreachable = false,
+    errors?: Array<{ field: string; message: string }>
+  ) {
     super(message)
     this.status = status
     this.isBackendUnreachable = isBackendUnreachable
+    this.errors = errors
   }
 }
 
@@ -203,7 +211,12 @@ async function rawRequest<T>(
   }
 
   if (!res.ok || !body.success) {
-    throw new ApiClientError(res.status, body.error || `リクエストに失敗しました (${res.status})`)
+    throw new ApiClientError(
+      res.status,
+      body.error || `リクエストに失敗しました (${res.status})`,
+      false,
+      body.errors
+    )
   }
 
   return body.data as T
@@ -938,6 +951,67 @@ function getMockEvents(hotelId: string): HotelEvent[] {
   return mockEvents
 }
 
+// ---- オンボーディング（SAAS_ONBOARDING.md Step 4/5） ----
+
+export interface OnboardingItem {
+  key: string
+  label: string
+  complete: boolean
+  detail: string
+}
+
+export interface OnboardingStatus {
+  hotelId: string
+  hotelName: string
+  required: OnboardingItem[]
+  optional: OnboardingItem[]
+  requiredCompleteCount: number
+  requiredTotalCount: number
+  isComplete: boolean
+}
+
+export interface GeneratePriceRanksInput {
+  count?: number
+  minPrice1P: number
+  maxPrice1P: number
+  multiplier2P?: number
+  multiplier3P?: number
+  multiplier4P?: number
+  roundTo?: number
+  replaceExisting?: boolean
+}
+
+export interface CsvImportResult {
+  imported: number
+}
+
+export type CsvImportKind = "room-types" | "budgets" | "daily-data"
+
+// デモ環境はseed済みデータ相当のため「必須項目すべて完了」として表示する
+function mockOnboardingStatus(hotelId: string): OnboardingStatus {
+  const required: OnboardingItem[] = [
+    { key: "hotelInfo", label: "ホテル基本情報", complete: true, detail: "総客室数 200室" },
+    { key: "users", label: "初期ユーザー（MANAGER必須）", complete: true, detail: "MANAGER 1名 / OPERATOR 1名" },
+    { key: "roomTypes", label: "客室タイプ", complete: true, detail: "5タイプ・計200室" },
+    { key: "priceRanks", label: "料金ランク", complete: true, detail: "40段階" },
+    { key: "pricingStrategy", label: "価格戦略の重み", complete: true, detail: "稼働率40% / ADR40% / 競合20%" },
+  ]
+  const optional: OnboardingItem[] = [
+    { key: "competitors", label: "競合ホテル", complete: true, detail: "3社" },
+    { key: "budgets", label: "月次予算（当月・翌月）", complete: true, detail: "当月登録済 / 翌月登録済" },
+    { key: "pastDailyData", label: "過去実績データ", complete: true, detail: "91日分" },
+  ]
+  return {
+    hotelId,
+    hotelName: MOCK_HOTEL.name,
+    required,
+    optional,
+    requiredCompleteCount: required.length,
+    requiredTotalCount: required.length,
+    isComplete: true,
+  }
+}
+
 // ---- API surface ----
 
 export const api = {
@@ -1107,6 +1181,55 @@ export const api = {
         return target
       }
     )
+  },
+
+  onboardingStatus(hotelId: string): Promise<OnboardingStatus> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/onboarding-status?hotelId=${hotelId}`),
+      () => mockOnboardingStatus(hotelId)
+    )
+  },
+
+  generatePriceRanks(hotelId: string, input: GeneratePriceRanksInput): Promise<PriceRank[]> {
+    return withDemoFallback(
+      () =>
+        rawRequest<PriceRank[]>(`/api/v1/settings/price-ranks/generate`, {
+          method: "POST",
+          body: JSON.stringify({ hotelId, ...input }),
+        }),
+      () => {
+        // デモ時はメモリ上のランクを生成し直して結果を画面で確認できるようにする
+        const count = input.count ?? 40
+        const roundTo = input.roundTo ?? 100
+        const roundPrice = (v: number) => Math.round(v / roundTo) * roundTo
+        mockPriceRanks = Array.from({ length: count }, (_, i) => {
+          const rank = i + 1
+          const ratio = count === 1 ? 0 : i / (count - 1)
+          const price1P = roundPrice(input.minPrice1P + ratio * (input.maxPrice1P - input.minPrice1P))
+          return {
+            id: `mock-rank-${rank}`,
+            hotelId,
+            rank,
+            label: `R${String(rank).padStart(2, "0")}`,
+            price1P,
+            price2P: roundPrice(price1P * (input.multiplier2P ?? 1.4)),
+            price3P: roundPrice(price1P * (input.multiplier3P ?? 1.8)),
+            price4P: input.multiplier4P != null ? roundPrice(price1P * input.multiplier4P) : undefined,
+            isActive: true,
+          } as PriceRank
+        })
+        return mockPriceRanks
+      }
+    )
+  },
+
+  // CSVインポートはデータ投入操作のためモックフォールバックしない
+  // （デモ環境では「バックエンドに接続できません」エラーを表示する）
+  importCsv(kind: CsvImportKind, hotelId: string, csv: string): Promise<CsvImportResult> {
+    return rawRequest(`/api/v1/settings/import/${kind}`, {
+      method: "POST",
+      body: JSON.stringify({ hotelId, csv }),
+    })
   },
 
   updateHotelSettings(hotelId: string, data: UpdateHotelSettingsInput): Promise<Hotel> {

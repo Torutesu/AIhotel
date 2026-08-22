@@ -21,6 +21,7 @@ import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 import { useAuth } from "@/components/auth-provider"
+import { OnboardingSetupCard } from "@/components/onboarding-setup-card"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
 import type { Hotel } from "@shared/types"
 
@@ -333,6 +334,15 @@ export function SettingsTab() {
           </Button>
         </div>
       </div>
+
+      {/* 初期設定ウィザード（SAAS_ONBOARDING.md Step 4） */}
+      {hotelId && (
+        <OnboardingSetupCard
+          hotelId={hotelId}
+          canManage={canManageHotel}
+          onPriceRanksChanged={loadPriceRanks}
+        />
+      )}
 
       {/* ホテル情報設定 */}
       <Card>
