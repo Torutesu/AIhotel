@@ -443,6 +443,94 @@ export interface UpdateHotelSettingsInput {
   weekendDays?: number[]
 }
 
+// ---- Excel取込（手動アップロード） ----
+
+export type ImportType = "price_ranks" | "daily_actual"
+
+export interface ImportRowError {
+  row: number
+  message: string
+}
+
+export interface ImportResult {
+  jobId: string
+  type: ImportType
+  fileName: string
+  status: "completed" | "failed"
+  rowCount: number
+  createdCount: number
+  updatedCount: number
+  errorCount: number
+  errors: ImportRowError[]
+  forecastRecomputed: boolean
+}
+
+export interface ImportJob {
+  id: string
+  type: ImportType
+  fileName: string
+  status: "completed" | "failed"
+  rowCount: number
+  createdCount: number
+  updatedCount: number
+  errorCount: number
+  errors: ImportRowError[] | null
+  createdAt: string
+}
+
+// ---- 故障部屋（Out of Order） ----
+
+export interface OutOfOrderRoom {
+  id: string
+  hotelId: string
+  roomTypeId: string | null
+  roomType: { id: string; name: string; code: string } | null
+  startDate: string
+  endDate: string
+  rooms: number
+  reason: string | null
+  isActive: boolean
+}
+
+export interface CreateOutOfOrderRoomInput {
+  hotelId: string
+  roomTypeId?: string
+  startDate: string
+  endDate: string
+  rooms: number
+  reason?: string
+}
+
+// ---- 予測モデル設定（ホテル×年） ----
+
+/** year = 0 はホテルのデフォルト設定（全年共通） */
+export interface ForecastModelConfig {
+  id: string
+  hotelId: string
+  year: number
+  movingAverageWindowDays: number
+  movingAverageWeight: number
+  eventImpactHighPt: number
+  eventImpactMediumPt: number
+  eventImpactLowPt: number
+  weekendAdjustmentPt: number
+  fallbackOccupancy: number
+  notes: string | null
+}
+
+export interface UpsertForecastModelConfigInput {
+  hotelId: string
+  year: number
+  movingAverageWindowDays?: number
+  movingAverageWeight?: number
+  eventImpactHighPt?: number
+  eventImpactMediumPt?: number
+  eventImpactLowPt?: number
+  weekendAdjustmentPt?: number
+  fallbackOccupancy?: number
+  notes?: string
+}
+
 // ---- Dev-only demo data (ダッシュボード/ダイナミックプライシング画面用) ----
 // バックエンドの seed データと近い分布になるよう簡易な季節・曜日変動を再現しているだけの
 // ダミー値。実データではない。
@@ -1176,5 +1264,100 @@ export const api = {
         mockEvents = getMockEvents(hotelId).filter((e) => e.id !== id)
       }
     )
+  },
+
+  // ---- Excel取込（手動アップロード。実データ反映のためデモフォールバックなし） ----
+
+  createImport(input: {
+    hotelId: string
+    type: ImportType
+    fileName: string
+    fileBase64: string
+  }): Promise<ImportResult> {
+    return rawRequest("/api/v1/imports", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  importJobs(hotelId: string, limit = 10): Promise<ImportJob[]> {
+    return rawRequest(`/api/v1/imports?hotelId=${hotelId}&limit=${limit}`)
+  },
+
+  /** 取込テンプレート（.xlsx）をダウンロードする */
+  async downloadImportTemplate(hotelId: string, type: ImportType): Promise<void> {
+    const token = getAccessToken()
+    let res: Response
+    try {
+      res = await fetch(`${BASE_URL}/api/v1/imports/template?hotelId=${hotelId}&type=${type}`, {
+        headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+      })
+    } catch {
+      throw new ApiClientError(0, "バックエンドに接続できません", true)
+    }
+    if (!res.ok) {
+      throw new ApiClientError(res.status, `テンプレートのダウンロードに失敗しました (${res.status})`)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = type === "price_ranks" ? "price_ranks_template.xlsx" : "daily_actual_template.xlsx"
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+
+  // ---- 故障部屋（Out of Order） ----
+
+  outOfOrderRooms(hotelId: string, startDate?: string, endDate?: string): Promise<OutOfOrderRoom[]> {
+    const params = new URLSearchParams({ hotelId })
+    if (startDate) params.set("startDate", startDate)
+    if (endDate) params.set("endDate", endDate)
+    return rawRequest(`/api/v1/settings/out-of-order-rooms?${params.toString()}`)
+  },
+
+  createOutOfOrderRoom(input: CreateOutOfOrderRoomInput): Promise<OutOfOrderRoom> {
+    return rawRequest("/api/v1/settings/out-of-order-rooms", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateOutOfOrderRoom(
+    id: string,
+    hotelId: string,
+    input: Partial<Omit<CreateOutOfOrderRoomInput, "hotelId">>
+  ): Promise<OutOfOrderRoom> {
+    return rawRequest(`/api/v1/settings/out-of-order-rooms/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  deleteOutOfOrderRoom(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/settings/out-of-order-rooms/${id}?hotelId=${hotelId}`, {
+      method: "DELETE",
+    })
+  },
+
+  // ---- 予測モデル設定（ホテル×年） ----
+
+  forecastModelConfigs(hotelId: string): Promise<ForecastModelConfig[]> {
+    return rawRequest(`/api/v1/settings/forecast-model-configs?hotelId=${hotelId}`)
+  },
+
+  upsertForecastModelConfig(input: UpsertForecastModelConfigInput): Promise<ForecastModelConfig> {
+    return rawRequest("/api/v1/settings/forecast-model-configs", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  deleteForecastModelConfig(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/settings/forecast-model-configs/${id}?hotelId=${hotelId}`, {
+      method: "DELETE",
+    })
   },
 }
