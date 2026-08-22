@@ -83,11 +83,11 @@ SaaSとして複数テナントに販売していく前提で、**可変（テ�
 
 | # | 対象 | モデル | 内容 | 現状の投入手段 |
 |---|---|---|---|---|
-| 1 | テナント | `Tenant` | name, code（一意） | DB直接（API未実装） |
-| 2 | ホテル | `Hotel` | name, totalRooms, address/phone/email | DB直接（更新のみ `PUT /api/v1/settings/hotel/:id`） |
-| 3 | 初期ユーザー | `User` | 顧客側 MANAGER/OPERATOR ＋提供側 ADMIN | DB直接（API未実装） |
+| 1 | テナント | `Tenant` | name, code（一意） | `POST /api/v1/admin/tenants`（一括プロビジョニング） |
+| 2 | ホテル | `Hotel` | name, totalRooms, address/phone/email | 同上（更新は `PUT /api/v1/settings/hotel/:id`） |
+| 3 | 初期ユーザー | `User` | 顧客側 MANAGER/OPERATOR ＋提供側 ADMIN | 同上（MANAGER/OPERATORを同時作成。ADMINは対象外） |
 | 4 | 客室タイプ | `RoomType` | code, name, capacity, count, sortOrder | DB直接（API未実装） |
-| 5 | 料金ランク | `PriceRank` | rank(1〜40), label, price1P/2P/3P/4P | `POST/PUT /api/v1/settings/price-ranks` |
+| 5 | 料金ランク | `PriceRank` | rank(1〜40), label, price1P/2P/3P/4P | `POST /api/v1/settings/price-ranks/generate`（一括生成）＋ `POST/PUT /api/v1/settings/price-ranks`（個別調整） |
 
 ### 4.2 デフォルトありで稼働可（後から調整）
 
@@ -148,15 +148,19 @@ Day 2〜 顧客側作業（デフォルトのまま開始可）
 現状の `backend/prisma/seed.ts` は**デモデータ専用**（demo-tenant 固定・擬似乱数で実績生成）であり、
 本番テナントのプロビジョニングには使えない。以下を段階的に実装する。
 
-### Step 1: テナントプロビジョニングの一括化（効果: 大）
-- `POST /api/v1/admin/tenants`（ADMIN専用・`writeAuditLog()` 必須）を新設し、
-  Tenant＋Hotel＋初期User＋`PricingStrategyConfig`（デフォルト40/40/20）を**1トランザクション**で作成
-- 実装は `src/services/` に `provisionTenant()` として置き、seed.ts のデモ生成とは分離する
+### Step 1: テナントプロビジョニングの一括化 — **実装済み**
+- `POST /api/v1/admin/tenants`（ADMIN専用・監査ログ記録）。
+  Tenant＋Hotel＋初期User（MANAGER/OPERATOR）＋`PricingStrategyConfig`（デフォルト40/40/20）を
+  **1トランザクション**で作成。`priceRanks` パラメータ指定時は料金ランクも同時生成
+- 実装: `backend/src/services/provisioningService.ts` の `provisionTenantService()`
+  （seed.ts のデモ生成とはコードパス分離済み）
 
-### Step 2: 料金ランク40段階の自動生成（効果: 大・実装コスト小）
-- 入力: 1名利用の下限価格・上限価格（＋2〜4名の倍率、デフォルト 1.4 / 1.8）
-- seed.ts の線形補間ロジック（`6500 + ratio * 23500` の一般化）をサービス関数に切り出して流用
-- 手作業で40行入力する工数をゼロにし、生成後に個別調整だけ行う運用にする
+### Step 2: 料金ランク40段階の自動生成 — **実装済み**
+- `POST /api/v1/settings/price-ranks/generate`（MANAGER以上・監査ログ記録）。
+  入力は1名利用の下限・上限価格（＋2〜4名の倍率、デフォルト 1.4 / 1.8、100円単位丸め）
+- 線形補間で最大40段階を機械生成。既存ランクがある場合は `replaceExisting: true` を
+  明示しない限りエラー（誤上書き防止）。生成後は既存の個別更新APIで微調整する運用
+- 実装: `provisioningService.ts` の `generatePriceRankRows()`（純粋関数・テスト付き）
 
 ### Step 3: CSV一括インポート
 - 対象: RoomType / MonthlyBudget（前年実績含む）/ 過去 DailyData
