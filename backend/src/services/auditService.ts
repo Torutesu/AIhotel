@@ -4,7 +4,7 @@ import { logger } from '../utils/logger.js'
 export interface AuditLogEntry {
   tenantId?: string | null
   userId?: string | null
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT'
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'IMPORT' | 'LOGIN' | 'LOGOUT'
   entity: string
   entityId?: string | null
   oldValue?: unknown
