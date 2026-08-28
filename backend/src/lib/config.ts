@@ -42,6 +42,9 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(100),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+  // 同一IPからのログイン試行上限（15分あたり）。ホテルは全スタッフが同じ回線を使うため、
+  // メールアドレス単位（LOGIN_RATE_LIMIT_MAX）より大幅に緩くして巻き添えを防ぐ
+  LOGIN_SOURCE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
   // パスワード再設定・招待受諾の要求上限（1時間あたり・IP単位）。メール送信を伴うため厳しめ
   PASSWORD_RESET_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(20),
 

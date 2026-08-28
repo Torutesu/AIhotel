@@ -28,6 +28,7 @@ import { notFoundHandler } from './middlewares/notFoundHandler.js'
 // Import utilities
 import { logger, requestLogger } from './utils/logger.js'
 import { isAllowedOrigin } from './lib/tenantResolver.js'
+import { checkHealthService } from './services/healthService.js'
 
 // ======================================
 // Configuration
@@ -115,17 +116,14 @@ app.get('/health', (_req, res) => {
   })
 })
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    success: true,
-    data: {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      services: {
-        api: 'healthy',
-        // database: 'healthy', // TODO: Add DB health check
-      },
-    },
+// DBの疎通まで確認する。DBが落ちているのに200を返すと監視が機能しないため、
+// 異常時は 503 を返して監視サービスがアラートを出せるようにする
+app.get('/api/health', async (_req, res) => {
+  const health = await checkHealthService()
+  res.status(health.status === 'ok' ? 200 : 503).json({
+    success: health.status === 'ok',
+    data: { ...health, timestamp: new Date().toISOString() },
+    ...(health.status !== 'ok' && { error: 'データベースに接続できません' }),
   })
 })
 

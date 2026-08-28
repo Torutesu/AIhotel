@@ -27,11 +27,36 @@ import {
 
 const router: IRouter = Router()
 
-// ログイン専用の厳格なレート制限（ブルートフォース対策 — W-4）
-// 全体のレートリミッターより大幅に厳しい値にする
+// ログイン専用の厳格なレート制限（ブルートフォース対策 — W-4）。
+//
+// 【IP単位にしない理由】
+// ホテルは複数のスタッフが同じ回線（NAT）から接続する。IP単位で数えると、
+// 1人がパスワードを間違え続けただけで施設全員が締め出される。
+// メールアドレス＋IPの組で数えることで、対象アカウントへの総当たりは抑えつつ、
+// 無関係な同僚を巻き込まないようにする。
+function loginAttemptKey(req: { ip?: string; body?: { email?: string } }): string {
+  const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase() : 'unknown'
+  return `${email}|${req.ip ?? 'unknown'}`
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: config.LOGIN_RATE_LIMIT_MAX,
+  keyGenerator: loginAttemptKey,
+  message: {
+    success: false,
+    error: 'ログイン試行回数の上限に達しました。しばらくしてから再度お試しください。',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+})
+
+// 同一IPからの無差別な試行（アカウント列挙）も別枠で抑える。
+// 施設全員が同じ回線でも通常の利用では到達しない緩さにしておく
+const loginSourceLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: config.LOGIN_SOURCE_RATE_LIMIT_MAX,
   message: {
     success: false,
     error: 'ログイン試行回数の上限に達しました。しばらくしてから再度お試しください。',
@@ -55,7 +80,7 @@ const passwordResetLimiter = rateLimit({
 })
 
 // 公開エンドポイント（認証不要）
-router.post('/login', loginLimiter, validate(loginSchema), login)
+router.post('/login', loginSourceLimiter, loginLimiter, validate(loginSchema), login)
 router.post('/refresh', validate(refreshTokenSchema), refresh)
 
 // 招待の受諾・パスワード再設定（トークンを持つ本人のみ実行できる。D-04）
