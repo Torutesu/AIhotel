@@ -16,12 +16,12 @@ interface RowError {
 
 const MAX_LISTED_ERRORS = 20
 
-// 空文字は「未入力」として undefined 扱いにする共通ヘルパー
+// 空文字・列ごと省略（undefined）は「未入力」として undefined 扱いにする共通ヘルパー
 const optionalNumber = (schema: z.ZodType<number>) =>
-  z.preprocess((v) => (v === '' ? undefined : Number(v)), schema.optional())
+  z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), schema.optional())
 
 const requiredNumber = (schema: z.ZodType<number>) =>
-  z.preprocess((v) => (v === '' ? undefined : Number(v)), schema)
+  z.preprocess((v) => (v == null || v === '' ? undefined : Number(v)), schema)
 
 // 日付は YYYY-MM-DD / YYYY/MM/DD を受け付け、UTC 0時に正規化する（DB は @db.Date）
 const csvDateSchema = z.string().transform((value, ctx) => {
@@ -39,9 +39,9 @@ const csvDateSchema = z.string().transform((value, ctx) => {
   return date
 })
 
-// ---- 行スキーマ（CSVの列名 = スキーマのキー） ----
+// ---- 行スキーマ（CSVの列名 = スキーマのキー）。テストから参照するため export する ----
 
-const roomTypeRowSchema = z.object({
+export const roomTypeRowSchema = z.object({
   code: z.string().min(1, 'code は必須です').max(50)
     .regex(/^[A-Z0-9_]+$/, 'code は大文字英数字とアンダースコアのみ使用可能です'),
   name: z.string().min(1, 'name は必須です').max(100),
@@ -50,7 +50,7 @@ const roomTypeRowSchema = z.object({
   sortOrder: optionalNumber(z.number().int()),
 })
 
-const budgetRowSchema = z.object({
+export const budgetRowSchema = z.object({
   year: requiredNumber(z.number().int().min(2020).max(2100)),
   month: requiredNumber(z.number().int().min(1).max(12)),
   budgetRevenue: optionalNumber(z.number().min(0)),
@@ -65,7 +65,7 @@ const budgetRowSchema = z.object({
   lastYearGuests: optionalNumber(z.number().int().min(0)),
 })
 
-const dailyDataRowSchema = z.object({
+export const dailyDataRowSchema = z.object({
   date: csvDateSchema,
   occupancy: optionalNumber(z.number().min(0).max(1, 'occupancy は 0〜1 で入力してください（例 0.78）')),
   adr: optionalNumber(z.number().min(0)),
@@ -84,7 +84,21 @@ interface ImportDef<T> {
   rowLabel: string
 }
 
-function parseRows<T>(csv: string, def: ImportDef<T>): T[] {
+// 空セルの意味論: ヘッダーに存在する列の空セルは「クリア（null）」、
+// ヘッダーごと省略した列は「既存値を保持」とする（スプレッドシートの見た目と一致させる）
+function clearableValues<T extends Record<string, unknown>>(
+  row: T,
+  headerSet: Set<string>,
+  fields: ReadonlyArray<keyof T & string>
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const field of fields) {
+    result[field] = headerSet.has(field) ? (row[field] ?? null) : undefined
+  }
+  return result
+}
+
+function parseRows<T>(csv: string, def: ImportDef<T>): { rows: T[]; headerSet: Set<string> } {
   const { header, records } = parseCsvWithHeader(csv)
   if (records.length === 0) {
     throw new BadRequestError('CSVにデータ行がありません（1行目はヘッダーとして扱われます）')
@@ -116,7 +130,7 @@ function parseRows<T>(csv: string, def: ImportDef<T>): T[] {
       errors.slice(0, MAX_LISTED_ERRORS)
     )
   }
-  return rows
+  return { rows, headerSet: new Set(header) }
 }
 
 function assertUnique<T>(rows: T[], keyFn: (row: T) => string, label: string) {
@@ -144,7 +158,7 @@ async function findHotelOrThrow(hotelId: string) {
  */
 export async function importRoomTypesService(input: CsvImportInput) {
   const hotel = await findHotelOrThrow(input.hotelId)
-  const rows = parseRows(input.csv, {
+  const { rows } = parseRows(input.csv, {
     rowSchema: roomTypeRowSchema,
     requiredColumns: ['code', 'name', 'capacity', 'count'],
     maxRows: 100,
@@ -159,26 +173,46 @@ export async function importRoomTypesService(input: CsvImportInput) {
         name: row.name,
         capacity: row.capacity,
         count: row.count,
-        sortOrder: row.sortOrder ?? i + 1,
+        // sortOrder は非nullableのため、空セル・列省略時は既存値を保持する
+        sortOrder: row.sortOrder,
         isActive: true,
       }
       await tx.roomType.upsert({
         where: { hotelId_code: { hotelId: hotel.id, code: row.code } },
         update: data,
-        create: { ...data, code: row.code, hotelId: hotel.id, tenantId: hotel.tenantId },
+        create: {
+          ...data,
+          sortOrder: row.sortOrder ?? i + 1,
+          code: row.code,
+          hotelId: hotel.id,
+          tenantId: hotel.tenantId,
+        },
       })
     }
   })
-  return { imported: rows.length }
+  return { imported: rows.length, tenantId: hotel.tenantId }
 }
 
 /**
  * 月次予算・前年実績CSVインポート。列: year,month と budget系・lastYear系（金額系は任意）
  * (hotelId, year, month) で upsert する
  */
+const BUDGET_VALUE_FIELDS = [
+  'budgetRevenue',
+  'budgetRooms',
+  'budgetAdr',
+  'budgetOccupancy',
+  'budgetGuests',
+  'lastYearRevenue',
+  'lastYearRooms',
+  'lastYearAdr',
+  'lastYearOccupancy',
+  'lastYearGuests',
+] as const
+
 export async function importMonthlyBudgetsService(input: CsvImportInput) {
   const hotel = await findHotelOrThrow(input.hotelId)
-  const rows = parseRows(input.csv, {
+  const { rows, headerSet } = parseRows(input.csv, {
     rowSchema: budgetRowSchema,
     requiredColumns: ['year', 'month'],
     maxRows: 240, // 20年分
@@ -188,24 +222,39 @@ export async function importMonthlyBudgetsService(input: CsvImportInput) {
 
   await prisma.$transaction(async (tx) => {
     for (const row of rows) {
-      const { year, month, ...values } = row
+      const values = clearableValues(row, headerSet, BUDGET_VALUE_FIELDS)
       await tx.monthlyBudget.upsert({
-        where: { hotelId_year_month: { hotelId: hotel.id, year, month } },
+        where: { hotelId_year_month: { hotelId: hotel.id, year: row.year, month: row.month } },
         update: values,
-        create: { ...values, year, month, hotelId: hotel.id, tenantId: hotel.tenantId },
+        create: {
+          ...values,
+          year: row.year,
+          month: row.month,
+          hotelId: hotel.id,
+          tenantId: hotel.tenantId,
+        },
       })
     }
   })
-  return { imported: rows.length }
+  return { imported: rows.length, tenantId: hotel.tenantId }
 }
 
 /**
  * 過去日次実績CSVインポート（データ移行用）。列: date,occupancy,adr,revPar,totalRevenue,soldRooms,guests
  * (hotelId, date) で upsert する
  */
+const DAILY_VALUE_FIELDS = [
+  'occupancy',
+  'adr',
+  'revPar',
+  'totalRevenue',
+  'soldRooms',
+  'guests',
+] as const
+
 export async function importDailyDataService(input: CsvImportInput) {
   const hotel = await findHotelOrThrow(input.hotelId)
-  const rows = parseRows(input.csv, {
+  const { rows, headerSet } = parseRows(input.csv, {
     rowSchema: dailyDataRowSchema,
     requiredColumns: ['date'],
     maxRows: 1100, // 約3年分
@@ -216,7 +265,8 @@ export async function importDailyDataService(input: CsvImportInput) {
   await prisma.$transaction(
     async (tx) => {
       for (const row of rows) {
-        const { date, ...values } = row
+        const { date } = row
+        const values = clearableValues(row, headerSet, DAILY_VALUE_FIELDS)
         await tx.dailyData.upsert({
           where: { hotelId_date: { hotelId: hotel.id, date } },
           update: values,
@@ -227,5 +277,5 @@ export async function importDailyDataService(input: CsvImportInput) {
     // 過去データ移行は行数が多いためタイムアウトを緩める
     { timeout: 60_000 }
   )
-  return { imported: rows.length }
+  return { imported: rows.length, tenantId: hotel.tenantId }
 }

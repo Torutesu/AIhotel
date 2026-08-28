@@ -29,8 +29,10 @@ export async function getHotelOnboardingStatusService(
   const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
   if (!hotel) throw new NotFoundError('ホテル')
 
-  const now = new Date()
-  const thisMonth = { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 }
+  // 「当月・翌月」は日本市場前提のためJST基準で判定する（UTC基準だと毎月1日0〜9時JSTに前月扱いになる）
+  const JST_OFFSET_MS = 9 * 60 * 60 * 1000
+  const nowJst = new Date(Date.now() + JST_OFFSET_MS)
+  const thisMonth = { year: nowJst.getUTCFullYear(), month: nowJst.getUTCMonth() + 1 }
   const next = new Date(Date.UTC(thisMonth.year, thisMonth.month, 1))
   const nextMonth = { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 }
 
@@ -151,10 +153,9 @@ export async function getTenantOnboardingStatusService(tenantId: string) {
     select: { id: true },
     orderBy: { createdAt: 'asc' },
   })
-  const hotelStatuses = []
-  for (const hotel of hotels) {
-    hotelStatuses.push(await getHotelOnboardingStatusService(hotel.id))
-  }
+  const hotelStatuses = await Promise.all(
+    hotels.map((hotel) => getHotelOnboardingStatusService(hotel.id))
+  )
 
   return {
     tenant,

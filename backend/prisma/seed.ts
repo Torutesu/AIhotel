@@ -29,6 +29,17 @@ function addDays(d: Date, days: number): Date {
 }
 
 async function main() {
+  // 本番誤実行ガード: このseedはデモ・開発専用で、既存データの削除（deleteMany）を含む。
+  // 単体実行スクリプトのため config.ts（JWT_SECRET必須）を経由せず process.env を直接見る
+  const nodeEnv = process.env.NODE_ENV
+  const allowInProduction = process.env.ALLOW_SEED_IN_PRODUCTION
+  if (nodeEnv === 'production' && allowInProduction !== 'true') {
+    throw new Error(
+      'NODE_ENV=production では db:seed を実行できません（デモデータ投入と既存データ削除を含むため）。' +
+        '意図的に実行する場合のみ ALLOW_SEED_IN_PRODUCTION=true を設定してください'
+    )
+  }
+
   console.log('🌱 Seeding database...')
 
   // 1. Tenant

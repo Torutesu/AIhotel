@@ -49,4 +49,20 @@ describe('parseCsvWithHeader', () => {
   it('空文字列は空の結果を返す', () => {
     expect(parseCsvWithHeader('')).toEqual({ header: [], records: [] })
   })
+
+  it('空行があっても物理行番号を保持する（Excel上の行と一致させる）', () => {
+    const { records } = parseCsvWithHeader('code,name\n\nSTD,x\n\n\nBAD,y')
+    expect(records.map((r) => [r.values.code, r.line])).toEqual([
+      ['STD', 3],
+      ['BAD', 6],
+    ])
+  })
+
+  it('クォート内改行を含む行の次の行も物理行番号が正しい', () => {
+    const { records } = parseCsvWithHeader('code,memo\nA,"line1\nline2"\nB,ok')
+    expect(records.map((r) => [r.values.code, r.line])).toEqual([
+      ['A', 2],
+      ['B', 4], // Aのメモが2物理行を消費するため、Bは4行目
+    ])
+  })
 })

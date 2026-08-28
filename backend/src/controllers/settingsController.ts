@@ -107,13 +107,14 @@ export const generatePriceRanks = asyncHandler(async (req: Request, res: Respons
 // CSVそのものは監査ログに残さず、対象ホテルと取込件数のみ記録する
 function csvImportHandler(
   entity: string,
-  service: (input: { hotelId: string; csv: string }) => Promise<{ imported: number }>
+  service: (input: { hotelId: string; csv: string }) => Promise<{ imported: number; tenantId: string }>
 ) {
   return asyncHandler(async (req: Request, res: Response) => {
     const { hotelId, csv } = req.body as { hotelId: string; csv: string }
     const result = await service({ hotelId, csv })
     await writeAuditLog({
-      tenantId: req.user!.tenantId,
+      // 操作者ではなく対象ホテルのテナントで記録する（ADMIN=tenantId null による監査漏れ防止）
+      tenantId: result.tenantId,
       userId: req.user!.userId,
       action: 'CREATE',
       entity,
@@ -122,7 +123,7 @@ function csvImportHandler(
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     })
-    sendCreated(res, result, `${result.imported}件を取り込みました`)
+    sendCreated(res, { imported: result.imported }, `${result.imported}件を取り込みました`)
   })
 }
 

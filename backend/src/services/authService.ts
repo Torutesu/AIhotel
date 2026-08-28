@@ -53,6 +53,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 
   const user = await prisma.user.findUnique({
     where: { email },
+    include: { tenant: { select: { isActive: true } } },
   })
 
   if (!user) {
@@ -61,6 +62,11 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 
   if (!user.isActive) {
     throw new ApiError(401, 'このアカウントは無効化されています')
+  }
+
+  // 解約・停止テナントのユーザーはログイン不可（ユーザー個別の無効化を待たない）
+  if (user.tenant && !user.tenant.isActive) {
+    throw new ApiError(401, 'ご契約が無効化されています。サポートにお問い合わせください')
   }
 
   const isValidPassword = await verifyPassword(password, user.password)
@@ -96,7 +102,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     userAgent: ctx?.userAgent,
   })
 
-  const { password: _, ...userWithoutPassword } = user
+  const { password: _, tenant: _tenant, ...userWithoutPassword } = user
 
   return {
     user: userWithoutPassword,
@@ -176,7 +182,7 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 
   const storedToken = await prisma.refreshToken.findUnique({
     where: { tokenHash: hashToken(refreshToken) },
-    include: { user: true },
+    include: { user: { include: { tenant: { select: { isActive: true } } } } },
   })
 
   if (!storedToken) {
@@ -192,6 +198,11 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 
   if (!storedToken.user.isActive) {
     throw new ApiError(401, 'このアカウントは無効化されています')
+  }
+
+  // 解約・停止テナントはリフレッシュも拒否する（ログインと同基準）
+  if (storedToken.user.tenant && !storedToken.user.tenant.isActive) {
+    throw new ApiError(401, 'ご契約が無効化されています。サポートにお問い合わせください')
   }
 
   // 使用済みトークンは失効させ、新しいペアを発行する
@@ -210,7 +221,7 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
     },
   })
 
-  const { password: _, ...userWithoutPassword } = storedToken.user
+  const { password: _, tenant: _tenant, ...userWithoutPassword } = storedToken.user
 
   return {
     user: userWithoutPassword,
