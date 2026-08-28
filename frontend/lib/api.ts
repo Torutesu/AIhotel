@@ -1045,6 +1045,41 @@ export const api = {
     }
   },
 
+  // ---- 招待・パスワードリセット（SAAS_DECISIONS.md D-04） ----
+  // いずれも本人確認を伴う操作のためモックにフォールバックしない
+
+  /** ユーザーを招待する（MANAGER以上） */
+  inviteUser(input: { email: string; name: string; role: "MANAGER" | "OPERATOR"; hotelId: string }): Promise<User> {
+    return rawRequest("/api/v1/auth/invitations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 招待リンクからパスワードを設定する */
+  acceptInvitation(token: string, password: string): Promise<{ email: string }> {
+    return rawRequest("/api/v1/auth/invitations/accept", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    })
+  },
+
+  /** パスワード再設定を要求する */
+  requestPasswordReset(email: string): Promise<{ requested: boolean }> {
+    return rawRequest("/api/v1/auth/password-reset", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    })
+  },
+
+  /** 再設定リンクから新しいパスワードを設定する */
+  confirmPasswordReset(token: string, password: string): Promise<{ email: string }> {
+    return rawRequest("/api/v1/auth/password-reset/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    })
+  },
+
   async logout(): Promise<void> {
     const refreshToken = getRefreshToken()
     if (refreshToken && !getMockUser()) {
