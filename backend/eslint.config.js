@@ -26,8 +26,11 @@ export default [
   {
     // Prisma クライアント実体の import を services/ と lib/ に限定
     // （DB を差し替える場合の変更箇所を services 層に閉じ込める）
+    // 例外: middlewares/tenantContext.ts はテナント分離（RLS）のトランザクション境界を
+    // 張る基盤コード。リクエスト処理の外側で prisma のトランザクションを開始する必要があり、
+    // ここでビジネスロジックのDBアクセスは行わない。
     files: ['src/**/*.ts'],
-    ignores: ['src/services/**', 'src/lib/**'],
+    ignores: ['src/services/**', 'src/lib/**', 'src/middlewares/tenantContext.ts'],
     rules: {
       'no-restricted-imports': [
         'error',

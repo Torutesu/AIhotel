@@ -22,6 +22,13 @@ const envSchema = z.object({
   // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許す
   DATABASE_URL: z.string().min(1).optional(),
 
+  // リクエスト単位のテナントコンテキスト用トランザクションの上限（SAAS_DECISIONS.md D-01）。
+  // RLS のセッション変数はトランザクション内でのみ有効なため、リクエスト処理全体を
+  // 1トランザクションで包む。長いほど接続を長く保持するので、DBの接続数と相談して決める。
+  DB_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).default(20000),
+  // プールが枯渇しているときに接続を待つ上限
+  DB_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().min(500).default(5000),
+
   JWT_SECRET: z
     .string({ required_error: 'JWT_SECRET は必須です。openssl rand -base64 64 で生成してください' })
     .min(32, 'JWT_SECRET は32文字以上である必要があります'),

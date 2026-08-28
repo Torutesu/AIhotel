@@ -21,6 +21,7 @@ import { adminRouter } from './routes/admin.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
+import { tenantContext } from './middlewares/tenantContext.js'
 import { notFoundHandler } from './middlewares/notFoundHandler.js'
 
 // Import utilities
@@ -109,6 +110,9 @@ app.get('/api/health', (_req, res) => {
 // ======================================
 // API Routes
 // ======================================
+
+// テナント分離（RLS）のコンテキストを張る。全 v1 ルートの前に置くこと（D-01）
+app.use('/api/v1', tenantContext)
 
 // API v1 routes
 app.use('/api/v1/auth', authRouter)

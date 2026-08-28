@@ -1,4 +1,4 @@
-import { prisma } from '../lib/prisma.js'
+import { prisma, runWithRlsBypass } from '../lib/prisma.js'
 import {
   hashPassword,
   verifyPassword,
@@ -46,9 +46,17 @@ interface AuthResult {
 // ======================================
 
 /**
- * ユーザーログイン
+ * ユーザーログイン。
+ * ログイン時点ではテナントを特定できないため、メールアドレス検索のみ
+ * テナント横断を許可する（SAAS_DECISIONS.md D-01 の狭い例外）。
+ * サブドメイン方式（D-08）導入後は、サブドメインからテナントを解決して
+ * テナント限定のコンテキストに置き換えられる。
  */
 export async function loginService(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
+  return runWithRlsBypass(() => loginInternal(input, ctx))
+}
+
+async function loginInternal(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
   const { email, password } = input
 
   const user = await prisma.user.findUnique({
@@ -175,9 +183,15 @@ export async function registerService(
 }
 
 /**
- * トークンをリフレッシュ（ローテーション方式）
+ * トークンをリフレッシュ（ローテーション方式）。
+ * 保存済みトークンからユーザーを引くまでテナントが確定しないため、
+ * ログインと同様にテナント横断を許可する（D-01 の狭い例外）。
  */
 export async function refreshTokenService(refreshToken: string): Promise<AuthResult> {
+  return runWithRlsBypass(() => refreshTokenInternal(refreshToken))
+}
+
+async function refreshTokenInternal(refreshToken: string): Promise<AuthResult> {
   verifyRefreshToken(refreshToken)
 
   const storedToken = await prisma.refreshToken.findUnique({
