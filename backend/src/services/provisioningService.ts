@@ -1,4 +1,4 @@
-import { prisma } from '../lib/prisma.js'
+import { prisma, runWithRlsBypass } from '../lib/prisma.js'
 import { hashPassword } from '../lib/auth.js'
 import { NotFoundError, ConflictError } from '../middlewares/errorHandler.js'
 import { seedDefaultMasters } from './masterService.js'
@@ -63,6 +63,13 @@ export function generatePriceRankRows(params: PriceRankGenerationParams): Genera
  * 1トランザクションで作成する。priceRanks 指定時は料金ランクも同時生成。
  */
 export async function provisionTenantService(input: ProvisionTenantInput) {
+  // 新規テナントの作成は、定義上どのテナントにも属さない操作。
+  // RLS のテナントコンテキスト内では他テナントの行を作れないため、
+  // この経路だけ横断で動作させる（D-01 の狭い例外）
+  return runWithRlsBypass(() => provisionTenantInternal(input))
+}
+
+async function provisionTenantInternal(input: ProvisionTenantInput) {
   const existingTenant = await prisma.tenant.findUnique({
     where: { code: input.tenant.code },
   })

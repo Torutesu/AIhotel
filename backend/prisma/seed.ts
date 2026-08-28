@@ -137,6 +137,24 @@ async function main() {
   }
   console.log(`✅ Users: ${users.length} (password: Admin1234)`)
 
+  // 提供側ADMIN（どのテナントにも属さない）。テナント作成・解約はこのアカウントで行う。
+  // メールはテナント単位で一意（D-02）だが、tenantId が null の場合は
+  // 部分一意インデックスで重複を防いでいる
+  const providerAdmin = await prisma.user.findFirst({
+    where: { email: 'ops@provider.example.com', tenantId: null },
+  })
+  if (!providerAdmin) {
+    await prisma.user.create({
+      data: {
+        email: 'ops@provider.example.com',
+        name: '提供側オペレーター',
+        role: UserRole.ADMIN,
+        password: hashedPassword,
+      },
+    })
+  }
+  console.log('✅ Provider admin: ops@provider.example.com')
+
   // 5.5 テナント別マスタ（D-10）。本番は provisionTenantService が投入する
   for (const channel of DEFAULT_OTA_CHANNELS) {
     await prisma.otaChannel.upsert({

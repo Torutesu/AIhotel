@@ -7,6 +7,11 @@ import {
   listTenantsService,
   getTenantOnboardingStatusService,
 } from '../services/onboardingService.js'
+import {
+  exportTenantDataService,
+  deactivateTenantService,
+  deleteTenantService,
+} from '../services/tenantLifecycleService.js'
 import type { ProvisionTenantInput } from '../lib/validators.js'
 
 /**
@@ -51,4 +56,66 @@ export const listTenants = asyncHandler(async (_req: Request, res: Response) => 
  */
 export const getTenantOnboardingStatus = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, await getTenantOnboardingStatusService(req.params.id))
+})
+
+// ======================================
+// 解約処理（ADMIN専用・すべて監査対象）
+// ======================================
+
+/**
+ * テナントの全データを書き出す（返却用）。認証情報は含まない
+ * GET /api/v1/admin/tenants/:id/export
+ */
+export const exportTenantData = asyncHandler(async (req: Request, res: Response) => {
+  const data = await exportTenantDataService(req.params.id)
+  await writeAuditLog({
+    tenantId: req.params.id,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'Tenant',
+    entityId: req.params.id,
+    newValue: { exported: true },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, data)
+})
+
+/**
+ * テナントを無効化する（解約の第一段階。データは残る）
+ * POST /api/v1/admin/tenants/:id/deactivate
+ */
+export const deactivateTenant = asyncHandler(async (req: Request, res: Response) => {
+  const tenant = await deactivateTenantService(req.params.id)
+  await writeAuditLog({
+    tenantId: tenant.id,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'Tenant',
+    entityId: tenant.id,
+    newValue: { isActive: false },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, tenant, 200, 'テナントを無効化しました。ログインできなくなります')
+})
+
+/**
+ * テナントを完全に削除する（取り消し不可）
+ * DELETE /api/v1/admin/tenants/:id
+ */
+export const deleteTenant = asyncHandler(async (req: Request, res: Response) => {
+  const { confirmationCode } = req.body as { confirmationCode: string }
+  const result = await deleteTenantService(req.params.id, confirmationCode)
+  // テナント行が消えるため、監査ログは tenantId を持たせずに残す
+  await writeAuditLog({
+    userId: req.user!.userId,
+    action: 'DELETE',
+    entity: 'Tenant',
+    entityId: req.params.id,
+    oldValue: { code: result.code, name: result.name },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, 'テナントを削除しました')
 })

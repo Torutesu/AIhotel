@@ -161,6 +161,15 @@ export const generatePriceRanksSchema = priceRankGenerationBaseSchema.extend({
 }).refine(priceRankRangeRefinement.check, { message: priceRankRangeRefinement.message })
 
 // ======================================
+// Tenant Lifecycle Validators（解約処理）
+// ======================================
+
+// 取り消しできない操作のため、テナントコードの入力を必須にする
+export const deleteTenantSchema = z.object({
+  confirmationCode: z.string().min(1, '確認のためテナントコードを入力してください'),
+})
+
+// ======================================
 // User Management Validators
 // ======================================
 
