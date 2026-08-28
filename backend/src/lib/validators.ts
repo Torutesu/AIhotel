@@ -161,6 +161,57 @@ export const generatePriceRanksSchema = priceRankGenerationBaseSchema.extend({
 }).refine(priceRankRangeRefinement.check, { message: priceRankRangeRefinement.message })
 
 // ======================================
+// User Management Validators
+// ======================================
+
+export const updateUserRoleSchema = z.object({
+  // ADMIN はシステム提供側専用のため、ホテル側の管理画面からは指定できない
+  role: z.enum(['MANAGER', 'OPERATOR'], {
+    errorMap: () => ({ message: '権限は MANAGER または OPERATOR を指定してください' }),
+  }),
+})
+
+export const setUserActiveSchema = z.object({
+  isActive: z.boolean(),
+})
+
+// ======================================
+// Competitor Validators（F-SET-03）
+// ======================================
+
+// OTA別URL。空文字は「未設定」として null に正規化する
+const otaUrlSchema = z
+  .string()
+  .max(500)
+  .refine((v) => v === '' || /^https?:\/\//.test(v), 'URLは http:// または https:// で始めてください')
+  .transform((v) => (v === '' ? null : v))
+  .nullable()
+  .optional()
+
+const competitorBaseSchema = z.object({
+  hotelId: entityIdSchema,
+  name: z.string().min(1, '競合ホテル名は必須です').max(200),
+  address: z.string().max(500).optional(),
+  category: z.string().max(100).optional(),
+  otaUrls: z
+    .object({
+      rakuten: otaUrlSchema,
+      jalan: otaUrlSchema,
+      ikkyu: otaUrlSchema,
+      expedia: otaUrlSchema,
+      agoda: otaUrlSchema,
+    })
+    .partial()
+    .optional(),
+})
+
+export const createCompetitorSchema = competitorBaseSchema
+export const updateCompetitorSchema = competitorBaseSchema
+  .omit({ hotelId: true })
+  .extend({ isActive: z.boolean().optional() })
+  .partial()
+
+// ======================================
 // Tenant Master Validators（SAAS_DECISIONS.md D-10）
 // ======================================
 
@@ -495,6 +546,8 @@ export type LoginInput = z.infer<typeof loginSchema>
 export type InviteUserInput = z.infer<typeof inviteUserSchema>
 export type CreateGroupBookingInput = z.infer<typeof createGroupBookingSchema>
 export type UpdateGroupBookingInput = z.infer<typeof updateGroupBookingSchema>
+export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
+export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type CreateHotelInput = z.infer<typeof createHotelSchema>
 export type CreatePriceRankInput = z.infer<typeof createPriceRankSchema>
