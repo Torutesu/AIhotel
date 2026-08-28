@@ -993,6 +993,41 @@ export interface CsvImportResult {
   imported: number
 }
 
+/** 施設管理で扱うユーザー（パスワードは含まない） */
+export interface ManagedUser {
+  id: string
+  email: string
+  name: string
+  role: UserRole
+  hotelId: string | null
+  isActive: boolean
+  lastLoginAt: string | null
+  createdAt: string
+}
+
+export interface RoomType {
+  id: string
+  hotelId: string
+  code: string
+  name: string
+  capacity: number
+  count: number
+  sortOrder: number
+  isActive: boolean
+}
+
+export type OtaUrlKey = "rakuten" | "jalan" | "ikkyu" | "expedia" | "agoda"
+
+export interface Competitor {
+  id: string
+  hotelId: string
+  name: string
+  address: string | null
+  category: string | null
+  otaUrls: Partial<Record<OtaUrlKey, string | null>> | null
+  isActive: boolean
+}
+
 /** データ保持期間（SAAS_DECISIONS.md D-06） */
 export interface RetentionSettings {
   id: string
@@ -1245,6 +1280,87 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ hotelId }),
     })
+  },
+
+  // ---- 施設管理（ユーザー・客室タイプ・競合ホテル） ----
+  // 管理操作はモックにフォールバックしない（実データの変更のため）
+
+  managedUsers(hotelId: string): Promise<ManagedUser[]> {
+    return rawRequest(`/api/v1/management/users?hotelId=${hotelId}`)
+  },
+
+  updateUserRole(id: string, hotelId: string, role: "MANAGER" | "OPERATOR"): Promise<ManagedUser> {
+    return rawRequest(`/api/v1/management/users/${id}/role?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    })
+  },
+
+  setUserActive(id: string, hotelId: string, isActive: boolean): Promise<ManagedUser> {
+    return rawRequest(`/api/v1/management/users/${id}/active?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify({ isActive }),
+    })
+  },
+
+  roomTypes(hotelId: string): Promise<RoomType[]> {
+    return rawRequest(`/api/v1/management/room-types?hotelId=${hotelId}`)
+  },
+
+  createRoomType(input: {
+    hotelId: string
+    code: string
+    name: string
+    capacity: number
+    count: number
+    sortOrder?: number
+  }): Promise<RoomType> {
+    return rawRequest("/api/v1/management/room-types", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateRoomType(id: string, hotelId: string, data: Partial<RoomType>): Promise<RoomType> {
+    return rawRequest(`/api/v1/management/room-types/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  deactivateRoomType(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/management/room-types/${id}?hotelId=${hotelId}`, { method: "DELETE" })
+  },
+
+  competitors(hotelId: string): Promise<Competitor[]> {
+    return rawRequest(`/api/v1/management/competitors?hotelId=${hotelId}`)
+  },
+
+  createCompetitor(input: {
+    hotelId: string
+    name: string
+    category?: string
+    otaUrls?: Partial<Record<OtaUrlKey, string | null>>
+  }): Promise<Competitor> {
+    return rawRequest("/api/v1/management/competitors", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateCompetitor(
+    id: string,
+    hotelId: string,
+    data: { name?: string; category?: string; otaUrls?: Partial<Record<OtaUrlKey, string | null>> }
+  ): Promise<Competitor> {
+    return rawRequest(`/api/v1/management/competitors/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  deactivateCompetitor(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/management/competitors/${id}?hotelId=${hotelId}`, { method: "DELETE" })
   },
 
   // データ保持期間（D-06）。テナント単位の設定のためモックにフォールバックしない

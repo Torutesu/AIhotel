@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast"
 import { useAuth } from "@/components/auth-provider"
 import { OnboardingSetupCard } from "@/components/onboarding-setup-card"
 import { RetentionSettingsCard } from "@/components/retention-settings-card"
+import { HotelManagementCard } from "@/components/hotel-management-card"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
 import type { Hotel } from "@shared/types"
 
@@ -552,6 +553,9 @@ export function SettingsTab() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 施設の管理（スタッフ・客室タイプ・競合ホテル） */}
+      {hotelId && <HotelManagementCard hotelId={hotelId} canManage={canManageHotel} />}
 
       {/* 保持期間設定（D-06 — 実データ） */}
       <RetentionSettingsCard canManage={canManageHotel} />
