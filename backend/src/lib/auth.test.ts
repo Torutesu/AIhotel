@@ -6,6 +6,7 @@ import {
   verifyAccessToken,
   hashToken,
   getRefreshTokenExpiry,
+  generateRefreshToken,
 } from './auth.js'
 
 const sampleUser = {
@@ -78,5 +79,16 @@ describe('getRefreshTokenExpiry (JWT_REFRESH_EXPIRES_IN の間接検証)', () =>
     const sevenDaysMs = 7 * 24 * 60 * 60 * 1000
     expect(expiry.getTime()).toBeGreaterThanOrEqual(before + sevenDaysMs - 1000)
     expect(expiry.getTime()).toBeLessThanOrEqual(after + sevenDaysMs + 1000)
+  })
+})
+
+describe('generateRefreshToken', () => {
+  it('同一ユーザーの連続発行でも必ず異なるトークンになる', () => {
+    // iat は秒単位のため、jti がないと同じ秒内の2回目が完全一致し、
+    // tokenHash の一意制約に衝突してログインが失敗する
+    const a = generateRefreshToken('user-1')
+    const b = generateRefreshToken('user-1')
+    expect(a).not.toBe(b)
+    expect(hashToken(a)).not.toBe(hashToken(b))
   })
 })
