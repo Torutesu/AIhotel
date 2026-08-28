@@ -21,6 +21,9 @@ import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 import { useAuth } from "@/components/auth-provider"
+import { OnboardingSetupCard } from "@/components/onboarding-setup-card"
+import { RetentionSettingsCard } from "@/components/retention-settings-card"
+import { HotelManagementCard } from "@/components/hotel-management-card"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
 import type { Hotel } from "@shared/types"
 
@@ -181,24 +184,6 @@ export function SettingsTab() {
     }
   }
 
-  // 表示設定（バックエンド未対応のためlocalStorageのまま）
-  const [theme, setTheme] = useState<"light" | "dark" | "system">("system")
-  const [language, setLanguage] = useState("ja")
-  const [dateFormat, setDateFormat] = useState("YYYY/MM/DD")
-  const [currency, setCurrency] = useState("JPY")
-  const [numberFormat, setNumberFormat] = useState("ja-JP")
-
-  // 通知設定（バックエンド未対応のためlocalStorageのまま）
-  const [emailNotifications, setEmailNotifications] = useState(true)
-  const [alertThreshold, setAlertThreshold] = useState(95)
-  const [dailyReport, setDailyReport] = useState(true)
-  const [weeklyReport, setWeeklyReport] = useState(true)
-
-  // システム設定（バックエンド未対応のためlocalStorageのまま）
-  const [autoPriceUpdate, setAutoPriceUpdate] = useState(false)
-  const [priceUpdateInterval, setPriceUpdateInterval] = useState("1")
-  const [dataRetentionDays, setDataRetentionDays] = useState(365)
-
   // ダッシュボード設定
   const [showDisplayMonthsSelector, setShowDisplayMonthsSelector] = useState(() => {
     if (typeof window !== "undefined") {
@@ -294,18 +279,6 @@ export function SettingsTab() {
       setContactPhone(hotel.phone ?? "")
       setWeekendDays(parseWeekendDays(hotel.weekendDays))
     }
-    setTheme("system")
-    setLanguage("ja")
-    setDateFormat("YYYY/MM/DD")
-    setCurrency("JPY")
-    setNumberFormat("ja-JP")
-    setEmailNotifications(true)
-    setAlertThreshold(95)
-    setDailyReport(true)
-    setWeeklyReport(true)
-    setAutoPriceUpdate(false)
-    setPriceUpdateInterval("1")
-    setDataRetentionDays(365)
     setShowDisplayMonthsSelector(false)
     setShowTopSitesSection(false)
     setDashboardKpiItems(ALL_DASHBOARD_KPI_KEYS)
@@ -333,6 +306,15 @@ export function SettingsTab() {
           </Button>
         </div>
       </div>
+
+      {/* 初期設定ウィザード（SAAS_ONBOARDING.md Step 4） */}
+      {hotelId && (
+        <OnboardingSetupCard
+          hotelId={hotelId}
+          canManage={canManageHotel}
+          onPriceRanksChanged={loadPriceRanks}
+        />
+      )}
 
       {/* ホテル情報設定 */}
       <Card>
@@ -572,178 +554,26 @@ export function SettingsTab() {
         </DialogContent>
       </Dialog>
 
-      {/* 表示設定 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>表示設定</CardTitle>
-          <CardDescription>画面表示に関する設定を行います</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="theme">テーマ</Label>
-              <Select value={theme} onValueChange={(value: "light" | "dark" | "system") => setTheme(value)}>
-                <SelectTrigger id="theme">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="light">ライト</SelectItem>
-                  <SelectItem value="dark">ダーク</SelectItem>
-                  <SelectItem value="system">システム設定に従う</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="language">言語</Label>
-              <Select value={language} onValueChange={setLanguage}>
-                <SelectTrigger id="language">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ja">日本語</SelectItem>
-                  <SelectItem value="en">English</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="dateFormat">日付形式</Label>
-              <Select value={dateFormat} onValueChange={setDateFormat}>
-                <SelectTrigger id="dateFormat">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="YYYY/MM/DD">YYYY/MM/DD</SelectItem>
-                  <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
-                  <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="currency">通貨</Label>
-              <Select value={currency} onValueChange={setCurrency}>
-                <SelectTrigger id="currency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="JPY">JPY (円)</SelectItem>
-                  <SelectItem value="USD">USD ($)</SelectItem>
-                  <SelectItem value="EUR">EUR (€)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="numberFormat">数値形式</Label>
-              <Select value={numberFormat} onValueChange={setNumberFormat}>
-                <SelectTrigger id="numberFormat">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ja-JP">日本語形式 (1,234.56)</SelectItem>
-                  <SelectItem value="en-US">英語形式 (1,234.56)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* 施設の管理（スタッフ・客室タイプ・競合ホテル） */}
+      {hotelId && <HotelManagementCard hotelId={hotelId} canManage={canManageHotel} />}
 
-      {/* 通知設定 */}
-      <Card>
-        <CardHeader>
-          <CardTitle>通知設定</CardTitle>
-          <CardDescription>アラートとレポートの通知設定を行います</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="emailNotifications">メール通知</Label>
-              <p className="text-sm text-muted-foreground">重要なアラートをメールで受け取る</p>
-            </div>
-            <Switch
-              id="emailNotifications"
-              checked={emailNotifications}
-              onCheckedChange={setEmailNotifications}
-            />
-          </div>
-          <Separator />
-          <div className="space-y-2">
-            <Label htmlFor="alertThreshold">アラート閾値 (%)</Label>
-            <Input
-              id="alertThreshold"
-              type="number"
-              min="0"
-              max="100"
-              value={alertThreshold}
-              onChange={(e) => setAlertThreshold(Number.parseInt(e.target.value))}
-            />
-            <p className="text-sm text-muted-foreground">この値を下回るとアラートが発動します</p>
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="dailyReport">日次レポート</Label>
-              <p className="text-sm text-muted-foreground">毎日のレポートをメールで受け取る</p>
-            </div>
-            <Switch id="dailyReport" checked={dailyReport} onCheckedChange={setDailyReport} />
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="weeklyReport">週次レポート</Label>
-              <p className="text-sm text-muted-foreground">毎週のレポートをメールで受け取る</p>
-            </div>
-            <Switch id="weeklyReport" checked={weeklyReport} onCheckedChange={setWeeklyReport} />
-          </div>
-        </CardContent>
-      </Card>
+      {/* 保持期間設定（D-06 — 実データ） */}
+      <RetentionSettingsCard canManage={canManageHotel} />
 
-      {/* システム設定 */}
+      {/* 未実装機能の予告。動かない項目を「保存できる」ように見せない（SaaS販売時のクレーム要因） */}
       <Card>
         <CardHeader>
-          <CardTitle>システム設定</CardTitle>
-          <CardDescription>システムの動作に関する設定を行います</CardDescription>
+          <CardTitle>準備中の機能</CardTitle>
+          <CardDescription>
+            以下は今後のリリースで提供予定です。現時点では設定できません。
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <Label htmlFor="autoPriceUpdate">自動価格更新</Label>
-              <p className="text-sm text-muted-foreground">AI予測に基づいて自動的に価格を更新する</p>
-            </div>
-            <Switch id="autoPriceUpdate" checked={autoPriceUpdate} onCheckedChange={setAutoPriceUpdate} />
-          </div>
-          {autoPriceUpdate && (
-            <>
-              <Separator />
-              <div className="space-y-2">
-                <Label htmlFor="priceUpdateInterval">価格更新間隔 (時間)</Label>
-                <Select value={priceUpdateInterval} onValueChange={setPriceUpdateInterval}>
-                  <SelectTrigger id="priceUpdateInterval">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="1">1時間</SelectItem>
-                    <SelectItem value="3">3時間</SelectItem>
-                    <SelectItem value="6">6時間</SelectItem>
-                    <SelectItem value="12">12時間</SelectItem>
-                    <SelectItem value="24">24時間</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </>
-          )}
-          <Separator />
-          <div className="space-y-2">
-            <Label htmlFor="dataRetentionDays">データ保持期間 (日)</Label>
-            <Input
-              id="dataRetentionDays"
-              type="number"
-              min="30"
-              max="3650"
-              value={dataRetentionDays}
-              onChange={(e) => setDataRetentionDays(Number.parseInt(e.target.value))}
-            />
-            <p className="text-sm text-muted-foreground">過去のデータを保持する日数を設定します</p>
-          </div>
+        <CardContent>
+          <ul className="space-y-2 text-sm text-muted-foreground">
+            <li>・メール通知（アラート・日次／週次レポートの自動送信）</li>
+            <li>・AI予測にもとづく価格の自動更新</li>
+            <li>・表示設定（テーマ・言語・日付形式・通貨）</li>
+          </ul>
         </CardContent>
       </Card>
 

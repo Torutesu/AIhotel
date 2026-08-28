@@ -30,6 +30,10 @@ services:
       - '5432:5432'
     volumes:
       - hotel_revenue_postgres_data:/var/lib/postgresql/data
+      # 初回起動時に app_user（RLSが効くロール）を作成する。
+      # 既存ボリュームがある場合は実行されないため、
+      # docker compose down -v で作り直すか docker/initdb/10-app-user.sql を手動実行する
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d hotel_revenue_db']
       interval: 5s

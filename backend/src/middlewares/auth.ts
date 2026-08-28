@@ -144,3 +144,20 @@ export function requireSelfOrAdmin(userIdExtractor: (req: Request) => string | u
     next()
   }
 }
+
+/**
+ * システム提供側の ADMIN（どのテナントにも属さない）だけを通す。
+ *
+ * テナント作成・一覧・解約はテナントを横断する操作のため、
+ * 顧客側に配置された ADMIN（tenantId を持つ）には許可しない。
+ * authenticate と requireRole('ADMIN') の後に使うこと。
+ */
+export function requireProviderAdmin(req: Request, _res: Response, next: NextFunction) {
+  if (!req.user) {
+    return next(new ApiError(401, '認証が必要です'))
+  }
+  if (req.user.role !== 'ADMIN' || req.user.tenantId !== null) {
+    return next(new ApiError(403, 'この操作はシステム提供側の管理者のみ実行できます'))
+  }
+  next()
+}

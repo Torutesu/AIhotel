@@ -9,12 +9,20 @@ import {
   logoutAllService,
   getMeService,
 } from '../services/authService.js'
-import type { LoginInput, RegisterInput } from '../lib/validators.js'
+import type { LoginInput, RegisterInput, InviteUserInput } from '../lib/validators.js'
+import {
+  inviteUserService,
+  acceptInvitationService,
+  requestPasswordResetService,
+  resetPasswordService,
+} from '../services/invitationService.js'
 
 function requestContext(req: Request) {
   return {
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
+    // サブドメインからテナントを特定するため（D-08）
+    host: req.hostname || req.headers.host,
   }
 }
 
@@ -78,4 +86,54 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.userId
   const user = await getMeService(userId)
   sendSuccess(res, user)
+})
+
+// ======================================
+// 招待・パスワードリセット（SAAS_DECISIONS.md D-04）
+// ======================================
+
+/**
+ * ユーザーを招待する（ADMIN / MANAGER・監査対象）
+ * POST /api/v1/auth/invitations
+ */
+export const inviteUser = asyncHandler(async (req: Request, res: Response) => {
+  const input = req.body as InviteUserInput
+  const user = await inviteUserService(input, { userId: req.user!.userId }, requestContext(req))
+  sendCreated(res, user, '招待メールを送信しました')
+})
+
+/**
+ * 招待を受諾してパスワードを設定する（未認証）
+ * POST /api/v1/auth/invitations/accept
+ */
+export const acceptInvitation = asyncHandler(async (req: Request, res: Response) => {
+  const { token, password } = req.body as { token: string; password: string }
+  const result = await acceptInvitationService(token, password, requestContext(req))
+  sendSuccess(res, result, 200, 'パスワードを設定しました。ログインしてください')
+})
+
+/**
+ * パスワードリセットを要求する（未認証）。
+ * アカウントの有無を推測させないため、常に同じ応答を返す
+ * POST /api/v1/auth/password-reset
+ */
+export const requestPasswordReset = asyncHandler(async (req: Request, res: Response) => {
+  const { email } = req.body as { email: string }
+  await requestPasswordResetService(email, requestContext(req))
+  sendSuccess(
+    res,
+    { requested: true },
+    200,
+    'ご登録のメールアドレス宛に再設定用のリンクを送信しました'
+  )
+})
+
+/**
+ * リセットトークンで新しいパスワードを設定する（未認証）
+ * POST /api/v1/auth/password-reset/confirm
+ */
+export const confirmPasswordReset = asyncHandler(async (req: Request, res: Response) => {
+  const { token, password } = req.body as { token: string; password: string }
+  const result = await resetPasswordService(token, password, requestContext(req))
+  sendSuccess(res, result, 200, 'パスワードを再設定しました。ログインしてください')
 })

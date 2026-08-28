@@ -17,13 +17,19 @@ import { analysisRouter } from './routes/analysis.js'
 import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
 import { reportsRouter } from './routes/reports.js'
+import { adminRouter } from './routes/admin.js'
+import { groupBookingsRouter } from './routes/groupBookings.js'
+import { managementRouter } from './routes/management.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
+import { tenantContext } from './middlewares/tenantContext.js'
 import { notFoundHandler } from './middlewares/notFoundHandler.js'
 
 // Import utilities
 import { logger, requestLogger } from './utils/logger.js'
+import { isAllowedOrigin } from './lib/tenantResolver.js'
+import { checkHealthService } from './services/healthService.js'
 
 // ======================================
 // Configuration
@@ -50,16 +56,36 @@ const limiter = rateLimit({
 // Middleware Setup
 // ======================================
 
+// Cloud Run 等のリバースプロキシ配下では、クライアントIPとホスト名が
+// X-Forwarded-* ヘッダーで渡る。これを信頼しないと
+// レート制限が全リクエストを同一IPとみなし、サブドメインによる
+// テナント判定（D-08）も効かなくなる。
+// 直近1ホップ（ロードバランサ）のみを信頼する
+if (NODE_ENV === 'production') {
+  app.set('trust proxy', 1)
+}
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: NODE_ENV === 'production',
 }))
 
 // CORS configuration
+// テナントごとのサブドメイン（D-08）を許可するため、オリジンは動的に判定する。
+// ベースドメイン配下の1段サブドメインのみを通し、詐称ドメインは弾く
+const explicitOrigins = NODE_ENV === 'production'
+  ? [FRONTEND_URL]
+  : [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000']
+
 app.use(cors({
-  origin: NODE_ENV === 'production' 
-    ? FRONTEND_URL 
-    : [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin(origin, callback) {
+    // 同一オリジン・サーバー間通信など Origin を持たないリクエストは許可する
+    if (!origin) return callback(null, true)
+    if (isAllowedOrigin(origin, config.APP_BASE_DOMAIN, explicitOrigins)) {
+      return callback(null, true)
+    }
+    callback(new Error('CORS: 許可されていないオリジンです'))
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -91,23 +117,23 @@ app.get('/health', (_req, res) => {
   })
 })
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    success: true,
-    data: {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-      services: {
-        api: 'healthy',
-        // database: 'healthy', // TODO: Add DB health check
-      },
-    },
+// DBの疎通まで確認する。DBが落ちているのに200を返すと監視が機能しないため、
+// 異常時は 503 を返して監視サービスがアラートを出せるようにする
+app.get('/api/health', async (_req, res) => {
+  const health = await checkHealthService()
+  res.status(health.status === 'ok' ? 200 : 503).json({
+    success: health.status === 'ok',
+    data: { ...health, timestamp: new Date().toISOString() },
+    ...(health.status !== 'ok' && { error: 'データベースに接続できません' }),
   })
 })
 
 // ======================================
 // API Routes
 // ======================================
+
+// テナント分離（RLS）のコンテキストを張る。全 v1 ルートの前に置くこと（D-01）
+app.use('/api/v1', tenantContext)
 
 // API v1 routes
 app.use('/api/v1/auth', authRouter)
@@ -119,6 +145,9 @@ app.use('/api/v1/analysis', analysisRouter)
 app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/reports', reportsRouter)
+app.use('/api/v1/admin', adminRouter)
+app.use('/api/v1/group-bookings', groupBookingsRouter)
+app.use('/api/v1/management', managementRouter)
 
 // ======================================
 // Error Handling

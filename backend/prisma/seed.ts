@@ -1,7 +1,14 @@
 import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { DEFAULT_OTA_CHANNELS, DEFAULT_REVIEW_SOURCES } from '../src/lib/tenantMasters.js'
 
-const prisma = new PrismaClient()
+// seed はデモデータの一括投入とその削除を行うため、RLS の制約を受けない
+// 管理ロール（DIRECT_DATABASE_URL）があればそちらで接続する。
+// アプリ実行用の app_user で実行すると RLS により書き込みが拒否される。
+const seedDatabaseUrl = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL
+const prisma = new PrismaClient(
+  seedDatabaseUrl ? { datasources: { db: { url: seedDatabaseUrl } } } : undefined
+)
 
 // 再実行しても同じ結果になるよう、決定的な擬似乱数を使う（M-4: 冪等性）
 function createRng(seed: number) {
@@ -29,6 +36,17 @@ function addDays(d: Date, days: number): Date {
 }
 
 async function main() {
+  // 本番誤実行ガード: このseedはデモ・開発専用で、既存データの削除（deleteMany）を含む。
+  // 単体実行スクリプトのため config.ts（JWT_SECRET必須）を経由せず process.env を直接見る
+  const nodeEnv = process.env.NODE_ENV
+  const allowInProduction = process.env.ALLOW_SEED_IN_PRODUCTION
+  if (nodeEnv === 'production' && allowInProduction !== 'true') {
+    throw new Error(
+      'NODE_ENV=production では db:seed を実行できません（デモデータ投入と既存データ削除を含むため）。' +
+        '意図的に実行する場合のみ ALLOW_SEED_IN_PRODUCTION=true を設定してください'
+    )
+  }
+
   console.log('🌱 Seeding database...')
 
   // 1. Tenant
@@ -106,7 +124,8 @@ async function main() {
   ]
   for (const u of users) {
     await prisma.user.upsert({
-      where: { email: u.email },
+      // メールはテナント単位で一意（D-02）
+      where: { tenantId_email: { tenantId: tenant.id, email: u.email } },
       update: { tenantId: tenant.id, hotelId: hotel.id, role: u.role },
       create: {
         ...u,
@@ -117,6 +136,41 @@ async function main() {
     })
   }
   console.log(`✅ Users: ${users.length} (password: Admin1234)`)
+
+  // 提供側ADMIN（どのテナントにも属さない）。テナント作成・解約はこのアカウントで行う。
+  // メールはテナント単位で一意（D-02）だが、tenantId が null の場合は
+  // 部分一意インデックスで重複を防いでいる
+  const providerAdmin = await prisma.user.findFirst({
+    where: { email: 'ops@provider.example.com', tenantId: null },
+  })
+  if (!providerAdmin) {
+    await prisma.user.create({
+      data: {
+        email: 'ops@provider.example.com',
+        name: '提供側オペレーター',
+        role: UserRole.ADMIN,
+        password: hashedPassword,
+      },
+    })
+  }
+  console.log('✅ Provider admin: ops@provider.example.com')
+
+  // 5.5 テナント別マスタ（D-10）。本番は provisionTenantService が投入する
+  for (const channel of DEFAULT_OTA_CHANNELS) {
+    await prisma.otaChannel.upsert({
+      where: { tenantId_code: { tenantId: tenant.id, code: channel.code } },
+      update: { name: channel.name, sortOrder: channel.sortOrder },
+      create: { ...channel, tenantId: tenant.id },
+    })
+  }
+  for (const source of DEFAULT_REVIEW_SOURCES) {
+    await prisma.reviewSource.upsert({
+      where: { tenantId_code: { tenantId: tenant.id, code: source.code } },
+      update: { name: source.name, sortOrder: source.sortOrder },
+      create: { ...source, tenantId: tenant.id },
+    })
+  }
+  console.log(`✅ Tenant masters: OTA ${DEFAULT_OTA_CHANNELS.length} / Review ${DEFAULT_REVIEW_SOURCES.length}`)
 
   // 6. Pricing strategy config
   await prisma.pricingStrategyConfig.upsert({

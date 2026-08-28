@@ -22,10 +22,18 @@ export class ApiClientError extends Error {
   status: number
   /** バックエンド自体に到達できなかった（接続失敗/非JSON応答）場合のみ true。開発用モックログインの発火条件に使う。 */
   isBackendUnreachable: boolean
-  constructor(status: number, message: string, isBackendUnreachable = false) {
+  /** バリデーション等の項目別エラー詳細（CSVインポートの行エラー表示などに使う） */
+  errors?: Array<{ field: string; message: string }>
+  constructor(
+    status: number,
+    message: string,
+    isBackendUnreachable = false,
+    errors?: Array<{ field: string; message: string }>
+  ) {
     super(message)
     this.status = status
     this.isBackendUnreachable = isBackendUnreachable
+    this.errors = errors
   }
 }
 
@@ -154,11 +162,19 @@ function mockLogin(email: string, password: string): LoginResult {
   }
 }
 
+// 実バックエンドでログイン済みのセッション（実トークンあり・モックユーザーなし）では
+// モックへ切り替えない。本番でバックエンド障害が起きた際に、実顧客の画面へ
+// ダミーの収益データを表示する事故を防ぐ（エラー＋再試行表示に倒す）。
+// フォールバックを許可するのは「モックログイン中」または「未ログイン」のみ。
+function canFallbackToMock(): boolean {
+  return isDemoModeEnabled() && (getMockUser() !== null || getAccessToken() === null)
+}
+
 async function withDemoFallback<T>(request: () => Promise<T>, fallback: () => T): Promise<T> {
   try {
     return await request()
   } catch (err) {
-    if (isDemoModeEnabled() && err instanceof ApiClientError && err.isBackendUnreachable) {
+    if (canFallbackToMock() && err instanceof ApiClientError && err.isBackendUnreachable) {
       markDemoDataInUse()
       return fallback()
     }
@@ -203,7 +219,12 @@ async function rawRequest<T>(
   }
 
   if (!res.ok || !body.success) {
-    throw new ApiClientError(res.status, body.error || `リクエストに失敗しました (${res.status})`)
+    throw new ApiClientError(
+      res.status,
+      body.error || `リクエストに失敗しました (${res.status})`,
+      false,
+      body.errors
+    )
   }
 
   return body.data as T
@@ -938,14 +959,122 @@ function getMockEvents(hotelId: string): HotelEvent[] {
   return mockEvents
 }
 
+// ---- オンボーディング（SAAS_ONBOARDING.md Step 4/5） ----
+
+export interface OnboardingItem {
+  key: string
+  label: string
+  complete: boolean
+  detail: string
+}
+
+export interface OnboardingStatus {
+  hotelId: string
+  hotelName: string
+  required: OnboardingItem[]
+  optional: OnboardingItem[]
+  requiredCompleteCount: number
+  requiredTotalCount: number
+  isComplete: boolean
+}
+
+export interface GeneratePriceRanksInput {
+  count?: number
+  minPrice1P: number
+  maxPrice1P: number
+  multiplier2P?: number
+  multiplier3P?: number
+  multiplier4P?: number
+  roundTo?: number
+  replaceExisting?: boolean
+}
+
+export interface CsvImportResult {
+  imported: number
+}
+
+/** 施設管理で扱うユーザー（パスワードは含まない） */
+export interface ManagedUser {
+  id: string
+  email: string
+  name: string
+  role: UserRole
+  hotelId: string | null
+  isActive: boolean
+  lastLoginAt: string | null
+  createdAt: string
+}
+
+export interface RoomType {
+  id: string
+  hotelId: string
+  code: string
+  name: string
+  capacity: number
+  count: number
+  sortOrder: number
+  isActive: boolean
+}
+
+export type OtaUrlKey = "rakuten" | "jalan" | "ikkyu" | "expedia" | "agoda"
+
+export interface Competitor {
+  id: string
+  hotelId: string
+  name: string
+  address: string | null
+  category: string | null
+  otaUrls: Partial<Record<OtaUrlKey, string | null>> | null
+  isActive: boolean
+}
+
+/** データ保持期間（SAAS_DECISIONS.md D-06） */
+export interface RetentionSettings {
+  id: string
+  name: string
+  auditLogRetentionDays: number
+  operationalDataRetentionDays: number
+  /** null は無期限 */
+  dailyDataRetentionDays: number | null
+}
+
+export type CsvImportKind = "room-types" | "budgets" | "daily-data"
+
+// デモ環境はseed済みデータ相当のため「必須項目すべて完了」として表示する
+function mockOnboardingStatus(hotelId: string): OnboardingStatus {
+  const required: OnboardingItem[] = [
+    { key: "hotelInfo", label: "ホテル基本情報", complete: true, detail: "総客室数 200室" },
+    { key: "users", label: "初期ユーザー（MANAGER必須）", complete: true, detail: "MANAGER 1名 / OPERATOR 1名" },
+    { key: "roomTypes", label: "客室タイプ", complete: true, detail: "5タイプ・計200室" },
+    { key: "priceRanks", label: "料金ランク", complete: true, detail: "40段階" },
+    { key: "pricingStrategy", label: "価格戦略の重み", complete: true, detail: "稼働率40% / ADR40% / 競合20%" },
+  ]
+  const optional: OnboardingItem[] = [
+    { key: "competitors", label: "競合ホテル", complete: true, detail: "3社" },
+    { key: "budgets", label: "月次予算（当月・翌月）", complete: true, detail: "当月登録済 / 翌月登録済" },
+    { key: "pastDailyData", label: "過去実績データ", complete: true, detail: "91日分" },
+  ]
+  return {
+    hotelId,
+    hotelName: MOCK_HOTEL.name,
+    required,
+    optional,
+    requiredCompleteCount: required.length,
+    requiredTotalCount: required.length,
+    isComplete: true,
+  }
+}
+
 // ---- API surface ----
 
 export const api = {
-  async login(email: string, password: string): Promise<LoginResult> {
+  // tenantCode は、同じメールが複数の組織で使われている場合にのみ必要。
+  // 本番はサブドメインで組織が決まるため通常は不要（SAAS_DECISIONS.md D-08）
+  async login(email: string, password: string, tenantCode?: string): Promise<LoginResult> {
     try {
       const result = await rawRequest<LoginResult>("/api/v1/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, ...(tenantCode ? { tenantCode } : {}) }),
       })
       storeTokens(result.tokens.accessToken, result.tokens.refreshToken)
       return result
@@ -959,6 +1088,41 @@ export const api = {
       }
       throw err
     }
+  },
+
+  // ---- 招待・パスワードリセット（SAAS_DECISIONS.md D-04） ----
+  // いずれも本人確認を伴う操作のためモックにフォールバックしない
+
+  /** ユーザーを招待する（MANAGER以上） */
+  inviteUser(input: { email: string; name: string; role: "MANAGER" | "OPERATOR"; hotelId: string }): Promise<User> {
+    return rawRequest("/api/v1/auth/invitations", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 招待リンクからパスワードを設定する */
+  acceptInvitation(token: string, password: string): Promise<{ email: string }> {
+    return rawRequest("/api/v1/auth/invitations/accept", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    })
+  },
+
+  /** パスワード再設定を要求する */
+  requestPasswordReset(email: string): Promise<{ requested: boolean }> {
+    return rawRequest("/api/v1/auth/password-reset", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    })
+  },
+
+  /** 再設定リンクから新しいパスワードを設定する */
+  confirmPasswordReset(token: string, password: string): Promise<{ email: string }> {
+    return rawRequest("/api/v1/auth/password-reset/confirm", {
+      method: "POST",
+      body: JSON.stringify({ token, password }),
+    })
   },
 
   async logout(): Promise<void> {
@@ -1107,6 +1271,157 @@ export const api = {
         return target
       }
     )
+  },
+
+  // 需要予測の再計算（F-DP-05）。過去実績インポート後にAI推奨を生成するために使う。
+  // 予測生成は実データが前提のためモックフォールバックしない
+  recomputeForecast(hotelId: string): Promise<unknown> {
+    return rawRequest(`/api/v1/pricing/recompute`, {
+      method: "POST",
+      body: JSON.stringify({ hotelId }),
+    })
+  },
+
+  // ---- 施設管理（ユーザー・客室タイプ・競合ホテル） ----
+  // 管理操作はモックにフォールバックしない（実データの変更のため）
+
+  managedUsers(hotelId: string): Promise<ManagedUser[]> {
+    return rawRequest(`/api/v1/management/users?hotelId=${hotelId}`)
+  },
+
+  updateUserRole(id: string, hotelId: string, role: "MANAGER" | "OPERATOR"): Promise<ManagedUser> {
+    return rawRequest(`/api/v1/management/users/${id}/role?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    })
+  },
+
+  setUserActive(id: string, hotelId: string, isActive: boolean): Promise<ManagedUser> {
+    return rawRequest(`/api/v1/management/users/${id}/active?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify({ isActive }),
+    })
+  },
+
+  roomTypes(hotelId: string): Promise<RoomType[]> {
+    return rawRequest(`/api/v1/management/room-types?hotelId=${hotelId}`)
+  },
+
+  createRoomType(input: {
+    hotelId: string
+    code: string
+    name: string
+    capacity: number
+    count: number
+    sortOrder?: number
+  }): Promise<RoomType> {
+    return rawRequest("/api/v1/management/room-types", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateRoomType(id: string, hotelId: string, data: Partial<RoomType>): Promise<RoomType> {
+    return rawRequest(`/api/v1/management/room-types/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  deactivateRoomType(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/management/room-types/${id}?hotelId=${hotelId}`, { method: "DELETE" })
+  },
+
+  competitors(hotelId: string): Promise<Competitor[]> {
+    return rawRequest(`/api/v1/management/competitors?hotelId=${hotelId}`)
+  },
+
+  createCompetitor(input: {
+    hotelId: string
+    name: string
+    category?: string
+    otaUrls?: Partial<Record<OtaUrlKey, string | null>>
+  }): Promise<Competitor> {
+    return rawRequest("/api/v1/management/competitors", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  updateCompetitor(
+    id: string,
+    hotelId: string,
+    data: { name?: string; category?: string; otaUrls?: Partial<Record<OtaUrlKey, string | null>> }
+  ): Promise<Competitor> {
+    return rawRequest(`/api/v1/management/competitors/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  deactivateCompetitor(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/management/competitors/${id}?hotelId=${hotelId}`, { method: "DELETE" })
+  },
+
+  // データ保持期間（D-06）。テナント単位の設定のためモックにフォールバックしない
+  retentionSettings(): Promise<RetentionSettings> {
+    return rawRequest("/api/v1/settings/retention")
+  },
+
+  updateRetentionSettings(data: Partial<RetentionSettings>): Promise<RetentionSettings> {
+    return rawRequest("/api/v1/settings/retention", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    })
+  },
+
+  onboardingStatus(hotelId: string): Promise<OnboardingStatus> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/onboarding-status?hotelId=${hotelId}`),
+      () => mockOnboardingStatus(hotelId)
+    )
+  },
+
+  generatePriceRanks(hotelId: string, input: GeneratePriceRanksInput): Promise<PriceRank[]> {
+    return withDemoFallback(
+      () =>
+        rawRequest<PriceRank[]>(`/api/v1/settings/price-ranks/generate`, {
+          method: "POST",
+          body: JSON.stringify({ hotelId, ...input }),
+        }),
+      () => {
+        // デモ時はメモリ上のランクを生成し直して結果を画面で確認できるようにする
+        const count = input.count ?? 40
+        const roundTo = input.roundTo ?? 100
+        const roundPrice = (v: number) => Math.round(v / roundTo) * roundTo
+        mockPriceRanks = Array.from({ length: count }, (_, i) => {
+          const rank = i + 1
+          const ratio = count === 1 ? 0 : i / (count - 1)
+          const price1P = roundPrice(input.minPrice1P + ratio * (input.maxPrice1P - input.minPrice1P))
+          return {
+            id: `mock-rank-${rank}`,
+            hotelId,
+            rank,
+            label: `R${String(rank).padStart(2, "0")}`,
+            price1P,
+            price2P: roundPrice(price1P * (input.multiplier2P ?? 1.4)),
+            price3P: roundPrice(price1P * (input.multiplier3P ?? 1.8)),
+            price4P: input.multiplier4P != null ? roundPrice(price1P * input.multiplier4P) : undefined,
+            isActive: true,
+          } as PriceRank
+        })
+        return mockPriceRanks
+      }
+    )
+  },
+
+  // CSVインポートはデータ投入操作のためモックフォールバックしない
+  // （デモ環境では「バックエンドに接続できません」エラーを表示する）
+  importCsv(kind: CsvImportKind, hotelId: string, csv: string): Promise<CsvImportResult> {
+    return rawRequest(`/api/v1/settings/import/${kind}`, {
+      method: "POST",
+      body: JSON.stringify({ hotelId, csv }),
+    })
   },
 
   updateHotelSettings(hotelId: string, data: UpdateHotelSettingsInput): Promise<Hotel> {

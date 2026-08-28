@@ -5,15 +5,34 @@ import {
   hotelIdQuerySchema,
   createPriceRankSchema,
   updatePriceRankSchema,
+  generatePriceRanksSchema,
   updateHotelSettingsSchema,
+  csvImportSchema,
+  updateRetentionSettingsSchema,
+  masterKindParamSchema,
+  createMasterSchema,
+  updateMasterSchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
   createPriceRank,
   updatePriceRank,
   deletePriceRank,
+  generatePriceRanks,
   updateHotelSettings,
+  importRoomTypes,
+  importMonthlyBudgets,
+  importDailyData,
+  getOnboardingStatus,
+  getRetentionSettings,
+  updateRetentionSettings,
 } from '../controllers/settingsController.js'
+import {
+  listMasters,
+  createMaster,
+  updateMaster,
+  deactivateMaster,
+} from '../controllers/mastersController.js'
 
 export const settingsRouter: ExpressRouter = Router()
 
@@ -37,6 +56,15 @@ settingsRouter.post(
   createPriceRank
 )
 
+// POST /api/v1/settings/price-ranks/generate — 下限〜上限価格から最大40段階を一括生成（Step 2）
+settingsRouter.post(
+  '/price-ranks/generate',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(generatePriceRanksSchema),
+  generatePriceRanks
+)
+
 settingsRouter.put(
   '/price-ranks/:id',
   requireRole('ADMIN', 'MANAGER'),
@@ -51,6 +79,64 @@ settingsRouter.delete(
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   deletePriceRank
 )
+
+// GET /api/v1/settings/onboarding-status?hotelId= — 初期設定の完了状況（Step 5）
+settingsRouter.get(
+  '/onboarding-status',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getOnboardingStatus
+)
+
+// CSVインポート3種（Step 3）。変更系のため MANAGER 以上
+settingsRouter.post(
+  '/import/room-types',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(csvImportSchema),
+  importRoomTypes
+)
+settingsRouter.post(
+  '/import/budgets',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(csvImportSchema),
+  importMonthlyBudgets
+)
+settingsRouter.post(
+  '/import/daily-data',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(csvImportSchema),
+  importDailyData
+)
+
+// データ保持期間（テナント単位 — D-06）。RLS により自テナントのみ対象になる
+settingsRouter.get('/retention', getRetentionSettings)
+settingsRouter.put(
+  '/retention',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(updateRetentionSettingsSchema),
+  updateRetentionSettings
+)
+
+// テナント別マスタ（OTAチャネル・レビューソース — D-10）。
+// テナント単位のためホテル指定は不要。RLS により自テナントのみ対象になる
+settingsRouter.get('/masters/:kind', validate(masterKindParamSchema, 'params'), listMasters)
+settingsRouter.post(
+  '/masters/:kind',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(masterKindParamSchema, 'params'),
+  validate(createMasterSchema),
+  createMaster
+)
+settingsRouter.put(
+  '/masters/:kind/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(updateMasterSchema),
+  updateMaster
+)
+settingsRouter.delete('/masters/:kind/:id', requireRole('ADMIN', 'MANAGER'), deactivateMaster)
 
 // PUT /api/v1/settings/hotel/:id — ホテル設定（名称・週末定義等）変更は MANAGER 以上（F-SET-01）
 settingsRouter.put(

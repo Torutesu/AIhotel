@@ -18,9 +18,20 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  // テナントごとのサブドメインを載せるベースドメイン（SAAS_DECISIONS.md D-08）。
+  // 例: 'app.example.com' → alpha.app.example.com がテナント alpha になる。
+  // 未設定（ローカル開発）ではサブドメインによるテナント解決を行わない
+  APP_BASE_DOMAIN: z.string().min(1).optional(),
 
   // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許す
   DATABASE_URL: z.string().min(1).optional(),
+
+  // リクエスト単位のテナントコンテキスト用トランザクションの上限（SAAS_DECISIONS.md D-01）。
+  // RLS のセッション変数はトランザクション内でのみ有効なため、リクエスト処理全体を
+  // 1トランザクションで包む。長いほど接続を長く保持するので、DBの接続数と相談して決める。
+  DB_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).default(20000),
+  // プールが枯渇しているときに接続を待つ上限
+  DB_TRANSACTION_MAX_WAIT_MS: z.coerce.number().int().min(500).default(5000),
 
   JWT_SECRET: z
     .string({ required_error: 'JWT_SECRET は必須です。openssl rand -base64 64 で生成してください' })
@@ -31,9 +42,28 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(100),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+  // 同一IPからのログイン試行上限（15分あたり）。ホテルは全スタッフが同じ回線を使うため、
+  // メールアドレス単位（LOGIN_RATE_LIMIT_MAX）より大幅に緩くして巻き添えを防ぐ
+  LOGIN_SOURCE_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(100),
+  // パスワード再設定・招待受諾の要求上限（1時間あたり・IP単位）。メール送信を伴うため厳しめ
+  PASSWORD_RESET_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(20),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
+
+  // メール送信（lib/mailer.ts / SAAS_DECISIONS.md D-04）。
+  // 特定サービスに依存しないよう SMTP で実装している。
+  //   log  … 送信せずログ出力のみ（ローカル開発）
+  //   smtp … 実送信。Resend / Brevo / SES など SMTP を提供する任意のサービスで動く
+  MAIL_DRIVER: z.enum(['log', 'smtp']).default('log'),
+  MAIL_FROM: z.string().min(1).default('no-reply@example.com'),
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  // 招待・リセットのリンク先（フロントエンドのURL）。テナントのサブドメインを使う場合は
+  // そのオリジンを指定する
+  APP_PUBLIC_URL: z.string().url().optional(),
 
   // オブジェクトストレージ抽象化層（lib/storage.ts）。クラウド（S3/GCS）未確定のため
   // 現在は 'local' のみ実装。将来 's3' / 'gcs' を追加する場合もここに列挙するだけでよい

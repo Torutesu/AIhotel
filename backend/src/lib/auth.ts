@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import jwt, { type SignOptions } from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import type { User, UserRole } from '@prisma/client'
@@ -98,8 +98,12 @@ export function generateRefreshToken(userId: string): string {
     expiresIn: parseExpiresIn(JWT_REFRESH_EXPIRES_IN),
   }
   
+  // jti（トークン固有ID）を含めることで、同一ユーザーが同じ秒内に
+  // 複数回ログインしても必ず異なるトークンになる。
+  // これがないと iat が秒単位のため署名結果が完全一致し、
+  // tokenHash の一意制約に衝突してログインが失敗する
   return jwt.sign(
-    { userId, type: 'refresh' },
+    { userId, type: 'refresh', jti: randomUUID() },
     JWT_SECRET,
     options
   )

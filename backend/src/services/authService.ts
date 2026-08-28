@@ -1,4 +1,4 @@
-import { prisma } from '../lib/prisma.js'
+import { prisma, runWithRlsBypass } from '../lib/prisma.js'
 import {
   hashPassword,
   verifyPassword,
@@ -8,6 +8,8 @@ import {
   hashToken,
 } from '../lib/auth.js'
 import { ApiError } from '../middlewares/errorHandler.js'
+import { config } from '../lib/config.js'
+import { extractTenantCodeFromHost } from '../lib/tenantResolver.js'
 import { writeAuditLog } from './auditService.js'
 import type { User, UserRole } from '@prisma/client'
 
@@ -18,6 +20,8 @@ import type { User, UserRole } from '@prisma/client'
 interface LoginInput {
   email: string
   password: string
+  /** 組織コード。サブドメインで特定できない場合の手段（D-02 / D-08） */
+  tenantCode?: string
 }
 
 interface RegisterInput {
@@ -31,6 +35,8 @@ interface RegisterInput {
 interface RequestContext {
   ipAddress?: string
   userAgent?: string
+  /** リクエストの Host ヘッダー。サブドメインからテナントを特定する（D-08） */
+  host?: string
 }
 
 interface AuthResult {
@@ -46,14 +52,61 @@ interface AuthResult {
 // ======================================
 
 /**
- * ユーザーログイン
+ * ユーザーログイン。
+ * テナントはサブドメイン（D-08）または組織コードで特定するが、
+ * テナントコードから内部IDを引く時点ではまだテナントが確定していないため、
+ * この経路だけテナント横断を許可する（D-01 の狭い例外）。
  */
 export async function loginService(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
-  const { email, password } = input
+  return runWithRlsBypass(() => loginInternal(input, ctx))
+}
 
-  const user = await prisma.user.findUnique({
-    where: { email },
-  })
+/** ログイン対象ユーザーの検索結果に含めるテナント情報 */
+const tenantSelect = { tenant: { select: { isActive: true } } }
+
+/**
+ * ログインするテナントを決める（D-08）。
+ * 1. サブドメイン（本番。ユーザーは何も入力しなくてよい）
+ * 2. 明示的な組織コード（ローカル開発・API利用・兼務者）
+ */
+function resolveTenantCode(input: LoginInput, ctx?: RequestContext): string | null {
+  const fromHost = extractTenantCodeFromHost(ctx?.host, config.APP_BASE_DOMAIN)
+  if (fromHost) return fromHost
+  const fromInput = input.tenantCode?.trim().toLowerCase()
+  return fromInput || null
+}
+
+async function loginInternal(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
+  const { email, password } = input
+  const tenantCode = resolveTenantCode(input, ctx)
+
+  let user
+  if (tenantCode) {
+    // テナントが特定できている場合はその中だけを探す
+    const tenant = await prisma.tenant.findUnique({ where: { code: tenantCode } })
+    user = tenant
+      ? await prisma.user.findUnique({
+          where: { tenantId_email: { tenantId: tenant.id, email } },
+          include: tenantSelect,
+        })
+      : null
+  } else {
+    // テナント未特定。該当が1件に定まる場合のみ許可する。
+    // 提供側ADMIN（tenantId なし）もこの経路でログインする
+    const candidates = await prisma.user.findMany({
+      where: { email },
+      include: tenantSelect,
+      take: 2,
+    })
+    if (candidates.length > 1) {
+      throw new ApiError(
+        409,
+        '複数の組織で同じメールアドレスが登録されています。組織コードを指定してください',
+        [{ field: 'tenantCode', message: '組織コードを入力してください' }]
+      )
+    }
+    user = candidates[0] ?? null
+  }
 
   if (!user) {
     throw new ApiError(401, 'メールアドレスまたはパスワードが正しくありません')
@@ -61,6 +114,11 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 
   if (!user.isActive) {
     throw new ApiError(401, 'このアカウントは無効化されています')
+  }
+
+  // 解約・停止テナントのユーザーはログイン不可（ユーザー個別の無効化を待たない）
+  if (user.tenant && !user.tenant.isActive) {
+    throw new ApiError(401, 'ご契約が無効化されています。サポートにお問い合わせください')
   }
 
   const isValidPassword = await verifyPassword(password, user.password)
@@ -96,7 +154,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     userAgent: ctx?.userAgent,
   })
 
-  const { password: _, ...userWithoutPassword } = user
+  const { password: _, tenant: _tenant, ...userWithoutPassword } = user
 
   return {
     user: userWithoutPassword,
@@ -117,14 +175,6 @@ export async function registerService(
 ): Promise<Omit<User, 'password'>> {
   const { email, password, name, role, hotelId } = input
 
-  const existingUser = await prisma.user.findUnique({
-    where: { email },
-  })
-
-  if (existingUser) {
-    throw new ApiError(409, 'このメールアドレスは既に登録されています')
-  }
-
   let tenantId: string | null = null
 
   if (hotelId) {
@@ -137,6 +187,15 @@ export async function registerService(
     }
 
     tenantId = hotel.tenantId
+  }
+
+  // メールはテナント単位で一意（D-02）。別テナントでの利用は妨げない
+  const existingUser = await prisma.user.findFirst({
+    where: { email, tenantId },
+  })
+
+  if (existingUser) {
+    throw new ApiError(409, 'このメールアドレスは既にこの組織で登録されています')
   }
 
   const hashedPassword = await hashPassword(password)
@@ -169,14 +228,20 @@ export async function registerService(
 }
 
 /**
- * トークンをリフレッシュ（ローテーション方式）
+ * トークンをリフレッシュ（ローテーション方式）。
+ * 保存済みトークンからユーザーを引くまでテナントが確定しないため、
+ * ログインと同様にテナント横断を許可する（D-01 の狭い例外）。
  */
 export async function refreshTokenService(refreshToken: string): Promise<AuthResult> {
+  return runWithRlsBypass(() => refreshTokenInternal(refreshToken))
+}
+
+async function refreshTokenInternal(refreshToken: string): Promise<AuthResult> {
   verifyRefreshToken(refreshToken)
 
   const storedToken = await prisma.refreshToken.findUnique({
     where: { tokenHash: hashToken(refreshToken) },
-    include: { user: true },
+    include: { user: { include: { tenant: { select: { isActive: true } } } } },
   })
 
   if (!storedToken) {
@@ -192,6 +257,11 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 
   if (!storedToken.user.isActive) {
     throw new ApiError(401, 'このアカウントは無効化されています')
+  }
+
+  // 解約・停止テナントはリフレッシュも拒否する（ログインと同基準）
+  if (storedToken.user.tenant && !storedToken.user.tenant.isActive) {
+    throw new ApiError(401, 'ご契約が無効化されています。サポートにお問い合わせください')
   }
 
   // 使用済みトークンは失効させ、新しいペアを発行する
@@ -210,7 +280,7 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
     },
   })
 
-  const { password: _, ...userWithoutPassword } = storedToken.user
+  const { password: _, tenant: _tenant, ...userWithoutPassword } = storedToken.user
 
   return {
     user: userWithoutPassword,

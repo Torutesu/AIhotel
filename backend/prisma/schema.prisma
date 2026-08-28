@@ -8,7 +8,11 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // アプリ実行時の接続。RLS を機能させるため superuser でないロールを指定する（D-01）
+  url       = env("DATABASE_URL")
+  // マイグレーション・introspection 用の接続。DDL 権限を持つ管理ロールを指定する。
+  // 未設定の場合は url が使われる（開発でロールを分けないときはこれでよい）
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // ======================================
@@ -20,6 +24,16 @@ model Tenant {
   name      String // 例: 藤田観光
   code      String   @unique // 例: fujita-kanko
   isActive  Boolean  @default(true)
+
+  // データ保持期間（SAAS_DECISIONS.md D-06）。顧客ごとに内部統制の要求が異なるため
+  // テナント単位で設定できるようにする。掃除ジョブ（services/retentionService.ts）が参照する。
+  /// 監査ログの保持日数。既定2年
+  auditLogRetentionDays        Int  @default(730)
+  /// アラート・AIコメント・KPIスナップショットなど運用ログの保持日数。既定1年
+  operationalDataRetentionDays Int  @default(365)
+  /// 日次実績の保持日数。null は無期限（既定）。収益の元帳にあたるため既定では削除しない
+  dailyDataRetentionDays       Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -35,6 +49,9 @@ model Tenant {
   events                   Event[]
   auditLogs                AuditLog[]
   refreshTokens            RefreshToken[]
+  userTokens               UserToken[]
+  otaChannels              OtaChannel[]
+  reviewSources            ReviewSource[]
   monthlyBudgets           MonthlyBudget[]
   pricingStrategyConfigs   PricingStrategyConfig[]
   aiPriceRecommendations   AiPriceRecommendation[]
@@ -57,7 +74,10 @@ model User {
   // システム提供側の ADMIN はテナント横断のため tenantId は nullable
   tenantId    String?
   tenant      Tenant?   @relation(fields: [tenantId], references: [id])
-  email       String    @unique
+  // メールアドレスはテナント単位で一意（SAAS_DECISIONS.md D-02）。
+  // 同一人物がグループ会社・運営受託先など複数テナントに所属できるようにするため、
+  // システム全体での一意にはしない。
+  email       String
   password    String
   name        String
   role        UserRole  @default(OPERATOR)
@@ -70,7 +90,9 @@ model User {
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  userTokens    UserToken[]
 
+  @@unique([tenantId, email])
   @@index([tenantId])
   @@index([hotelId])
 }
@@ -87,6 +109,32 @@ model RefreshToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// 招待・パスワードリセット用の使い捨てトークン（SAAS_DECISIONS.md D-04）。
+// リフレッシュトークンと同様に、生の値ではなく SHA-256 ハッシュのみ保存する。
+model UserToken {
+  id        String        @id @default(cuid())
+  tenantId  String?
+  tenant    Tenant?       @relation(fields: [tenantId], references: [id])
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      UserTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  // 使用済みトークンは再利用できない（null = 未使用）
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([tenantId])
+  @@index([userId, type])
+}
+
+enum UserTokenType {
+  // 初回パスワード設定（新規ユーザーの招待）
+  INVITATION
+  // パスワード再設定
+  PASSWORD_RESET
 }
 
 // 要件定義書 §4 のロール定義に対応:
@@ -201,6 +249,47 @@ model PricingStrategyConfig {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  @@index([tenantId])
+}
+
+// ======================================
+// Tenant Masters（D-10）
+// ======================================
+//
+// OTAチャネル名・レビューソースは業界共通の語彙だが、会社によって取引先が異なるため
+// テナント単位のマスタとして持つ。実績テーブル側は文字列のまま保持し、
+// このマスタは「そのテナントで使ってよい値の登録簿」として画面の選択肢と入力検証に使う
+// （既存データを壊さずにテナント独自チャネルへ対応するため）。
+
+model OtaChannel {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// 実績テーブルの channel 文字列と一致する値（例: 楽天トラベル）
+  code      String
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model ReviewSource {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// ReviewScore.source と一致する値（例: google）
+  code      String
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
   @@index([tenantId])
 }
 
@@ -585,7 +674,9 @@ model GroupBooking {
   stayEndDate       DateTime @db.Date
   rooms             Int
   guests            Int?
-  // レベニュー影響ルール（ホテルごとに異なるため柔軟な Json で保持）
+  // レベニュー影響ルール（SAAS_DECISIONS.md D-09）。
+  // { presetKey, params, note } の形で保持する。presetKey はコード側で定義した
+  // プリセット（lib/groupBookingPresets.ts）に限定し、ホテル間で比較・集計できるようにする
   revenueImpactRule Json?
   notes             String?
   status            String   @default("confirmed") // tentative, confirmed, cancelled

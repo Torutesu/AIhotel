@@ -11,7 +11,7 @@ interface AuthContextValue {
   user: User | null
   hotelId: string | null
   loading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string, tenantCode?: string) => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -61,8 +61,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  const login = useCallback(async (email: string, password: string) => {
-    const result = await api.login(email, password)
+  const login = useCallback(async (email: string, password: string, tenantCode?: string) => {
+    const result = await api.login(email, password, tenantCode)
     const resolvedHotelId = await resolveHotelId(result.user)
     setUser(result.user)
     setHotelId(resolvedHotelId)
