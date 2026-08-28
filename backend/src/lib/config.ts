@@ -42,9 +42,25 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(100),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+  // パスワード再設定・招待受諾の要求上限（1時間あたり・IP単位）。メール送信を伴うため厳しめ
+  PASSWORD_RESET_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(20),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
+
+  // メール送信（lib/mailer.ts / SAAS_DECISIONS.md D-04）。
+  // 特定サービスに依存しないよう SMTP で実装している。
+  //   log  … 送信せずログ出力のみ（ローカル開発）
+  //   smtp … 実送信。Resend / Brevo / SES など SMTP を提供する任意のサービスで動く
+  MAIL_DRIVER: z.enum(['log', 'smtp']).default('log'),
+  MAIL_FROM: z.string().min(1).default('no-reply@example.com'),
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  // 招待・リセットのリンク先（フロントエンドのURL）。テナントのサブドメインを使う場合は
+  // そのオリジンを指定する
+  APP_PUBLIC_URL: z.string().url().optional(),
 
   // オブジェクトストレージ抽象化層（lib/storage.ts）。クラウド（S3/GCS）未確定のため
   // 現在は 'local' のみ実装。将来 's3' / 'gcs' を追加する場合もここに列挙するだけでよい

@@ -39,6 +39,7 @@ model Tenant {
   events                   Event[]
   auditLogs                AuditLog[]
   refreshTokens            RefreshToken[]
+  userTokens               UserToken[]
   monthlyBudgets           MonthlyBudget[]
   pricingStrategyConfigs   PricingStrategyConfig[]
   aiPriceRecommendations   AiPriceRecommendation[]
@@ -77,6 +78,7 @@ model User {
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  userTokens    UserToken[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -95,6 +97,32 @@ model RefreshToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// 招待・パスワードリセット用の使い捨てトークン（SAAS_DECISIONS.md D-04）。
+// リフレッシュトークンと同様に、生の値ではなく SHA-256 ハッシュのみ保存する。
+model UserToken {
+  id        String        @id @default(cuid())
+  tenantId  String?
+  tenant    Tenant?       @relation(fields: [tenantId], references: [id])
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      UserTokenType
+  tokenHash String        @unique
+  expiresAt DateTime
+  // 使用済みトークンは再利用できない（null = 未使用）
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([tenantId])
+  @@index([userId, type])
+}
+
+enum UserTokenType {
+  // 初回パスワード設定（新規ユーザーの招待）
+  INVITATION
+  // パスワード再設定
+  PASSWORD_RESET
 }
 
 // 要件定義書 §4 のロール定義に対応:

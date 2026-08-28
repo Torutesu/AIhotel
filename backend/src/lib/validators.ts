@@ -59,6 +59,30 @@ export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1, 'リフレッシュトークンは必須です'),
 })
 
+// 招待・パスワードリセット（SAAS_DECISIONS.md D-04）
+export const inviteUserSchema = z.object({
+  email: z.string().email('有効なメールアドレスを入力してください'),
+  name: z.string().min(1, '名前は必須です').max(100),
+  role: z.enum(['MANAGER', 'OPERATOR']),
+  hotelId: entityIdSchema,
+})
+
+const tokenSchema = z.string().min(1, 'トークンは必須です').max(200)
+
+export const acceptInvitationSchema = z.object({
+  token: tokenSchema,
+  password: strongPasswordSchema,
+})
+
+export const requestPasswordResetSchema = z.object({
+  email: z.string().email('有効なメールアドレスを入力してください'),
+})
+
+export const resetPasswordSchema = z.object({
+  token: tokenSchema,
+  password: strongPasswordSchema,
+})
+
 // ======================================
 // Hotel Validators
 // ======================================
@@ -380,6 +404,7 @@ export const updateStrategySchema = z.object({
 // ======================================
 
 export type LoginInput = z.infer<typeof loginSchema>
+export type InviteUserInput = z.infer<typeof inviteUserSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type CreateHotelInput = z.infer<typeof createHotelSchema>
 export type CreatePriceRankInput = z.infer<typeof createPriceRankSchema>
