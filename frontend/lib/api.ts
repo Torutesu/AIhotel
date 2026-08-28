@@ -1023,11 +1023,13 @@ function mockOnboardingStatus(hotelId: string): OnboardingStatus {
 // ---- API surface ----
 
 export const api = {
-  async login(email: string, password: string): Promise<LoginResult> {
+  // tenantCode は、同じメールが複数の組織で使われている場合にのみ必要。
+  // 本番はサブドメインで組織が決まるため通常は不要（SAAS_DECISIONS.md D-08）
+  async login(email: string, password: string, tenantCode?: string): Promise<LoginResult> {
     try {
       const result = await rawRequest<LoginResult>("/api/v1/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, ...(tenantCode ? { tenantCode } : {}) }),
       })
       storeTokens(result.tokens.accessToken, result.tokens.refreshToken)
       return result

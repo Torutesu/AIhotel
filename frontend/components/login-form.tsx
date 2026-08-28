@@ -17,14 +17,21 @@ export function LoginForm() {
   const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // 組織コードは、同じメールアドレスが複数の組織で使われている場合のみ必要。
+  // 通常は組織ごとのURL（サブドメイン）で判別されるため入力欄を出さない
+  const [tenantCode, setTenantCode] = useState("")
+  const [needsTenantCode, setNeedsTenantCode] = useState(false)
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setSubmitting(true)
     setError(null)
     try {
-      await login(email, password)
+      await login(email, password, tenantCode || undefined)
     } catch (err) {
+      if (err instanceof ApiClientError && err.errors?.some((e) => e.field === "tenantCode")) {
+        setNeedsTenantCode(true)
+      }
       setError(
         err instanceof ApiClientError ? err.message : "ログインに失敗しました。もう一度お試しください。"
       )
@@ -69,6 +76,24 @@ export function LoginForm() {
                 required
               />
             </div>
+
+            {needsTenantCode && (
+              <div className="space-y-2">
+                <Label htmlFor="login-tenant-code">組織コード</Label>
+                <Input
+                  id="login-tenant-code"
+                  autoComplete="organization"
+                  placeholder="例: fujita-kanko"
+                  value={tenantCode}
+                  onChange={(e) => setTenantCode(e.target.value)}
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  複数の組織で同じメールアドレスをご利用のため、組織コードが必要です。
+                  組織のURLからログインした場合は入力不要です。
+                </p>
+              </div>
+            )}
 
             {error && (
               <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
