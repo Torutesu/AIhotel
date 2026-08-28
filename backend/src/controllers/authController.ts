@@ -15,6 +15,8 @@ function requestContext(req: Request) {
   return {
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
+    // サブドメインからテナントを特定するため（D-08）
+    host: req.hostname || req.headers.host,
   }
 }
 

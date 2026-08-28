@@ -18,6 +18,10 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  // テナントごとのサブドメインを載せるベースドメイン（SAAS_DECISIONS.md D-08）。
+  // 例: 'app.example.com' → alpha.app.example.com がテナント alpha になる。
+  // 未設定（ローカル開発）ではサブドメインによるテナント解決を行わない
+  APP_BASE_DOMAIN: z.string().min(1).optional(),
 
   // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許す
   DATABASE_URL: z.string().min(1).optional(),

@@ -26,6 +26,7 @@ import { notFoundHandler } from './middlewares/notFoundHandler.js'
 
 // Import utilities
 import { logger, requestLogger } from './utils/logger.js'
+import { isAllowedOrigin } from './lib/tenantResolver.js'
 
 // ======================================
 // Configuration
@@ -52,16 +53,36 @@ const limiter = rateLimit({
 // Middleware Setup
 // ======================================
 
+// Cloud Run 等のリバースプロキシ配下では、クライアントIPとホスト名が
+// X-Forwarded-* ヘッダーで渡る。これを信頼しないと
+// レート制限が全リクエストを同一IPとみなし、サブドメインによる
+// テナント判定（D-08）も効かなくなる。
+// 直近1ホップ（ロードバランサ）のみを信頼する
+if (NODE_ENV === 'production') {
+  app.set('trust proxy', 1)
+}
+
 // Security middleware
 app.use(helmet({
   contentSecurityPolicy: NODE_ENV === 'production',
 }))
 
 // CORS configuration
+// テナントごとのサブドメイン（D-08）を許可するため、オリジンは動的に判定する。
+// ベースドメイン配下の1段サブドメインのみを通し、詐称ドメインは弾く
+const explicitOrigins = NODE_ENV === 'production'
+  ? [FRONTEND_URL]
+  : [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000']
+
 app.use(cors({
-  origin: NODE_ENV === 'production' 
-    ? FRONTEND_URL 
-    : [FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'],
+  origin(origin, callback) {
+    // 同一オリジン・サーバー間通信など Origin を持たないリクエストは許可する
+    if (!origin) return callback(null, true)
+    if (isAllowedOrigin(origin, config.APP_BASE_DOMAIN, explicitOrigins)) {
+      return callback(null, true)
+    }
+    callback(new Error('CORS: 許可されていないオリジンです'))
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],

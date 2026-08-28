@@ -69,16 +69,8 @@ export async function provisionTenantService(input: ProvisionTenantInput) {
     throw new ConflictError(`テナントコード「${input.tenant.code}」は既に使用されています`)
   }
 
-  const emails = input.users.map((u) => u.email)
-  const existingUsers = await prisma.user.findMany({
-    where: { email: { in: emails } },
-    select: { email: true },
-  })
-  if (existingUsers.length > 0) {
-    throw new ConflictError(
-      `メールアドレスが既に登録されています: ${existingUsers.map((u) => u.email).join(', ')}`
-    )
-  }
+  // メールはテナント単位で一意（D-02）。ここで作るのは新規テナントなので
+  // 既存ユーザーとの衝突は起こらない。バッチ内の重複は zod スキーマで検証済み
 
   // bcrypt はコストが高いためトランザクション外でハッシュ化する
   const hashedPasswords = await Promise.all(input.users.map((u) => hashPassword(u.password)))

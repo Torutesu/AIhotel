@@ -61,7 +61,10 @@ model User {
   // システム提供側の ADMIN はテナント横断のため tenantId は nullable
   tenantId    String?
   tenant      Tenant?   @relation(fields: [tenantId], references: [id])
-  email       String    @unique
+  // メールアドレスはテナント単位で一意（SAAS_DECISIONS.md D-02）。
+  // 同一人物がグループ会社・運営受託先など複数テナントに所属できるようにするため、
+  // システム全体での一意にはしない。
+  email       String
   password    String
   name        String
   role        UserRole  @default(OPERATOR)
@@ -75,6 +78,7 @@ model User {
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
 
+  @@unique([tenantId, email])
   @@index([tenantId])
   @@index([hotelId])
 }

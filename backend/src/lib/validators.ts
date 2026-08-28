@@ -36,6 +36,8 @@ export const loginSchema = z.object({
   email: z.string().email('有効なメールアドレスを入力してください'),
   // パスワード強度は登録時に強制する。ログイン時は空でないことのみ検証する
   password: z.string().min(1, 'パスワードは必須です'),
+  // 組織コード（D-02 / D-08）。サブドメインで特定できる場合は不要
+  tenantCode: z.string().max(50).optional(),
 })
 
 // 登録・プロビジョニング時に強制するパスワード強度

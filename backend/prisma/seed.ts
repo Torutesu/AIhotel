@@ -123,7 +123,8 @@ async function main() {
   ]
   for (const u of users) {
     await prisma.user.upsert({
-      where: { email: u.email },
+      // メールはテナント単位で一意（D-02）
+      where: { tenantId_email: { tenantId: tenant.id, email: u.email } },
       update: { tenantId: tenant.id, hotelId: hotel.id, role: u.role },
       create: {
         ...u,
