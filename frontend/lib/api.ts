@@ -993,6 +993,16 @@ export interface CsvImportResult {
   imported: number
 }
 
+/** データ保持期間（SAAS_DECISIONS.md D-06） */
+export interface RetentionSettings {
+  id: string
+  name: string
+  auditLogRetentionDays: number
+  operationalDataRetentionDays: number
+  /** null は無期限 */
+  dailyDataRetentionDays: number | null
+}
+
 export type CsvImportKind = "room-types" | "budgets" | "daily-data"
 
 // デモ環境はseed済みデータ相当のため「必須項目すべて完了」として表示する
@@ -1234,6 +1244,18 @@ export const api = {
     return rawRequest(`/api/v1/pricing/recompute`, {
       method: "POST",
       body: JSON.stringify({ hotelId }),
+    })
+  },
+
+  // データ保持期間（D-06）。テナント単位の設定のためモックにフォールバックしない
+  retentionSettings(): Promise<RetentionSettings> {
+    return rawRequest("/api/v1/settings/retention")
+  },
+
+  updateRetentionSettings(data: Partial<RetentionSettings>): Promise<RetentionSettings> {
+    return rawRequest("/api/v1/settings/retention", {
+      method: "PUT",
+      body: JSON.stringify(data),
     })
   },
 
