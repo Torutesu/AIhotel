@@ -18,6 +18,19 @@ Row Level Security を有効化し、**DBレイヤーでテナント越えを物
 **理由**: 会社の異なる複数社へSaaSとして展開するため、アプリ側のバグ1つで
 他社データが見える可能性を構造的に排除する。コードレビューによる担保では不十分。
 
+**実装状況**: 実装済み（PR #39）。ローカルPostgreSQLに対する統合テスト9件で
+テナント越えの遮断を実測検証している（`pnpm --filter backend test:rls`）。
+アプリ層の認可を通過するトークンを用いた検証でも、他社データは404となることを確認済み。
+
+| 構成要素 | 実体 |
+|---|---|
+| DBポリシー | `prisma/migrations/20260828000000_enable_row_level_security/` （24テーブル） |
+| アプリ用ロール作成 | 本番 `prisma/rls-role.sql` / 開発 `docker/initdb/10-app-user.sql` |
+| テナントコンテキスト | `src/lib/tenantContext.ts`（AsyncLocalStorage）・`src/lib/prisma.ts`（プロキシと実行ヘルパー） |
+| リクエストへの適用 | `src/middlewares/tenantContext.ts`（`/api/v1` 全体に適用） |
+| 横断が必要な経路 | ログイン・トークン更新（`authService`）と提供側ADMIN のみ |
+| 検証 | `src/lib/rls.integration.test.ts` |
+
 **実装上の必須事項**（順守しないとRLSが無効化される）:
 - アプリ用DBロールは **superuser でなく、`BYPASSRLS` も付けない**。
   superuser はRLSを素通りするため、Cloud SQL の既定 `postgres` ユーザーをそのまま使わない

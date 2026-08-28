@@ -30,6 +30,8 @@ pnpm --filter backend build && pnpm --filter frontend build
 - hotelId を受けるルートには `requireHotelAccess(...)`、変更系には `requireRole('ADMIN','MANAGER')` ＋ `writeAuditLog()`
 - 入力は必ず `backend/src/lib/validators.ts` の zod スキーマ＋ `validate()` で検証。生の `req.body`/`req.query` 参照禁止
 - 新しいPrismaモデルには `tenantId` ＋ tenantリレーション＋ `@@index([tenantId])` を必ず付与。クエリは hotelId/tenantId で絞る
+- 新しいPrismaモデルには **RLSポリシーの追加も必須**（マイグレーションに `ENABLE`/`FORCE ROW LEVEL SECURITY` ＋ `tenant_isolation` ポリシー）。既存のマイグレーションを参照。付け忘れるとそのテーブルだけ分離が外れる
+- テナント横断（`runWithRlsBypass`）はログイン・トークン更新・提供側ADMINのみ。新たな用途で使わない
 - シークレットのフォールバック値をコードに書かない（JWT_SECRETは32文字以上必須・未設定なら起動時throw）
 - リフレッシュトークンはSHA-256ハッシュのみDB保存（`hashToken()`）
 
