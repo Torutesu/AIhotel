@@ -162,11 +162,19 @@ function mockLogin(email: string, password: string): LoginResult {
   }
 }
 
+// 実バックエンドでログイン済みのセッション（実トークンあり・モックユーザーなし）では
+// モックへ切り替えない。本番でバックエンド障害が起きた際に、実顧客の画面へ
+// ダミーの収益データを表示する事故を防ぐ（エラー＋再試行表示に倒す）。
+// フォールバックを許可するのは「モックログイン中」または「未ログイン」のみ。
+function canFallbackToMock(): boolean {
+  return isDemoModeEnabled() && (getMockUser() !== null || getAccessToken() === null)
+}
+
 async function withDemoFallback<T>(request: () => Promise<T>, fallback: () => T): Promise<T> {
   try {
     return await request()
   } catch (err) {
-    if (isDemoModeEnabled() && err instanceof ApiClientError && err.isBackendUnreachable) {
+    if (canFallbackToMock() && err instanceof ApiClientError && err.isBackendUnreachable) {
       markDemoDataInUse()
       return fallback()
     }
@@ -1181,6 +1189,15 @@ export const api = {
         return target
       }
     )
+  },
+
+  // 需要予測の再計算（F-DP-05）。過去実績インポート後にAI推奨を生成するために使う。
+  // 予測生成は実データが前提のためモックフォールバックしない
+  recomputeForecast(hotelId: string): Promise<unknown> {
+    return rawRequest(`/api/v1/pricing/recompute`, {
+      method: "POST",
+      body: JSON.stringify({ hotelId }),
+    })
   },
 
   onboardingStatus(hotelId: string): Promise<OnboardingStatus> {

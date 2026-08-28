@@ -39,12 +39,14 @@ const CSV_IMPORT_DEFS: Record<
     label: "月次予算・前年実績",
     header:
       "year,month,budgetRevenue,budgetRooms,budgetAdr,budgetOccupancy,budgetGuests,lastYearRevenue,lastYearRooms,lastYearAdr,lastYearOccupancy,lastYearGuests",
-    description: "year/month 単位で上書きします。稼働率は 0〜1（例 0.78）。金額系の列は省略可。",
+    description:
+      "year/month 単位で上書きします。稼働率は 0〜1（例 0.78）。空セルはその値をクリア、列ごと省略した場合は既存値を保持します。",
   },
   "daily-data": {
     label: "過去日次実績（データ移行）",
     header: "date,occupancy,adr,revPar,totalRevenue,soldRooms,guests",
-    description: "date（YYYY-MM-DD）単位で上書きします。稼働率は 0〜1。date 以外の列は省略可。",
+    description:
+      "date（YYYY-MM-DD）単位で上書きします。稼働率は 0〜1。空セルはその値をクリア、列ごと省略した場合は既存値を保持します。",
   },
 }
 
@@ -131,7 +133,21 @@ export function OnboardingSetupCard({
 
   const handleFileSelected = async (file: File | undefined) => {
     if (!file) return
-    setCsvText(await file.text())
+    // 日本語ExcelのCSV保存はShift_JIS（CP932）が既定のため、UTF-8で読めない場合はSJISで再デコードする
+    const buffer = await file.arrayBuffer()
+    try {
+      setCsvText(new TextDecoder("utf-8", { fatal: true }).decode(buffer))
+    } catch {
+      try {
+        setCsvText(new TextDecoder("shift_jis").decode(buffer))
+      } catch {
+        toast({
+          title: "ファイルの文字コードを判定できませんでした",
+          description: "CSVをUTF-8で保存し直すか、内容を直接貼り付けてください。",
+          variant: "destructive",
+        })
+      }
+    }
   }
 
   const handleImport = async () => {
@@ -144,6 +160,22 @@ export function OnboardingSetupCard({
       })
       setCsvText("")
       if (importKind === "room-types") onPriceRanksChanged()
+      if (importKind === "daily-data") {
+        // 過去実績が入ったら需要予測を再計算し、ダッシュボードが空のままになるのを防ぐ
+        try {
+          await api.recomputeForecast(hotelId)
+          toast({ title: "需要予測を再計算しました", description: "AI推奨価格に反映されます。" })
+        } catch (err) {
+          toast({
+            title: "需要予測の再計算に失敗しました",
+            description:
+              err instanceof ApiClientError
+                ? `${err.message}（価格タブから手動で再計算できます）`
+                : "価格タブから手動で再計算できます。",
+            variant: "destructive",
+          })
+        }
+      }
       await loadStatus()
     } catch (err) {
       // 行エラーは先頭数件をまとめて表示する（全件はAPIレスポンス参照）
