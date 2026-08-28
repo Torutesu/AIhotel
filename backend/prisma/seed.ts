@@ -1,7 +1,13 @@
 import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
-const prisma = new PrismaClient()
+// seed はデモデータの一括投入とその削除を行うため、RLS の制約を受けない
+// 管理ロール（DIRECT_DATABASE_URL）があればそちらで接続する。
+// アプリ実行用の app_user で実行すると RLS により書き込みが拒否される。
+const seedDatabaseUrl = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL
+const prisma = new PrismaClient(
+  seedDatabaseUrl ? { datasources: { db: { url: seedDatabaseUrl } } } : undefined
+)
 
 // 再実行しても同じ結果になるよう、決定的な擬似乱数を使う（M-4: 冪等性）
 function createRng(seed: number) {

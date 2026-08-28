@@ -8,7 +8,11 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // アプリ実行時の接続。RLS を機能させるため superuser でないロールを指定する（D-01）
+  url       = env("DATABASE_URL")
+  // マイグレーション・introspection 用の接続。DDL 権限を持つ管理ロールを指定する。
+  // 未設定の場合は url が使われる（開発でロールを分けないときはこれでよい）
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 // ======================================
