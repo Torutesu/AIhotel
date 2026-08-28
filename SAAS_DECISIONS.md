@@ -146,11 +146,22 @@ Row Level Security を有効化し、**DBレイヤーでテナント越えを物
 
 **理由**: 顧客はそれぞれ別会社であり、内部統制で要求される保持期間が異なるため。
 
-**実装上の含意**:
-- `Tenant` に保持期間フィールドを追加し、既定値をシステム側で定義する
-- 掃除ジョブはテナントごとの設定を参照して削除する
-- 設定画面の「データ保持期間」は現在ダミー（保存するだけで何もしない）なので、
-  この実装と同時に**実際に効く**ようにする
+**実装状況**: 実装済み（PR #39）。
+
+| 設定項目 | 既定 | 対象 |
+|---|---|---|
+| `auditLogRetentionDays` | 730日 | 監査ログ |
+| `operationalDataRetentionDays` | 365日 | 解決済みアラート・AIコメント・KPIスナップショット |
+| `dailyDataRetentionDays` | null（無期限） | 日次実績。収益の元帳なので既定では消さない |
+
+- 期限切れの認証トークンはテナント設定によらず一律削除する（残す理由がないため）
+- 未対応のアラートは古くても残す（対応漏れを消してしまわないため）
+- 掃除は `pnpm --filter backend db:cleanup`。外部スケジューラ（cron / Cloud Scheduler 等）から
+  1日1回呼ぶ想定で、ジョブ基盤には依存しない
+- テナントごとの処理はテナントコンテキスト内で行うため、条件を誤っても
+  他テナントのデータには触れられない（D-01 と二重の防御）
+- API: `GET/PUT /api/v1/settings/retention`（MANAGER以上・監査対象）
+- 実装: `src/services/retentionService.ts` / `src/scripts/cleanup.ts`
 
 ## D-07 過去実績データ: 当面3年、ただし増える前提で設計する
 
@@ -188,11 +199,20 @@ Row Level Security を有効化し、**DBレイヤーでテナント越えを物
 **決定**: `GroupBooking.revenueImpactRule` をプリセット選択式にする（自由記述はしない）。
 ただし**プリセットの内容は今後変わる前提**とする。
 
-**実装上の含意**:
-- プリセットのキーはコード側（L1 システム固定）で定義し、
-  DBには `{ presetKey, params, note }` の形で保存する
-- プリセット追加時にマイグレーション不要な構造にしておく
-- 集計・比較ができることが価値なので、`note` は補足に留め、判定ロジックに使わない
+**実装状況**: 実装済み（PR #39）。プリセットは `src/lib/groupBookingPresets.ts` に定義し、
+追加してもマイグレーションは不要。
+
+| キー | 意味 |
+|---|---|
+| `displacement` | 個人需要を押し出す（機会損失を織り込む） |
+| `incremental` | 追加需要（押し出しなし。純増として扱う） |
+| `rate_protected` | 期間中の料金下限を維持（`floorPrice` 必須） |
+| `excluded_from_kpi` | KPI集計から除外（社内利用・招待客など） |
+
+- 保存形式は `{ presetKey, params, note }`。zod で presetKey を定義済みキーに限定し、
+  プリセットごとの必須パラメータもサーバー側で検証する
+- API: `GET /api/v1/group-bookings/presets` と団体予約のCRUD（`/api/v1/group-bookings`）
+- 実装: `src/lib/groupBookingPresets.ts` / `src/services/groupBookingService.ts`
 
 ## D-10 OTAチャネル・レビューソース: マスタテーブル化する
 
@@ -201,7 +221,14 @@ Row Level Security を有効化し、**DBレイヤーでテナント越えを物
 
 **理由**: 会社ごとに取引チャネルが異なるSaaS展開のため。
 
-**実装上の含意**:
-- 優先度は高くない（D-01〜D-04 の後）。既定値をシステム側で用意し、
-  **テナント作成時に自動投入して初期設定の手間を増やさない**こと
-- 既存の文字列データからの移行スクリプトが必要
+**実装状況**: 実装済み（PR #39）。
+
+- `OtaChannel` / `ReviewSource` をテナント単位のマスタとして追加（RLSポリシー付き）
+- **既定値はテナント作成時に自動投入**する（プロビジョニングと seed の両方）。
+  初期設定の項目は増えず、独自チャネルを持つ顧客だけが後から追加すればよい
+- **実績テーブル側は文字列のまま**にした。マスタは「そのテナントで使ってよい値の登録簿」として
+  画面の選択肢と入力検証に使う。既存データを壊す移行を避けるための判断
+- 削除は論理削除（実績データ側の文字列が残るため）
+- API: `GET/POST /api/v1/settings/masters/:kind`、`PUT/DELETE .../:kind/:id`（種別は
+  `ota-channel` / `review-source`）
+- 実装: `src/lib/tenantMasters.ts` / `src/services/masterService.ts`
