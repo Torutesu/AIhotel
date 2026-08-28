@@ -165,7 +165,10 @@ Day 2〜 顧客側作業（デフォルトのまま開始可）
 ### Step 3: CSV一括インポート — **実装済み**
 - `POST /api/v1/settings/import/room-types` / `import/budgets` / `import/daily-data`（MANAGER以上・監査ログ記録）
 - リクエストは `{ hotelId, csv }`。1行目はヘッダー、全行検証してエラーが1件でもあれば取り込まない
-  （all-or-nothing。エラーは行番号付きで最大20件返す）。キー（code / year+month / date）単位で upsert
+  （all-or-nothing。エラーは物理行番号付きで最大20件返す）。キー（code / year+month / date）単位で upsert
+- **空セルの意味論**: ヘッダーに存在する列の空セルは「クリア（null）」、列ごと省略した場合は
+  「既存値を保持」（sortOrder など非nullable列は空セルでも既存値保持）
+- 文字コード: UTF-8（BOM可）。フロントのファイル選択はUTF-8で読めない場合Shift_JIS（CP932）を自動判定
 - 列様式（＝ヒアリングシートの様式）:
   - 客室タイプ: `code,name,capacity,count,sortOrder`（sortOrder 任意）
   - 月次予算: `year,month,budgetRevenue,budgetRooms,budgetAdr,budgetOccupancy,budgetGuests,lastYearRevenue,lastYearRooms,lastYearAdr,lastYearOccupancy,lastYearGuests`
