@@ -1,5 +1,6 @@
 import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { DEFAULT_OTA_CHANNELS, DEFAULT_REVIEW_SOURCES } from '../src/lib/tenantMasters.js'
 
 // seed はデモデータの一括投入とその削除を行うため、RLS の制約を受けない
 // 管理ロール（DIRECT_DATABASE_URL）があればそちらで接続する。
@@ -135,6 +136,23 @@ async function main() {
     })
   }
   console.log(`✅ Users: ${users.length} (password: Admin1234)`)
+
+  // 5.5 テナント別マスタ（D-10）。本番は provisionTenantService が投入する
+  for (const channel of DEFAULT_OTA_CHANNELS) {
+    await prisma.otaChannel.upsert({
+      where: { tenantId_code: { tenantId: tenant.id, code: channel.code } },
+      update: { name: channel.name, sortOrder: channel.sortOrder },
+      create: { ...channel, tenantId: tenant.id },
+    })
+  }
+  for (const source of DEFAULT_REVIEW_SOURCES) {
+    await prisma.reviewSource.upsert({
+      where: { tenantId_code: { tenantId: tenant.id, code: source.code } },
+      update: { name: source.name, sortOrder: source.sortOrder },
+      create: { ...source, tenantId: tenant.id },
+    })
+  }
+  console.log(`✅ Tenant masters: OTA ${DEFAULT_OTA_CHANNELS.length} / Review ${DEFAULT_REVIEW_SOURCES.length}`)
 
   // 6. Pricing strategy config
   await prisma.pricingStrategyConfig.upsert({

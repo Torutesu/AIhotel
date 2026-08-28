@@ -8,6 +8,8 @@ import {
   updatePriceRankService,
   deletePriceRankService,
   updateHotelSettingsService,
+  getRetentionSettingsService,
+  updateRetentionSettingsService,
 } from '../services/settingsService.js'
 import { generatePriceRanksService } from '../services/provisioningService.js'
 import {
@@ -161,4 +163,31 @@ export const updateHotelSettings = asyncHandler(async (req: Request, res: Respon
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, hotel, 200, 'ホテル設定を更新しました')
+})
+
+/**
+ * データ保持期間の取得（MANAGER 以上 — SAAS_DECISIONS.md D-06）
+ * GET /api/v1/settings/retention
+ */
+export const getRetentionSettings = asyncHandler(async (_req: Request, res: Response) => {
+  sendSuccess(res, await getRetentionSettingsService())
+})
+
+/**
+ * データ保持期間の更新（MANAGER 以上・監査対象）
+ * PUT /api/v1/settings/retention
+ */
+export const updateRetentionSettings = asyncHandler(async (req: Request, res: Response) => {
+  const tenant = await updateRetentionSettingsService(req.body)
+  await writeAuditLog({
+    tenantId: tenant.id,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'Tenant',
+    entityId: tenant.id,
+    newValue: req.body,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, tenant, 200, 'データ保持期間を更新しました')
 })

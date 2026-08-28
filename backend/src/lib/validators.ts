@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { GROUP_BOOKING_PRESET_KEYS, findGroupBookingPreset } from './groupBookingPresets.js'
 
 // ======================================
 // Common Validators
@@ -158,6 +159,93 @@ export const generatePriceRanksSchema = priceRankGenerationBaseSchema.extend({
   // 既存ランクがある場合に置き換えるか。false のまま既存があればエラー（誤爆防止）
   replaceExisting: z.boolean().default(false),
 }).refine(priceRankRangeRefinement.check, { message: priceRankRangeRefinement.message })
+
+// ======================================
+// Tenant Master Validators（SAAS_DECISIONS.md D-10）
+// ======================================
+
+export const masterKindParamSchema = z.object({
+  kind: z.enum(['ota-channel', 'review-source']),
+})
+
+export const createMasterSchema = z.object({
+  // 実績データの文字列と突き合わせるため、記号を含む表示名も許容する
+  code: z.string().min(1, 'コードは必須です').max(100),
+  name: z.string().min(1, '名称は必須です').max(100),
+  sortOrder: z.number().int().min(0).max(999).optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const updateMasterSchema = createMasterSchema.omit({ code: true }).partial()
+
+// ======================================
+// Group Booking Validators（SAAS_DECISIONS.md D-09 / F-SET-05）
+// ======================================
+
+// レベニュー影響ルールはプリセット方式。自由記述にすると施設ごとに解釈が変わり
+// 集計・比較ができなくなるため、presetKey をコード定義に限定する
+export const revenueImpactRuleSchema = z.object({
+  presetKey: z.enum(GROUP_BOOKING_PRESET_KEYS as [string, ...string[]], {
+    errorMap: () => ({ message: 'レベニュー影響ルールの種別が不正です' }),
+  }),
+  params: z.record(z.number()).default({}),
+  note: z.string().max(500).optional(),
+}).superRefine((value, ctx) => {
+  const preset = findGroupBookingPreset(value.presetKey)
+  if (!preset) return
+  for (const param of preset.params) {
+    if (param.required && typeof value.params[param.key] !== 'number') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['params', param.key],
+        message: `${preset.label} には「${param.label}」の指定が必要です`,
+      })
+    }
+  }
+})
+
+const groupBookingBaseSchema = z.object({
+  hotelId: entityIdSchema,
+  name: z.string().min(1, '団体名は必須です').max(200),
+  stayStartDate: z.coerce.date(),
+  stayEndDate: z.coerce.date(),
+  rooms: z.number().int().min(1, '室数は1以上である必要があります'),
+  guests: z.number().int().min(0).optional(),
+  revenueImpactRule: revenueImpactRuleSchema.optional(),
+  notes: z.string().max(2000).optional(),
+  status: z.enum(['tentative', 'confirmed', 'cancelled']).default('confirmed'),
+})
+
+export const createGroupBookingSchema = groupBookingBaseSchema.refine(
+  (data) => data.stayStartDate <= data.stayEndDate,
+  { message: '開始日は終了日以前である必要があります' }
+)
+
+export const updateGroupBookingSchema = groupBookingBaseSchema
+  .omit({ hotelId: true })
+  .partial()
+  .refine(
+    (data) => !data.stayStartDate || !data.stayEndDate || data.stayStartDate <= data.stayEndDate,
+    { message: '開始日は終了日以前である必要があります' }
+  )
+
+export const groupBookingsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+})
+
+// ======================================
+// Data Retention Validators（SAAS_DECISIONS.md D-06）
+// ======================================
+
+// 保持期間はテナント単位。短すぎる設定で履歴を失わないよう下限を設ける
+export const updateRetentionSettingsSchema = z.object({
+  auditLogRetentionDays: z.number().int().min(30, '監査ログは30日以上保持してください').max(3650).optional(),
+  operationalDataRetentionDays: z.number().int().min(30, '運用ログは30日以上保持してください').max(3650).optional(),
+  // null は無期限（既定）。日次実績は収益の元帳にあたるため最低1年
+  dailyDataRetentionDays: z.number().int().min(365, '日次実績は365日以上保持してください').max(3650).nullable().optional(),
+})
 
 // ======================================
 // CSV Import Validators（SAAS_ONBOARDING.md Step 3）
@@ -405,6 +493,8 @@ export const updateStrategySchema = z.object({
 
 export type LoginInput = z.infer<typeof loginSchema>
 export type InviteUserInput = z.infer<typeof inviteUserSchema>
+export type CreateGroupBookingInput = z.infer<typeof createGroupBookingSchema>
+export type UpdateGroupBookingInput = z.infer<typeof updateGroupBookingSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
 export type CreateHotelInput = z.infer<typeof createHotelSchema>
 export type CreatePriceRankInput = z.infer<typeof createPriceRankSchema>

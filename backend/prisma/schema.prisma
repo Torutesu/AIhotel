@@ -24,6 +24,16 @@ model Tenant {
   name      String // 例: 藤田観光
   code      String   @unique // 例: fujita-kanko
   isActive  Boolean  @default(true)
+
+  // データ保持期間（SAAS_DECISIONS.md D-06）。顧客ごとに内部統制の要求が異なるため
+  // テナント単位で設定できるようにする。掃除ジョブ（services/retentionService.ts）が参照する。
+  /// 監査ログの保持日数。既定2年
+  auditLogRetentionDays        Int  @default(730)
+  /// アラート・AIコメント・KPIスナップショットなど運用ログの保持日数。既定1年
+  operationalDataRetentionDays Int  @default(365)
+  /// 日次実績の保持日数。null は無期限（既定）。収益の元帳にあたるため既定では削除しない
+  dailyDataRetentionDays       Int?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -40,6 +50,8 @@ model Tenant {
   auditLogs                AuditLog[]
   refreshTokens            RefreshToken[]
   userTokens               UserToken[]
+  otaChannels              OtaChannel[]
+  reviewSources            ReviewSource[]
   monthlyBudgets           MonthlyBudget[]
   pricingStrategyConfigs   PricingStrategyConfig[]
   aiPriceRecommendations   AiPriceRecommendation[]
@@ -237,6 +249,47 @@ model PricingStrategyConfig {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
+  @@index([tenantId])
+}
+
+// ======================================
+// Tenant Masters（D-10）
+// ======================================
+//
+// OTAチャネル名・レビューソースは業界共通の語彙だが、会社によって取引先が異なるため
+// テナント単位のマスタとして持つ。実績テーブル側は文字列のまま保持し、
+// このマスタは「そのテナントで使ってよい値の登録簿」として画面の選択肢と入力検証に使う
+// （既存データを壊さずにテナント独自チャネルへ対応するため）。
+
+model OtaChannel {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// 実績テーブルの channel 文字列と一致する値（例: 楽天トラベル）
+  code      String
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+}
+
+model ReviewSource {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// ReviewScore.source と一致する値（例: google）
+  code      String
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, code])
   @@index([tenantId])
 }
 
@@ -621,7 +674,9 @@ model GroupBooking {
   stayEndDate       DateTime @db.Date
   rooms             Int
   guests            Int?
-  // レベニュー影響ルール（ホテルごとに異なるため柔軟な Json で保持）
+  // レベニュー影響ルール（SAAS_DECISIONS.md D-09）。
+  // { presetKey, params, note } の形で保持する。presetKey はコード側で定義した
+  // プリセット（lib/groupBookingPresets.ts）に限定し、ホテル間で比較・集計できるようにする
   revenueImpactRule Json?
   notes             String?
   status            String   @default("confirmed") // tentative, confirmed, cancelled

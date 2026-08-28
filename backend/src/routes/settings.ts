@@ -8,6 +8,10 @@ import {
   generatePriceRanksSchema,
   updateHotelSettingsSchema,
   csvImportSchema,
+  updateRetentionSettingsSchema,
+  masterKindParamSchema,
+  createMasterSchema,
+  updateMasterSchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
@@ -20,7 +24,15 @@ import {
   importMonthlyBudgets,
   importDailyData,
   getOnboardingStatus,
+  getRetentionSettings,
+  updateRetentionSettings,
 } from '../controllers/settingsController.js'
+import {
+  listMasters,
+  createMaster,
+  updateMaster,
+  deactivateMaster,
+} from '../controllers/mastersController.js'
 
 export const settingsRouter: ExpressRouter = Router()
 
@@ -98,6 +110,33 @@ settingsRouter.post(
   validate(csvImportSchema),
   importDailyData
 )
+
+// データ保持期間（テナント単位 — D-06）。RLS により自テナントのみ対象になる
+settingsRouter.get('/retention', getRetentionSettings)
+settingsRouter.put(
+  '/retention',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(updateRetentionSettingsSchema),
+  updateRetentionSettings
+)
+
+// テナント別マスタ（OTAチャネル・レビューソース — D-10）。
+// テナント単位のためホテル指定は不要。RLS により自テナントのみ対象になる
+settingsRouter.get('/masters/:kind', validate(masterKindParamSchema, 'params'), listMasters)
+settingsRouter.post(
+  '/masters/:kind',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(masterKindParamSchema, 'params'),
+  validate(createMasterSchema),
+  createMaster
+)
+settingsRouter.put(
+  '/masters/:kind/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(updateMasterSchema),
+  updateMaster
+)
+settingsRouter.delete('/masters/:kind/:id', requireRole('ADMIN', 'MANAGER'), deactivateMaster)
 
 // PUT /api/v1/settings/hotel/:id — ホテル設定（名称・週末定義等）変更は MANAGER 以上（F-SET-01）
 settingsRouter.put(

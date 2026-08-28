@@ -17,7 +17,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "test:rls": "vitest run src/lib/rls.integration.test.ts",
-    "db:rls-role": "psql \"$DIRECT_DATABASE_URL\" -v app_password=\"'$APP_DB_PASSWORD'\" -f prisma/rls-role.sql"
+    "db:rls-role": "psql \"$DIRECT_DATABASE_URL\" -v app_password=\"'$APP_DB_PASSWORD'\" -f prisma/rls-role.sql",
+    "db:cleanup": "tsx src/scripts/cleanup.ts"
   },
   "dependencies": {
     "@hotel-revenue-system/shared": "workspace:*",

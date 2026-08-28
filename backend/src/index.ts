@@ -18,6 +18,7 @@ import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
 import { reportsRouter } from './routes/reports.js'
 import { adminRouter } from './routes/admin.js'
+import { groupBookingsRouter } from './routes/groupBookings.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -146,6 +147,7 @@ app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/reports', reportsRouter)
 app.use('/api/v1/admin', adminRouter)
+app.use('/api/v1/group-bookings', groupBookingsRouter)
 
 // ======================================
 // Error Handling

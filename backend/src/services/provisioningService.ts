@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js'
 import { hashPassword } from '../lib/auth.js'
 import { NotFoundError, ConflictError } from '../middlewares/errorHandler.js'
+import { seedDefaultMasters } from './masterService.js'
 import type {
   ProvisionTenantInput,
   GeneratePriceRanksInput,
@@ -115,6 +116,10 @@ export async function provisionTenantService(input: ProvisionTenantInput) {
       )
     }
 
+    // OTAチャネル・レビューソースの既定値を投入する（D-10）。
+    // 初期設定の項目を増やさないため、独自チャネルを持つ顧客だけが後から編集すればよい
+    const masters = await seedDefaultMasters(tx, tenant.id)
+
     let priceRankCount = 0
     if (input.priceRanks) {
       const rows = generatePriceRankRows(input.priceRanks)
@@ -124,7 +129,7 @@ export async function provisionTenantService(input: ProvisionTenantInput) {
       priceRankCount = rows.length
     }
 
-    return { tenant, hotel, pricingStrategyConfig, users, priceRankCount }
+    return { tenant, hotel, pricingStrategyConfig, users, priceRankCount, masters }
   })
 }
 

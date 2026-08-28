@@ -73,3 +73,43 @@ export async function updateHotelSettingsService(id: string, data: UpdateHotelSe
     data,
   })
 }
+
+/**
+ * データ保持期間の取得（SAAS_DECISIONS.md D-06）。
+ * RLS によりテナントコンテキストの自テナントしか見えない
+ */
+export async function getRetentionSettingsService() {
+  const tenant = await prisma.tenant.findFirst({
+    select: {
+      id: true,
+      name: true,
+      auditLogRetentionDays: true,
+      operationalDataRetentionDays: true,
+      dailyDataRetentionDays: true,
+    },
+  })
+  if (!tenant) throw new NotFoundError('テナント')
+  return tenant
+}
+
+/** データ保持期間の更新 */
+export async function updateRetentionSettingsService(data: {
+  auditLogRetentionDays?: number
+  operationalDataRetentionDays?: number
+  dailyDataRetentionDays?: number | null
+}) {
+  const tenant = await prisma.tenant.findFirst({ select: { id: true } })
+  if (!tenant) throw new NotFoundError('テナント')
+
+  return prisma.tenant.update({
+    where: { id: tenant.id },
+    data,
+    select: {
+      id: true,
+      name: true,
+      auditLogRetentionDays: true,
+      operationalDataRetentionDays: true,
+      dailyDataRetentionDays: true,
+    },
+  })
+}
