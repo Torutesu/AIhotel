@@ -1,6 +1,7 @@
 import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { DEFAULT_BOOKING_CURVE, typicalFraction } from '../src/services/forecast/bookingCurve.js'
+import { recomputeForecastService } from '../src/services/forecast/forecastService.js'
 
 const prisma = new PrismaClient()
 
@@ -410,6 +411,12 @@ async function main() {
     },
   })
   console.log('✅ Landing simulation')
+
+  // 14. 需要予測 v2 で今後90日を再計算（理由分解・期待RevPAR・当日基準のスナップショットを作る）。
+  //     上の seed-v1 の AI推奨は「前回の推奨」として比較対象に残る。
+  //     天候は取り込んでいないので天候要因なし（POST /pricing/signals/ingest で取り込める）
+  const forecast = await recomputeForecastService(hotel.id)
+  console.log(`✅ Forecast (${forecast.modelVersion}): ${forecast.count} days from ${forecast.asOfDate}`)
 
   console.log('✨ Seeding completed!')
 }
