@@ -21,8 +21,7 @@ import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type PriceRank } from "@/lib/api"
-import type { Hotel } from "@shared/types"
+import { api, ApiClientError, type PriceRank, type Hotel } from "@/lib/api"
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
 const DEFAULT_WEEKEND_DAYS = [5, 6] // 金・土（要件定義書 §4）
@@ -58,6 +57,21 @@ function parseDashboardKpiItems(raw: string | null): string[] {
   }
 }
 
+/** 数値入力欄（緯度・経度）の文字列を number | null に変換する。空文字・数値でない場合は null */
+function parseOptionalNumber(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (trimmed === "") return null
+  const n = Number(trimmed)
+  return Number.isFinite(n) ? n : null
+}
+
+/** 6桁の気象庁コード。空なら null、形式不正なら undefined（保存時にエラー表示） */
+function parseJmaCode(raw: string): string | null | undefined {
+  const trimmed = raw.trim()
+  if (trimmed === "") return null
+  return /^\d{6}$/.test(trimmed) ? trimmed : undefined
+}
+
 function parseWeekendDays(value: unknown): number[] {
   if (Array.isArray(value)) {
     const days = value.filter((v): v is number => typeof v === "number" && v >= 0 && v <= 6)
@@ -83,6 +97,11 @@ export function SettingsTab() {
   const [contactEmail, setContactEmail] = useState("")
   const [contactPhone, setContactPhone] = useState("")
   const [weekendDays, setWeekendDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
+  // 外部要因（天候予報）取得用の設定。空欄は null として保存する
+  const [jmaOfficeCode, setJmaOfficeCode] = useState("")
+  const [jmaAreaCode, setJmaAreaCode] = useState("")
+  const [latitude, setLatitude] = useState("")
+  const [longitude, setLongitude] = useState("")
 
   const loadHotel = useCallback(async () => {
     if (!hotelId) return
@@ -99,6 +118,10 @@ export function SettingsTab() {
       setContactEmail(found.email ?? "")
       setContactPhone(found.phone ?? "")
       setWeekendDays(parseWeekendDays(found.weekendDays))
+      setJmaOfficeCode(found.jmaOfficeCode ?? "")
+      setJmaAreaCode(found.jmaAreaCode ?? "")
+      setLatitude(found.latitude != null ? String(found.latitude) : "")
+      setLongitude(found.longitude != null ? String(found.longitude) : "")
     } catch (err) {
       setHotelError(err instanceof ApiClientError ? err.message : "ホテル情報の取得に失敗しました")
     } finally {
@@ -253,6 +276,26 @@ export function SettingsTab() {
     }
 
     if (canManageHotel && hotelId) {
+      const officeCode = parseJmaCode(jmaOfficeCode)
+      const areaCode = parseJmaCode(jmaAreaCode)
+      if (officeCode === undefined || areaCode === undefined) {
+        toast({
+          title: "気象庁コードの形式が正しくありません",
+          description: "府県予報区コード・一次細分区域コードは6桁の数字で入力してください。",
+          variant: "destructive",
+        })
+        return
+      }
+      const lat = parseOptionalNumber(latitude)
+      const lng = parseOptionalNumber(longitude)
+      if ((latitude.trim() !== "" && lat == null) || (longitude.trim() !== "" && lng == null)) {
+        toast({
+          title: "緯度・経度の形式が正しくありません",
+          description: "緯度・経度は数値で入力してください（空欄可）。",
+          variant: "destructive",
+        })
+        return
+      }
       setSavingHotel(true)
       try {
         const updated = await api.updateHotelSettings(hotelId, {
@@ -262,6 +305,10 @@ export function SettingsTab() {
           email: contactEmail,
           totalRooms,
           weekendDays,
+          jmaOfficeCode: officeCode,
+          jmaAreaCode: areaCode,
+          latitude: lat,
+          longitude: lng,
         })
         setHotel(updated)
         toast({
@@ -293,6 +340,10 @@ export function SettingsTab() {
       setContactEmail(hotel.email ?? "")
       setContactPhone(hotel.phone ?? "")
       setWeekendDays(parseWeekendDays(hotel.weekendDays))
+      setJmaOfficeCode(hotel.jmaOfficeCode ?? "")
+      setJmaAreaCode(hotel.jmaAreaCode ?? "")
+      setLatitude(hotel.latitude != null ? String(hotel.latitude) : "")
+      setLongitude(hotel.longitude != null ? String(hotel.longitude) : "")
     }
     setTheme("system")
     setLanguage("ja")
@@ -437,6 +488,73 @@ export function SettingsTab() {
                       </Label>
                     </div>
                   ))}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* 外部要因（天候予報）の取得設定 — 外部要因設計 P1-7 */}
+              <div className="space-y-3">
+                <div>
+                  <Label>天候予報の取得設定</Label>
+                  <p className="text-sm text-muted-foreground">
+                    気象庁の週間予報（7日先まで）と Open-Meteo（8〜16日先）を需要予測の要因として取り込むための設定です。
+                    コードは気象庁 area.json（https://www.jma.go.jp/bosai/common/const/area.json）の offices / class10s を参照。例: 東京都=130000 / 東京地方=130010
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="jmaOfficeCode">気象庁 府県予報区コード</Label>
+                    <Input
+                      id="jmaOfficeCode"
+                      value={jmaOfficeCode}
+                      onChange={(e) => setJmaOfficeCode(e.target.value)}
+                      placeholder="130000"
+                      inputMode="numeric"
+                      maxLength={6}
+                      disabled={!canManageHotel}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="jmaAreaCode">一次細分区域コード</Label>
+                    <Input
+                      id="jmaAreaCode"
+                      value={jmaAreaCode}
+                      onChange={(e) => setJmaAreaCode(e.target.value)}
+                      placeholder="130010"
+                      inputMode="numeric"
+                      maxLength={6}
+                      disabled={!canManageHotel}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="latitude">緯度</Label>
+                    <Input
+                      id="latitude"
+                      type="number"
+                      step="any"
+                      min={-90}
+                      max={90}
+                      value={latitude}
+                      onChange={(e) => setLatitude(e.target.value)}
+                      placeholder="35.6812"
+                      disabled={!canManageHotel}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="longitude">経度</Label>
+                    <Input
+                      id="longitude"
+                      type="number"
+                      step="any"
+                      min={-180}
+                      max={180}
+                      value={longitude}
+                      onChange={(e) => setLongitude(e.target.value)}
+                      placeholder="139.7671"
+                      disabled={!canManageHotel}
+                    />
+                  </div>
                 </div>
               </div>
             </>

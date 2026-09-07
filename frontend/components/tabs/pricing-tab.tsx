@@ -12,18 +12,28 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AlertCircle, Table2, Calendar, Edit2, Save, Info, RefreshCw, Loader2, Plus, Trash2 } from "lucide-react"
+import { AlertCircle, Table2, Calendar, Edit2, Save, Info, RefreshCw, Loader2, Plus, Trash2, Check, CloudRain } from "lucide-react"
 import { toast } from "sonner"
 import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Bar, ComposedChart, Legend } from "recharts"
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } from "@/lib/api"
+import {
+  api,
+  ApiClientError,
+  type PricingCalendarDay,
+  type CreateEventInput,
+  type PricingDigest,
+  type PricingStrategy,
+  type UpdatePricingStrategyInput,
+  type DailySignal,
+} from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 
 const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -235,6 +245,162 @@ const PROPOSAL_LEVEL_STYLE: Record<string, { label: string; className: string }>
   low: { label: "レベル低", className: "bg-primary text-white" },
 }
 
+/** "YYYY-MM-DD" をローカル日付として解釈する（new Date(str) はUTC扱いになるため） */
+function parseDateKey(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number)
+  return new Date(y, m - 1, d)
+}
+
+/** "M/D（曜）" 形式 */
+function formatMD(dateStr: string): string {
+  const date = parseDateKey(dateStr)
+  return `${date.getMonth() + 1}/${date.getDate()}（${DAY_NAMES[date.getDay()]}）`
+}
+
+/** 稼働率を整数%で表示 */
+function pct0(value: number | null | undefined): string {
+  if (value == null) return "-"
+  return `${Math.round(value * 100)}%`
+}
+
+/** 稼働率への寄与（0.12 → "+12pt"、-0.04 → "−4pt"） */
+function ptLabel(pt: number): string {
+  const rounded = Math.round(pt * 100)
+  return `${rounded >= 0 ? "+" : "−"}${Math.abs(rounded)}pt`
+}
+
+/** ランク単位の寄与（1.6 → "+1.6"、-2.4 → "−2.4"） */
+function rankDeltaLabel(delta: number): string {
+  return `${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(1)}`
+}
+
+function deltaColorClass(value: number | null | undefined): string {
+  if (value == null || value === 0) return "text-muted-foreground"
+  return value > 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"
+}
+
+const SPECIAL_PERIOD_LABELS: Record<NonNullable<DailySignal["holiday"]["specialPeriod"]>, string> = {
+  gw: "ゴールデンウィーク",
+  obon: "お盆",
+  nenmatsu: "年末年始",
+}
+
+/** 祝日・連休シグナルの説明文 */
+function describeHolidaySignal(h: DailySignal["holiday"]): string {
+  const parts: string[] = []
+  if (h.holidayName) parts.push(h.holidayName)
+  if (h.specialPeriod) parts.push(SPECIAL_PERIOD_LABELS[h.specialPeriod])
+  if (h.position !== "none" && h.blockLength >= 2) {
+    const pos = h.position === "eve" ? "前日" : h.position === "within" ? "中日" : "最終日"
+    parts.push(`${h.blockLength}連休の${pos}`)
+  }
+  if (h.isBridgeDay) parts.push("飛び石の平日")
+  return parts.join(" ・ ")
+}
+
+/** 推奨の理由（需要の内訳・ランクの内訳・期待RevPAR・予測区間）。explanation が無い旧モデルの行では何も表示しない */
+function RecommendationReason({
+  day,
+  canDecide,
+  deciding,
+  onAdopt,
+}: {
+  day: PricingCalendarDay
+  canDecide: boolean
+  deciding: boolean
+  onAdopt: (day: PricingCalendarDay) => void
+}) {
+  const ex = day.explanation
+  if (!ex) return null
+  const revParDiff =
+    day.expectedRevParRecommended != null && day.expectedRevParCurrent != null
+      ? day.expectedRevParRecommended - day.expectedRevParCurrent
+      : null
+  const alreadyAdopted = day.currentRank != null && day.currentRank === day.recommendedRank
+
+  return (
+    <div className="border rounded-lg p-4 space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <div className="font-medium">推奨の理由</div>
+          <p className="text-xs text-muted-foreground">
+            モデル {ex.modelVersion} ・ {ex.asOfDate} 時点（{ex.leadDays}日前の予測）
+          </p>
+        </div>
+        {canDecide && day.recommendedRank != null && (
+          <Button size="sm" className="gap-2" disabled={deciding || alreadyAdopted} onClick={() => onAdopt(day)}>
+            {deciding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            {alreadyAdopted ? "採用済み" : `採用（${rankLabelOf(day.recommendedRank)}）`}
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-1.5">需要の内訳</div>
+          <ul className="space-y-1.5">
+            {ex.demandFactors.map((f) => (
+              <li key={f.key} className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div>{f.label}</div>
+                  {f.detail && <div className="text-[11px] text-muted-foreground leading-snug">{f.detail}</div>}
+                </div>
+                <span className={`tabular-nums whitespace-nowrap ${f.key === "base" ? "font-medium" : deltaColorClass(f.pt)}`}>
+                  {f.key === "base" ? `基準 ${Math.round(f.pt * 100)}%` : ptLabel(f.pt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 pt-2 border-t flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">予測稼働率（制約前 {pct0(ex.unconstrainedOccupancy)}）</span>
+            <span className="font-semibold">{pct0(ex.confidence.p50)}</span>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs font-medium text-muted-foreground mb-1.5">ランクの内訳</div>
+          <ul className="space-y-1.5">
+            {ex.priceContributions.map((c) => (
+              <li key={c.key} className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div>{c.label}</div>
+                  {c.detail && <div className="text-[11px] text-muted-foreground leading-snug">{c.detail}</div>}
+                </div>
+                <span className={`tabular-nums whitespace-nowrap ${c.key === "base" ? "font-medium" : deltaColorClass(c.delta)}`}>
+                  {c.key === "base" && c.rank != null ? rankLabelOf(c.rank) : c.delta != null ? rankDeltaLabel(c.delta) : "-"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 pt-2 border-t flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">最終ランク（収益最大 {rankLabelOf(ex.revenueOptimalRank)}）</span>
+            <span className="font-semibold">{day.recommendedRank != null ? rankLabelOf(day.recommendedRank) : "-"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm border-t pt-3">
+        <div>
+          <div>
+            期待RevPAR：現在 {yen(day.expectedRevParCurrent)} → 推奨 {yen(day.expectedRevParRecommended)}
+            {revParDiff != null && <span className={`ml-1 font-semibold ${deltaColorClass(revParDiff)}`}>（{signedYen(revParDiff)}）</span>}
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            現在 = {rankLabelOf(ex.comparisonRank)}
+            {day.currentRank != null ? "（採用中のランク）" : "（採用記録なしのため基準ランクと比較）"}
+          </div>
+        </div>
+        <div>
+          <div>
+            予測稼働率区間：稼働率 {Math.round(ex.confidence.p10 * 100)}〜{Math.round(ex.confidence.p90 * 100)}%（中央 {Math.round(ex.confidence.p50 * 100)}%）
+          </div>
+          <div className="text-[11px] text-muted-foreground">推奨ランク適用時の期待稼働率 {pct0(ex.expectedOccupancyRecommended)}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 interface MonthCalendar {
   year: number
   month: number
@@ -254,7 +420,9 @@ function toDateKey(date: Date): string {
 }
 
 export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = {}) {
-  const { hotelId } = useAuth()
+  const { hotelId, user } = useAuth()
+  // 採否記録・戦略変更・天候取り込みは MANAGER 以上（バックエンドの requireRole と一致させる）
+  const canDecide = user?.role === "ADMIN" || user?.role === "MANAGER"
 
   const now = new Date()
   const [targetMonth, setTargetMonth] = useState(() =>
@@ -415,6 +583,190 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     [hotelId, loadEvents]
   )
 
+  // 今日決めるべき日（ダイジェスト — 外部要因設計 P0-5）
+  const [digest, setDigest] = useState<PricingDigest | null>(null)
+  const [digestLoading, setDigestLoading] = useState(true)
+  const [digestError, setDigestError] = useState<string | null>(null)
+  const [decidingDate, setDecidingDate] = useState<string | null>(null)
+
+  // 価格戦略（重み付け＋ガードレール — F-DP-02 / 外部要因設計 P0-4）
+  const [strategy, setStrategy] = useState<PricingStrategy | null>(null)
+  const [strategyLoading, setStrategyLoading] = useState(true)
+  const [strategyError, setStrategyError] = useState<string | null>(null)
+  const [strategyForm, setStrategyForm] = useState<UpdatePricingStrategyInput>({
+    weightOccupancy: 40,
+    weightAdr: 40,
+    weightCompetitor: 20,
+    minRank: 1,
+    maxRank: PRICE_RANK_COUNT,
+    maxDailyRankChange: 3,
+    competitorPositionPct: 0,
+  })
+  const [savingStrategy, setSavingStrategy] = useState(false)
+
+  // 外部シグナル（祝日・連休・天候 — 外部要因設計 P0-2 / P1-7）
+  const [signals, setSignals] = useState<DailySignal[]>([])
+  const [signalsLoading, setSignalsLoading] = useState(true)
+  const [signalsError, setSignalsError] = useState<string | null>(null)
+  const [ingestingSignals, setIngestingSignals] = useState(false)
+
+  const loadDigest = useCallback(async () => {
+    if (!hotelId) return
+    setDigestLoading(true)
+    setDigestError(null)
+    try {
+      setDigest(await api.pricingDigest(hotelId))
+    } catch (err) {
+      setDigestError(err instanceof ApiClientError ? err.message : "ダイジェストの取得に失敗しました")
+    } finally {
+      setDigestLoading(false)
+    }
+  }, [hotelId])
+
+  useEffect(() => {
+    loadDigest()
+  }, [loadDigest])
+
+  const loadStrategy = useCallback(async () => {
+    if (!hotelId) return
+    setStrategyLoading(true)
+    setStrategyError(null)
+    try {
+      const result = await api.pricingStrategy(hotelId)
+      setStrategy(result)
+      setStrategyForm({
+        weightOccupancy: result.weightOccupancy,
+        weightAdr: result.weightAdr,
+        weightCompetitor: result.weightCompetitor,
+        minRank: result.minRank ?? 1,
+        maxRank: result.maxRank ?? PRICE_RANK_COUNT,
+        maxDailyRankChange: result.maxDailyRankChange ?? 3,
+        competitorPositionPct: result.competitorPositionPct ?? 0,
+      })
+    } catch (err) {
+      setStrategyError(err instanceof ApiClientError ? err.message : "価格戦略の取得に失敗しました")
+    } finally {
+      setStrategyLoading(false)
+    }
+  }, [hotelId])
+
+  useEffect(() => {
+    loadStrategy()
+  }, [loadStrategy])
+
+  const loadSignals = useCallback(async () => {
+    if (!hotelId) return
+    setSignalsLoading(true)
+    setSignalsError(null)
+    try {
+      setSignals(await api.signals(hotelId, monthRange.startDate, monthRange.endDate))
+    } catch (err) {
+      setSignalsError(err instanceof ApiClientError ? err.message : "外部要因の取得に失敗しました")
+    } finally {
+      setSignalsLoading(false)
+    }
+  }, [hotelId, monthRange])
+
+  useEffect(() => {
+    loadSignals()
+  }, [loadSignals])
+
+  /** 推奨ランクの採否を記録し、カレンダーとダイジェストを再取得する */
+  const handleDecide = useCallback(
+    async (date: string, appliedRank: number, reason?: string) => {
+      if (!hotelId) return
+      setDecidingDate(date)
+      try {
+        await api.recordDecision({ hotelId, date, appliedRank, ...(reason && { reason }) })
+        toast.success(
+          reason === "据え置き"
+            ? `${formatMD(date)} を ${rankLabelOf(appliedRank)} で据え置きました`
+            : `${formatMD(date)} に ${rankLabelOf(appliedRank)} を採用しました`
+        )
+        await Promise.all([loadData(), loadDigest()])
+      } catch (err) {
+        toast.error(err instanceof ApiClientError ? err.message : "採否の記録に失敗しました")
+      } finally {
+        setDecidingDate(null)
+      }
+    },
+    [hotelId, loadData, loadDigest]
+  )
+
+  const setStrategyField = useCallback((key: keyof UpdatePricingStrategyInput, raw: string) => {
+    const value = raw === "" ? Number.NaN : Number(raw)
+    setStrategyForm((prev) => ({ ...prev, [key]: value }))
+  }, [])
+
+  const strategyWeightTotal =
+    (strategyForm.weightOccupancy || 0) + (strategyForm.weightAdr || 0) + (strategyForm.weightCompetitor || 0)
+  const strategyValidationError = useMemo(() => {
+    const f = strategyForm
+    const nums = [f.weightOccupancy, f.weightAdr, f.weightCompetitor, f.minRank, f.maxRank, f.maxDailyRankChange, f.competitorPositionPct]
+    if (nums.some((n) => n == null || Number.isNaN(n))) return "すべての項目を数値で入力してください"
+    if (strategyWeightTotal !== 100) return `重み付けの合計は100%にしてください（現在 ${strategyWeightTotal}%）`
+    if (f.minRank! < 1 || f.maxRank! > PRICE_RANK_COUNT) return `ランクは1〜${PRICE_RANK_COUNT}の範囲で指定してください`
+    if (f.minRank! > f.maxRank!) return "最小ランクは最大ランク以下にしてください"
+    if (f.maxDailyRankChange! < 0) return "1回の最大変動幅は0以上にしてください"
+    return null
+  }, [strategyForm, strategyWeightTotal])
+
+  const handleSaveStrategy = useCallback(async () => {
+    if (!hotelId || strategyValidationError) return
+    setSavingStrategy(true)
+    try {
+      const updated = await api.updatePricingStrategy(hotelId, {
+        weightOccupancy: Math.round(strategyForm.weightOccupancy),
+        weightAdr: Math.round(strategyForm.weightAdr),
+        weightCompetitor: Math.round(strategyForm.weightCompetitor),
+        minRank: Math.round(strategyForm.minRank!),
+        maxRank: Math.round(strategyForm.maxRank!),
+        maxDailyRankChange: Math.round(strategyForm.maxDailyRankChange!),
+        competitorPositionPct: strategyForm.competitorPositionPct!,
+      })
+      setStrategy(updated)
+      toast.success("価格戦略を保存しました")
+      // 重み・ガードレールは推奨ランクに影響するため再計算結果を取り直す
+      await Promise.all([loadData(), loadDigest()])
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "価格戦略の保存に失敗しました")
+    } finally {
+      setSavingStrategy(false)
+    }
+  }, [hotelId, strategyForm, strategyValidationError, loadData, loadDigest])
+
+  const handleIngestSignals = useCallback(async () => {
+    if (!hotelId) return
+    setIngestingSignals(true)
+    try {
+      const result = await api.ingestSignals(hotelId)
+      const counts: string[] = []
+      if (result.jma) counts.push(`気象庁 ${result.jma.count}件${result.jma.fallbackAreaCode ? `（代替区域 ${result.jma.fallbackAreaCode}）` : ""}`)
+      if (result.openMeteo) counts.push(`Open-Meteo ${result.openMeteo.count}件`)
+      if (counts.length > 0) {
+        toast.success(`天候予報を取り込みました（${counts.join(" / ")}）`)
+      }
+      if (result.skipped.length > 0) {
+        toast.warning(`スキップ: ${result.skipped.join("、")}`)
+      }
+      if (counts.length === 0 && result.skipped.length === 0) {
+        toast.info("取り込み対象の予報がありませんでした")
+      }
+      await loadSignals()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "天候予報の取り込みに失敗しました")
+    } finally {
+      setIngestingSignals(false)
+    }
+  }, [hotelId, loadSignals])
+
+  // 当月の外部要因（連休・特別期間・雨天予報）
+  const holidaySignals = useMemo(
+    () => signals.filter((s) => (s.holiday.position !== "none" && s.holiday.blockHasHoliday) || s.holiday.specialPeriod != null),
+    [signals]
+  )
+  const rainySignals = useMemo(() => signals.filter((s) => s.weather?.isRainy), [signals])
+
   // 月間サマリー（実データから集計）
   const overallSummary = useMemo(() => {
     const allDays = monthsData.flatMap((m) => m.calendar)
@@ -484,6 +836,147 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         <h2 className="text-2xl font-semibold text-balance">ダイナミックプライシング</h2>
         <p className="text-sm text-muted-foreground mt-1">需要予測に基づく最適価格設定</p>
       </div>
+
+      {/* 今日決めるべき日（ダイジェスト — 外部要因設計 P0-5） */}
+      <Card>
+        <CardContent className="py-2.5 px-3">
+          <div className="flex items-center justify-between mb-2.5 flex-wrap gap-2">
+            <div>
+              <h3 className="text-lg font-semibold">今日決めるべき日</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                推奨ランクと現在のランクが異なる日を、期待増収額の大きい順に表示します
+                {digest ? `（${digest.asOfDate} 時点・客室数 ${digest.totalRooms}）` : ""}
+                {!canDecide && "。採否の記録にはMANAGER以上の権限が必要です"}
+              </p>
+            </div>
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-2" onClick={loadDigest} disabled={digestLoading}>
+              <RefreshCw className={`w-3.5 h-3.5 ${digestLoading ? "animate-spin" : ""}`} />
+              更新
+            </Button>
+          </div>
+
+          {digestLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <Skeleton key={i} className="h-12 w-full" />
+              ))}
+            </div>
+          ) : digestError ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{digestError}</p>
+              <Button variant="outline" size="sm" onClick={loadDigest} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : !digest || digest.priorityDays.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">推奨と現在のランクが一致しています</p>
+          ) : (
+            <div className="space-y-2">
+              {digest.priorityDays.map((p) => (
+                <div key={p.date} className="flex items-center gap-3 border rounded-lg px-3 py-2 flex-wrap">
+                  <div className="flex items-center gap-2 w-28 shrink-0">
+                    <span className="font-medium text-sm">{formatMD(p.date)}</span>
+                    {p.demandLevel ? (
+                      <Badge className={`${demandBadgeClass(p.demandLevel)} text-xs`}>{p.demandLevel}</Badge>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-sm shrink-0">
+                    <span className="text-xs text-muted-foreground">現在</span>
+                    <Badge variant="outline" className="text-xs font-bold px-2">
+                      {rankLabelOf(p.comparisonRank)}
+                    </Badge>
+                    <span className="text-muted-foreground">→</span>
+                    <span className="text-xs text-muted-foreground">推奨</span>
+                    <Badge className={`${getRankBadgeColor(p.recommendedRank)} text-xs font-bold px-2`}>
+                      {rankLabelOf(p.recommendedRank)}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground">（{yen(p.recommendedPrice)}）</span>
+                  </div>
+                  <div className={`text-sm font-semibold tabular-nums w-28 shrink-0 ${deltaColorClass(p.expectedRevenueDelta)}`}>
+                    {signedYen(p.expectedRevenueDelta)}
+                  </div>
+                  <p className="text-xs text-muted-foreground flex-1 min-w-[160px]">
+                    稼働率予測 {pct0(p.predictedOccupancy)} ・ {p.summary}
+                  </p>
+                  {canDecide && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs gap-1"
+                        disabled={decidingDate != null}
+                        onClick={() => handleDecide(p.date, p.recommendedRank)}
+                      >
+                        {decidingDate === p.date ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        採用
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-xs"
+                        disabled={decidingDate != null}
+                        onClick={() => handleDecide(p.date, p.comparisonRank, "据え置き")}
+                      >
+                        据え置き
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {digest && !digestLoading && !digestError && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 border-t mt-3 pt-3">
+              <div>
+                <h4 className="text-sm font-semibold mb-1.5">昨日からの変化</h4>
+                {digest.changesSinceYesterday.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">昨日から変化した推奨ランクはありません。</p>
+                ) : (
+                  <ul className="space-y-1 text-xs">
+                    {digest.changesSinceYesterday.slice(0, 8).map((c) => (
+                      <li key={c.date} className="flex items-start gap-2 flex-wrap">
+                        <span className="font-medium w-16 shrink-0">{formatMD(c.date)}</span>
+                        <span className="tabular-nums shrink-0">
+                          {rankLabelOf(c.previousRank)} → <span className="font-semibold">{rankLabelOf(c.newRank)}</span>
+                        </span>
+                        <span className="text-muted-foreground">{c.reasons.join("、")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold mb-1.5">昨日の答え合わせ</h4>
+                {digest.yesterdayReview ? (
+                  <p className="text-xs">
+                    {formatMD(digest.yesterdayReview.date)} 予測 {pct0(digest.yesterdayReview.predictedOccupancy)} / 実績{" "}
+                    {pct0(digest.yesterdayReview.actualOccupancy)}
+                    <span className={`ml-1 font-semibold ${deltaColorClass(digest.yesterdayReview.errorPt)}`}>
+                      （{digest.yesterdayReview.errorPt >= 0 ? "+" : "−"}
+                      {Math.abs(digest.yesterdayReview.errorPt).toFixed(1)}pt）
+                    </span>
+                    {digest.yesterdayReview.actualRevPar != null && ` RevPAR ${yen(digest.yesterdayReview.actualRevPar)}`}
+                    <span className="block text-muted-foreground mt-0.5">{digest.yesterdayReview.comment}</span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">実績未確定</p>
+                )}
+                <p className="text-xs">
+                  直近30日の採用率：
+                  <span className="font-semibold ml-1">
+                    {digest.adoption.adoptionRate != null ? `${Math.round(digest.adoption.adoptionRate * 100)}%` : "-"}
+                  </span>
+                  <span className="text-muted-foreground ml-1">
+                    （採用 {digest.adoption.adopted} / 記録 {digest.adoption.decided} 件）
+                  </span>
+                </p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* AI価格最適化の提案（レベルを色付きバッジで表示） */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
@@ -699,7 +1192,8 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                             const special = specialDayNameOf(dateObj)
                             const isActualDay = day.actualAdr != null
                             const currentAdr = isActualDay ? day.actualAdr : mockCurrentAdr(day)
-                            const currentRank = mockCurrentRank(day)
+                            const currentRank = day.currentRank ?? mockCurrentRank(day)
+                            const rankDiffers = day.currentRank != null && day.currentRank !== day.recommendedRank
                             const adrDiff = day.actualAdr != null && day.predictedAdr != null ? day.actualAdr - day.predictedAdr : null
                             const occDiff =
                               day.actualOccupancy != null && day.predictedOccupancy != null
@@ -748,9 +1242,18 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                                 <td className="text-right py-2 px-2">{pct(day.predictedOccupancy)}</td>
                                 <td className="text-center py-2 px-2">
                                   {currentRank != null ? (
-                                    <Badge variant="outline" className="text-xs font-bold px-2">
-                                      {rankLabelOf(currentRank)}
-                                    </Badge>
+                                    <span className="inline-flex items-center gap-1">
+                                      <Badge variant="outline" className="text-xs font-bold px-2">
+                                        {rankLabelOf(currentRank)}
+                                      </Badge>
+                                      {rankDiffers && (
+                                        <span
+                                          className="w-1.5 h-1.5 rounded-full bg-warning"
+                                          title="採用中のランクが推奨と異なります"
+                                          aria-label="採用中のランクが推奨と異なります"
+                                        />
+                                      )}
+                                    </span>
                                   ) : (
                                     <span className="text-muted-foreground text-xs">-</span>
                                   )}
@@ -849,6 +1352,162 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                 </div>
               )
             })
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 価格戦略の重み付けとガードレール（F-DP-02 / 外部要因設計 P0-4） */}
+      <Card>
+        <CardContent className="py-2.5 px-3">
+          <div className="mb-2.5">
+            <h3 className="text-lg font-semibold">価格戦略・ガードレール</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              重み付け（合計100%）と、推奨ランクの上下限・1回の最大変動幅・競合ポジションを設定します
+              {!canDecide && "（変更にはMANAGER以上の権限が必要です）"}
+            </p>
+          </div>
+
+          {strategyLoading ? (
+            <Skeleton className="h-24 w-full" />
+          ) : strategyError ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{strategyError}</p>
+              <Button variant="outline" size="sm" onClick={loadStrategy} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="strategy-weight-occupancy" className="text-xs">稼働率重視 (%)</Label>
+                  <Input
+                    id="strategy-weight-occupancy"
+                    type="number"
+                    min={0}
+                    max={100}
+                    className="h-8 text-xs"
+                    value={Number.isNaN(strategyForm.weightOccupancy) ? "" : strategyForm.weightOccupancy}
+                    onChange={(e) => setStrategyField("weightOccupancy", e.target.value)}
+                    disabled={!canDecide}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="strategy-weight-adr" className="text-xs">ADR重視 (%)</Label>
+                  <Input
+                    id="strategy-weight-adr"
+                    type="number"
+                    min={0}
+                    max={100}
+                    className="h-8 text-xs"
+                    value={Number.isNaN(strategyForm.weightAdr) ? "" : strategyForm.weightAdr}
+                    onChange={(e) => setStrategyField("weightAdr", e.target.value)}
+                    disabled={!canDecide}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="strategy-weight-competitor" className="text-xs">競合追従 (%)</Label>
+                  <Input
+                    id="strategy-weight-competitor"
+                    type="number"
+                    min={0}
+                    max={100}
+                    className="h-8 text-xs"
+                    value={Number.isNaN(strategyForm.weightCompetitor) ? "" : strategyForm.weightCompetitor}
+                    onChange={(e) => setStrategyField("weightCompetitor", e.target.value)}
+                    disabled={!canDecide}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">合計</Label>
+                  <div className={`h-8 flex items-center text-sm font-semibold ${strategyWeightTotal === 100 ? "" : "text-negative"}`}>
+                    {strategyWeightTotal}%
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 border-t pt-3">
+                <div className="space-y-1">
+                  <Label htmlFor="strategy-min-rank" className="text-xs">最小ランク</Label>
+                  <Input
+                    id="strategy-min-rank"
+                    type="number"
+                    min={1}
+                    max={PRICE_RANK_COUNT}
+                    className="h-8 text-xs"
+                    value={strategyForm.minRank == null || Number.isNaN(strategyForm.minRank) ? "" : strategyForm.minRank}
+                    onChange={(e) => setStrategyField("minRank", e.target.value)}
+                    disabled={!canDecide}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="strategy-max-rank" className="text-xs">最大ランク</Label>
+                  <Input
+                    id="strategy-max-rank"
+                    type="number"
+                    min={1}
+                    max={PRICE_RANK_COUNT}
+                    className="h-8 text-xs"
+                    value={strategyForm.maxRank == null || Number.isNaN(strategyForm.maxRank) ? "" : strategyForm.maxRank}
+                    onChange={(e) => setStrategyField("maxRank", e.target.value)}
+                    disabled={!canDecide}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="strategy-max-change" className="text-xs">1回の最大変動幅（ランク）</Label>
+                  <Input
+                    id="strategy-max-change"
+                    type="number"
+                    min={0}
+                    max={PRICE_RANK_COUNT}
+                    className="h-8 text-xs"
+                    value={
+                      strategyForm.maxDailyRankChange == null || Number.isNaN(strategyForm.maxDailyRankChange)
+                        ? ""
+                        : strategyForm.maxDailyRankChange
+                    }
+                    onChange={(e) => setStrategyField("maxDailyRankChange", e.target.value)}
+                    disabled={!canDecide}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="strategy-competitor-position" className="text-xs">競合ポジション (%)</Label>
+                  <Input
+                    id="strategy-competitor-position"
+                    type="number"
+                    step={1}
+                    className="h-8 text-xs"
+                    value={
+                      strategyForm.competitorPositionPct == null || Number.isNaN(strategyForm.competitorPositionPct)
+                        ? ""
+                        : strategyForm.competitorPositionPct
+                    }
+                    onChange={(e) => setStrategyField("competitorPositionPct", e.target.value)}
+                    disabled={!canDecide}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className={`text-xs ${strategyValidationError ? "text-negative" : "text-muted-foreground"}`}>
+                  {strategyValidationError ??
+                    "競合ポジションは競合中央値に対する自社価格の位置（例: +5 = 5%高め、−5 = 5%安め）です"}
+                </p>
+                {canDecide && (
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs gap-2"
+                    disabled={savingStrategy || strategyValidationError != null || !strategy}
+                    onClick={handleSaveStrategy}
+                  >
+                    {savingStrategy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                    保存
+                  </Button>
+                )}
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -1021,6 +1680,82 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         </CardContent>
       </Card>
 
+      {/* 外部要因（祝日・連休・天候 — 外部要因設計 P0-2 / P1-7） */}
+      <Card>
+        <CardContent className="py-2.5 px-3">
+          <div className="flex items-center justify-between mb-2.5 flex-wrap gap-2">
+            <div>
+              <h3 className="text-lg font-semibold">外部要因（{monthLabelOf(Number(targetMonth.slice(0, 4)), Number(targetMonth.slice(5, 7)))}）</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                祝日・連休・特別期間と雨天予報は需要予測の要因として自動で反映されます。天候予報は設定画面の気象庁コード・緯度経度をもとに取得します
+              </p>
+            </div>
+            {canDecide && (
+              <Button variant="outline" size="sm" className="h-8 text-xs gap-2" onClick={handleIngestSignals} disabled={ingestingSignals}>
+                {ingestingSignals ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CloudRain className="w-3.5 h-3.5" />}
+                天候予報を取り込む
+              </Button>
+            )}
+          </div>
+
+          {signalsLoading ? (
+            <Skeleton className="h-16 w-full" />
+          ) : signalsError ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{signalsError}</p>
+              <Button variant="outline" size="sm" onClick={loadSignals} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <h4 className="text-sm font-semibold mb-1.5">祝日・連休・特別期間</h4>
+                {holidaySignals.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">この月に連休・特別期間はありません。</p>
+                ) : (
+                  <ul className="space-y-1 text-xs">
+                    {holidaySignals.map((s) => (
+                      <li key={s.date} className="flex items-start gap-2">
+                        <span className={`font-medium w-16 shrink-0 ${s.holiday.isHoliday ? "text-negative" : ""}`}>{formatMD(s.date)}</span>
+                        <span>{describeHolidaySignal(s.holiday)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold mb-1.5">雨天予報</h4>
+                {rainySignals.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">雨天予報の日はありません（予報は取り込み済みの期間のみ表示されます）。</p>
+                ) : (
+                  <ul className="space-y-1 text-xs">
+                    {rainySignals.map((s) => (
+                      <li key={s.date} className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium w-16 shrink-0">{formatMD(s.date)}</span>
+                        <span>降水確率 {s.weather?.rainProbability != null ? `${s.weather.rainProbability}%` : "-"}</span>
+                        {s.weather?.tempMax != null && s.weather?.tempMin != null && (
+                          <span className="text-muted-foreground">
+                            {s.weather.tempMin}〜{s.weather.tempMax}℃
+                          </span>
+                        )}
+                        {s.weather && (
+                          <Badge variant="outline" className="text-[10px]">
+                            {s.weather.source === "jma" ? "気象庁" : s.weather.source === "open_meteo" ? "Open-Meteo" : s.weather.source}
+                          </Badge>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Date Details Dialog */}
       <Dialog
         open={selectedDay !== null}
@@ -1068,7 +1803,14 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                     <div className="border rounded-lg p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <div className="font-medium">推奨価格（料金ランク {day.rankLabel ?? "-"}）</div>
-                        {day.confidence != null && <Badge variant="outline" className="text-xs">信頼度 {(day.confidence * 100).toFixed(0)}%</Badge>}
+                        {day.explanation ? (
+                          <Badge variant="outline" className="text-xs">
+                            稼働率 {Math.round(day.explanation.confidence.p10 * 100)}〜{Math.round(day.explanation.confidence.p90 * 100)}%（中央{" "}
+                            {Math.round(day.explanation.confidence.p50 * 100)}%）
+                          </Badge>
+                        ) : (
+                          day.confidence != null && <Badge variant="outline" className="text-xs">信頼度 {(day.confidence * 100).toFixed(0)}%</Badge>
+                        )}
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
                         <div>1名料金：{yen(day.price1P)}</div>
@@ -1084,6 +1826,13 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                         {day.actualOccupancy != null && <div>実績稼働率：{pct(day.actualOccupancy)}</div>}
                       </div>
                     </div>
+
+                    <RecommendationReason
+                      day={day}
+                      canDecide={canDecide}
+                      deciding={decidingDate === day.date}
+                      onAdopt={(d) => d.recommendedRank != null && handleDecide(d.date, d.recommendedRank)}
+                    />
 
                     <div className="space-y-3 border-t pt-4">
                       <div className="flex items-center justify-between">
@@ -1321,6 +2070,13 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                         </CardContent>
                       </Card>
                     )}
+
+                    <RecommendationReason
+                      day={day}
+                      canDecide={canDecide}
+                      deciding={decidingDate === day.date}
+                      onAdopt={(d) => d.recommendedRank != null && handleDecide(d.date, d.recommendedRank)}
+                    />
                   </div>
                 </>
               )
@@ -1433,9 +2189,18 @@ function PriceGrid({
                       {cell.date}
                     </div>
                     {cell.isCurrentMonth && cell.data?.rankLabel && (
-                      <Badge className={`${getRankBadgeColor(cell.data.recommendedRank ?? 0)} text-[9px] font-bold px-1 py-0 h-4`}>
-                        {cell.data.rankLabel}
-                      </Badge>
+                      <span className="inline-flex items-center gap-0.5">
+                        {cell.data.currentRank != null && cell.data.currentRank !== cell.data.recommendedRank && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full bg-warning"
+                            title={`採用中 ${rankLabelOf(cell.data.currentRank)}（推奨と異なります）`}
+                            aria-label={`採用中 ${rankLabelOf(cell.data.currentRank)}（推奨と異なります）`}
+                          />
+                        )}
+                        <Badge className={`${getRankBadgeColor(cell.data.recommendedRank ?? 0)} text-[9px] font-bold px-1 py-0 h-4`}>
+                          {cell.data.rankLabel}
+                        </Badge>
+                      </span>
                     )}
                   </div>
 

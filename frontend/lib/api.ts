@@ -4,9 +4,19 @@
 // next.config.mjs の rewrites により /api/* はバックエンドへプロキシされる。
 // 直接バックエンドURLを叩く場合は NEXT_PUBLIC_BACKEND_URL を設定する。
 
-import type { ApiResponse, User, UserRole, Hotel, Event as HotelEvent, PriceRank } from "@shared/types"
+import type { ApiResponse, User, UserRole, Hotel as SharedHotel, Event as HotelEvent, PriceRank } from "@shared/types"
 
-export type { Hotel, PriceRank }
+/** ホテル情報。外部要因（気象庁コード・緯度経度）の設定はバックエンド側で追加されたためここで拡張する */
+export type Hotel = SharedHotel & {
+  /** 気象庁 府県予報区コード（6桁。例 東京都=130000） */
+  jmaOfficeCode?: string | null
+  /** 気象庁 一次細分区域コード（6桁。例 東京地方=130010） */
+  jmaAreaCode?: string | null
+  latitude?: number | null
+  longitude?: number | null
+}
+
+export type { PriceRank }
 export type { Event as HotelEvent } from "@shared/types"
 
 const ACCESS_TOKEN_KEY = "hrms.accessToken"
@@ -346,6 +356,46 @@ export interface PricingCalendarDay {
   actualAdr: number | null
   competitorAvgPrice: number | null
   confidence: number | null
+  /** 採用済みランク（RecommendationDecision の最新 appliedRank）。無ければ null */
+  currentRank: number | null
+  /** 推奨の理由分解。旧モデルの行は null */
+  explanation: RecommendationExplanation | null
+  expectedRevParCurrent: number | null
+  expectedRevParRecommended: number | null
+  modelVersion: string | null
+}
+
+/** 需要要因。pt は稼働率への寄与（0.05 = +5pt）。key 'base' は基準値そのもの */
+export interface DemandFactor {
+  key: string
+  label: string
+  pt: number
+  detail?: string
+}
+
+/** ランク寄与。key 'base' は rank、その他は delta（ランク単位・小数あり）。合計 = 最終ランク */
+export interface RankContribution {
+  key: string
+  label: string
+  rank?: number
+  delta?: number
+  detail?: string
+}
+
+export interface RecommendationExplanation {
+  modelVersion: string
+  asOfDate: string
+  leadDays: number
+  demandFactors: DemandFactor[]
+  activeFactorKeys: string[]
+  unconstrainedOccupancy: number
+  baseRank: number
+  revenueOptimalRank: number
+  candidates: { occupancy: number; adr: number; competitor: number | null }
+  priceContributions: RankContribution[]
+  comparisonRank: number
+  expectedOccupancyRecommended: number
+  confidence: { p10: number; p50: number; p90: number; leadBucket: string }
 }
 
 export interface PricingCalendar {
@@ -361,6 +411,115 @@ export interface PricingStrategy {
   weightOccupancy: number
   weightAdr: number
   weightCompetitor: number
+  /** ガードレール（docs/外部要因設計.md） */
+  minRank: number
+  maxRank: number
+  maxDailyRankChange: number
+  competitorPositionPct: number
+}
+
+export interface UpdatePricingStrategyInput {
+  weightOccupancy: number
+  weightAdr: number
+  weightCompetitor: number
+  minRank?: number
+  maxRank?: number
+  maxDailyRankChange?: number
+  competitorPositionPct?: number
+}
+
+export interface PricingDigestPriorityDay {
+  date: string
+  recommendedRank: number
+  recommendedPrice: number | null
+  currentRank: number | null
+  comparisonRank: number
+  expectedRevParCurrent: number
+  expectedRevParRecommended: number
+  /** (推奨 − 比較対象) × 客室数。円。正負あり */
+  expectedRevenueDelta: number
+  demandLevel: "A" | "B" | "C" | "D" | "E" | null
+  predictedOccupancy: number
+  summary: string
+  topFactors: DemandFactor[]
+}
+
+export interface PricingDigest {
+  asOfDate: string
+  totalRooms: number
+  /** 期待増収額の絶対値降順、最大10件。推奨≠比較対象の日のみ */
+  priorityDays: PricingDigestPriorityDay[]
+  changesSinceYesterday: Array<{
+    date: string
+    previousRank: number
+    newRank: number
+    previousAsOfDate: string
+    reasons: string[]
+  }>
+  yesterdayReview: {
+    date: string
+    predictedOccupancy: number
+    actualOccupancy: number
+    errorPt: number
+    actualAdr: number | null
+    actualRevPar: number | null
+    comment: string
+  } | null
+  /** 直近30日の採否記録。adopted = appliedRank === recommendedRank */
+  adoption: { decided: number; adopted: number; adoptionRate: number | null }
+}
+
+export interface RecommendationDecision {
+  id: string
+  hotelId: string
+  stayDate: string
+  recommendedRank: number
+  appliedRank: number
+  reason: string | null
+  decidedByUserId: string | null
+  createdAt: string
+}
+
+export interface RecordDecisionInput {
+  hotelId: string
+  /** YYYY-MM-DD */
+  date: string
+  appliedRank: number
+  reason?: string
+}
+
+export interface DailySignal {
+  date: string
+  holiday: {
+    known: boolean
+    isHoliday: boolean
+    holidayName: string | null
+    nextDayOff: boolean
+    nextDayIsHoliday: boolean
+    blockLength: number
+    blockHasHoliday: boolean
+    position: "eve" | "within" | "last" | "none"
+    isBridgeDay: boolean
+    specialPeriod: "gw" | "obon" | "nenmatsu" | null
+    schoolBreak: "spring" | "summer" | "winter" | null
+  }
+  weather: {
+    weatherCode: string
+    rainProbability: number | null
+    tempMax: number | null
+    tempMin: number | null
+    reliability: string | null
+    isRainy: boolean
+    source: string
+    capturedAt: string
+  } | null
+}
+
+export interface SignalsIngestResult {
+  hotelId: string
+  jma: { count: number; reportDatetime: string; fallbackAreaCode: string | null } | null
+  openMeteo: { count: number } | null
+  skipped: string[]
 }
 
 export interface BookingCurve {
@@ -441,6 +600,12 @@ export interface UpdateHotelSettingsInput {
   email?: string
   totalRooms?: number
   weekendDays?: number[]
+  /** 気象庁 府県予報区コード（6桁）。空にする場合は null */
+  jmaOfficeCode?: string | null
+  /** 気象庁 一次細分区域コード（6桁）。空にする場合は null */
+  jmaAreaCode?: string | null
+  latitude?: number | null
+  longitude?: number | null
 }
 
 // ---- Dev-only demo data (ダッシュボード/ダイナミックプライシング画面用) ----
@@ -707,33 +872,294 @@ function mockAiSummary(section?: string): AiSummary {
   }
 }
 
+// ---- 外部要因のモック（祝日・特別期間・天候。デモ表示用の簡易判定で、実データではない） ----
+
+// 年に依存しない近似の祝日表（移動祝日は代表日で近似）
+const MOCK_HOLIDAYS: Record<string, string> = {
+  "1-1": "元日",
+  "1-12": "成人の日",
+  "2-11": "建国記念の日",
+  "2-23": "天皇誕生日",
+  "3-20": "春分の日",
+  "4-29": "昭和の日",
+  "5-3": "憲法記念日",
+  "5-4": "みどりの日",
+  "5-5": "こどもの日",
+  "7-20": "海の日",
+  "8-11": "山の日",
+  "9-21": "敬老の日",
+  "9-23": "秋分の日",
+  "10-12": "スポーツの日",
+  "11-3": "文化の日",
+  "11-23": "勤労感謝の日",
+}
+
+function mockHolidayName(date: Date): string | null {
+  return MOCK_HOLIDAYS[`${date.getMonth() + 1}-${date.getDate()}`] ?? null
+}
+
+function mockSpecialPeriod(date: Date): DailySignal["holiday"]["specialPeriod"] {
+  const m = date.getMonth() + 1
+  const d = date.getDate()
+  if ((m === 4 && d >= 29) || (m === 5 && d <= 5)) return "gw"
+  if (m === 8 && d >= 13 && d <= 16) return "obon"
+  if ((m === 12 && d >= 29) || (m === 1 && d <= 3)) return "nenmatsu"
+  return null
+}
+
+function mockSchoolBreak(date: Date): DailySignal["holiday"]["schoolBreak"] {
+  const m = date.getMonth() + 1
+  const d = date.getDate()
+  if ((m === 7 && d >= 21) || m === 8) return "summer"
+  if ((m === 12 && d >= 25) || (m === 1 && d <= 7)) return "winter"
+  if ((m === 3 && d >= 25) || (m === 4 && d <= 5)) return "spring"
+  return null
+}
+
+/** 休日（土日・祝日・特別期間）かどうか */
+function mockIsDayOff(date: Date): boolean {
+  const dow = date.getDay()
+  return dow === 0 || dow === 6 || mockHolidayName(date) != null || mockSpecialPeriod(date) != null
+}
+
+function mockAddDays(date: Date, n: number): Date {
+  const d = new Date(date)
+  d.setDate(d.getDate() + n)
+  return d
+}
+
+function mockDaysBetween(from: Date, to: Date): number {
+  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime()
+  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime()
+  return Math.round((b - a) / 86_400_000)
+}
+
+/** 連休ブロック（休日が連続する範囲）を返す。休日でなければ null */
+function mockHolidayBlock(date: Date): { start: Date; end: Date; length: number; hasHoliday: boolean } | null {
+  if (!mockIsDayOff(date)) return null
+  let start = new Date(date)
+  while (mockIsDayOff(mockAddDays(start, -1))) start = mockAddDays(start, -1)
+  let end = new Date(date)
+  while (mockIsDayOff(mockAddDays(end, 1))) end = mockAddDays(end, 1)
+  const length = mockDaysBetween(start, end) + 1
+  let hasHoliday = false
+  for (let d = new Date(start); d <= end; d = mockAddDays(d, 1)) {
+    if (mockHolidayName(d) != null || mockSpecialPeriod(d) != null) hasHoliday = true
+  }
+  return { start, end, length, hasHoliday }
+}
+
+function mockHolidaySignal(date: Date): DailySignal["holiday"] {
+  const next = mockAddDays(date, 1)
+  const prev = mockAddDays(date, -1)
+  const block = mockHolidayBlock(date)
+  const nextBlock = mockHolidayBlock(next)
+  const nextDayOff = nextBlock != null
+  let position: DailySignal["holiday"]["position"] = "none"
+  if (block) {
+    position = mockDaysBetween(date, block.end) === 0 ? "last" : "within"
+  } else if (nextDayOff && (nextBlock?.length ?? 0) >= 2) {
+    position = "eve"
+  }
+  const isBridgeDay = !block && mockIsDayOff(prev) && nextDayOff
+  return {
+    known: true,
+    isHoliday: mockHolidayName(date) != null,
+    holidayName: mockHolidayName(date),
+    nextDayOff,
+    nextDayIsHoliday: mockHolidayName(next) != null,
+    blockLength: block?.length ?? nextBlock?.length ?? 0,
+    blockHasHoliday: block?.hasHoliday ?? nextBlock?.hasHoliday ?? false,
+    position,
+    isBridgeDay,
+    specialPeriod: mockSpecialPeriod(date),
+    schoolBreak: mockSchoolBreak(date),
+  }
+}
+
+/** 天候予報のモック（今日から14日先まで。日付から決定的に導出） */
+function mockWeatherSignal(date: Date, today: Date): DailySignal["weather"] {
+  const lead = mockDaysBetween(today, date)
+  if (lead < 0 || lead > 14) return null
+  const dayNum = date.getDate()
+  const rainProbability = ((dayNum * 37 + date.getMonth() * 11) % 100)
+  const isRainy = rainProbability >= 60
+  const month = date.getMonth() + 1
+  const tempBase = 8 + 14 * Math.sin(((month - 4) / 12) * 2 * Math.PI) + 10
+  return {
+    weatherCode: isRainy ? "300" : rainProbability >= 40 ? "200" : "100",
+    rainProbability,
+    tempMax: Math.round(tempBase + 4),
+    tempMin: Math.round(tempBase - 4),
+    reliability: lead <= 3 ? "A" : lead <= 7 ? "B" : "C",
+    isRainy,
+    source: lead <= 7 ? "jma" : "open_meteo",
+    capturedAt: today.toISOString(),
+  }
+}
+
+function mockSignals(startDate: string, endDate: string): DailySignal[] {
+  const today = new Date()
+  return eachMockDate(startDate, endDate).map((date) => ({
+    date: toLocalDateStr(date),
+    holiday: mockHolidaySignal(date),
+    weather: mockWeatherSignal(date, today),
+  }))
+}
+
+function mockIngestSignals(hotelId: string): SignalsIngestResult {
+  return {
+    hotelId,
+    jma: { count: 7, reportDatetime: new Date().toISOString(), fallbackAreaCode: null },
+    openMeteo: { count: 9 },
+    skipped: [],
+  }
+}
+
+// ---- 採否記録のモック（メモリ上に保持。採用操作の結果を画面で確認できるようにする） ----
+const mockDecisionStore = new Map<string, RecommendationDecision>()
+
+function mockLeadBucket(leadDays: number): string {
+  if (leadDays <= 3) return "lead0_3"
+  if (leadDays <= 7) return "lead4_7"
+  if (leadDays <= 30) return "lead8_30"
+  if (leadDays <= 90) return "lead31_90"
+  return "lead91"
+}
+
+const MOCK_MODEL_VERSION = "demand-v2-mock"
+
 function mockPricingCalendar(hotelId: string, year: number, month: number): PricingCalendar {
   const numDays = mockDaysInMonth(year, month)
   const today = new Date()
   const rng = createSeededRandom(year * 100 + month + 7)
   const boost = mockSeasonBoost(month)
   const calendar: PricingCalendarDay[] = []
+  const strategy = mockStrategy
+  const ranks = getMockPriceRanks(hotelId)
+  const priceOf = (rank: number) =>
+    ranks.find((r) => r.rank === rank)?.price1P ?? mockRankToPrice1P(rank)
+  const clampRank = (r: number) => Math.min(40, Math.max(1, r))
 
   for (let d = 1; d <= numDays; d++) {
     const date = new Date(year, month - 1, d)
     const weekend = isMockWeekend(date)
     const isPast = date < today
-    const predictedOccupancy = Number(
-      Math.min(1, Math.max(0.3, (weekend ? 0.9 : 0.72) * boost + (rng() - 0.5) * 0.1)).toFixed(3)
-    )
+    const leadDays = mockDaysBetween(today, date)
+    const holidaySignal = mockHolidaySignal(date)
+    const weather = mockWeatherSignal(date, today)
+
+    // ---- 需要の内訳（稼働率への寄与 pt）
+    const base = Number((0.64 * boost).toFixed(3))
+    const demandFactors: DemandFactor[] = [
+      { key: "base", label: "基準稼働率", pt: base, detail: `${month}月の曜日平均（季節係数 ${boost.toFixed(2)}）` },
+    ]
+    if (weekend) demandFactors.push({ key: "weekend", label: "週末（金・土）", pt: 0.14 })
+    if (holidaySignal.position === "eve") {
+      demandFactors.push({ key: "holiday_eve", label: `${holidaySignal.blockLength}連休の前日`, pt: 0.08 })
+    } else if (holidaySignal.position === "within" && holidaySignal.blockLength >= 3) {
+      demandFactors.push({ key: "holiday_mid", label: "3連休以上の中日", pt: 0.12 })
+    } else if (holidaySignal.position === "last" && holidaySignal.blockLength >= 2) {
+      demandFactors.push({ key: "holiday_last", label: "連休最終日", pt: -0.06 })
+    }
+    if (holidaySignal.specialPeriod) {
+      const labels = { gw: "ゴールデンウィーク", obon: "お盆", nenmatsu: "年末年始" } as const
+      demandFactors.push({ key: `special_${holidaySignal.specialPeriod}`, label: labels[holidaySignal.specialPeriod], pt: 0.1 })
+    }
+    if (d === 15) demandFactors.push({ key: "event", label: "近隣イベント（地域花火大会）", pt: 0.09 })
+    const pace = Number(((rng() - 0.5) * 0.12).toFixed(3))
+    demandFactors.push({
+      key: "pace",
+      label: "予約ペース",
+      pt: pace,
+      detail: `同リードタイムの平年比 ${pace >= 0 ? "+" : ""}${Math.round(pace * 100)}pt`,
+    })
+    if (weather?.isRainy) {
+      demandFactors.push({ key: "rain", label: "雨天予報", pt: -0.04, detail: `降水確率 ${weather.rainProbability}%` })
+    }
+    const unconstrainedOccupancy = demandFactors.reduce((sum, f) => sum + f.pt, 0)
+    const predictedOccupancy = Number(Math.min(1, Math.max(0.3, unconstrainedOccupancy)).toFixed(3))
     const predictedAdr = Math.round((weekend ? 24000 : 17000) * boost)
-    const recommendedRank = Math.min(40, Math.max(1, Math.round(predictedOccupancy * 40)))
-    const price1P = mockRankToPrice1P(recommendedRank)
+    const competitorAvgPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
+
+    // ---- ランクの内訳（重み付け合成 → ガードレール）
+    const baseRank = clampRank(Math.round(predictedOccupancy * 40))
+    const revenueOptimalRank = clampRank(baseRank + 1)
+    const occCandidate = clampRank(baseRank - 2)
+    const adrCandidate = clampRank(baseRank + 2)
+    const compCandidate = clampRank(baseRank + Math.round((competitorAvgPrice / priceOf(baseRank) - 1) * 10))
+    const totalWeight = strategy.weightOccupancy + strategy.weightAdr + strategy.weightCompetitor || 100
+    const occDelta = (strategy.weightOccupancy / totalWeight) * (occCandidate - baseRank)
+    const adrDelta = (strategy.weightAdr / totalWeight) * (adrCandidate - baseRank)
+    const compDelta = (strategy.weightCompetitor / totalWeight) * (compCandidate - baseRank)
+    const blended = baseRank + occDelta + adrDelta + compDelta
+    const blendedRank = Math.round(blended)
+    const roundingDelta = blendedRank - blended
+
+    const prior = mockDecisionStore.get(`${hotelId}:${toLocalDateStr(date)}`)
+    // 採用済みランク: 採否記録があればそれ、無ければ一部の日にサイトコントローラー由来の値があるものとして疑似生成
+    const seededCurrent = d % 4 === 0 ? clampRank(blendedRank + 1) : d % 4 === 2 ? clampRank(blendedRank - 1) : null
+    const currentRank = prior?.appliedRank ?? seededCurrent
+    const reference = currentRank ?? baseRank
+    let finalRank = clampRank(Math.min(strategy.maxRank, Math.max(strategy.minRank, blendedRank)))
+    finalRank = clampRank(
+      Math.min(reference + strategy.maxDailyRankChange, Math.max(reference - strategy.maxDailyRankChange, finalRank))
+    )
+    const guardDelta = finalRank - blendedRank
+
+    const priceContributions: RankContribution[] = [
+      { key: "base", label: "基準ランク（需要予測）", rank: baseRank, detail: `予測稼働率 ${(predictedOccupancy * 100).toFixed(0)}%` },
+      {
+        key: "occupancy",
+        label: `稼働率重視（${strategy.weightOccupancy}%）`,
+        delta: occDelta,
+        detail: `候補 R${occCandidate}（収益最大 R${revenueOptimalRank} から RevPAR −5% 以内で最も低いランク）`,
+      },
+      {
+        key: "adr",
+        label: `ADR重視（${strategy.weightAdr}%）`,
+        delta: adrDelta,
+        detail: `候補 R${adrCandidate}（収益最大 R${revenueOptimalRank} から RevPAR −5% 以内で最も高いランク）`,
+      },
+      {
+        key: "competitor",
+        label: `競合追従（${strategy.weightCompetitor}%）`,
+        delta: compDelta,
+        detail: `候補 R${compCandidate}（競合中央値 ¥${competitorAvgPrice.toLocaleString()}）`,
+      },
+    ]
+    if (Math.abs(roundingDelta) > 1e-9) priceContributions.push({ key: "rounding", label: "端数処理", delta: roundingDelta })
+    if (guardDelta !== 0) {
+      priceContributions.push({
+        key: "guardrail",
+        label: "ガードレール",
+        delta: guardDelta,
+        detail:
+          Math.abs(blendedRank - reference) > strategy.maxDailyRankChange
+            ? `1回の最大変動 ±${strategy.maxDailyRankChange}（参照 R${reference}）`
+            : `ランク範囲 R${strategy.minRank}〜R${strategy.maxRank}`,
+      })
+    }
+
+    // ---- 期待RevPAR（比較対象 = 採用済みランク → 基準ランク）。価格弾力性は簡易近似
+    const comparisonRank = reference
+    const occAt = (rank: number) =>
+      Math.min(1, Math.max(0.05, predictedOccupancy * (1 - (rank - baseRank) * 0.02)))
+    const expectedOccupancyRecommended = Number(occAt(finalRank).toFixed(3))
+    const expectedRevParRecommended = Math.round(priceOf(finalRank) * expectedOccupancyRecommended)
+    const expectedRevParCurrent = Math.round(priceOf(comparisonRank) * occAt(comparisonRank))
+
+    const spread = leadDays <= 3 ? 0.04 : leadDays <= 7 ? 0.07 : leadDays <= 30 ? 0.1 : 0.14
+    const price1P = priceOf(finalRank)
     const demandLevel: PricingCalendarDay["demandLevel"] =
       predictedOccupancy > 0.9 ? "A" : predictedOccupancy > 0.8 ? "B" : predictedOccupancy > 0.65 ? "C" : predictedOccupancy > 0.5 ? "D" : "E"
-    const competitorAvgPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
 
     calendar.push({
       date: toLocalDateStr(date),
       demandLevel,
-      recommendedRank,
+      recommendedRank: finalRank,
       recommendedPrice: price1P,
-      rankLabel: `R${String(recommendedRank).padStart(2, "0")}`,
+      rankLabel: `R${String(finalRank).padStart(2, "0")}`,
       price1P,
       price2P: Math.round(price1P * 1.4),
       price3P: Math.round(price1P * 1.8),
@@ -742,11 +1168,167 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
       actualOccupancy: isPast ? Number(Math.min(1, predictedOccupancy + (rng() - 0.5) * 0.1).toFixed(3)) : null,
       actualAdr: isPast ? Math.round(predictedAdr * (1 + (rng() - 0.5) * 0.06)) : null,
       competitorAvgPrice,
-      confidence: Number((0.7 + rng() * 0.25).toFixed(2)),
+      confidence: Number((1 - spread * 2).toFixed(2)),
+      currentRank,
+      explanation: {
+        modelVersion: MOCK_MODEL_VERSION,
+        asOfDate: toLocalDateStr(today),
+        leadDays,
+        demandFactors,
+        activeFactorKeys: demandFactors.filter((f) => f.key !== "base").map((f) => f.key),
+        unconstrainedOccupancy: Number(unconstrainedOccupancy.toFixed(3)),
+        baseRank,
+        revenueOptimalRank,
+        candidates: { occupancy: occCandidate, adr: adrCandidate, competitor: compCandidate },
+        priceContributions,
+        comparisonRank,
+        expectedOccupancyRecommended,
+        confidence: {
+          p10: Number(Math.max(0, predictedOccupancy - spread).toFixed(3)),
+          p50: predictedOccupancy,
+          p90: Number(Math.min(1, predictedOccupancy + spread).toFixed(3)),
+          leadBucket: mockLeadBucket(leadDays),
+        },
+      },
+      expectedRevParCurrent,
+      expectedRevParRecommended,
+      modelVersion: MOCK_MODEL_VERSION,
     })
   }
 
   return { hotelId, year, month, calendar }
+}
+
+function mockRecordDecision(input: RecordDecisionInput): RecommendationDecision {
+  const [y, m] = input.date.split("-").map(Number)
+  const day = mockPricingCalendar(input.hotelId, y, m).calendar.find((c) => c.date === input.date)
+  if (!day || day.recommendedRank == null) throw new ApiClientError(404, "対象日の推奨が見つかりません")
+  const decision: RecommendationDecision = {
+    id: `mock-decision-${Date.now()}`,
+    hotelId: input.hotelId,
+    stayDate: input.date,
+    recommendedRank: day.recommendedRank,
+    appliedRank: input.appliedRank,
+    reason: input.reason ?? null,
+    decidedByUserId: getMockUser()?.id ?? null,
+    createdAt: new Date().toISOString(),
+  }
+  mockDecisionStore.set(`${input.hotelId}:${input.date}`, decision)
+  return decision
+}
+
+function getMockDecisions(hotelId: string, startDate: string, endDate: string): RecommendationDecision[] {
+  return Array.from(mockDecisionStore.values()).filter(
+    (d) => d.hotelId === hotelId && d.stayDate >= startDate && d.stayDate <= endDate
+  )
+}
+
+function mockFactorSummary(factors: DemandFactor[]): string {
+  const parts = factors
+    .filter((f) => f.key !== "base")
+    .sort((a, b) => Math.abs(b.pt) - Math.abs(a.pt))
+    .slice(0, 2)
+    .map((f) => `${f.label} ${f.pt >= 0 ? "+" : "−"}${Math.abs(Math.round(f.pt * 100))}pt`)
+  return parts.length > 0 ? parts.join("、") : "基準値どおり"
+}
+
+function mockPricingDigest(hotelId: string): PricingDigest {
+  const today = new Date()
+  const totalRooms = MOCK_HOTEL.totalRooms
+  const horizonEnd = mockAddDays(today, 60)
+  const months: Array<{ year: number; month: number }> = []
+  for (let cursor = new Date(today.getFullYear(), today.getMonth(), 1); cursor <= horizonEnd; cursor.setMonth(cursor.getMonth() + 1)) {
+    months.push({ year: cursor.getFullYear(), month: cursor.getMonth() + 1 })
+  }
+  const days = months.flatMap(({ year, month }) => mockPricingCalendar(hotelId, year, month).calendar)
+  const todayStr = toLocalDateStr(today)
+  const horizonStr = toLocalDateStr(horizonEnd)
+
+  const priorityDays: PricingDigest["priorityDays"] = days
+    .filter(
+      (d) =>
+        d.date >= todayStr &&
+        d.date <= horizonStr &&
+        d.explanation != null &&
+        d.recommendedRank != null &&
+        d.recommendedRank !== d.explanation.comparisonRank &&
+        d.expectedRevParCurrent != null &&
+        d.expectedRevParRecommended != null
+    )
+    .map((d) => {
+      const explanation = d.explanation!
+      const topFactors = explanation.demandFactors
+        .filter((f) => f.key !== "base")
+        .sort((a, b) => Math.abs(b.pt) - Math.abs(a.pt))
+        .slice(0, 3)
+      return {
+        date: d.date,
+        recommendedRank: d.recommendedRank!,
+        recommendedPrice: d.recommendedPrice,
+        currentRank: d.currentRank,
+        comparisonRank: explanation.comparisonRank,
+        expectedRevParCurrent: d.expectedRevParCurrent!,
+        expectedRevParRecommended: d.expectedRevParRecommended!,
+        expectedRevenueDelta: Math.round((d.expectedRevParRecommended! - d.expectedRevParCurrent!) * totalRooms),
+        demandLevel: d.demandLevel,
+        predictedOccupancy: d.predictedOccupancy ?? 0,
+        summary: mockFactorSummary(explanation.demandFactors),
+        topFactors,
+      }
+    })
+    .sort((a, b) => Math.abs(b.expectedRevenueDelta) - Math.abs(a.expectedRevenueDelta))
+    .slice(0, 10)
+
+  const yesterday = mockAddDays(today, -1)
+  const changeCandidates = days.filter((d) => d.date > todayStr && d.recommendedRank != null).slice(0, 40)
+  const changesSinceYesterday: PricingDigest["changesSinceYesterday"] = changeCandidates
+    .filter((_, i) => i % 9 === 3)
+    .slice(0, 4)
+    .map((d, i) => {
+      const newRank = d.recommendedRank!
+      const previousRank = Math.min(40, Math.max(1, newRank + (i % 2 === 0 ? -1 : 2)))
+      const reasons = [
+        newRank > previousRank ? "予約ペースが平年比で加速" : "予約ペースが平年比で鈍化",
+        ...(d.explanation?.demandFactors.some((f) => f.key === "rain") ? ["雨天予報を反映"] : []),
+      ]
+      return { date: d.date, previousRank, newRank, previousAsOfDate: toLocalDateStr(yesterday), reasons }
+    })
+
+  const yesterdayDay = days.find((d) => d.date === toLocalDateStr(yesterday))
+  const yesterdayReview: PricingDigest["yesterdayReview"] =
+    yesterdayDay && yesterdayDay.actualOccupancy != null && yesterdayDay.predictedOccupancy != null
+      ? (() => {
+          const errorPt = Number(((yesterdayDay.actualOccupancy! - yesterdayDay.predictedOccupancy!) * 100).toFixed(1))
+          const actualAdr = yesterdayDay.actualAdr
+          return {
+            date: yesterdayDay.date,
+            predictedOccupancy: yesterdayDay.predictedOccupancy!,
+            actualOccupancy: yesterdayDay.actualOccupancy!,
+            errorPt,
+            actualAdr,
+            actualRevPar: actualAdr != null ? Math.round(actualAdr * yesterdayDay.actualOccupancy!) : null,
+            comment:
+              Math.abs(errorPt) <= 3
+                ? "予測はほぼ的中しました。"
+                : errorPt > 0
+                  ? "実績が予測を上回りました。直前予約の伸びが想定以上でした。"
+                  : "実績が予測を下回りました。予約ペース係数の見直し対象です。",
+          }
+        })()
+      : null
+
+  const recentDecisions = Array.from(mockDecisionStore.values()).filter((d) => d.hotelId === hotelId)
+  const decided = 12 + recentDecisions.length
+  const adopted = 9 + recentDecisions.filter((d) => d.appliedRank === d.recommendedRank).length
+
+  return {
+    asOfDate: todayStr,
+    totalRooms,
+    priorityDays,
+    changesSinceYesterday,
+    yesterdayReview,
+    adoption: { decided, adopted, adoptionRate: decided > 0 ? Number((adopted / decided).toFixed(3)) : null },
+  }
 }
 
 // 競合ホテル（seedと同等の3社構成）
@@ -915,6 +1497,10 @@ let mockStrategy: PricingStrategy = {
   weightOccupancy: 40,
   weightAdr: 40,
   weightCompetitor: 20,
+  minRank: 1,
+  maxRank: 40,
+  maxDailyRankChange: 3,
+  competitorPositionPct: 0,
 }
 
 let mockEvents: HotelEvent[] | null = null
@@ -1029,20 +1615,69 @@ export const api = {
     )
   },
 
-  updatePricingStrategy(
-    hotelId: string,
-    weights: { weightOccupancy: number; weightAdr: number; weightCompetitor: number }
-  ): Promise<PricingStrategy> {
+  /** 重み（合計100%）とガードレール（任意）を更新する。MANAGER以上 */
+  updatePricingStrategy(hotelId: string, input: UpdatePricingStrategyInput): Promise<PricingStrategy> {
     return withDemoFallback(
       () =>
         rawRequest("/api/v1/pricing/strategy", {
           method: "PUT",
-          body: JSON.stringify({ hotelId, ...weights }),
+          body: JSON.stringify({ hotelId, ...input }),
         }),
       () => {
-        mockStrategy = { ...mockStrategy, hotelId, ...weights }
+        mockStrategy = { ...mockStrategy, hotelId, ...input }
         return mockStrategy
       }
+    )
+  },
+
+  /** 今日決めるべき日・昨日からの変化・答え合わせ・採用率のダイジェスト */
+  pricingDigest(hotelId: string): Promise<PricingDigest> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/digest?hotelId=${hotelId}`),
+      () => mockPricingDigest(hotelId)
+    )
+  },
+
+  /** 推奨ランクの採否を記録する（MANAGER以上） */
+  recordDecision(input: RecordDecisionInput): Promise<RecommendationDecision> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/pricing/decisions", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      () => mockRecordDecision(input)
+    )
+  },
+
+  decisions(hotelId: string, startDate: string, endDate: string): Promise<RecommendationDecision[]> {
+    return withDemoFallback(
+      () =>
+        rawRequest(
+          `/api/v1/pricing/decisions?hotelId=${hotelId}&startDate=${startDate}&endDate=${endDate}`
+        ),
+      () => getMockDecisions(hotelId, startDate, endDate)
+    )
+  },
+
+  /** 日別の外部シグナル（祝日・連休・天候） */
+  signals(hotelId: string, startDate: string, endDate: string): Promise<DailySignal[]> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/pricing/signals?hotelId=${hotelId}&startDate=${startDate}&endDate=${endDate}`),
+      () => mockSignals(startDate, endDate)
+    )
+  },
+
+  /** 気象庁・Open-Meteo から天候予報を取り込む（MANAGER以上） */
+  ingestSignals(hotelId: string): Promise<SignalsIngestResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/pricing/signals/ingest", {
+          method: "POST",
+          body: JSON.stringify({ hotelId }),
+        }),
+      () => mockIngestSignals(hotelId)
     )
   },
 
