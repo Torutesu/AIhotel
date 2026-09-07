@@ -60,6 +60,9 @@ import {
   type CompetitorImportResult,
   type ModelComparison,
   type ForecasterModelName,
+  type LlmOptions,
+  type LlmProviderName,
+  type LlmSelection,
 } from "@/lib/api"
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
@@ -117,6 +120,28 @@ function parseWeekendDays(value: unknown): number[] {
     if (days.length > 0) return days
   }
   return DEFAULT_WEEKEND_DAYS
+}
+
+// ---- AIモデル（LLM）設定 ----
+
+/** Select の「環境変数の既定に従う」／「その他（手入力）」に使う値 */
+const LLM_DEFAULT_VALUE = "__default__"
+const LLM_CUSTOM_VALUE = "__custom__"
+
+const LLM_SOURCE_LABELS: Record<LlmSelection["source"], string> = {
+  env: "環境変数の既定",
+  hotel: "ホテル設定",
+  request: "実行時指定",
+}
+
+/** トースト等の短い表示用。フルのラベルはバックエンドの providers[].label を使う */
+const LLM_PROVIDER_SHORT_LABELS: Record<LlmProviderName, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+}
+
+function llmProviderShortLabel(provider: string): string {
+  return provider === "anthropic" || provider === "openai" ? LLM_PROVIDER_SHORT_LABELS[provider] : provider
 }
 
 // ---- 会場マスタ（外部要因設計 Phase 2） ----
@@ -317,9 +342,12 @@ function VenueMasterCard({ hotelId, canManage }: { hotelId: string | null; canMa
     try {
       const result = await api.extractVenueEvents(venue.id, hotelId)
       const summary = `抽出 ${result.extracted} 件 / 候補として登録 ${result.created} 件 / 重複スキップ ${result.skippedDuplicates} 件${result.truncated ? "（ページが長いため一部のみ解析）" : ""}`
+      const lines = [summary]
+      if (result.notes) lines.push(result.notes)
+      if (result.llm) lines.push(`使用モデル: ${llmProviderShortLabel(result.llm.provider)} / ${result.llm.model}`)
       toast({
         title: `${result.venueName} のイベントを抽出しました`,
-        description: result.notes ? `${summary}\n${result.notes}` : summary,
+        description: lines.join("\n"),
       })
     } catch (err) {
       // APIキー未設定・URL未登録時はバックエンドの日本語メッセージをそのまま表示する
@@ -1031,6 +1059,37 @@ export function SettingsTab() {
   const [jmaAreaCode, setJmaAreaCode] = useState("")
   const [latitude, setLatitude] = useState("")
   const [longitude, setLongitude] = useState("")
+  // AIモデル（LLM）設定。provider は LLM_DEFAULT_VALUE で「環境変数の既定に従う」。
+  // model は選択中のモデルID（空文字 = プロバイダの既定）。customModel は「その他（手入力）」時の入力値
+  const [llmProviderSel, setLlmProviderSel] = useState<string>(LLM_DEFAULT_VALUE)
+  const [llmModel, setLlmModel] = useState("")
+  const [llmModelCustom, setLlmModelCustom] = useState(false)
+  const [llmOptions, setLlmOptions] = useState<LlmOptions | null>(null)
+  const [llmOptionsLoading, setLlmOptionsLoading] = useState(true)
+  const [llmOptionsError, setLlmOptionsError] = useState<string | null>(null)
+
+  const applyLlmFromHotel = useCallback((h: Hotel) => {
+    setLlmProviderSel(h.llmProvider ?? LLM_DEFAULT_VALUE)
+    setLlmModel(h.llmModel ?? "")
+    setLlmModelCustom(false)
+  }, [])
+
+  const loadLlmOptions = useCallback(async () => {
+    if (!hotelId) return
+    setLlmOptionsLoading(true)
+    setLlmOptionsError(null)
+    try {
+      setLlmOptions(await api.llmOptions(hotelId))
+    } catch (err) {
+      setLlmOptionsError(err instanceof ApiClientError ? err.message : "AIモデル設定の取得に失敗しました")
+    } finally {
+      setLlmOptionsLoading(false)
+    }
+  }, [hotelId])
+
+  useEffect(() => {
+    loadLlmOptions()
+  }, [loadLlmOptions])
 
   const loadHotel = useCallback(async () => {
     if (!hotelId) return
@@ -1051,12 +1110,13 @@ export function SettingsTab() {
       setJmaAreaCode(found.jmaAreaCode ?? "")
       setLatitude(found.latitude != null ? String(found.latitude) : "")
       setLongitude(found.longitude != null ? String(found.longitude) : "")
+      applyLlmFromHotel(found)
     } catch (err) {
       setHotelError(err instanceof ApiClientError ? err.message : "ホテル情報の取得に失敗しました")
     } finally {
       setHotelLoading(false)
     }
-  }, [hotelId])
+  }, [hotelId, applyLlmFromHotel])
 
   useEffect(() => {
     loadHotel()
@@ -1225,6 +1285,9 @@ export function SettingsTab() {
         })
         return
       }
+      const llmProvider: LlmProviderName | null =
+        llmProviderSel === "anthropic" || llmProviderSel === "openai" ? llmProviderSel : null
+      const llmModelValue = llmModel.trim() || null
       setSavingHotel(true)
       try {
         const updated = await api.updateHotelSettings(hotelId, {
@@ -1238,8 +1301,13 @@ export function SettingsTab() {
           jmaAreaCode: areaCode,
           latitude: lat,
           longitude: lng,
+          llmProvider,
+          llmModel: llmModelValue,
         })
         setHotel(updated)
+        applyLlmFromHotel(updated)
+        // 実際に使われるモデル（effective）が変わるので再取得する
+        void loadLlmOptions()
         toast({
           title: "設定を保存しました",
           description: "変更が正常に保存されました。",
@@ -1273,6 +1341,7 @@ export function SettingsTab() {
       setJmaAreaCode(hotel.jmaAreaCode ?? "")
       setLatitude(hotel.latitude != null ? String(hotel.latitude) : "")
       setLongitude(hotel.longitude != null ? String(hotel.longitude) : "")
+      applyLlmFromHotel(hotel)
     }
     setTheme("system")
     setLanguage("ja")
@@ -1485,6 +1554,133 @@ export function SettingsTab() {
                     />
                   </div>
                 </div>
+              </div>
+
+              <Separator />
+
+              {/* AIモデル（LLM）の選択 */}
+              <div className="space-y-3">
+                <div>
+                  <Label>AIモデル（LLM）</Label>
+                  <p className="text-sm text-muted-foreground">
+                    会場ページからのイベント抽出などで使うモデル。APIキーはサーバーの環境変数（ANTHROPIC_API_KEY / OPENAI_API_KEY）で設定します。
+                  </p>
+                </div>
+                {llmOptionsLoading ? (
+                  <Skeleton className="h-10 w-full" />
+                ) : llmOptionsError ? (
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <p className="text-sm text-destructive">{llmOptionsError}</p>
+                    <Button variant="outline" size="sm" onClick={loadLlmOptions} className="gap-2">
+                      <RefreshCw className="w-4 h-4" />
+                      再試行
+                    </Button>
+                  </div>
+                ) : llmOptions ? (
+                  (() => {
+                    const effectiveProviderId: LlmProviderName =
+                      llmProviderSel === "anthropic" || llmProviderSel === "openai" ? llmProviderSel : llmOptions.defaultProvider
+                    const selectedProvider = llmOptions.providers.find((p) => p.id === effectiveProviderId) ?? null
+                    const knownModels = selectedProvider?.knownModels ?? []
+                    const isCustomModel = llmModelCustom || (llmModel !== "" && !knownModels.some((m) => m.id === llmModel))
+                    const modelSelectValue = isCustomModel ? LLM_CUSTOM_VALUE : llmModel === "" ? LLM_DEFAULT_VALUE : llmModel
+                    const effectiveProviderLabel = llmOptions.effective
+                      ? llmOptions.providers.find((p) => p.id === llmOptions.effective?.provider)?.label ??
+                        llmProviderShortLabel(llmOptions.effective.provider)
+                      : null
+                    return (
+                      <>
+                        {llmOptions.effective ? (
+                          <p className="text-sm">
+                            現在: {effectiveProviderLabel} / {llmOptions.effective.model}（{LLM_SOURCE_LABELS[llmOptions.effective.source]}）
+                          </p>
+                        ) : (
+                          <p className="text-sm text-destructive flex items-center gap-1.5">
+                            <AlertCircle className="w-4 h-4 shrink-0" />
+                            {llmOptions.effectiveError ?? "使用できるAIモデルがありません"}
+                          </p>
+                        )}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="llmProvider">プロバイダ</Label>
+                            <Select
+                              value={llmProviderSel}
+                              onValueChange={(value) => {
+                                setLlmProviderSel(value)
+                                // プロバイダを変えたらモデルは既定に戻す
+                                setLlmModel("")
+                                setLlmModelCustom(false)
+                              }}
+                              disabled={!canManageHotel}
+                            >
+                              <SelectTrigger id="llmProvider">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={LLM_DEFAULT_VALUE}>環境変数の既定に従う</SelectItem>
+                                {llmOptions.providers.map((p) => (
+                                  <SelectItem key={p.id} value={p.id}>
+                                    {p.label}
+                                    {!p.configured && (
+                                      <Badge variant="outline" className="ml-2 text-[10px] text-muted-foreground">
+                                        未設定（APIキーなし）
+                                      </Badge>
+                                    )}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            {selectedProvider && !selectedProvider.configured && (
+                              <p className="text-xs text-destructive">
+                                {selectedProvider.label} のAPIキーがサーバーに設定されていないため、このまま保存すると抽出は失敗します。
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="llmModel">モデル</Label>
+                            <Select
+                              value={modelSelectValue}
+                              onValueChange={(value) => {
+                                if (value === LLM_CUSTOM_VALUE) {
+                                  setLlmModelCustom(true)
+                                  return
+                                }
+                                setLlmModelCustom(false)
+                                setLlmModel(value === LLM_DEFAULT_VALUE ? "" : value)
+                              }}
+                              disabled={!canManageHotel}
+                            >
+                              <SelectTrigger id="llmModel">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={LLM_DEFAULT_VALUE}>
+                                  既定{selectedProvider ? `（${selectedProvider.defaultModel}）` : ""}
+                                </SelectItem>
+                                {knownModels.map((m) => (
+                                  <SelectItem key={m.id} value={m.id}>
+                                    {m.label}
+                                    <span className="ml-2 text-xs text-muted-foreground">{m.id}</span>
+                                  </SelectItem>
+                                ))}
+                                <SelectItem value={LLM_CUSTOM_VALUE}>その他（手入力）</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {isCustomModel && (
+                              <Input
+                                id="llmModelCustom"
+                                value={llmModel}
+                                onChange={(e) => setLlmModel(e.target.value)}
+                                placeholder="モデルID（例: claude-opus-5 / gpt-5）"
+                                disabled={!canManageHotel}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )
+                  })()
+                ) : null}
               </div>
             </>
           )}

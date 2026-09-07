@@ -14,9 +14,47 @@ export type Hotel = SharedHotel & {
   jmaAreaCode?: string | null
   latitude?: number | null
   longitude?: number | null
+  /** イベント抽出などで使うLLMプロバイダ。null なら環境変数の既定に従う */
+  llmProvider?: string | null
+  /** LLMモデルID。null ならプロバイダの既定モデル */
+  llmModel?: string | null
 }
 
 export type { PriceRank }
+
+// ---- AIモデル（LLM）設定 ----
+
+export type LlmProviderName = "anthropic" | "openai"
+
+/** 実際に使われるLLMの選択。source は選択の由来（実行時指定 / ホテル設定 / 環境変数の既定） */
+export interface LlmSelection {
+  provider: LlmProviderName
+  model: string
+  source: "request" | "hotel" | "env"
+}
+
+export interface LlmProviderOption {
+  id: LlmProviderName
+  label: string
+  /** サーバー側にAPIキーが設定されているか */
+  configured: boolean
+  defaultModel: string
+  knownModels: Array<{ id: string; label: string }>
+}
+
+export interface LlmOptions {
+  defaultProvider: LlmProviderName
+  providers: LlmProviderOption[]
+  /** このホテルで実際に使われる選択。null なら effectiveError に理由 */
+  effective: LlmSelection | null
+  effectiveError: string | null
+}
+
+/** イベント抽出の実行時にLLMを一時的に上書きする指定 */
+export interface VenueExtractOptions {
+  llmProvider?: LlmProviderName | null
+  llmModel?: string | null
+}
 
 export type EventSource = "manual" | "detected" | "extracted"
 export type EventStatus = "candidate" | "confirmed" | "rejected"
@@ -81,6 +119,8 @@ export interface VenueExtractResult {
   created: number
   skippedDuplicates: number
   notes: string | null
+  /** 抽出に実際に使われたLLM。旧レスポンスとの互換のため null 許容 */
+  llm: LlmSelection | null
 }
 
 export interface DetectCandidatesResult {
@@ -241,6 +281,49 @@ const MOCK_HOTEL: Hotel = {
   isActive: true,
   createdAt: new Date(),
   updatedAt: new Date(),
+  llmProvider: null,
+  llmModel: null,
+}
+
+const MOCK_LLM_PROVIDERS: LlmProviderOption[] = [
+  {
+    id: "anthropic",
+    label: "Anthropic（Claude）",
+    configured: true,
+    defaultModel: "claude-opus-5",
+    knownModels: [
+      { id: "claude-opus-5", label: "Claude Opus 5" },
+      { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
+    ],
+  },
+  {
+    id: "openai",
+    label: "OpenAI（ChatGPT / GPT）",
+    configured: false,
+    defaultModel: "gpt-5",
+    knownModels: [
+      { id: "gpt-5", label: "GPT-5" },
+      { id: "gpt-5-mini", label: "GPT-5 mini" },
+    ],
+  },
+]
+
+/** デモ時のLLM設定。ホテル設定（MOCK_HOTEL）に保存された選択があればそれを優先し、なければ環境変数の既定として扱う */
+function getMockLlmOptions(): LlmOptions {
+  const defaultProvider: LlmProviderName = "anthropic"
+  const hotelProvider = MOCK_HOTEL.llmProvider === "anthropic" || MOCK_HOTEL.llmProvider === "openai" ? MOCK_HOTEL.llmProvider : null
+  const providerId = hotelProvider ?? defaultProvider
+  const provider = MOCK_LLM_PROVIDERS.find((p) => p.id === providerId)!
+  const fromHotel = hotelProvider != null || (MOCK_HOTEL.llmModel != null && MOCK_HOTEL.llmModel !== "")
+  const effective: LlmSelection | null = provider.configured
+    ? { provider: providerId, model: MOCK_HOTEL.llmModel || provider.defaultModel, source: fromHotel ? "hotel" : "env" }
+    : null
+  return {
+    defaultProvider,
+    providers: MOCK_LLM_PROVIDERS,
+    effective,
+    effectiveError: effective ? null : `${provider.label} のAPIキーが設定されていません`,
+  }
 }
 
 function isDemoModeEnabled(): boolean {
@@ -768,6 +851,10 @@ export interface UpdateHotelSettingsInput {
   jmaAreaCode?: string | null
   latitude?: number | null
   longitude?: number | null
+  /** LLMプロバイダ。環境変数の既定に戻す場合は null */
+  llmProvider?: LlmProviderName | null
+  /** LLMモデルID。プロバイダの既定に戻す場合は null */
+  llmModel?: string | null
 }
 
 // ---- Dev-only demo data (ダッシュボード/ダイナミックプライシング画面用) ----
@@ -2184,6 +2271,14 @@ export const api = {
     )
   },
 
+  /** AIモデル（LLM）の選択肢と、このホテルで実際に使われる選択 */
+  llmOptions(hotelId: string): Promise<LlmOptions> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/llm?hotelId=${hotelId}`),
+      () => getMockLlmOptions()
+    )
+  },
+
   /** イベント一覧。status 省略時は confirmed のみ（candidate / rejected / all を指定可） */
   events(
     hotelId: string,
@@ -2305,14 +2400,19 @@ export const api = {
 
   /**
    * 会場の公式ページからイベントを抽出し候補として登録する（MANAGER以上）。
-   * ANTHROPIC_API_KEY 未設定・websiteUrl 未登録の場合は 400 で日本語メッセージが返る
+   * APIキー未設定・websiteUrl 未登録の場合は 400 で日本語メッセージが返る。
+   * options で今回の実行だけLLMプロバイダ／モデルを上書きできる
    */
-  extractVenueEvents(id: string, hotelId: string): Promise<VenueExtractResult> {
+  extractVenueEvents(id: string, hotelId: string, options: VenueExtractOptions = {}): Promise<VenueExtractResult> {
     return withDemoFallback(
       () =>
         rawRequest(`/api/v1/events/venues/${id}/extract`, {
           method: "POST",
-          body: JSON.stringify({ hotelId }),
+          body: JSON.stringify({
+            hotelId,
+            ...(options.llmProvider != null ? { llmProvider: options.llmProvider } : {}),
+            ...(options.llmModel != null && options.llmModel !== "" ? { llmModel: options.llmModel } : {}),
+          }),
         }),
       () => {
         const venue = getMockVenues(hotelId).find((v) => v.id === id)
@@ -2329,6 +2429,7 @@ export const api = {
           created: 0,
           skippedDuplicates: existing.length,
           notes: "デモデータのため新規のイベントは作成していません。",
+          llm: getMockLlmOptions().effective,
         }
       }
     )
