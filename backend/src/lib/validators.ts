@@ -194,6 +194,11 @@ export const updateHotelSettingsSchema = z.object({
   totalRooms: z.number().int().min(1, '部屋数は1以上である必要があります').optional(),
   // 週末定義（チェックイン日基準の曜日番号、0=日曜〜6=土曜）。デフォルトは金・土 [5, 6]
   weekendDays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  // 天候シグナル取得用（気象庁 府県予報区コード6桁 / 一次細分区域コード6桁、緯度経度）。null でクリア
+  jmaOfficeCode: z.string().regex(/^\d{6}$/, '気象庁の府県予報区コードは6桁の数字です').nullable().optional(),
+  jmaAreaCode: z.string().regex(/^\d{6}$/, '気象庁の一次細分区域コードは6桁の数字です').nullable().optional(),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
 })
 
 // ======================================
@@ -292,6 +297,24 @@ export const updateStrategySchema = z.object({
   weightCompetitor: z.number().int().min(0).max(100),
 }).refine(data => data.weightOccupancy + data.weightAdr + data.weightCompetitor === 100, {
   message: '重み付けの合計は100%である必要があります',
+})
+
+// ======================================
+// External Signals Validators（docs/外部要因設計.md §3）
+// ======================================
+
+export const signalsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+}).refine((data) => data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+}).refine((data) => (data.endDate.getTime() - data.startDate.getTime()) / 86_400_000 <= 366, {
+  message: '期間は366日以内で指定してください',
+})
+
+export const ingestSignalsSchema = z.object({
+  hotelId: entityIdSchema,
 })
 
 // ======================================

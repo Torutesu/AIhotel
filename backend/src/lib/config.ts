@@ -40,6 +40,25 @@ const envSchema = z.object({
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
   STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
+
+  // ---- 外部シグナル取得（docs/外部要因設計.md §3）。すべて任意・欠損時は係数0で予測を続行する
+  EXTERNAL_API_TIMEOUT_MS: z.coerce.number().int().min(1000).default(10000),
+  // 気象庁 bosai 予報 JSON（キー不要）。テスト時にモックサーバへ向けられるよう URL を設定化
+  JMA_FORECAST_BASE_URL: z.string().url().default('https://www.jma.go.jp/bosai/forecast/data/forecast'),
+  // Open-Meteo（8〜16日先の補完）。商用利用は customer-api + API キーが必要。デフォルト無効
+  WEATHER_OPEN_METEO_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  OPEN_METEO_BASE_URL: z.string().url().default('https://customer-api.open-meteo.com'),
+  OPEN_METEO_API_KEY: z.string().min(1).optional(),
+
+  // ---- 日次ジョブ（シグナル取り込み→予測→学習）。デフォルト無効（手動: POST /pricing/jobs/daily）
+  DAILY_JOB_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  DAILY_JOB_HOUR_JST: z.coerce.number().int().min(0).max(23).default(4),
 })
 
 function loadConfig() {

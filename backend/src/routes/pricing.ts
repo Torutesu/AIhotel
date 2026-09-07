@@ -6,6 +6,8 @@ import {
   hotelIdQuerySchema,
   updateStrategySchema,
   recomputeForecastSchema,
+  signalsQuerySchema,
+  ingestSignalsSchema,
 } from '../lib/validators.js'
 import {
   getCalendar,
@@ -13,6 +15,8 @@ import {
   updateStrategy,
   getSimulation,
   recomputeForecast,
+  getSignals,
+  ingestSignals,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -60,4 +64,21 @@ pricingRouter.post(
   requireHotelAccess((req) => req.body?.hotelId),
   validate(recomputeForecastSchema),
   recomputeForecast
+)
+
+// GET /api/v1/pricing/signals?hotelId=&startDate=&endDate= — 祝日・連休・天候シグナルの日別一覧
+pricingRouter.get(
+  '/signals',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(signalsQuerySchema, 'query'),
+  getSignals
+)
+
+// POST /api/v1/pricing/signals/ingest — 天候シグナルの取り込みは MANAGER 以上
+pricingRouter.post(
+  '/signals/ingest',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(ingestSignalsSchema),
+  ingestSignals
 )

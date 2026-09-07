@@ -9,6 +9,7 @@ import {
   getSimulationService,
 } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
+import { getSignalsService, ingestWeatherSignalsService } from '../services/signals/signalService.js'
 
 /**
  * 日別価格カレンダー
@@ -97,4 +98,39 @@ export const recomputeForecast = asyncHandler(async (req: Request, res: Response
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, result, 200, `需要予測を再計算しました（${result.count}件）`)
+})
+
+/**
+ * 外部シグナル（祝日・連休・天候）の日別一覧
+ * GET /api/v1/pricing/signals?hotelId=&startDate=&endDate=
+ */
+export const getSignals = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, startDate, endDate } = req.query as unknown as {
+    hotelId: string
+    startDate: Date
+    endDate: Date
+  }
+  const result = await getSignalsService(hotelId, startDate, endDate)
+  sendSuccess(res, result)
+})
+
+/**
+ * 天候シグナルの取り込み（気象庁 / Open-Meteo）。MANAGER 以上・監査対象
+ * POST /api/v1/pricing/signals/ingest
+ */
+export const ingestSignals = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.body as { hotelId: string }
+  const result = await ingestWeatherSignalsService(hotelId)
+  await writeAuditLog({
+    tenantId: result.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'ExternalSignal',
+    entityId: hotelId,
+    newValue: result,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  const total = (result.jma?.count ?? 0) + (result.openMeteo?.count ?? 0)
+  sendSuccess(res, result, 200, `天候シグナルを取り込みました（${total}件）`)
 })
