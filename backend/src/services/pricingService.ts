@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
+import { getAppliedRanksService, type RecommendationExplanation } from './forecast/forecastService.js'
 
 function monthRange(year: number, month: number): { start: Date; end: Date } {
   return {
@@ -18,7 +19,7 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
 
   const { start, end } = monthRange(year, month)
 
-  const [recommendations, dailyData, priceRanks, competitorPrices] = await Promise.all([
+  const [recommendations, dailyData, priceRanks, competitorPrices, appliedRanks] = await Promise.all([
     prisma.aiPriceRecommendation.findMany({
       where: { hotelId, date: { gte: start, lt: end }, roomTypeId: null },
       orderBy: { date: 'asc' },
@@ -37,6 +38,7 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       },
       select: { date: true, price1P: true },
     }),
+    getAppliedRanksService(hotelId, start, end),
   ])
 
   const rankByNumber = new Map(priceRanks.map((r) => [r.rank, r]))
@@ -57,11 +59,19 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     const actual = actualByDate.get(key)
     const rank = rec.recommendedRank != null ? rankByNumber.get(rec.recommendedRank) : undefined
     const compPrices = competitorByDate.get(key)
+    const explanation = (rec.contributions as unknown as RecommendationExplanation | null) ?? null
     return {
       date: key,
       demandLevel: rec.demandLevel,
       recommendedRank: rec.recommendedRank,
       recommendedPrice: rec.recommendedPrice,
+      // 採否記録に基づく適用中ランク（無ければ null = 未決定）
+      currentRank: appliedRanks.get(key) ?? null,
+      // 理由分解・期待RevPAR（docs/外部要因設計.md §2.2）。旧モデル（seed-v1 等）の行は null
+      explanation,
+      expectedRevParCurrent: rec.expectedRevParCurrent,
+      expectedRevParRecommended: rec.expectedRevParRecommended,
+      modelVersion: rec.modelVersion,
       rankLabel: rank?.label ?? null,
       price1P: rank?.price1P ?? null,
       price2P: rank?.price2P ?? null,

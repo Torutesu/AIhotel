@@ -1,5 +1,6 @@
 import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { DEFAULT_BOOKING_CURVE, typicalFraction } from '../src/services/forecast/bookingCurve.js'
 
 const prisma = new PrismaClient()
 
@@ -229,22 +230,24 @@ async function main() {
   await prisma.aiPriceRecommendation.createMany({ data: aiRows })
   console.log(`✅ Daily data: ${dailyRows.length}, AI recommendations: ${aiRows.length}`)
 
-  // 9. ブッキングカーブ（今後30日の宿泊日 × リードタイム）
+  // 9. ブッキングカーブ（過去30日の確定カーブ ＋ 今後30日の積上げ途中）。
+  //    積上率は予測エンジンの既定曲線（DEFAULT_BOOKING_CURVE）に沿わせ、ペース補正が
+  //    デモで極端に振れないようにする。過去分は典型積上率曲線の学習サンプルになる
   const curveRows = []
-  for (let offset = 0; offset < 30; offset++) {
+  for (let offset = -30; offset < 30; offset++) {
     const stayDate = addDays(today, offset)
     const dow = stayDate.getUTCDay()
     const isWeekend = dow === 5 || dow === 6
     const finalRooms = Math.round(totalRooms * (isWeekend ? 0.93 : 0.75))
     for (const daysBefore of [90, 60, 45, 30, 21, 14, 7, 3, 1, 0]) {
       if (daysBefore < offset) continue // まだ到来していない時点は積上げ済みのみ
-      const progress = Math.pow(1 - daysBefore / 90, 1.6)
+      const progress = typicalFraction(DEFAULT_BOOKING_CURVE, daysBefore)
       curveRows.push({
         hotelId: hotel.id,
         tenantId: tenant.id,
         stayDate,
         daysBefore,
-        roomsBooked: Math.round(finalRooms * Math.min(1, progress + rng() * 0.05)),
+        roomsBooked: Math.round(finalRooms * Math.min(1, progress * (0.95 + rng() * 0.1))),
       })
     }
   }

@@ -1,12 +1,19 @@
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
 import type { DailyForecast, DemandForecaster, ForecastDemandLevel, ForecastInput } from './types.js'
+import { computeDemand } from './demandModel.js'
+import { loadCoefficientMap } from './coefficients.js'
+import { buildCurveFromHistory, projectOccupancyFromPace, DEFAULT_BOOKING_CURVE } from './bookingCurve.js'
+import { computeHolidaySignal, toIsoDate } from '../signals/holidaySignal.js'
+import { getWeatherSignalsService } from '../signals/signalService.js'
 
-// ルールベース需要予測（F-DP-05 の前段。将来 ML モデルに差し替え予定）。
+// ルールベース需要予測（F-DP-05。将来 ML モデルに差し替え予定）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
 // 関数として分離し、forecast() はそれらを組み合わせて DB アクセスを行う。
+// v2 では demandModel.ts が要因分解（ペース・祝日・天候・学習係数）を担い、
+// このファイルの v1 関数は base の計算と互換ロジックとして残す。
 
-export const MODEL_VERSION = 'rule-based-v1'
+export const MODEL_VERSION = 'rule-based-v2'
 const DEFAULT_MAX_RANK = 40 // F-SET-02: 料金ランクは最大40段階（PriceRank未設定時のフォールバック）
 const MOVING_AVERAGE_WINDOW_DAYS = 28
 const YEAR_OVER_YEAR_TOLERANCE_DAYS = 3
@@ -32,6 +39,7 @@ export interface EventImpactRecord {
   startDate: Date
   endDate: Date
   expectedImpact?: string | null
+  name?: string | null
 }
 
 /**
@@ -195,31 +203,39 @@ export const ruleBasedForecaster: DemandForecaster = {
 
   async forecast(input: ForecastInput): Promise<DailyForecast[]> {
     const { hotelId, startDate, endDate } = input
+    const asOf = input.asOfDate ?? new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()))
 
     const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
     if (!hotel) throw new NotFoundError('ホテル')
     const weekendDays = Array.isArray(hotel.weekendDays) ? (hotel.weekendDays as number[]) : [5, 6]
 
-    // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得
+    // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得。
+    // 基準日より後の実績は使わない（バックテスト時のリーク防止）
     const historyWindowStart = addUtcDays(startDate, -400)
+    const historyEnd = startDate < asOf ? startDate : asOf
 
-    const [dailyData, events, priceRanks] = await Promise.all([
+    const [dailyData, events, priceRanks, coefficients, weather, curveRows, pastCurveRows] = await Promise.all([
       prisma.dailyData.findMany({
-        where: {
-          hotelId,
-          date: { gte: historyWindowStart, lt: startDate },
-          occupancy: { not: null },
-        },
+        where: { hotelId, date: { gte: historyWindowStart, lt: historyEnd }, occupancy: { not: null } },
         select: { date: true, occupancy: true },
         orderBy: { date: 'asc' },
       }),
       prisma.event.findMany({
         where: { hotelId, startDate: { lte: endDate }, endDate: { gte: startDate } },
-        select: { startDate: true, endDate: true, expectedImpact: true },
+        select: { startDate: true, endDate: true, expectedImpact: true, name: true },
       }),
-      prisma.priceRank.findMany({
-        where: { hotelId, isActive: true },
-        orderBy: { rank: 'asc' },
+      prisma.priceRank.findMany({ where: { hotelId, isActive: true }, orderBy: { rank: 'asc' } }),
+      loadCoefficientMap(hotelId),
+      getWeatherSignalsService(hotelId, startDate, endDate),
+      // 対象期間の OTB（基準日時点で観測済みのもの = daysBefore >= リードタイム）
+      prisma.bookingCurveData.findMany({
+        where: { hotelId, stayDate: { gte: startDate, lte: endDate } },
+        select: { stayDate: true, daysBefore: true, roomsBooked: true },
+      }),
+      // 典型積上率曲線用の過去実績（最終値 daysBefore=0 を持つ宿泊日）
+      prisma.bookingCurveData.findMany({
+        where: { hotelId, stayDate: { gte: addUtcDays(asOf, -180), lt: asOf } },
+        select: { stayDate: true, daysBefore: true, roomsBooked: true },
       }),
     ])
 
@@ -230,15 +246,62 @@ export const ruleBasedForecaster: DemandForecaster = {
     const maxRank = priceRanks.length > 0 ? Math.max(...priceRanks.map((r) => r.rank)) : DEFAULT_MAX_RANK
     const priceByRank = new Map(priceRanks.map((r) => [r.rank, r.price1P]))
 
+    const { curve, samples } = buildCurveFromHistory(pastCurveRows)
+    const usedDefaultCurve = curve === DEFAULT_BOOKING_CURVE || samples === 0
+    const curveByStay = new Map<string, { daysBefore: number; roomsBooked: number }[]>()
+    for (const row of curveRows) {
+      const key = toIsoDate(row.stayDate)
+      const list = curveByStay.get(key) ?? []
+      list.push({ daysBefore: row.daysBefore, roomsBooked: row.roomsBooked })
+      curveByStay.set(key, list)
+    }
+
     const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
     const results: DailyForecast[] = []
     for (let i = 0; i < totalDays; i++) {
       const date = addUtcDays(startDate, i)
-      const core = computeDailyForecastCore(date, history, events, weekendDays, maxRank)
+      const key = toIsoDate(date)
+      const leadDays = Math.max(0, Math.round((date.getTime() - asOf.getTime()) / 86_400_000))
+
+      // 基準日時点で観測できる最新の OTB（daysBefore >= leadDays のうち最小）
+      const observations = (curveByStay.get(key) ?? []).filter((o) => o.daysBefore >= leadDays).sort((a, b) => a.daysBefore - b.daysBefore)
+      const latest = observations[0]
+      const pace =
+        latest && hotel.totalRooms > 0
+          ? {
+              roomsOnBooks: latest.roomsBooked,
+              daysBefore: latest.daysBefore,
+              projectedOccupancy: projectOccupancyFromPace({
+                roomsOnBooks: latest.roomsBooked,
+                daysBefore: latest.daysBefore,
+                totalRooms: hotel.totalRooms,
+                curve,
+              }),
+              usedDefaultCurve,
+            }
+          : null
+
+      const demand = computeDemand({
+        targetDate: date,
+        leadDays,
+        history,
+        events,
+        weekendDays,
+        holiday: computeHolidaySignal(date),
+        weather: weather[key] ?? null,
+        pace,
+        coefficients,
+      })
+      const baseRank = mapOccupancyToRank(demand.predictedOccupancy, maxRank)
       results.push({
-        ...core,
-        recommendedPrice: core.recommendedRank != null ? priceByRank.get(core.recommendedRank) ?? null : null,
+        date,
+        predictedOccupancy: demand.predictedOccupancy,
+        demandLevel: demand.demandLevel,
+        recommendedRank: baseRank,
+        recommendedPrice: priceByRank.get(baseRank) ?? null,
+        confidence: demand.confidence.scalar,
         modelVersion: MODEL_VERSION,
+        demand,
       })
     }
     return results
