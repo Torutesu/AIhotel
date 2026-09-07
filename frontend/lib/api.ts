@@ -4,7 +4,7 @@
 // next.config.mjs の rewrites により /api/* はバックエンドへプロキシされる。
 // 直接バックエンドURLを叩く場合は NEXT_PUBLIC_BACKEND_URL を設定する。
 
-import type { ApiResponse, User, UserRole, Hotel as SharedHotel, Event as HotelEvent, PriceRank } from "@shared/types"
+import type { ApiResponse, User, UserRole, Hotel as SharedHotel, Event as SharedEvent, PriceRank } from "@shared/types"
 
 /** ホテル情報。外部要因（気象庁コード・緯度経度）の設定はバックエンド側で追加されたためここで拡張する */
 export type Hotel = SharedHotel & {
@@ -17,7 +17,157 @@ export type Hotel = SharedHotel & {
 }
 
 export type { PriceRank }
-export type { Event as HotelEvent } from "@shared/types"
+
+export type EventSource = "manual" | "detected" | "extracted"
+export type EventStatus = "candidate" | "confirmed" | "rejected"
+
+/**
+ * イベント。会場・候補ステータス等（外部要因設計 Phase 2）はバックエンド側で追加されたため
+ * 共通型 Event を拡張する。旧レスポンスとの互換のためすべて optional
+ */
+export type HotelEvent = SharedEvent & {
+  venueId?: string | null
+  venue?: { id: string; name: string } | null
+  expectedAttendance?: number | null
+  source?: EventSource
+  status?: EventStatus
+  /** 検出元（前年実績の期間・抽出元URL等） */
+  sourceRef?: string | null
+}
+
+/** 承認待ちのイベント候補（status = candidate） */
+export type EventCandidate = HotelEvent
+
+export type VenueCategory = "dome" | "arena" | "hall" | "stadium" | "exhibition" | "other"
+
+export interface Venue {
+  id: string
+  hotelId: string
+  name: string
+  category: VenueCategory | null
+  address: string | null
+  latitude: number | null
+  longitude: number | null
+  capacity: number | null
+  distanceKm: number | null
+  websiteUrl: string | null
+  isActive: boolean
+  /** 収容人数と距離から推定した需要影響度 */
+  estimatedImpact: "high" | "medium" | "low" | null
+  demandPressure: number | null
+}
+
+export interface CreateVenueInput {
+  hotelId: string
+  name: string
+  category?: VenueCategory | null
+  address?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  capacity?: number | null
+  distanceKm?: number | null
+  websiteUrl?: string | null
+}
+
+export type UpdateVenueInput = Partial<Omit<CreateVenueInput, "hotelId">>
+
+export interface VenueExtractResult {
+  venueId: string
+  venueName: string
+  url: string
+  /** ページ本文が長すぎて途中で切り詰めた場合 true */
+  truncated: boolean
+  extracted: number
+  created: number
+  skippedDuplicates: number
+  notes: string | null
+}
+
+export interface DetectCandidatesResult {
+  analyzedDays: number
+  candidates: number
+  created: number
+  skippedExisting: number
+}
+
+export interface ReviewEventCandidateInput {
+  decision: "approve" | "reject"
+  name?: string
+  type?: string
+  startDate?: string
+  endDate?: string
+  expectedImpact?: "high" | "medium" | "low"
+}
+
+export interface OtbImportInput {
+  capturedAt?: string
+  rows?: Array<{ stayDate: string; roomsBooked: number; daysBefore?: number }>
+  /** ヘッダー `stayDate,roomsBooked[,daysBefore]` */
+  csv?: string
+}
+
+export interface OtbImportResult {
+  imported: number
+  skipped: Array<{ stayDate: string; reason: string }>
+  capturedAt: string
+}
+
+export interface CompetitorImportInput {
+  rows?: Array<{
+    competitorName: string
+    date: string
+    price1P?: number | null
+    price2P?: number | null
+    price3P?: number | null
+    soldOut?: boolean
+  }>
+  /** ヘッダー `competitorName,date,price1P,price2P,price3P,soldOut` */
+  csv?: string
+}
+
+export interface CompetitorImportResult {
+  imported: number
+  createdCompetitors: string[]
+  skipped: Array<{ row: number; reason: string }>
+}
+
+export type ForecasterModelName = "rule-based-v2" | "ridge-v1"
+
+export interface BacktestResult {
+  modelVersion: string
+  startDate: string
+  endDate: string
+  leadDays: number[]
+  samples: number
+  beatsBaseline: boolean
+  summary: Array<{
+    bucket: string
+    samples: number
+    mape: number
+    bias: number
+    baselineMape: number | null
+  }>
+}
+
+export interface ModelComparison {
+  hotelId: string
+  activeForecaster: string
+  results: BacktestResult[]
+  promotable: Record<string, { ok: boolean; reason: string }>
+  states: Array<{ modelName: string; samples: number; trainedAt: string }>
+}
+
+export interface TrainModelResult {
+  modelName: string
+  samples: number
+  trainedAt: string
+}
+
+export interface PromoteModelResult {
+  before: string
+  after: string
+  gate: { ok: boolean; reason: string }
+}
 
 const ACCESS_TOKEN_KEY = "hrms.accessToken"
 const REFRESH_TOKEN_KEY = "hrms.refreshToken"
@@ -416,6 +566,12 @@ export interface PricingStrategy {
   maxRank: number
   maxDailyRankChange: number
   competitorPositionPct: number
+  /** 自動採用（日次ジョブが条件を満たす日の推奨を適用済みとして記録する） */
+  autoAdopt: boolean
+  /** 自動採用の最低信頼度（0〜1） */
+  autoAdoptMinConfidence: number
+  /** 自動採用の対象リードタイム（日） */
+  autoAdoptMaxLeadDays: number
 }
 
 export interface UpdatePricingStrategyInput {
@@ -426,6 +582,9 @@ export interface UpdatePricingStrategyInput {
   maxRank?: number
   maxDailyRankChange?: number
   competitorPositionPct?: number
+  autoAdopt?: boolean
+  autoAdoptMinConfidence?: number
+  autoAdoptMaxLeadDays?: number
 }
 
 export interface PricingDigestPriorityDay {
@@ -587,8 +746,11 @@ export interface CreateEventInput {
   startDate: string
   endDate: string
   location?: string
+  /** 省略時、venueId が指定されていればバックエンドが会場情報から推定する */
   expectedImpact?: "high" | "medium" | "low"
   description?: string
+  venueId?: string
+  expectedAttendance?: number
 }
 
 export type UpdateEventInput = Partial<Omit<CreateEventInput, "hotelId">>
@@ -1501,6 +1663,61 @@ let mockStrategy: PricingStrategy = {
   maxRank: 40,
   maxDailyRankChange: 3,
   competitorPositionPct: 0,
+  autoAdopt: false,
+  autoAdoptMinConfidence: 0.7,
+  autoAdoptMaxLeadDays: 14,
+}
+
+// 会場マスタ（外部要因設計 Phase 2）。更新はメモリ上に保持してUI操作を確認できるようにする
+let mockVenues: Venue[] | null = null
+
+function getMockVenues(hotelId: string): Venue[] {
+  if (mockVenues) return mockVenues
+  mockVenues = [
+    {
+      id: "mock-venue-1",
+      hotelId,
+      name: "シティドーム",
+      category: "dome",
+      address: "東京都文京区後楽1-3",
+      latitude: 35.7056,
+      longitude: 139.7519,
+      capacity: 55000,
+      distanceKm: 1.2,
+      websiteUrl: "https://example.com/city-dome/events",
+      isActive: true,
+      estimatedImpact: "high",
+      demandPressure: 0.82,
+    },
+    {
+      id: "mock-venue-2",
+      hotelId,
+      name: "市民文化ホール",
+      category: "hall",
+      address: "東京都千代田区丸の内3-5",
+      latitude: 35.6764,
+      longitude: 139.7639,
+      capacity: 2000,
+      distanceKm: 3.5,
+      websiteUrl: null,
+      isActive: true,
+      estimatedImpact: "low",
+      demandPressure: 0.08,
+    },
+  ]
+  return mockVenues
+}
+
+/** 会場の収容人数と距離から影響度を簡易推定する（バックエンドの推定ロジックに近い目安値） */
+function mockEstimateVenueImpact(capacity: number | null, distanceKm: number | null): {
+  estimatedImpact: Venue["estimatedImpact"]
+  demandPressure: number | null
+} {
+  if (capacity == null || capacity <= 0) return { estimatedImpact: null, demandPressure: null }
+  const distancePenalty = distanceKm == null ? 0.5 : Math.max(0.1, 1 - distanceKm / 10)
+  const pressure = Math.min(1, (capacity / 60000) * distancePenalty)
+  const estimatedImpact = pressure >= 0.5 ? "high" : pressure >= 0.2 ? "medium" : "low"
+  return { estimatedImpact, demandPressure: Number(pressure.toFixed(2)) }
 }
 
 let mockEvents: HotelEvent[] | null = null
@@ -1508,20 +1725,228 @@ let mockEvents: HotelEvent[] | null = null
 function getMockEvents(hotelId: string): HotelEvent[] {
   if (mockEvents) return mockEvents
   const today = new Date()
+  const y = today.getFullYear()
+  const m = today.getMonth()
   mockEvents = [
     {
       id: "mock-event-1",
       hotelId,
       name: "地域花火大会",
       type: "festival",
-      startDate: new Date(today.getFullYear(), today.getMonth(), 15),
-      endDate: new Date(today.getFullYear(), today.getMonth(), 15),
+      startDate: new Date(y, m, 15),
+      endDate: new Date(y, m, 15),
       location: "近隣河川敷",
       expectedImpact: "high",
       description: "周辺ホテルの需要増加が見込まれます。",
+      venueId: null,
+      venue: null,
+      expectedAttendance: null,
+      source: "manual",
+      status: "confirmed",
+      sourceRef: null,
+    },
+    // 承認待ちの候補（前年実績からの自動検出・会場ページからの抽出）
+    {
+      id: "mock-candidate-1",
+      hotelId,
+      name: "前年同時期の需要ピーク",
+      type: "other",
+      startDate: new Date(y, m, 22),
+      endDate: new Date(y, m, 23),
+      expectedImpact: "medium",
+      description: `前年 ${m + 1}/22〜${m + 1}/23 の稼働率が前後4週平均より +18pt 高く、ADRも +12% でした。イベント要因の可能性があります。`,
+      venueId: null,
+      venue: null,
+      expectedAttendance: null,
+      source: "detected",
+      status: "candidate",
+      sourceRef: `${y - 1}-${String(m + 1).padStart(2, "0")}-22`,
+    },
+    {
+      id: "mock-candidate-2",
+      hotelId,
+      name: "シティドーム ライブツアー 2DAYS",
+      type: "concert",
+      startDate: new Date(y, m + 1, 5),
+      endDate: new Date(y, m + 1, 6),
+      location: "シティドーム",
+      expectedImpact: "high",
+      description: "会場ページのイベント一覧から抽出しました。2日間開催・全席指定。",
+      venueId: "mock-venue-1",
+      venue: { id: "mock-venue-1", name: "シティドーム" },
+      expectedAttendance: 50000,
+      source: "extracted",
+      status: "candidate",
+      sourceRef: "https://example.com/city-dome/events",
     },
   ]
   return mockEvents
+}
+
+function filterMockEventsByStatus(hotelId: string, status: string | undefined): HotelEvent[] {
+  const all = getMockEvents(hotelId)
+  const wanted = status ?? "confirmed"
+  if (wanted === "all") return all
+  return all.filter((e) => (e.status ?? "confirmed") === wanted)
+}
+
+function mockReviewEventCandidate(id: string, hotelId: string, input: ReviewEventCandidateInput): HotelEvent {
+  const target = getMockEvents(hotelId).find((e) => e.id === id && e.status === "candidate")
+  if (!target) throw new ApiClientError(404, "イベント候補が見つかりません")
+  if (input.decision === "approve") {
+    if (input.name) target.name = input.name
+    if (input.type) target.type = input.type
+    if (input.startDate) target.startDate = new Date(input.startDate)
+    if (input.endDate) target.endDate = new Date(input.endDate)
+    if (input.expectedImpact) target.expectedImpact = input.expectedImpact
+    target.status = "confirmed"
+  } else {
+    target.status = "rejected"
+  }
+  return target
+}
+
+// 予測モデル比較（外部要因設計 Phase 2）。デモでは ridge-v1 が昇格ゲートを通らない状態を再現する
+let mockActiveForecaster: string = "rule-based-v2"
+let mockRidgeState: { modelName: string; samples: number; trainedAt: string } | null = null
+
+function mockModelComparison(hotelId: string, startDate?: string, endDate?: string): ModelComparison {
+  const today = new Date()
+  const end = endDate ?? toLocalDateStr(mockAddDays(today, -1))
+  const start = startDate ?? toLocalDateStr(mockAddDays(today, -90))
+  const leadDays = [1, 3, 7, 14, 30]
+  const buckets = ["0-3日前", "4-7日前", "8-14日前", "15-30日前"]
+  const baseline = [4.8, 6.9, 9.4, 12.6]
+  const ridge = [4.6, 7.3, 9.9, 13.1]
+  const samplesPerBucket = [88, 88, 88, 86]
+  const results: BacktestResult[] = [
+    {
+      modelVersion: "rule-based-v2",
+      startDate: start,
+      endDate: end,
+      leadDays,
+      samples: 350,
+      beatsBaseline: true,
+      summary: buckets.map((bucket, i) => ({
+        bucket,
+        samples: samplesPerBucket[i],
+        mape: baseline[i],
+        bias: [0.4, -0.8, -1.5, -2.1][i],
+        baselineMape: null,
+      })),
+    },
+    {
+      modelVersion: "ridge-v1",
+      startDate: start,
+      endDate: end,
+      leadDays,
+      samples: 350,
+      beatsBaseline: false,
+      summary: buckets.map((bucket, i) => ({
+        bucket,
+        samples: samplesPerBucket[i],
+        mape: ridge[i],
+        bias: [0.2, 1.1, 1.9, 2.6][i],
+        baselineMape: baseline[i],
+      })),
+    },
+  ]
+  const ridgeTrained = mockRidgeState != null
+  return {
+    hotelId,
+    activeForecaster: mockActiveForecaster,
+    results,
+    promotable: {
+      "rule-based-v2": {
+        ok: mockActiveForecaster !== "rule-based-v2",
+        reason: mockActiveForecaster === "rule-based-v2" ? "現在稼働中のモデルです" : "ルールベースにはいつでも戻せます",
+      },
+      "ridge-v1": {
+        ok: false,
+        reason: ridgeTrained
+          ? "バックテストでベースライン（rule-based-v2）のMAPEを下回っていません（4-7日前 7.3% vs 6.9%）。学習サンプルを増やして再学習してください"
+          : "学習済みモデルがありません。先に「ridge-v1 を学習」を実行してください",
+      },
+    },
+    states: mockRidgeState ? [mockRidgeState] : [],
+  }
+}
+
+function mockTrainModel(modelName: string): TrainModelResult {
+  mockRidgeState = { modelName, samples: 180, trainedAt: new Date().toISOString() }
+  return mockRidgeState
+}
+
+function mockPromoteModel(hotelId: string, modelName: string, force?: boolean): PromoteModelResult {
+  const gate = mockModelComparison(hotelId).promotable[modelName] ?? { ok: false, reason: "不明なモデルです" }
+  if (!gate.ok && !force) {
+    throw new ApiClientError(400, `モデルを切り替えられません: ${gate.reason}`)
+  }
+  const before = mockActiveForecaster
+  mockActiveForecaster = modelName
+  return { before, after: modelName, gate }
+}
+
+/** CSV文字列をヘッダー行を除いたセル配列に分解する（デモ取り込み用の簡易パーサ） */
+function mockParseCsvRows(csv: string): string[][] {
+  return csv
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .slice(1)
+    .map((line) => line.split(",").map((cell) => cell.trim()))
+}
+
+function mockImportOtb(input: OtbImportInput): OtbImportResult {
+  const skipped: OtbImportResult["skipped"] = []
+  let imported = 0
+  if (input.rows) {
+    imported = input.rows.length
+  } else if (input.csv) {
+    for (const cells of mockParseCsvRows(input.csv)) {
+      const [stayDate, roomsBooked] = cells
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(stayDate ?? "")) {
+        skipped.push({ stayDate: stayDate ?? "", reason: "宿泊日の形式が不正です（YYYY-MM-DD）" })
+        continue
+      }
+      if (roomsBooked == null || Number.isNaN(Number(roomsBooked))) {
+        skipped.push({ stayDate, reason: "予約室数が数値ではありません" })
+        continue
+      }
+      imported += 1
+    }
+  }
+  return { imported, skipped, capturedAt: input.capturedAt ?? new Date().toISOString() }
+}
+
+function mockImportCompetitorPrices(input: CompetitorImportInput): CompetitorImportResult {
+  const skipped: CompetitorImportResult["skipped"] = []
+  const known = new Set(MOCK_COMPETITOR_DEFS.map((c) => c.name))
+  const created = new Set<string>()
+  let imported = 0
+  const names: string[] = []
+  if (input.rows) {
+    imported = input.rows.length
+    for (const r of input.rows) names.push(r.competitorName)
+  } else if (input.csv) {
+    mockParseCsvRows(input.csv).forEach((cells, index) => {
+      const [competitorName, date] = cells
+      if (!competitorName) {
+        skipped.push({ row: index + 2, reason: "競合名が空です" })
+        return
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? "")) {
+        skipped.push({ row: index + 2, reason: "日付の形式が不正です（YYYY-MM-DD）" })
+        return
+      }
+      imported += 1
+      names.push(competitorName)
+    })
+  }
+  for (const name of names) {
+    if (!known.has(name)) created.add(name)
+  }
+  return { imported, createdCompetitors: Array.from(created), skipped }
 }
 
 // ---- API surface ----
@@ -1759,13 +2184,20 @@ export const api = {
     )
   },
 
-  events(hotelId: string, startDate?: string, endDate?: string): Promise<HotelEvent[]> {
+  /** イベント一覧。status 省略時は confirmed のみ（candidate / rejected / all を指定可） */
+  events(
+    hotelId: string,
+    startDate?: string,
+    endDate?: string,
+    status?: "confirmed" | "candidate" | "rejected" | "all"
+  ): Promise<HotelEvent[]> {
     const params = new URLSearchParams({ hotelId })
     if (startDate) params.set("startDate", startDate)
     if (endDate) params.set("endDate", endDate)
+    if (status) params.set("status", status)
     return withDemoFallback(
       () => rawRequest(`/api/v1/events?${params.toString()}`),
-      () => getMockEvents(hotelId)
+      () => filterMockEventsByStatus(hotelId, status)
     )
   },
 
@@ -1777,6 +2209,7 @@ export const api = {
           body: JSON.stringify(input),
         }),
       () => {
+        const venue = input.venueId ? getMockVenues(input.hotelId).find((v) => v.id === input.venueId) ?? null : null
         const newEvent: HotelEvent = {
           id: `mock-event-${Date.now()}`,
           hotelId: input.hotelId,
@@ -1784,13 +2217,216 @@ export const api = {
           type: input.type,
           startDate: new Date(input.startDate),
           endDate: new Date(input.endDate),
-          location: input.location,
-          expectedImpact: input.expectedImpact,
+          location: input.location ?? venue?.name,
+          // 影響度が未指定で会場が選ばれていれば会場から推定する（バックエンドと同じ挙動）
+          expectedImpact: input.expectedImpact ?? venue?.estimatedImpact ?? undefined,
           description: input.description,
+          venueId: venue?.id ?? null,
+          venue: venue ? { id: venue.id, name: venue.name } : null,
+          expectedAttendance: input.expectedAttendance ?? null,
+          source: "manual",
+          status: "confirmed",
+          sourceRef: null,
         }
         getMockEvents(input.hotelId).push(newEvent)
         return newEvent
       }
+    )
+  },
+
+  // ---- 会場マスタ・イベント候補（外部要因設計 Phase 2） ----
+
+  venues(hotelId: string): Promise<Venue[]> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/events/venues?hotelId=${hotelId}`),
+      () => getMockVenues(hotelId)
+    )
+  },
+
+  /** 会場を登録する（MANAGER以上） */
+  createVenue(input: CreateVenueInput): Promise<Venue> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/events/venues", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      () => {
+        const venue: Venue = {
+          id: `mock-venue-${Date.now()}`,
+          hotelId: input.hotelId,
+          name: input.name,
+          category: input.category ?? null,
+          address: input.address ?? null,
+          latitude: input.latitude ?? null,
+          longitude: input.longitude ?? null,
+          capacity: input.capacity ?? null,
+          distanceKm: input.distanceKm ?? null,
+          websiteUrl: input.websiteUrl ?? null,
+          isActive: true,
+          ...mockEstimateVenueImpact(input.capacity ?? null, input.distanceKm ?? null),
+        }
+        getMockVenues(input.hotelId).push(venue)
+        return venue
+      }
+    )
+  },
+
+  /** 会場を更新する（MANAGER以上） */
+  updateVenue(id: string, hotelId: string, input: UpdateVenueInput): Promise<Venue> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/events/venues/${id}?hotelId=${hotelId}`, {
+          method: "PUT",
+          body: JSON.stringify(input),
+        }),
+      () => {
+        const target = getMockVenues(hotelId).find((v) => v.id === id)
+        if (!target) throw new ApiClientError(404, "会場が見つかりません")
+        Object.assign(target, input)
+        Object.assign(target, mockEstimateVenueImpact(target.capacity, target.distanceKm))
+        return target
+      }
+    )
+  },
+
+  /** 会場を削除する（MANAGER以上） */
+  deleteVenue(id: string, hotelId: string): Promise<void> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/events/venues/${id}?hotelId=${hotelId}`, {
+          method: "DELETE",
+        }),
+      () => {
+        mockVenues = getMockVenues(hotelId).filter((v) => v.id !== id)
+      }
+    )
+  },
+
+  /**
+   * 会場の公式ページからイベントを抽出し候補として登録する（MANAGER以上）。
+   * ANTHROPIC_API_KEY 未設定・websiteUrl 未登録の場合は 400 で日本語メッセージが返る
+   */
+  extractVenueEvents(id: string, hotelId: string): Promise<VenueExtractResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/events/venues/${id}/extract`, {
+          method: "POST",
+          body: JSON.stringify({ hotelId }),
+        }),
+      () => {
+        const venue = getMockVenues(hotelId).find((v) => v.id === id)
+        if (!venue) throw new ApiClientError(404, "会場が見つかりません")
+        if (!venue.websiteUrl) throw new ApiClientError(400, "この会場には公式ページURLが登録されていません")
+        const existing = getMockEvents(hotelId).filter((e) => e.venueId === id && e.source === "extracted")
+        // デモでは既存の抽出済み候補を重複扱いにし、新規作成はしない
+        return {
+          venueId: id,
+          venueName: venue.name,
+          url: venue.websiteUrl,
+          truncated: false,
+          extracted: existing.length,
+          created: 0,
+          skippedDuplicates: existing.length,
+          notes: "デモデータのため新規のイベントは作成していません。",
+        }
+      }
+    )
+  },
+
+  /** 承認待ちのイベント候補 */
+  eventCandidates(hotelId: string): Promise<EventCandidate[]> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/events/candidates?hotelId=${hotelId}`),
+      () => filterMockEventsByStatus(hotelId, "candidate")
+    )
+  },
+
+  /** 前年の実績（稼働率・ADRの突出日）からイベント候補を検出する（MANAGER以上） */
+  detectEventCandidates(hotelId: string, lookbackDays?: number): Promise<DetectCandidatesResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/events/candidates/detect", {
+          method: "POST",
+          body: JSON.stringify({ hotelId, ...(lookbackDays != null && { lookbackDays }) }),
+        }),
+      () => {
+        const existing = filterMockEventsByStatus(hotelId, "candidate").filter((e) => e.source === "detected").length
+        return { analyzedDays: lookbackDays ?? 365, candidates: existing, created: 0, skippedExisting: existing }
+      }
+    )
+  },
+
+  /** イベント候補を承認（内容の上書き可）または却下する（MANAGER以上） */
+  reviewEventCandidate(id: string, hotelId: string, input: ReviewEventCandidateInput): Promise<HotelEvent> {
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/events/candidates/${id}/review`, {
+          method: "POST",
+          body: JSON.stringify({ hotelId, ...input }),
+        }),
+      () => mockReviewEventCandidate(id, hotelId, input)
+    )
+  },
+
+  // ---- データ取り込み（PMS OTB / 競合価格 — コネクタ設定までの手動経路。MANAGER以上） ----
+
+  importOtb(hotelId: string, input: OtbImportInput): Promise<OtbImportResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/integrations/otb", {
+          method: "POST",
+          body: JSON.stringify({ hotelId, ...input }),
+        }),
+      () => mockImportOtb(input)
+    )
+  },
+
+  importCompetitorPrices(hotelId: string, input: CompetitorImportInput): Promise<CompetitorImportResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/integrations/competitor-prices", {
+          method: "POST",
+          body: JSON.stringify({ hotelId, ...input }),
+        }),
+      () => mockImportCompetitorPrices(input)
+    )
+  },
+
+  // ---- 予測モデル（バックテスト比較・学習・切り替え） ----
+
+  /** バックテストを実行してモデルを比較する。数秒かかるため画面ではボタン押下時のみ呼ぶ */
+  compareModels(hotelId: string, startDate?: string, endDate?: string): Promise<ModelComparison> {
+    const params = new URLSearchParams({ hotelId })
+    if (startDate) params.set("startDate", startDate)
+    if (endDate) params.set("endDate", endDate)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/models?${params.toString()}`),
+      () => mockModelComparison(hotelId, startDate, endDate)
+    )
+  },
+
+  /** 学習モデルを再学習する（MANAGER以上） */
+  trainModel(hotelId: string, modelName: ForecasterModelName = "ridge-v1"): Promise<TrainModelResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/pricing/models/train", {
+          method: "POST",
+          body: JSON.stringify({ hotelId, modelName }),
+        }),
+      () => mockTrainModel(modelName)
+    )
+  },
+
+  /** 稼働モデルを切り替える（ADMINのみ）。ゲート不通過時は 400 で理由が返る。force=true で強制 */
+  promoteModel(hotelId: string, modelName: ForecasterModelName, force?: boolean): Promise<PromoteModelResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/pricing/models/promote", {
+          method: "POST",
+          body: JSON.stringify({ hotelId, modelName, ...(force && { force: true }) }),
+        }),
+      () => mockPromoteModel(hotelId, modelName, force)
     )
   },
 

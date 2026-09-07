@@ -18,7 +18,8 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
-import { AlertCircle, Table2, Calendar, Edit2, Save, Info, RefreshCw, Loader2, Plus, Trash2, Check, CloudRain } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { AlertCircle, Table2, Calendar, Edit2, Save, Info, RefreshCw, Loader2, Plus, Trash2, Check, CloudRain, Sparkles, X } from "lucide-react"
 import { toast } from "sonner"
 import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Bar, ComposedChart, Legend } from "recharts"
 import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -33,8 +34,10 @@ import {
   type PricingStrategy,
   type UpdatePricingStrategyInput,
   type DailySignal,
+  type HotelEvent,
+  type EventCandidate,
+  type Venue,
 } from "@/lib/api"
-import type { Event as HotelEvent } from "@shared/types"
 
 const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "concert", label: "コンサート" },
@@ -72,6 +75,25 @@ function impactLabel(impact?: string | null): string {
     default:
       return "影響度:不明"
   }
+}
+
+/** イベント候補の検出元ラベル（前年実績からの自動検出 / 会場ページからの抽出） */
+function candidateSourceLabel(source?: string | null): string {
+  switch (source) {
+    case "detected":
+      return "自動検出"
+    case "extracted":
+      return "会場ページ抽出"
+    default:
+      return "手動"
+  }
+}
+
+/** Date | ISO文字列 を input[type=date] 用の "YYYY-MM-DD" に整形する */
+function toInputDate(d: Date | string): string {
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return ""
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 }
 
 function formatEventDate(d: Date | string): string {
@@ -463,8 +485,27 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   const [newEventType, setNewEventType] = useState("concert")
   const [newEventStart, setNewEventStart] = useState("")
   const [newEventEnd, setNewEventEnd] = useState("")
-  const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low">("medium")
+  // "auto" = 会場の収容人数と距離からバックエンドが推定（expectedImpact を送らない）
+  const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low" | "auto">("medium")
   const [newEventLocation, setNewEventLocation] = useState("")
+  const [newEventVenueId, setNewEventVenueId] = useState<string>("none")
+  const [newEventAttendance, setNewEventAttendance] = useState("")
+
+  // 会場マスタ（イベント登録時の選択肢。設定画面で管理）
+  const [venues, setVenues] = useState<Venue[]>([])
+
+  // イベント候補（前年実績からの自動検出・会場ページからの抽出 — 外部要因設計 Phase 2）
+  const [candidates, setCandidates] = useState<EventCandidate[]>([])
+  const [candidatesLoading, setCandidatesLoading] = useState(true)
+  const [candidatesError, setCandidatesError] = useState<string | null>(null)
+  const [detectingCandidates, setDetectingCandidates] = useState(false)
+  const [reviewingCandidateId, setReviewingCandidateId] = useState<string | null>(null)
+  const [approvingCandidate, setApprovingCandidate] = useState<EventCandidate | null>(null)
+  const [approveName, setApproveName] = useState("")
+  const [approveType, setApproveType] = useState("other")
+  const [approveStart, setApproveStart] = useState("")
+  const [approveEnd, setApproveEnd] = useState("")
+  const [approveImpact, setApproveImpact] = useState<"high" | "medium" | "low">("medium")
 
   // 日別分析から日付付きで遷移してきたら、その月に切り替えて該当行をハイライトする
   useEffect(() => {
@@ -524,6 +565,40 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     loadEvents()
   }, [loadEvents])
 
+  // 会場マスタは登録ダイアログの選択肢にのみ使うため、取得失敗時は選択肢なしで続行する（登録自体は可能）
+  useEffect(() => {
+    if (!hotelId) return
+    let cancelled = false
+    api
+      .venues(hotelId)
+      .then((result) => {
+        if (!cancelled) setVenues(result.filter((v) => v.isActive))
+      })
+      .catch(() => {
+        if (!cancelled) setVenues([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hotelId])
+
+  const loadCandidates = useCallback(async () => {
+    if (!hotelId) return
+    setCandidatesLoading(true)
+    setCandidatesError(null)
+    try {
+      setCandidates(await api.eventCandidates(hotelId))
+    } catch (err) {
+      setCandidatesError(err instanceof ApiClientError ? err.message : "イベント候補の取得に失敗しました")
+    } finally {
+      setCandidatesLoading(false)
+    }
+  }, [hotelId])
+
+  useEffect(() => {
+    loadCandidates()
+  }, [loadCandidates])
+
   const resetNewEventForm = useCallback(() => {
     setNewEventName("")
     setNewEventType("concert")
@@ -531,7 +606,96 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     setNewEventEnd("")
     setNewEventImpact("medium")
     setNewEventLocation("")
+    setNewEventVenueId("none")
+    setNewEventAttendance("")
   }, [])
+
+  /** 会場を選ぶと影響度は「自動推定」に切り替える（手動で上書き可）。会場を外したら「中」に戻す */
+  const handleSelectVenue = useCallback((venueId: string) => {
+    setNewEventVenueId(venueId)
+    setNewEventImpact((prev) => {
+      if (venueId === "none") return prev === "auto" ? "medium" : prev
+      return "auto"
+    })
+  }, [])
+
+  const handleDetectCandidates = useCallback(async () => {
+    if (!hotelId) return
+    setDetectingCandidates(true)
+    try {
+      const result = await api.detectEventCandidates(hotelId)
+      if (result.created > 0) {
+        toast.success(`前年 ${result.analyzedDays} 日分を分析し、${result.created} 件の候補を追加しました`)
+      } else {
+        toast.info(
+          `前年 ${result.analyzedDays} 日分を分析しました。新しい候補はありません` +
+            (result.skippedExisting > 0 ? `（既存の候補 ${result.skippedExisting} 件はスキップ）` : "")
+        )
+      }
+      await loadCandidates()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "イベント候補の検出に失敗しました")
+    } finally {
+      setDetectingCandidates(false)
+    }
+  }, [hotelId, loadCandidates])
+
+  const openApproveDialog = useCallback((candidate: EventCandidate) => {
+    setApprovingCandidate(candidate)
+    setApproveName(candidate.name)
+    setApproveType(EVENT_TYPE_OPTIONS.some((o) => o.value === candidate.type) ? candidate.type : "other")
+    setApproveStart(toInputDate(candidate.startDate))
+    setApproveEnd(toInputDate(candidate.endDate))
+    setApproveImpact(candidate.expectedImpact ?? "medium")
+  }, [])
+
+  const handleApproveCandidate = useCallback(async () => {
+    if (!hotelId || !approvingCandidate) return
+    if (!approveName.trim() || !approveStart || !approveEnd) {
+      toast.error("イベント名・期間を入力してください")
+      return
+    }
+    if (approveStart > approveEnd) {
+      toast.error("開始日は終了日以前にしてください")
+      return
+    }
+    setReviewingCandidateId(approvingCandidate.id)
+    try {
+      await api.reviewEventCandidate(approvingCandidate.id, hotelId, {
+        decision: "approve",
+        name: approveName.trim(),
+        type: approveType,
+        startDate: approveStart,
+        endDate: approveEnd,
+        expectedImpact: approveImpact,
+      })
+      toast.success(`「${approveName.trim()}」を承認し、イベントとして登録しました`)
+      setApprovingCandidate(null)
+      // 承認されたイベントは需要予測に反映されるためカレンダーも取り直す
+      await Promise.all([loadCandidates(), loadEvents(), loadData()])
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "イベント候補の承認に失敗しました")
+    } finally {
+      setReviewingCandidateId(null)
+    }
+  }, [hotelId, approvingCandidate, approveName, approveType, approveStart, approveEnd, approveImpact, loadCandidates, loadEvents, loadData])
+
+  const handleRejectCandidate = useCallback(
+    async (candidate: EventCandidate) => {
+      if (!hotelId) return
+      setReviewingCandidateId(candidate.id)
+      try {
+        await api.reviewEventCandidate(candidate.id, hotelId, { decision: "reject" })
+        toast.success(`「${candidate.name}」を却下しました`)
+        await loadCandidates()
+      } catch (err) {
+        toast.error(err instanceof ApiClientError ? err.message : "イベント候補の却下に失敗しました")
+      } finally {
+        setReviewingCandidateId(null)
+      }
+    },
+    [hotelId, loadCandidates]
+  )
 
   const handleCreateEvent = useCallback(async () => {
     if (!hotelId) return
@@ -543,6 +707,11 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
       toast.error("開始日は終了日以前にしてください")
       return
     }
+    const attendance = newEventAttendance.trim() === "" ? null : Number(newEventAttendance)
+    if (attendance != null && (!Number.isInteger(attendance) || attendance < 0)) {
+      toast.error("見込み来場者数は0以上の整数で入力してください")
+      return
+    }
     setSavingEvent(true)
     try {
       const payload: CreateEventInput = {
@@ -551,8 +720,11 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         type: newEventType,
         startDate: newEventStart,
         endDate: newEventEnd,
-        expectedImpact: newEventImpact,
+        // "auto" のときは送らず、会場の収容人数・距離からバックエンドに推定させる
+        ...(newEventImpact !== "auto" && { expectedImpact: newEventImpact }),
         ...(newEventLocation.trim() && { location: newEventLocation.trim() }),
+        ...(newEventVenueId !== "none" && { venueId: newEventVenueId }),
+        ...(attendance != null && { expectedAttendance: attendance }),
       }
       await api.createEvent(payload)
       toast.success("イベントを登録しました")
@@ -564,7 +736,19 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     } finally {
       setSavingEvent(false)
     }
-  }, [hotelId, newEventName, newEventType, newEventStart, newEventEnd, newEventImpact, newEventLocation, resetNewEventForm, loadEvents])
+  }, [
+    hotelId,
+    newEventName,
+    newEventType,
+    newEventStart,
+    newEventEnd,
+    newEventImpact,
+    newEventLocation,
+    newEventVenueId,
+    newEventAttendance,
+    resetNewEventForm,
+    loadEvents,
+  ])
 
   const handleDeleteEvent = useCallback(
     async (id: string) => {
@@ -601,6 +785,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     maxRank: PRICE_RANK_COUNT,
     maxDailyRankChange: 3,
     competitorPositionPct: 0,
+    autoAdopt: false,
+    autoAdoptMinConfidence: 0.7,
+    autoAdoptMaxLeadDays: 14,
   })
   const [savingStrategy, setSavingStrategy] = useState(false)
 
@@ -642,6 +829,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         maxRank: result.maxRank ?? PRICE_RANK_COUNT,
         maxDailyRankChange: result.maxDailyRankChange ?? 3,
         competitorPositionPct: result.competitorPositionPct ?? 0,
+        autoAdopt: result.autoAdopt ?? false,
+        autoAdoptMinConfidence: result.autoAdoptMinConfidence ?? 0.7,
+        autoAdoptMaxLeadDays: result.autoAdoptMaxLeadDays ?? 14,
       })
     } catch (err) {
       setStrategyError(err instanceof ApiClientError ? err.message : "価格戦略の取得に失敗しました")
@@ -693,7 +883,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     [hotelId, loadData, loadDigest]
   )
 
-  const setStrategyField = useCallback((key: keyof UpdatePricingStrategyInput, raw: string) => {
+  const setStrategyField = useCallback((key: Exclude<keyof UpdatePricingStrategyInput, "autoAdopt">, raw: string) => {
     const value = raw === "" ? Number.NaN : Number(raw)
     setStrategyForm((prev) => ({ ...prev, [key]: value }))
   }, [])
@@ -708,6 +898,12 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     if (f.minRank! < 1 || f.maxRank! > PRICE_RANK_COUNT) return `ランクは1〜${PRICE_RANK_COUNT}の範囲で指定してください`
     if (f.minRank! > f.maxRank!) return "最小ランクは最大ランク以下にしてください"
     if (f.maxDailyRankChange! < 0) return "1回の最大変動幅は0以上にしてください"
+    if (f.autoAdopt) {
+      if (f.autoAdoptMinConfidence == null || Number.isNaN(f.autoAdoptMinConfidence) || f.autoAdoptMinConfidence < 0 || f.autoAdoptMinConfidence > 1)
+        return "自動採用の最低信頼度は0〜1の範囲で指定してください"
+      if (f.autoAdoptMaxLeadDays == null || Number.isNaN(f.autoAdoptMaxLeadDays) || f.autoAdoptMaxLeadDays < 0)
+        return "自動採用の対象リードタイムは0日以上にしてください"
+    }
     return null
   }, [strategyForm, strategyWeightTotal])
 
@@ -723,6 +919,16 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         maxRank: Math.round(strategyForm.maxRank!),
         maxDailyRankChange: Math.round(strategyForm.maxDailyRankChange!),
         competitorPositionPct: strategyForm.competitorPositionPct!,
+        autoAdopt: strategyForm.autoAdopt ?? false,
+        // 自動採用OFFで入力欄が空の場合は保存済みの値を維持する
+        autoAdoptMinConfidence:
+          strategyForm.autoAdoptMinConfidence != null && !Number.isNaN(strategyForm.autoAdoptMinConfidence)
+            ? strategyForm.autoAdoptMinConfidence
+            : strategy?.autoAdoptMinConfidence ?? 0.7,
+        autoAdoptMaxLeadDays:
+          strategyForm.autoAdoptMaxLeadDays != null && !Number.isNaN(strategyForm.autoAdoptMaxLeadDays)
+            ? Math.round(strategyForm.autoAdoptMaxLeadDays)
+            : strategy?.autoAdoptMaxLeadDays ?? 14,
       })
       setStrategy(updated)
       toast.success("価格戦略を保存しました")
@@ -733,7 +939,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     } finally {
       setSavingStrategy(false)
     }
-  }, [hotelId, strategyForm, strategyValidationError, loadData, loadDigest])
+  }, [hotelId, strategyForm, strategy, strategyValidationError, loadData, loadDigest])
 
   const handleIngestSignals = useCallback(async () => {
     if (!hotelId) return
@@ -1490,6 +1696,65 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                 </div>
               </div>
 
+              {/* 自動採用（日次ジョブによる推奨の自動適用 — 外部要因設計 Phase 2） */}
+              <div className="border-t pt-3 space-y-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="space-y-0.5">
+                    <Label htmlFor="strategy-auto-adopt" className="text-sm font-medium">自動採用</Label>
+                    <p className="text-xs text-muted-foreground">
+                      有効にすると日次ジョブが条件を満たす日の推奨を自動で適用済みとして記録します
+                    </p>
+                  </div>
+                  <Switch
+                    id="strategy-auto-adopt"
+                    checked={strategyForm.autoAdopt ?? false}
+                    onCheckedChange={(checked) => setStrategyForm((prev) => ({ ...prev, autoAdopt: checked }))}
+                    disabled={!canDecide}
+                  />
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="strategy-auto-adopt-confidence" className="text-xs">最低信頼度（0〜1）</Label>
+                    <Input
+                      id="strategy-auto-adopt-confidence"
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      className="h-8 text-xs"
+                      value={
+                        strategyForm.autoAdoptMinConfidence == null || Number.isNaN(strategyForm.autoAdoptMinConfidence)
+                          ? ""
+                          : strategyForm.autoAdoptMinConfidence
+                      }
+                      onChange={(e) => setStrategyField("autoAdoptMinConfidence", e.target.value)}
+                      disabled={!canDecide || !strategyForm.autoAdopt}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="strategy-auto-adopt-lead" className="text-xs">対象リードタイム（日）</Label>
+                    <Input
+                      id="strategy-auto-adopt-lead"
+                      type="number"
+                      min={0}
+                      max={365}
+                      step={1}
+                      className="h-8 text-xs"
+                      value={
+                        strategyForm.autoAdoptMaxLeadDays == null || Number.isNaN(strategyForm.autoAdoptMaxLeadDays)
+                          ? ""
+                          : strategyForm.autoAdoptMaxLeadDays
+                      }
+                      onChange={(e) => setStrategyField("autoAdoptMaxLeadDays", e.target.value)}
+                      disabled={!canDecide || !strategyForm.autoAdopt}
+                    />
+                  </div>
+                  <p className="col-span-2 text-[11px] text-muted-foreground self-end pb-1.5">
+                    予測の信頼度が最低信頼度以上、かつ宿泊日までの日数が対象リードタイム以内の日だけが自動採用の対象です
+                  </p>
+                </div>
+              </div>
+
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <p className={`text-xs ${strategyValidationError ? "text-negative" : "text-muted-foreground"}`}>
                   {strategyValidationError ??
@@ -1515,116 +1780,171 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
       {/* 当月のイベント情報（実API接続 — F-DP-07） */}
       <Card>
         <CardContent className="py-2.5 px-3">
-          <div className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center justify-between mb-2.5 flex-wrap gap-2">
             <div>
               <h3 className="text-lg font-semibold">当月のイベント情報</h3>
               <p className="text-xs text-muted-foreground mt-0.5">近隣イベントは需要予測の参考情報として登録されます</p>
             </div>
-            <Dialog
-              open={isEventDialogOpen}
-              onOpenChange={(open) => {
-                setIsEventDialogOpen(open)
-                if (!open) resetNewEventForm()
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs gap-2">
-                  <Plus className="w-3.5 h-3.5" />
-                  イベントを追加
+            <div className="flex items-center gap-2 flex-wrap">
+              {canDecide && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs gap-2"
+                  onClick={handleDetectCandidates}
+                  disabled={detectingCandidates}
+                >
+                  {detectingCandidates ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  前年の実績から候補を検出
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle className="text-lg font-semibold">イベント登録</DialogTitle>
-                  <DialogDescription className="text-sm">
-                    近隣で開催されるイベント情報を登録します。
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="new-event-name">イベント名</Label>
-                    <input
-                      id="new-event-name"
-                      value={newEventName}
-                      onChange={(e) => setNewEventName(e.target.value)}
-                      placeholder="例：○○フェスティバル"
-                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              )}
+              <Dialog
+                open={isEventDialogOpen}
+                onOpenChange={(open) => {
+                  setIsEventDialogOpen(open)
+                  if (!open) resetNewEventForm()
+                }}
+              >
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 text-xs gap-2">
+                    <Plus className="w-3.5 h-3.5" />
+                    イベントを追加
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[500px]">
+                  <DialogHeader>
+                    <DialogTitle className="text-lg font-semibold">イベント登録</DialogTitle>
+                    <DialogDescription className="text-sm">
+                      近隣で開催されるイベント情報を登録します。
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-2">
                     <div className="space-y-2">
-                      <Label htmlFor="new-event-type">種別</Label>
-                      <Select value={newEventType} onValueChange={setNewEventType}>
-                        <SelectTrigger id="new-event-type" className="h-9 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {EVENT_TYPE_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="new-event-impact">影響度</Label>
-                      <Select value={newEventImpact} onValueChange={(v: "high" | "medium" | "low") => setNewEventImpact(v)}>
-                        <SelectTrigger id="new-event-impact" className="h-9 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="high">高</SelectItem>
-                          <SelectItem value="medium">中</SelectItem>
-                          <SelectItem value="low">低</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="new-event-start">開始日</Label>
+                      <Label htmlFor="new-event-name">イベント名</Label>
                       <input
-                        id="new-event-start"
-                        type="date"
-                        value={newEventStart}
-                        onChange={(e) => setNewEventStart(e.target.value)}
+                        id="new-event-name"
+                        value={newEventName}
+                        onChange={(e) => setNewEventName(e.target.value)}
+                        placeholder="例：○○フェスティバル"
                         className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                       />
                     </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="new-event-type">種別</Label>
+                        <Select value={newEventType} onValueChange={setNewEventType}>
+                          <SelectTrigger id="new-event-type" className="h-9 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {EVENT_TYPE_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="new-event-impact">影響度</Label>
+                        <Select value={newEventImpact} onValueChange={(v: "high" | "medium" | "low" | "auto") => setNewEventImpact(v)}>
+                          <SelectTrigger id="new-event-impact" className="h-9 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {newEventVenueId !== "none" && <SelectItem value="auto">自動（会場から推定）</SelectItem>}
+                            <SelectItem value="high">高</SelectItem>
+                            <SelectItem value="medium">中</SelectItem>
+                            <SelectItem value="low">低</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="new-event-venue">会場（任意）</Label>
+                        <Select value={newEventVenueId} onValueChange={handleSelectVenue}>
+                          <SelectTrigger id="new-event-venue" className="h-9 text-sm">
+                            <SelectValue placeholder="会場を選択" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">指定なし</SelectItem>
+                            {venues.map((v) => (
+                              <SelectItem key={v.id} value={v.id}>
+                                {v.name}
+                                {v.capacity != null ? `（${v.capacity.toLocaleString()}人）` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {venues.length === 0 && (
+                          <p className="text-[11px] text-muted-foreground">会場は設定画面の「会場マスタ」で登録できます</p>
+                        )}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="new-event-attendance">見込み来場者数（任意）</Label>
+                        <input
+                          id="new-event-attendance"
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={newEventAttendance}
+                          onChange={(e) => setNewEventAttendance(e.target.value)}
+                          placeholder="例：30000"
+                          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                        />
+                      </div>
+                    </div>
+                    {newEventVenueId !== "none" && (
+                      <p className="text-xs text-muted-foreground -mt-2">
+                        影響度は会場の収容人数と距離から自動推定されます（手動で上書き可）
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="new-event-start">開始日</Label>
+                        <input
+                          id="new-event-start"
+                          type="date"
+                          value={newEventStart}
+                          onChange={(e) => setNewEventStart(e.target.value)}
+                          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="new-event-end">終了日</Label>
+                        <input
+                          id="new-event-end"
+                          type="date"
+                          value={newEventEnd}
+                          onChange={(e) => setNewEventEnd(e.target.value)}
+                          className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                        />
+                      </div>
+                    </div>
                     <div className="space-y-2">
-                      <Label htmlFor="new-event-end">終了日</Label>
+                      <Label htmlFor="new-event-location">開催場所（任意）</Label>
                       <input
-                        id="new-event-end"
-                        type="date"
-                        value={newEventEnd}
-                        onChange={(e) => setNewEventEnd(e.target.value)}
+                        id="new-event-location"
+                        value={newEventLocation}
+                        onChange={(e) => setNewEventLocation(e.target.value)}
+                        placeholder="例：○○ホール"
                         className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                       />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="new-event-location">開催場所（任意）</Label>
-                    <input
-                      id="new-event-location"
-                      value={newEventLocation}
-                      onChange={(e) => setNewEventLocation(e.target.value)}
-                      placeholder="例：○○ホール"
-                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
-                    />
+                  <div className="flex justify-end gap-2 pt-2 border-t">
+                    <Button variant="outline" size="sm" onClick={() => setIsEventDialogOpen(false)}>
+                      キャンセル
+                    </Button>
+                    <Button size="sm" className="gap-2" disabled={savingEvent} onClick={handleCreateEvent}>
+                      {savingEvent ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      登録
+                    </Button>
                   </div>
-                </div>
-                <div className="flex justify-end gap-2 pt-2 border-t">
-                  <Button variant="outline" size="sm" onClick={() => setIsEventDialogOpen(false)}>
-                    キャンセル
-                  </Button>
-                  <Button size="sm" className="gap-2" disabled={savingEvent} onClick={handleCreateEvent}>
-                    {savingEvent ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    登録
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
 
           {eventsLoading ? (
@@ -1658,7 +1978,8 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                     </div>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {formatEventRange(ev.startDate, ev.endDate)}
-                      {ev.location ? ` ・ ${ev.location}` : ""}
+                      {ev.venue?.name ? ` ・ ${ev.venue.name}` : ev.location ? ` ・ ${ev.location}` : ""}
+                      {ev.expectedAttendance != null ? ` ・ 見込み ${ev.expectedAttendance.toLocaleString()}人` : ""}
                     </p>
                   </div>
                   <Button
@@ -1677,6 +1998,177 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
               ))}
             </div>
           )}
+
+          {/* イベント候補（前年実績からの自動検出・会場ページからの抽出 — 承認するとイベントとして需要予測に反映） */}
+          <div className="border-t mt-3 pt-3">
+            <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+              <div>
+                <h4 className="text-sm font-semibold">
+                  イベント候補（承認待ち）
+                  {!candidatesLoading && !candidatesError && candidates.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 text-[10px]">{candidates.length}件</Badge>
+                  )}
+                </h4>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  前年実績の突出日や会場の公式ページから見つかった候補です。承認するとイベントとして登録され、需要予測に反映されます
+                  {!canDecide && "（承認・却下にはMANAGER以上の権限が必要です）"}
+                </p>
+              </div>
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5" onClick={loadCandidates} disabled={candidatesLoading}>
+                <RefreshCw className={`w-3.5 h-3.5 ${candidatesLoading ? "animate-spin" : ""}`} />
+                更新
+              </Button>
+            </div>
+
+            {candidatesLoading ? (
+              <Skeleton className="h-12 w-full" />
+            ) : candidatesError ? (
+              <div className="flex flex-col items-center gap-2 py-4 text-center">
+                <AlertCircle className="w-5 h-5 text-destructive" />
+                <p className="text-xs text-muted-foreground">{candidatesError}</p>
+                <Button variant="outline" size="sm" onClick={loadCandidates} className="gap-2 h-7 text-xs">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  再試行
+                </Button>
+              </div>
+            ) : candidates.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-3 text-center">承認待ちの候補はありません。</p>
+            ) : (
+              <div className="space-y-2">
+                {candidates.map((c) => {
+                  const busy = reviewingCandidateId === c.id
+                  return (
+                    <div key={c.id} className="flex items-start justify-between gap-3 border border-dashed rounded-lg px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm">{c.name}</span>
+                          <Badge variant="secondary" className="text-[10px]">{candidateSourceLabel(c.source)}</Badge>
+                          <Badge variant="outline" className="text-[10px]">{eventTypeLabel(c.type)}</Badge>
+                          <Badge className={`${impactBadgeClass(c.expectedImpact)} text-[10px]`}>{impactLabel(c.expectedImpact)}</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          候補日 {formatEventRange(c.startDate, c.endDate)}
+                          {c.venue?.name ? ` ・ ${c.venue.name}` : c.location ? ` ・ ${c.location}` : ""}
+                          {c.expectedAttendance != null ? ` ・ 見込み ${c.expectedAttendance.toLocaleString()}人` : ""}
+                        </p>
+                        {c.description && <p className="text-xs text-muted-foreground mt-0.5 leading-snug">{c.description}</p>}
+                      </div>
+                      {canDecide && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs gap-1"
+                            disabled={reviewingCandidateId != null}
+                            onClick={() => openApproveDialog(c)}
+                          >
+                            {busy && approvingCandidate?.id === c.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                            承認
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs gap-1"
+                            disabled={reviewingCandidateId != null}
+                            onClick={() => handleRejectCandidate(c)}
+                          >
+                            {busy && approvingCandidate == null ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />}
+                            却下
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* 候補の承認ダイアログ（名称・期間・影響度を確認・修正してから登録） */}
+          <Dialog open={approvingCandidate != null} onOpenChange={(open) => !open && !reviewingCandidateId && setApprovingCandidate(null)}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle className="text-lg font-semibold">イベント候補を承認</DialogTitle>
+                <DialogDescription className="text-sm">
+                  内容を確認・修正してイベントとして登録します。
+                  {approvingCandidate?.sourceRef && (
+                    <span className="block text-xs mt-1 break-all">検出元: {approvingCandidate.sourceRef}</span>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="approve-event-name">イベント名</Label>
+                  <input
+                    id="approve-event-name"
+                    value={approveName}
+                    onChange={(e) => setApproveName(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="approve-event-type">種別</Label>
+                    <Select value={approveType} onValueChange={setApproveType}>
+                      <SelectTrigger id="approve-event-type" className="h-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {EVENT_TYPE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="approve-event-impact">影響度</Label>
+                    <Select value={approveImpact} onValueChange={(v: "high" | "medium" | "low") => setApproveImpact(v)}>
+                      <SelectTrigger id="approve-event-impact" className="h-9 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="high">高</SelectItem>
+                        <SelectItem value="medium">中</SelectItem>
+                        <SelectItem value="low">低</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="approve-event-start">開始日</Label>
+                    <input
+                      id="approve-event-start"
+                      type="date"
+                      value={approveStart}
+                      onChange={(e) => setApproveStart(e.target.value)}
+                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="approve-event-end">終了日</Label>
+                    <input
+                      id="approve-event-end"
+                      type="date"
+                      value={approveEnd}
+                      onChange={(e) => setApproveEnd(e.target.value)}
+                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <Button variant="outline" size="sm" onClick={() => setApprovingCandidate(null)} disabled={reviewingCandidateId != null}>
+                  キャンセル
+                </Button>
+                <Button size="sm" className="gap-2" disabled={reviewingCandidateId != null} onClick={handleApproveCandidate}>
+                  {reviewingCandidateId != null ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  承認して登録
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </CardContent>
       </Card>
 
