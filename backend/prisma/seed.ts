@@ -43,9 +43,16 @@ async function main() {
   console.log(`✅ Tenant: ${tenant.name}`)
 
   // 2. Hotel
+  // 天候シグナル取得用の位置情報（気象庁: 東京都=130000 / 東京地方=130010、丸の内の緯度経度）
+  const hotelLocation = {
+    jmaOfficeCode: '130000',
+    jmaAreaCode: '130010',
+    latitude: 35.6812,
+    longitude: 139.7671,
+  }
   const hotel = await prisma.hotel.upsert({
     where: { id: HOTEL_ID },
-    update: { tenantId: tenant.id },
+    update: { tenantId: tenant.id, ...hotelLocation },
     create: {
       id: HOTEL_ID,
       tenantId: tenant.id,
@@ -55,6 +62,7 @@ async function main() {
       email: 'info@demo-hotel.example.com',
       totalRooms: 200,
       weekendDays: [5, 6], // 金・土
+      ...hotelLocation,
     },
   })
   console.log(`✅ Hotel: ${hotel.name}`)

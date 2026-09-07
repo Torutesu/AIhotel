@@ -46,6 +46,10 @@ model Tenant {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  externalSignals          ExternalSignal[]
+  forecastSnapshots        ForecastSnapshot[]
+  recommendationDecisions  RecommendationDecision[]
+  factorCoefficients       FactorCoefficient[]
 }
 
 // ======================================
@@ -102,19 +106,27 @@ enum UserRole {
 // ======================================
 
 model Hotel {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name        String
-  address     String?
-  phone       String?
-  email       String?
-  totalRooms  Int
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  address       String?
+  phone         String?
+  email         String?
+  totalRooms    Int
   // 週末定義（チェックイン日基準）。デフォルトは金・土（F-DAILY-02）
-  weekendDays Json     @default("[5, 6]")
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  weekendDays   Json     @default("[5, 6]")
+  // 外部要因（天候）取得用の位置情報。
+  // jmaOfficeCode: 気象庁 bosai の府県予報区コード（例 東京都=130000）
+  // jmaAreaCode:   同・一次細分区域コード（例 東京地方=130010）。週間予報の天気・降水確率はこの単位で返る
+  // latitude/longitude: Open-Meteo（8〜16日先の補完）用
+  jmaOfficeCode String?
+  jmaAreaCode   String?
+  latitude      Float?
+  longitude     Float?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   users                    User[]
   roomTypes                RoomType[]
@@ -134,6 +146,10 @@ model Hotel {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  externalSignals          ExternalSignal[]
+  forecastSnapshots        ForecastSnapshot[]
+  recommendationDecisions  RecommendationDecision[]
+  factorCoefficients       FactorCoefficient[]
 
   @@index([tenantId])
 }
@@ -189,17 +205,22 @@ model PriceRank {
 
 // 価格戦略の重み付け設定（F-DP-02）
 model PricingStrategyConfig {
-  id               String   @id @default(cuid())
-  tenantId         String
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId          String   @unique // ホテルごとに1設定
-  hotel            Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  weightOccupancy  Int      @default(40) // 稼働率重視 (%)
-  weightAdr        Int      @default(40) // ADR重視 (%)
-  weightCompetitor Int      @default(20) // 競合追従度 (%)
-  updatedByUserId  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  tenantId              String
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId               String   @unique // ホテルごとに1設定
+  hotel                 Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  weightOccupancy       Int      @default(40) // 稼働率重視 (%)
+  weightAdr             Int      @default(40) // ADR重視 (%)
+  weightCompetitor      Int      @default(20) // 競合追従度 (%)
+  // 価格決定層のガードレール（docs/外部要因設計.md §2.2）
+  minRank               Int      @default(1) // 推奨ランクの下限
+  maxRank               Int      @default(40) // 推奨ランクの上限（F-SET-02: 最大40段階）
+  maxDailyRankChange    Int      @default(5) // 前回推奨（または適用ランク）からの1回あたり最大変動幅
+  competitorPositionPct Int      @default(0) // 競合追従候補のポジション（競合中央値比 %。+5 = 競合より5%高く）
+  updatedByUserId       String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   @@index([tenantId])
 }
@@ -348,14 +369,19 @@ model AiPriceRecommendation {
   roomType   RoomType? @relation(fields: [roomTypeId], references: [id], onDelete: SetNull)
   date       DateTime  @db.Date
 
-  predictedOccupancy Float?
-  predictedAdr       Float?
-  recommendedRank    Int?
-  recommendedPrice   Int?
-  demandLevel        DemandLevel?
-  confidence         Float? // 0-1
-  modelVersion       String?
-  computedAt         DateTime     @default(now())
+  predictedOccupancy        Float?
+  predictedAdr              Float?
+  recommendedRank           Int?
+  recommendedPrice          Int?
+  demandLevel               DemandLevel?
+  confidence                Float? // 0-1
+  modelVersion              String?
+  computedAt                DateTime     @default(now())
+  // 理由分解（docs/外部要因設計.md §2.2 の contributions）と期待RevPAR。
+  // ForecastSnapshot にも同じ内容を追記保存する（こちらは「最新値」の参照用）
+  contributions             Json?
+  expectedRevParCurrent     Float?
+  expectedRevParRecommended Float?
 
   @@unique([hotelId, date, roomTypeId])
   @@index([tenantId])
@@ -621,6 +647,92 @@ model Event {
   @@index([tenantId])
   @@index([hotelId])
   @@index([startDate, endDate])
+}
+
+// ======================================
+// External Signals / Forecast Learning（docs/外部要因設計.md §3, §5）
+// ======================================
+
+// 取り込んだ外部シグナルの正規化ストア。取得元・鮮度を必ず持つ。
+// 祝日・学校休暇はテナント非依存の静的データ（src/data/）なのでここには入れない
+model ExternalSignal {
+  id         String    @id @default(cuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId    String
+  hotel      Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date       DateTime  @db.Date // 対象宿泊日
+  signalType String // weather, event_candidate, comp_soldout, inbound
+  source     String // jma, open_meteo, derived, manual
+  value      Json // 型ごとの正規化値（weather: { weatherCode, rainProbability, tempMax, tempMin, reliability, isRainy }）
+  capturedAt DateTime  @default(now())
+  validUntil DateTime? // 鮮度。過ぎたら係数0で扱う（古い値を黙って使わない）
+
+  @@unique([hotelId, date, signalType, source])
+  @@index([tenantId])
+  @@index([hotelId, date])
+}
+
+// 推奨の不変スナップショット。基準日（asOfDate）ごとに追記し、上書きしない。
+// 学習（残差計算）・バックテスト・「昨日からの変化」表示の元データ
+model ForecastSnapshot {
+  id                        String   @id @default(cuid())
+  tenantId                  String
+  tenant                    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId                   String
+  hotel                     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  stayDate                  DateTime @db.Date
+  asOfDate                  DateTime @db.Date
+  leadDays                  Int
+  predictedOccupancy        Float
+  recommendedRank           Int
+  currentRank               Int? // その時点で適用されていたランク（RecommendationDecision 由来）
+  demandFactors             Json // 需要側の要因分解（稼働率pt単位）
+  contributions             Json // 価格側の理由分解（ランク単位）
+  expectedRevParCurrent     Float?
+  expectedRevParRecommended Float?
+  confidence                Json // { p50, p10, p90, leadBucket }
+  modelVersion              String
+  createdAt                 DateTime @default(now())
+
+  @@unique([hotelId, stayDate, asOfDate])
+  @@index([tenantId])
+  @@index([hotelId, stayDate])
+  @@index([hotelId, asOfDate])
+}
+
+// ユーザーの採否記録（推奨に対して実際に適用したランク）。オーバーライド学習と採用率算出に使う
+model RecommendationDecision {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId         String
+  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  stayDate        DateTime @db.Date
+  recommendedRank Int
+  appliedRank     Int
+  decidedByUserId String?
+  reason          String? // 「団体入る」「近隣工事」等。次回のイベント候補にもなる
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, stayDate, createdAt])
+}
+
+// ホテル別の学習済み係数（要因キーごと）。初期値は src/services/forecast/factorDefaults.ts
+model FactorCoefficient {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId    String
+  hotel      Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  factorKey  String // event:high, holiday:block_middle, weather:rain_lead0_3, calib:lead_0_3 ...
+  value      Float
+  sampleSize Int      @default(0)
+  updatedAt  DateTime @updatedAt
+
+  @@unique([hotelId, factorKey])
+  @@index([tenantId])
 }
 
 // ======================================
