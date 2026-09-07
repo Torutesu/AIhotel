@@ -8,6 +8,11 @@ import {
   recomputeForecastSchema,
   signalsQuerySchema,
   ingestSignalsSchema,
+  recordDecisionSchema,
+  decisionsQuerySchema,
+  learnSchema,
+  backtestSchema,
+  dailyJobSchema,
 } from '../lib/validators.js'
 import {
   getCalendar,
@@ -17,6 +22,13 @@ import {
   recomputeForecast,
   getSignals,
   ingestSignals,
+  getDigest,
+  recordDecision,
+  getDecisions,
+  learn,
+  getCoefficients,
+  backtest,
+  runDailyJob,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -81,4 +93,63 @@ pricingRouter.post(
   requireHotelAccess((req) => req.body?.hotelId),
   validate(ingestSignalsSchema),
   ingestSignals
+)
+
+// GET /api/v1/pricing/digest?hotelId= — 今日決めるべき日・昨日からの変化・答え合わせ・採用率
+pricingRouter.get(
+  '/digest',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getDigest
+)
+
+// GET /api/v1/pricing/decisions?hotelId=&startDate=&endDate= — 採否記録一覧
+pricingRouter.get(
+  '/decisions',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(decisionsQuerySchema, 'query'),
+  getDecisions
+)
+
+// POST /api/v1/pricing/decisions — 推奨の採否記録は MANAGER 以上
+pricingRouter.post(
+  '/decisions',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(recordDecisionSchema),
+  recordDecision
+)
+
+// GET /api/v1/pricing/coefficients?hotelId= — 学習済み係数
+pricingRouter.get(
+  '/coefficients',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getCoefficients
+)
+
+// POST /api/v1/pricing/learn — 実績からの係数学習は MANAGER 以上
+pricingRouter.post(
+  '/learn',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(learnSchema),
+  learn
+)
+
+// POST /api/v1/pricing/backtest — バックテストは MANAGER 以上
+pricingRouter.post(
+  '/backtest',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(backtestSchema),
+  backtest
+)
+
+// POST /api/v1/pricing/jobs/daily — 日次ジョブの手動実行は ADMIN のみ
+pricingRouter.post(
+  '/jobs/daily',
+  requireRole('ADMIN'),
+  validate(dailyJobSchema),
+  runDailyJob
 )

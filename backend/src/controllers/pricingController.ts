@@ -9,7 +9,13 @@ import {
   getSimulationService,
 } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
+import type { UpdateStrategyInput, RecordDecisionInput } from '../lib/validators.js'
 import { getSignalsService, ingestWeatherSignalsService } from '../services/signals/signalService.js'
+import { recordDecisionService, listDecisionsService } from '../services/pricing/decisionService.js'
+import { getPricingDigestService } from '../services/pricing/digestService.js'
+import { learnFromActualsService, getCoefficientsService } from '../services/forecast/learningService.js'
+import { runBacktestService } from '../services/forecast/backtestService.js'
+import { runDailyJobService } from '../services/jobs/dailyJob.js'
 
 /**
  * 日別価格カレンダー
@@ -40,12 +46,8 @@ export const getStrategy = asyncHandler(async (req: Request, res: Response) => {
  * PUT /api/v1/pricing/strategy
  */
 export const updateStrategy = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId, weightOccupancy, weightAdr, weightCompetitor } = req.body
-  const { before, after } = await updateStrategyService(
-    hotelId,
-    { weightOccupancy, weightAdr, weightCompetitor },
-    req.user!.userId
-  )
+  const { hotelId, ...weights } = req.body as UpdateStrategyInput
+  const { before, after } = await updateStrategyService(hotelId, weights, req.user!.userId)
   await writeAuditLog({
     tenantId: after.tenantId,
     userId: req.user!.userId,
@@ -133,4 +135,100 @@ export const ingestSignals = asyncHandler(async (req: Request, res: Response) =>
   })
   const total = (result.jma?.count ?? 0) + (result.openMeteo?.count ?? 0)
   sendSuccess(res, result, 200, `天候シグナルを取り込みました（${total}件）`)
+})
+
+/**
+ * 今日決めるべき日・昨日からの変化・答え合わせ・採用率
+ * GET /api/v1/pricing/digest?hotelId=
+ */
+export const getDigest = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  sendSuccess(res, await getPricingDigestService(hotelId))
+})
+
+/**
+ * 推奨の採否記録（MANAGER 以上・監査対象）
+ * POST /api/v1/pricing/decisions
+ */
+export const recordDecision = asyncHandler(async (req: Request, res: Response) => {
+  const input = req.body as RecordDecisionInput
+  const decision = await recordDecisionService(input, req.user!.userId)
+  await writeAuditLog({
+    tenantId: decision.tenantId,
+    userId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'RecommendationDecision',
+    entityId: decision.id,
+    newValue: decision,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, decision, 201, `R${decision.appliedRank} を適用として記録しました`)
+})
+
+/**
+ * 採否記録一覧
+ * GET /api/v1/pricing/decisions?hotelId=&startDate=&endDate=
+ */
+export const getDecisions = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, startDate, endDate } = req.query as unknown as { hotelId: string; startDate: Date; endDate: Date }
+  sendSuccess(res, await listDecisionsService(hotelId, startDate, endDate))
+})
+
+/**
+ * 実績からの係数学習（MANAGER 以上・監査対象）
+ * POST /api/v1/pricing/learn
+ */
+export const learn = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.body as { hotelId: string }
+  const result = await learnFromActualsService(hotelId)
+  await writeAuditLog({
+    tenantId: result.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'FactorCoefficient',
+    entityId: hotelId,
+    newValue: result,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, `${result.samples}件の実績で係数を更新しました`)
+})
+
+/**
+ * 学習済み係数一覧
+ * GET /api/v1/pricing/coefficients?hotelId=
+ */
+export const getCoefficients = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  sendSuccess(res, await getCoefficientsService(hotelId))
+})
+
+/**
+ * バックテスト（MANAGER 以上）
+ * POST /api/v1/pricing/backtest
+ */
+export const backtest = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, startDate, endDate, leadDays } = req.body as { hotelId: string; startDate: Date; endDate: Date; leadDays?: number[] }
+  sendSuccess(res, await runBacktestService(hotelId, startDate, endDate, leadDays))
+})
+
+/**
+ * 日次ジョブの手動実行（ADMIN・監査対象）
+ * POST /api/v1/pricing/jobs/daily
+ */
+export const runDailyJob = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.body as { hotelId?: string }
+  const result = await runDailyJobService(hotelId)
+  await writeAuditLog({
+    tenantId: req.user!.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'DailyJob',
+    entityId: hotelId ?? null,
+    newValue: result,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, `日次ジョブを実行しました（${result.hotels.length}ホテル）`)
 })

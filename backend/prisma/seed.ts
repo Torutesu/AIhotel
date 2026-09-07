@@ -231,14 +231,16 @@ async function main() {
   console.log(`✅ Daily data: ${dailyRows.length}, AI recommendations: ${aiRows.length}`)
 
   // 9. ブッキングカーブ（過去30日の確定カーブ ＋ 今後30日の積上げ途中）。
-  //    積上率は予測エンジンの既定曲線（DEFAULT_BOOKING_CURVE）に沿わせ、ペース補正が
-  //    デモで極端に振れないようにする。過去分は典型積上率曲線の学習サンプルになる
+  //    最終室数は日別データ（過去は実績 soldRooms、未来は AI予測稼働率）と同じ値に揃え、
+  //    積上率は予測エンジンの既定曲線（DEFAULT_BOOKING_CURVE）に沿わせる。
+  //    こうしておくとペース補正がデモで整合し、過去分は典型積上率曲線の学習サンプルになる
+  const soldByDate = new Map(dailyRows.map((r) => [r.date.toISOString().slice(0, 10), r.soldRooms]))
+  const predictedByDate = new Map(aiRows.map((r) => [r.date.toISOString().slice(0, 10), r.predictedOccupancy]))
   const curveRows = []
   for (let offset = -30; offset < 30; offset++) {
     const stayDate = addDays(today, offset)
-    const dow = stayDate.getUTCDay()
-    const isWeekend = dow === 5 || dow === 6
-    const finalRooms = Math.round(totalRooms * (isWeekend ? 0.93 : 0.75))
+    const key = stayDate.toISOString().slice(0, 10)
+    const finalRooms = soldByDate.get(key) ?? Math.round(totalRooms * (predictedByDate.get(key) ?? 0.7))
     for (const daysBefore of [90, 60, 45, 30, 21, 14, 7, 3, 1, 0]) {
       if (daysBefore < offset) continue // まだ到来していない時点は積上げ済みのみ
       const progress = typicalFraction(DEFAULT_BOOKING_CURVE, daysBefore)

@@ -49,8 +49,9 @@ describe('computeDemand', () => {
     const r = computeDemand(baseInput(target))
     const eve = r.demandFactors.find((f) => f.key === 'holiday:eve')
     expect(eve?.pt).toBeCloseTo(FACTOR_DEFAULTS['holiday:eve'], 6)
-    // 金曜はホテル週末でもある
-    expect(r.demandFactors.some((f) => f.key === 'weekend:hotel')).toBe(true)
+    // 金曜はホテル週末でもある（初期係数 0 なので寄与には出ないが、学習対象キーには含まれる）
+    expect(r.activeFactorKeys).toContain('weekend:hotel')
+    expect(r.demandFactors.some((f) => f.key === 'weekend:hotel')).toBe(false)
     expect(r.activeFactorKeys).toContain('holiday:eve')
   })
 

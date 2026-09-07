@@ -24,6 +24,7 @@ import { notFoundHandler } from './middlewares/notFoundHandler.js'
 
 // Import utilities
 import { logger, requestLogger } from './utils/logger.js'
+import { startDailyJobScheduler, stopDailyJobScheduler } from './services/jobs/dailyJob.js'
 
 // ======================================
 // Configuration
@@ -140,12 +141,15 @@ const server = app.listen(PORT, () => {
     env: NODE_ENV,
     frontend: FRONTEND_URL,
   }, `🚀 Backend server running on http://localhost:${PORT}`)
+  // 日次ジョブ（DAILY_JOB_ENABLED=true のときのみ。docs/外部要因設計.md §4）
+  startDailyJobScheduler()
 })
 
 // Graceful shutdown
 const gracefulShutdown = async (signal: string) => {
   logger.info(`${signal} received. Starting graceful shutdown...`)
-  
+  stopDailyJobScheduler()
+
   server.close(() => {
     logger.info('HTTP server closed')
     process.exit(0)

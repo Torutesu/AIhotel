@@ -289,14 +289,56 @@ export const recomputeForecastSchema = z.object({
   { message: '開始日は終了日以前である必要があります' }
 )
 
-// 重み付けは合計100%（F-DP-02）
+// 重み付けは合計100%（F-DP-02）。ガードレール（docs/外部要因設計.md §2.2）は任意
 export const updateStrategySchema = z.object({
   hotelId: entityIdSchema,
   weightOccupancy: z.number().int().min(0).max(100),
   weightAdr: z.number().int().min(0).max(100),
   weightCompetitor: z.number().int().min(0).max(100),
+  minRank: z.number().int().min(1).max(40).optional(),
+  maxRank: z.number().int().min(1).max(40).optional(),
+  maxDailyRankChange: z.number().int().min(1).max(40).optional(),
+  competitorPositionPct: z.number().int().min(-50).max(50).optional(),
 }).refine(data => data.weightOccupancy + data.weightAdr + data.weightCompetitor === 100, {
   message: '重み付けの合計は100%である必要があります',
+}).refine(data => data.minRank == null || data.maxRank == null || data.minRank <= data.maxRank, {
+  message: '最小ランクは最大ランク以下である必要があります',
+})
+
+// ======================================
+// Decisions / Digest / Learning Validators（docs/外部要因設計.md §5, §6）
+// ======================================
+
+export const recordDecisionSchema = z.object({
+  hotelId: entityIdSchema,
+  date: z.coerce.date(),
+  appliedRank: z.number().int().min(1).max(40),
+  reason: z.string().max(500).optional(),
+})
+
+export const decisionsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+}).refine((data) => data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+export const learnSchema = z.object({
+  hotelId: entityIdSchema,
+})
+
+export const backtestSchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date(),
+  leadDays: z.array(z.number().int().min(0).max(365)).min(1).max(6).optional(),
+}).refine((data) => data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+export const dailyJobSchema = z.object({
+  hotelId: entityIdSchema.optional(),
 })
 
 // ======================================
@@ -339,3 +381,5 @@ export type PaginationInput = z.infer<typeof paginationSchema>
 export type DateRangeInput = z.infer<typeof dateRangeSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
+export type UpdateStrategyInput = z.infer<typeof updateStrategySchema>
+export type RecordDecisionInput = z.infer<typeof recordDecisionSchema>

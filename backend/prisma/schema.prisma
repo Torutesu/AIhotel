@@ -694,6 +694,8 @@ model ForecastSnapshot {
   confidence                Json // { p50, p10, p90, leadBucket }
   modelVersion              String
   createdAt                 DateTime @default(now())
+  // 学習済みマーク（learningService が実績と突き合わせた日時）。null = 未学習
+  learnedAt                 DateTime?
 
   @@unique([hotelId, stayDate, asOfDate])
   @@index([tenantId])

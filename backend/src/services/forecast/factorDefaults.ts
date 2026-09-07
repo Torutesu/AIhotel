@@ -15,8 +15,9 @@ export const FACTOR_DEFAULTS: Record<string, number> = {
   'holiday:last': -0.10, // 連休最終夜（翌日は平日）
   'holiday:bridge': 0.04, // 飛び石の平日
 
-  // ---- ホテル定義の週末（Hotel.weekendDays）。同曜日平均が既に吸収しているため控えめ（rule-based-v1 と同値）
-  'weekend:hotel': 0.05,
+  // ---- ホテル定義の週末（Hotel.weekendDays）。同曜日平均が既に吸収しているため初期値は 0。
+  //      直近トレンドで金土が系統的に外れるホテルでは学習で正負の値が付く（rule-based-v1 の固定 +5pt は二重計上だった）
+  'weekend:hotel': 0,
 
   // ---- 特別期間・学校休暇
   'special:gw': 0.10,

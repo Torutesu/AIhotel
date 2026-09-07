@@ -105,7 +105,15 @@ export async function getStrategyService(hotelId: string) {
  */
 export async function updateStrategyService(
   hotelId: string,
-  weights: { weightOccupancy: number; weightAdr: number; weightCompetitor: number },
+  weights: {
+    weightOccupancy: number
+    weightAdr: number
+    weightCompetitor: number
+    minRank?: number
+    maxRank?: number
+    maxDailyRankChange?: number
+    competitorPositionPct?: number
+  },
   updatedByUserId: string
 ) {
   const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
