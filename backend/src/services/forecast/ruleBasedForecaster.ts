@@ -6,6 +6,7 @@ import { loadCoefficientMap } from './coefficients.js'
 import { buildCurveFromHistory, projectOccupancyFromPace, DEFAULT_BOOKING_CURVE } from './bookingCurve.js'
 import { computeHolidaySignal, toIsoDate } from '../signals/holidaySignal.js'
 import { getWeatherSignalsService } from '../signals/signalService.js'
+import { getCompetitorSoldOutShareService } from '../integrations/competitorImportService.js'
 
 // ルールベース需要予測（F-DP-05。将来 ML モデルに差し替え予定）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
@@ -214,7 +215,7 @@ export const ruleBasedForecaster: DemandForecaster = {
     const historyWindowStart = addUtcDays(startDate, -400)
     const historyEnd = startDate < asOf ? startDate : asOf
 
-    const [dailyData, events, priceRanks, coefficients, weather, curveRows, pastCurveRows] = await Promise.all([
+    const [dailyData, events, priceRanks, coefficients, weather, curveRows, pastCurveRows, soldOutShare] = await Promise.all([
       prisma.dailyData.findMany({
         where: { hotelId, date: { gte: historyWindowStart, lt: historyEnd }, occupancy: { not: null } },
         select: { date: true, occupancy: true },
@@ -238,6 +239,7 @@ export const ruleBasedForecaster: DemandForecaster = {
         where: { hotelId, stayDate: { gte: addUtcDays(asOf, -180), lt: asOf } },
         select: { stayDate: true, daysBefore: true, roomsBooked: true },
       }),
+      getCompetitorSoldOutShareService(hotelId, startDate, endDate),
     ])
 
     const history: OccupancyRecord[] = dailyData
@@ -292,6 +294,7 @@ export const ruleBasedForecaster: DemandForecaster = {
         weather: weather[key] ?? null,
         pace,
         coefficients,
+        competitorSoldOutShare: soldOutShare.get(key) ?? null,
       })
       const baseRank = mapOccupancyToRank(demand.predictedOccupancy, maxRank)
       results.push({

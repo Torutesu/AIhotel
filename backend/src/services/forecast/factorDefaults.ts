@@ -31,6 +31,9 @@ export const FACTOR_DEFAULTS: Record<string, number> = {
   'weather:rain_lead0_3': -0.04,
   'weather:rain_lead4_7': -0.01,
 
+  // ---- 競合売止め比率（0〜1）に掛ける係数。全競合が売止めなら +8pt
+  'comp:soldout_share': 0.08,
+
   // ---- 予約ペースの信頼度 α（リードタイム区分別）。D = (1-α)·Base + α·PaceProjection
   'pace:alpha_lead0_3': 0.8,
   'pace:alpha_lead4_7': 0.6,
@@ -84,6 +87,7 @@ export const FACTOR_LABELS: Record<string, string> = {
   'weather:rain_lead0_3': '雨予報（直前）',
   'weather:rain_lead4_7': '雨予報（4〜7日先）',
   'weekend:hotel': '週末（ホテル定義）',
+  'comp:soldout_share': '競合の売止め（エリア逼迫）',
 }
 
 export function factorLabel(key: string): string {

@@ -113,6 +113,9 @@ export async function updateStrategyService(
     maxRank?: number
     maxDailyRankChange?: number
     competitorPositionPct?: number
+    autoAdopt?: boolean
+    autoAdoptMinConfidence?: number
+    autoAdoptMaxLeadDays?: number
   },
   updatedByUserId: string
 ) {

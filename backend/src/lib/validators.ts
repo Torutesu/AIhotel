@@ -304,6 +304,10 @@ export const updateStrategySchema = z.object({
   maxRank: z.number().int().min(1).max(40).optional(),
   maxDailyRankChange: z.number().int().min(1).max(40).optional(),
   competitorPositionPct: z.number().int().min(-50).max(50).optional(),
+  // 自動採用モード（docs/外部要因設計.md §6 #6）
+  autoAdopt: z.boolean().optional(),
+  autoAdoptMinConfidence: z.number().min(0).max(1).optional(),
+  autoAdoptMaxLeadDays: z.number().int().min(0).max(365).optional(),
 }).refine(data => data.weightOccupancy + data.weightAdr + data.weightCompetitor === 100, {
   message: '重み付けの合計は100%である必要があります',
 }).refine(data => data.minRank == null || data.maxRank == null || data.minRank <= data.maxRank, {
@@ -402,6 +406,70 @@ export const signalsQuerySchema = z.object({
 
 export const ingestSignalsSchema = z.object({
   hotelId: entityIdSchema,
+})
+
+// ======================================
+// Integrations Validators（PMS/OTA 連携の器 — docs/外部要因設計.md P2-11）
+// ======================================
+
+const isoDate = z.coerce.date()
+
+export const otbImportSchema = z.object({
+  hotelId: entityIdSchema,
+  capturedAt: z.coerce.date().optional(),
+  // JSON 行 か CSV テキスト（ヘッダ: stayDate,roomsBooked[,daysBefore]）のどちらか
+  rows: z.array(z.object({
+    stayDate: isoDate,
+    roomsBooked: z.number().int().min(0),
+    daysBefore: z.number().int().min(0).max(400).optional(),
+  })).max(5000).optional(),
+  csv: z.string().max(2_000_000).optional(),
+}).refine((d) => (d.rows && d.rows.length > 0) || (d.csv && d.csv.trim().length > 0), {
+  message: 'rows か csv のどちらかが必要です',
+})
+
+export const competitorPricesImportSchema = z.object({
+  hotelId: entityIdSchema,
+  // JSON 行 か CSV テキスト（ヘッダ: competitorName,date,price1P,price2P,price3P,soldOut）
+  rows: z.array(z.object({
+    competitorId: entityIdSchema.optional(),
+    competitorName: z.string().min(1).max(200).optional(),
+    date: isoDate,
+    price1P: z.number().int().min(0).nullable().optional(),
+    price2P: z.number().int().min(0).nullable().optional(),
+    price3P: z.number().int().min(0).nullable().optional(),
+    soldOut: z.boolean().optional(),
+    dataSource: z.string().max(50).optional(),
+    reliability: z.enum(['high', 'medium', 'low']).optional(),
+  })).max(5000).optional(),
+  csv: z.string().max(2_000_000).optional(),
+}).refine((d) => (d.rows && d.rows.length > 0) || (d.csv && d.csv.trim().length > 0), {
+  message: 'rows か csv のどちらかが必要です',
+})
+
+// ======================================
+// Forecast Models Validators（チャンピオン/チャレンジャー — docs/外部要因設計.md §5.2 L2）
+// ======================================
+
+export const modelNameSchema = z.enum(['rule-based-v2', 'ridge-v1'])
+
+export const trainModelSchema = z.object({
+  hotelId: entityIdSchema,
+  modelName: modelNameSchema.default('ridge-v1'),
+})
+
+export const compareModelsSchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+  leadDays: z.array(z.number().int().min(0).max(365)).min(1).max(6).optional(),
+})
+
+export const promoteModelSchema = z.object({
+  hotelId: entityIdSchema,
+  modelName: modelNameSchema,
+  // バックテストの門番を無視して昇格（ADMIN が明示したときのみ）
+  force: z.boolean().optional(),
 })
 
 // ======================================

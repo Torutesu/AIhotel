@@ -45,6 +45,8 @@ export interface DemandModelInput {
   weather: WeatherSignalValue | null
   pace: PaceObservation | null
   coefficients: CoefficientMap
+  /** 競合の売止め比率（0〜1）。データが無ければ null。エリア逼迫の代理指標（docs/外部要因設計.md §3 #6） */
+  competitorSoldOutShare?: number | null
   fallbackOccupancy?: number
 }
 
@@ -151,6 +153,15 @@ export function computeDemand(input: DemandModelInput): DemandModelResult {
       pt,
       detail: weather.rainProbability != null ? `降水確率 ${weather.rainProbability}%` : undefined,
     })
+    activeKeys.push(key)
+    total += pt
+  }
+
+  // ---- 競合売止め（エリア逼迫）。比率 × 係数。半数以上が売止めなら未登録イベントの穴埋めにもなる
+  if (input.competitorSoldOutShare != null && input.competitorSoldOutShare > 0) {
+    const key = 'comp:soldout_share'
+    const pt = getCoefficient(coefficients, key) * input.competitorSoldOutShare
+    factors.push({ key, label: factorLabel(key), pt, detail: `競合の ${Math.round(input.competitorSoldOutShare * 100)}% が売止め` })
     activeKeys.push(key)
     total += pt
   }
