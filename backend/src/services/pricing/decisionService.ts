@@ -45,3 +45,62 @@ export async function listDecisionsService(hotelId: string, startDate: Date, end
     orderBy: [{ stayDate: 'asc' }, { createdAt: 'desc' }],
   })
 }
+
+export interface AutoAdoptResult {
+  hotelId: string
+  enabled: boolean
+  candidates: number
+  adopted: number
+}
+
+/**
+ * 自動採用モード（docs/外部要因設計.md §6 #6）。
+ * 戦略設定で有効なら、リードタイムと信頼度の条件を満たし、かつ適用中ランクと異なる推奨を
+ * 自動で採否記録する（decidedByUserId=null, reason='自動採用'）。同じ日に同じランクを二重記録しない
+ */
+export async function autoAdoptService(hotelId: string, asOfDate?: Date): Promise<AutoAdoptResult> {
+  const strategy = await prisma.pricingStrategyConfig.findUnique({ where: { hotelId } })
+  if (!strategy?.autoAdopt) return { hotelId, enabled: false, candidates: 0, adopted: 0 }
+  const hotel = await prisma.hotel.findUniqueOrThrow({ where: { id: hotelId }, select: { tenantId: true } })
+
+  const today = asOfDate ?? new Date()
+  const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
+  const end = new Date(start)
+  end.setUTCDate(end.getUTCDate() + strategy.autoAdoptMaxLeadDays)
+
+  const [recs, decisions] = await Promise.all([
+    prisma.aiPriceRecommendation.findMany({
+      where: { hotelId, roomTypeId: null, date: { gte: start, lte: end }, recommendedRank: { not: null }, confidence: { gte: strategy.autoAdoptMinConfidence } },
+      select: { date: true, recommendedRank: true },
+    }),
+    prisma.recommendationDecision.findMany({
+      where: { hotelId, stayDate: { gte: start, lte: end } },
+      orderBy: { createdAt: 'desc' },
+      select: { stayDate: true, appliedRank: true },
+    }),
+  ])
+  const applied = new Map<string, number>()
+  for (const d of decisions) {
+    const key = d.stayDate.toISOString().slice(0, 10)
+    if (!applied.has(key)) applied.set(key, d.appliedRank)
+  }
+
+  let adopted = 0
+  for (const rec of recs) {
+    const key = rec.date.toISOString().slice(0, 10)
+    if (applied.get(key) === rec.recommendedRank) continue
+    await prisma.recommendationDecision.create({
+      data: {
+        hotelId,
+        tenantId: hotel.tenantId,
+        stayDate: rec.date,
+        recommendedRank: rec.recommendedRank!,
+        appliedRank: rec.recommendedRank!,
+        reason: '自動採用',
+        decidedByUserId: null,
+      },
+    })
+    adopted++
+  }
+  return { hotelId, enabled: true, candidates: recs.length, adopted }
+}

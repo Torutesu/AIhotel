@@ -108,27 +108,29 @@ enum UserRole {
 // ======================================
 
 model Hotel {
-  id            String   @id @default(cuid())
-  tenantId      String
-  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name          String
-  address       String?
-  phone         String?
-  email         String?
-  totalRooms    Int
+  id               String   @id @default(cuid())
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  address          String?
+  phone            String?
+  email            String?
+  totalRooms       Int
   // 週末定義（チェックイン日基準）。デフォルトは金・土（F-DAILY-02）
-  weekendDays   Json     @default("[5, 6]")
+  weekendDays      Json     @default("[5, 6]")
   // 外部要因（天候）取得用の位置情報。
   // jmaOfficeCode: 気象庁 bosai の府県予報区コード（例 東京都=130000）
   // jmaAreaCode:   同・一次細分区域コード（例 東京地方=130010）。週間予報の天気・降水確率はこの単位で返る
   // latitude/longitude: Open-Meteo（8〜16日先の補完）用
-  jmaOfficeCode String?
-  jmaAreaCode   String?
-  latitude      Float?
-  longitude     Float?
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  jmaOfficeCode    String?
+  jmaAreaCode      String?
+  latitude         Float?
+  longitude        Float?
+  // 稼働中の需要予測モデル（rule-based-v2 / ridge-v1）。昇格は POST /pricing/models/promote（バックテスト合格が条件）
+  activeForecaster String   @default("rule-based-v2")
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   users                    User[]
   roomTypes                RoomType[]
@@ -209,22 +211,26 @@ model PriceRank {
 
 // 価格戦略の重み付け設定（F-DP-02）
 model PricingStrategyConfig {
-  id                    String   @id @default(cuid())
-  tenantId              String
-  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId               String   @unique // ホテルごとに1設定
-  hotel                 Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  weightOccupancy       Int      @default(40) // 稼働率重視 (%)
-  weightAdr             Int      @default(40) // ADR重視 (%)
-  weightCompetitor      Int      @default(20) // 競合追従度 (%)
+  id                     String   @id @default(cuid())
+  tenantId               String
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId                String   @unique // ホテルごとに1設定
+  hotel                  Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  weightOccupancy        Int      @default(40) // 稼働率重視 (%)
+  weightAdr              Int      @default(40) // ADR重視 (%)
+  weightCompetitor       Int      @default(20) // 競合追従度 (%)
   // 価格決定層のガードレール（docs/外部要因設計.md §2.2）
-  minRank               Int      @default(1) // 推奨ランクの下限
-  maxRank               Int      @default(40) // 推奨ランクの上限（F-SET-02: 最大40段階）
-  maxDailyRankChange    Int      @default(5) // 前回推奨（または適用ランク）からの1回あたり最大変動幅
-  competitorPositionPct Int      @default(0) // 競合追従候補のポジション（競合中央値比 %。+5 = 競合より5%高く）
-  updatedByUserId       String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  minRank                Int      @default(1) // 推奨ランクの下限
+  maxRank                Int      @default(40) // 推奨ランクの上限（F-SET-02: 最大40段階）
+  maxDailyRankChange     Int      @default(5) // 前回推奨（または適用ランク）からの1回あたり最大変動幅
+  competitorPositionPct  Int      @default(0) // 競合追従候補のポジション（競合中央値比 %。+5 = 競合より5%高く）
+  // 自動採用モード（docs/外部要因設計.md §6 #6）。日次ジョブが条件を満たす日の推奨を自動で採否記録する
+  autoAdopt              Boolean  @default(false)
+  autoAdoptMinConfidence Float    @default(0.8) // 信頼度スカラー（0〜1）がこれ以上
+  autoAdoptMaxLeadDays   Int      @default(14) // リードタイムがこれ以下
+  updatedByUserId        String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   @@index([tenantId])
 }

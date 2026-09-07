@@ -13,6 +13,9 @@ import {
   learnSchema,
   backtestSchema,
   dailyJobSchema,
+  trainModelSchema,
+  compareModelsSchema,
+  promoteModelSchema,
 } from '../lib/validators.js'
 import {
   getCalendar,
@@ -29,6 +32,9 @@ import {
   getCoefficients,
   backtest,
   runDailyJob,
+  compareModels,
+  trainModel,
+  promoteModel,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -152,4 +158,30 @@ pricingRouter.post(
   requireRole('ADMIN'),
   validate(dailyJobSchema),
   runDailyJob
+)
+
+// GET /api/v1/pricing/models?hotelId= — 稼働中モデルとチャレンジャーの比較（バックテスト）
+pricingRouter.get(
+  '/models',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(compareModelsSchema, 'query'),
+  compareModels
+)
+
+// POST /api/v1/pricing/models/train — チャレンジャーの学習は MANAGER 以上
+pricingRouter.post(
+  '/models/train',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(trainModelSchema),
+  trainModel
+)
+
+// POST /api/v1/pricing/models/promote — 稼働モデルの切替は ADMIN のみ
+pricingRouter.post(
+  '/models/promote',
+  requireRole('ADMIN'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(promoteModelSchema),
+  promoteModel
 )

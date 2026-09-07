@@ -16,6 +16,7 @@ import { getPricingDigestService } from '../services/pricing/digestService.js'
 import { learnFromActualsService, getCoefficientsService } from '../services/forecast/learningService.js'
 import { runBacktestService } from '../services/forecast/backtestService.js'
 import { runDailyJobService } from '../services/jobs/dailyJob.js'
+import { trainModelService, compareModelsService, promoteModelService } from '../services/forecast/modelService.js'
 
 /**
  * 日別価格カレンダー
@@ -231,4 +232,49 @@ export const runDailyJob = asyncHandler(async (req: Request, res: Response) => {
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, result, 200, `日次ジョブを実行しました（${result.hotels.length}ホテル）`)
+})
+
+// ======================================
+// チャンピオン/チャレンジャー（docs/外部要因設計.md §5.3）
+// ======================================
+
+/** GET /api/v1/pricing/models?hotelId=&startDate=&endDate= — 稼働中モデルとチャレンジャーのバックテスト比較 */
+export const compareModels = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, startDate, endDate, leadDays } = req.query as unknown as { hotelId: string; startDate?: Date; endDate?: Date; leadDays?: number[] }
+  sendSuccess(res, await compareModelsService(hotelId, startDate, endDate, leadDays))
+})
+
+/** POST /api/v1/pricing/models/train — チャレンジャーの学習（MANAGER 以上） */
+export const trainModel = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, modelName } = req.body as { hotelId: string; modelName: string }
+  const result = await trainModelService(hotelId, modelName)
+  await writeAuditLog({
+    tenantId: result.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'ForecastModelState',
+    entityId: hotelId,
+    newValue: result,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, `${result.modelName} を ${result.samples}件で学習しました`)
+})
+
+/** POST /api/v1/pricing/models/promote — 稼働モデルの切替（ADMIN・バックテスト合格が条件） */
+export const promoteModel = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, modelName, force } = req.body as { hotelId: string; modelName: string; force?: boolean }
+  const result = await promoteModelService(hotelId, modelName, force)
+  await writeAuditLog({
+    tenantId: result.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'Hotel',
+    entityId: hotelId,
+    oldValue: { activeForecaster: result.before },
+    newValue: { activeForecaster: result.after, gate: result.gate },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, `稼働モデルを ${result.after} に切り替えました`)
 })

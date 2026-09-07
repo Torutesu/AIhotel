@@ -2,7 +2,7 @@ import { prisma } from '../../lib/prisma.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
 import type { DemandLevel, Prisma } from '@prisma/client'
 import type { DailyForecast, DemandForecaster } from './types.js'
-import { ruleBasedForecaster } from './ruleBasedForecaster.js'
+import { resolveForecaster } from './ridgeForecaster.js'
 import { decideRank, type RankContribution } from '../pricing/rankDecision.js'
 import { loadCoefficientMap } from './coefficients.js'
 import { getCoefficient } from './factorDefaults.js'
@@ -131,11 +131,13 @@ export async function recomputeForecastService(
   hotelId: string,
   startDate?: Date,
   endDate?: Date,
-  forecaster: DemandForecaster = ruleBasedForecaster,
+  forecasterOverride?: DemandForecaster,
   asOfDate?: Date
 ): Promise<RecomputeForecastResult> {
   const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
   if (!hotel) throw new NotFoundError('ホテル')
+  // 稼働中モデル（Hotel.activeForecaster）を使う。バックテスト等は明示的に差し替える
+  const forecaster = forecasterOverride ?? resolveForecaster(hotel.activeForecaster)
 
   const asOf = dateOnly(asOfDate ?? new Date())
   const start = dateOnly(startDate ?? asOf)

@@ -88,6 +88,7 @@ export const FACTOR_LABELS: Record<string, string> = {
   'weather:rain_lead4_7': '雨予報（4〜7日先）',
   'weekend:hotel': '週末（ホテル定義）',
   'comp:soldout_share': '競合の売止め（エリア逼迫）',
+  'model:ridge': '学習モデル補正（ridge-v1）',
 }
 
 export function factorLabel(key: string): string {

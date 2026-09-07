@@ -10,6 +10,8 @@ import { logger } from '../../utils/logger.js'
 import { ingestWeatherSignalsService } from '../signals/signalService.js'
 import { recomputeForecastService } from '../forecast/forecastService.js'
 import { learnFromActualsService } from '../forecast/learningService.js'
+import { trainModelService } from '../forecast/modelService.js'
+import { autoAdoptService } from '../pricing/decisionService.js'
 
 const FORECAST_HORIZON_DAYS = 365
 
@@ -19,6 +21,7 @@ export interface DailyJobHotelResult {
   weather: { ok: boolean; detail: string }
   forecast: { ok: boolean; detail: string }
   learning: { ok: boolean; detail: string }
+  autoAdopt: { ok: boolean; detail: string }
 }
 
 export interface DailyJobResult {
@@ -52,6 +55,7 @@ export async function runDailyJobForHotelService(hotelId: string, asOfDate?: Dat
     weather: { ok: false, detail: '' },
     forecast: { ok: false, detail: '' },
     learning: { ok: false, detail: '' },
+    autoAdopt: { ok: false, detail: '' },
   }
 
   try {
@@ -80,10 +84,20 @@ export async function runDailyJobForHotelService(hotelId: string, asOfDate?: Dat
 
   try {
     const l = await learnFromActualsService(hotelId, asOfDate)
-    result.learning = { ok: true, detail: `${l.samples}件の実績で ${l.updates.length} 係数を更新` }
+    // チャレンジャー（ridge-v1）も毎日再学習しておき、比較・昇格に備える
+    const t = await trainModelService(hotelId)
+    result.learning = { ok: true, detail: `${l.samples}件の実績で ${l.updates.length} 係数を更新、ridge-v1 を ${t.samples}件で学習` }
   } catch (err) {
     result.learning = { ok: false, detail: errorMessage(err) }
     logger.error({ err, hotelId }, '係数の学習に失敗しました')
+  }
+
+  try {
+    const a = await autoAdoptService(hotelId, asOfDate)
+    result.autoAdopt = { ok: true, detail: a.enabled ? `${a.adopted}件を自動採用（候補 ${a.candidates}件）` : '無効' }
+  } catch (err) {
+    result.autoAdopt = { ok: false, detail: errorMessage(err) }
+    logger.error({ err, hotelId }, '自動採用に失敗しました')
   }
 
   return result
