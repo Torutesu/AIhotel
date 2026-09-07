@@ -53,6 +53,10 @@ const envSchema = z.object({
   OPEN_METEO_BASE_URL: z.string().url().default('https://customer-api.open-meteo.com'),
   OPEN_METEO_API_KEY: z.string().min(1).optional(),
 
+  // ---- Claude API（会場ページからのイベント抽出。docs/外部要因設計.md §3 #3 b）。未設定なら抽出機能は無効
+  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_MODEL: z.string().min(1).default('claude-opus-5'),
+
   // ---- 日次ジョブ（シグナル取り込み→予測→学習）。デフォルト無効（手動: POST /pricing/jobs/daily）
   DAILY_JOB_ENABLED: z
     .enum(['true', 'false'])

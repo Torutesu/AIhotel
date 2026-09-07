@@ -19,6 +19,7 @@
     "holidays:update": "tsx scripts/fetch-holidays.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0",
     "@hotel-revenue-system/shared": "workspace:*",
     "@prisma/client": "^6.2.1",
     "bcryptjs": "^2.4.3",

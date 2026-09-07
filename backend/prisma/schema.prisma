@@ -50,6 +50,8 @@ model Tenant {
   forecastSnapshots        ForecastSnapshot[]
   recommendationDecisions  RecommendationDecision[]
   factorCoefficients       FactorCoefficient[]
+  venues                   Venue[]
+  forecastModelStates      ForecastModelState[]
 }
 
 // ======================================
@@ -150,6 +152,8 @@ model Hotel {
   forecastSnapshots        ForecastSnapshot[]
   recommendationDecisions  RecommendationDecision[]
   factorCoefficients       FactorCoefficient[]
+  venues                   Venue[]
+  forecastModelStates      ForecastModelState[]
 
   @@index([tenantId])
 }
@@ -568,8 +572,9 @@ model CompetitorPriceData {
   price1P      Int?
   price2P      Int?
   price3P      Int?
-  dataSource   String // scraping, manual
+  dataSource   String // scraping, manual, import
   reliability  String? // high, medium, low
+  soldOut      Boolean    @default(false) // 満室・売止め（エリア逼迫シグナル comp:soldout_share）
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -627,26 +632,78 @@ model GroupBooking {
 // ======================================
 
 model Event {
-  id              String   @id @default(cuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId         String
-  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  name            String
-  type            String // concert, sports, conference, festival 等
-  startDate       DateTime @db.Date
-  endDate         DateTime @db.Date
-  location        String?
-  expectedImpact  String? // high, medium, low
-  description     String?
+  id                 String   @id @default(cuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId            String
+  hotel              Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name               String
+  type               String // concert, sports, conference, festival 等
+  startDate          DateTime @db.Date
+  endDate            DateTime @db.Date
+  location           String?
+  expectedImpact     String? // high, medium, low
+  description        String?
+  // 会場マスタ（docs/外部要因設計.md §3 #3）。会場があれば収容人数・距離から影響度の初期値を出す
+  venueId            String?
+  venue              Venue?   @relation(fields: [venueId], references: [id], onDelete: SetNull)
+  expectedAttendance Int?
+  // 出所: manual（手入力）/ detected（前年の稼働残差から自動検出）/ extracted（会場ページから Claude で抽出）
+  source             String   @default("manual")
+  // candidate（承認待ち）/ confirmed / rejected。需要予測は confirmed のみ使う
+  status             String   @default("confirmed")
+  sourceRef          String? // detected: 前年の日付、extracted: 取得元URL
   // オペレーター登録（F-DP-07）の記録用
-  createdByUserId String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdByUserId    String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@index([tenantId])
   @@index([hotelId])
   @@index([startDate, endDate])
+  @@index([hotelId, status])
+}
+
+// 会場マスタ（ドーム・アリーナ・展示場・球場など）。イベント影響度の初期値と会場ページ抽出に使う
+model Venue {
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId    String
+  hotel      Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name       String
+  category   String? // dome, arena, hall, stadium, exhibition, other
+  address    String?
+  latitude   Float?
+  longitude  Float?
+  capacity   Int? // 収容人数
+  distanceKm Float? // ホテルからの距離
+  websiteUrl String? // イベントカレンダーのURL（Claude 抽出の対象）
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  events Event[]
+
+  @@index([tenantId])
+  @@index([hotelId])
+}
+
+// 学習済みモデルの状態（オンライン回帰の十分統計量など）。モデル名ごとに1行
+model ForecastModelState {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  modelName String
+  state     Json
+  samples   Int      @default(0)
+  trainedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([hotelId, modelName])
+  @@index([tenantId])
 }
 
 // ======================================
@@ -676,13 +733,13 @@ model ExternalSignal {
 // 推奨の不変スナップショット。基準日（asOfDate）ごとに追記し、上書きしない。
 // 学習（残差計算）・バックテスト・「昨日からの変化」表示の元データ
 model ForecastSnapshot {
-  id                        String   @id @default(cuid())
+  id                        String    @id @default(cuid())
   tenantId                  String
-  tenant                    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant                    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   hotelId                   String
-  hotel                     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  stayDate                  DateTime @db.Date
-  asOfDate                  DateTime @db.Date
+  hotel                     Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  stayDate                  DateTime  @db.Date
+  asOfDate                  DateTime  @db.Date
   leadDays                  Int
   predictedOccupancy        Float
   recommendedRank           Int
@@ -693,7 +750,7 @@ model ForecastSnapshot {
   expectedRevParRecommended Float?
   confidence                Json // { p50, p10, p90, leadBucket }
   modelVersion              String
-  createdAt                 DateTime @default(now())
+  createdAt                 DateTime  @default(now())
   // 学習済みマーク（learningService が実績と突き合わせた日時）。null = 未学習
   learnedAt                 DateTime?
 
