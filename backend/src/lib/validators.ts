@@ -164,6 +164,9 @@ const eventBaseSchema = z.object({
   location: z.string().max(200).optional(),
   expectedImpact: z.enum(['high', 'medium', 'low']).optional(),
   description: z.string().max(2000).optional(),
+  // 会場マスタ（docs/外部要因設計.md §3 #3）。会場があり expectedImpact が無ければ収容人数・距離から推定する
+  venueId: entityIdSchema.nullable().optional(),
+  expectedAttendance: z.number().int().min(0).nullable().optional(),
 })
 
 export const createEventSchema = eventBaseSchema.refine(data => data.startDate <= data.endDate, {
@@ -177,6 +180,8 @@ export const eventsQuerySchema = z.object({
   hotelId: entityIdSchema,
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
+  // 省略時は candidate 以外（confirmed のみ表示）。'all' で候補・却下も含む
+  status: z.enum(['confirmed', 'candidate', 'rejected', 'all']).optional(),
 }).refine(
   (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
   { message: '開始日は終了日以前である必要があります' }
@@ -306,6 +311,46 @@ export const updateStrategySchema = z.object({
 })
 
 // ======================================
+// Venues / Event Candidates Validators（docs/外部要因設計.md §3 #3）
+// ======================================
+
+const venueBaseSchema = z.object({
+  hotelId: entityIdSchema,
+  name: z.string().min(1).max(200),
+  category: z.enum(['dome', 'arena', 'hall', 'stadium', 'exhibition', 'other']).optional(),
+  address: z.string().max(500).optional(),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+  capacity: z.number().int().min(0).nullable().optional(),
+  distanceKm: z.number().min(0).max(500).nullable().optional(),
+  websiteUrl: z.string().url().max(1000).nullable().optional(),
+  isActive: z.boolean().optional(),
+})
+export const createVenueSchema = venueBaseSchema
+export const updateVenueSchema = venueBaseSchema.omit({ hotelId: true }).partial()
+
+export const reviewEventCandidateSchema = z.object({
+  hotelId: entityIdSchema,
+  decision: z.enum(['approve', 'reject']),
+  name: z.string().min(1).max(200).optional(),
+  type: z.string().min(1).max(50).optional(),
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional(),
+  expectedImpact: z.enum(['high', 'medium', 'low']).optional(),
+}).refine((data) => !data.startDate || !data.endDate || data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+})
+
+export const detectCandidatesSchema = z.object({
+  hotelId: entityIdSchema,
+  lookbackDays: z.number().int().min(60).max(800).optional(),
+})
+
+export const extractVenueSchema = z.object({
+  hotelId: entityIdSchema,
+})
+
+// ======================================
 // Decisions / Digest / Learning Validators（docs/外部要因設計.md §5, §6）
 // ======================================
 
@@ -383,3 +428,6 @@ export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
 export type UpdateStrategyInput = z.infer<typeof updateStrategySchema>
 export type RecordDecisionInput = z.infer<typeof recordDecisionSchema>
+export type CreateVenueInput = z.infer<typeof createVenueSchema>
+export type UpdateVenueInput = z.infer<typeof updateVenueSchema>
+export type ReviewEventCandidateInput = z.infer<typeof reviewEventCandidateSchema>

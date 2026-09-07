@@ -220,8 +220,9 @@ export const ruleBasedForecaster: DemandForecaster = {
         select: { date: true, occupancy: true },
         orderBy: { date: 'asc' },
       }),
+      // 需要予測に使うのは承認済み（confirmed）のイベントのみ。候補・却下は使わない
       prisma.event.findMany({
-        where: { hotelId, startDate: { lte: endDate }, endDate: { gte: startDate } },
+        where: { hotelId, status: 'confirmed', startDate: { lte: endDate }, endDate: { gte: startDate } },
         select: { startDate: true, endDate: true, expectedImpact: true, name: true },
       }),
       prisma.priceRank.findMany({ where: { hotelId, isActive: true }, orderBy: { rank: 'asc' } }),

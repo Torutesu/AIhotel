@@ -1,18 +1,26 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 import type { CreateEventInput, UpdateEventInput } from '../lib/validators.js'
+import { estimateEventImpact } from './events/eventImpact.js'
 
 /**
  * イベント一覧（F-DP-07）。期間は任意 — 指定期間と重なるイベントを返す
  */
-export async function getEventsService(hotelId: string, startDate?: Date, endDate?: Date) {
+export async function getEventsService(
+  hotelId: string,
+  startDate?: Date,
+  endDate?: Date,
+  status: 'confirmed' | 'candidate' | 'rejected' | 'all' = 'confirmed'
+) {
   return prisma.event.findMany({
     where: {
       hotelId,
+      ...(status !== 'all' && { status }),
       ...(startDate && { endDate: { gte: startDate } }),
       ...(endDate && { startDate: { lte: endDate } }),
     },
     orderBy: { startDate: 'asc' },
+    include: { venue: { select: { id: true, name: true } } },
   })
 }
 
@@ -23,8 +31,18 @@ export async function createEventService(input: CreateEventInput, createdByUserI
   const hotel = await prisma.hotel.findUnique({ where: { id: input.hotelId } })
   if (!hotel) throw new NotFoundError('ホテル')
 
+  // 会場が指定され影響度が未入力なら、収容人数・距離・来場者数から初期値を推定する
+  let expectedImpact = input.expectedImpact
+  if (!expectedImpact && input.venueId) {
+    const venue = await prisma.venue.findFirst({ where: { id: input.venueId, hotelId: input.hotelId } })
+    if (!venue) throw new NotFoundError('会場')
+    expectedImpact =
+      estimateEventImpact({ capacity: venue.capacity, distanceKm: venue.distanceKm, totalRooms: hotel.totalRooms, expectedAttendance: input.expectedAttendance }) ??
+      undefined
+  }
+
   return prisma.event.create({
-    data: { ...input, tenantId: hotel.tenantId, createdByUserId },
+    data: { ...input, expectedImpact, tenantId: hotel.tenantId, createdByUserId },
   })
 }
 
