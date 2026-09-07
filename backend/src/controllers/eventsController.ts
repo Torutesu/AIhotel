@@ -144,10 +144,13 @@ export const deleteVenue = asyncHandler(async (req: Request, res: Response) => {
   sendDeleted(res, '会場を削除しました')
 })
 
-/** POST /api/v1/events/venues/:id/extract — 会場ページから Claude でイベント候補を抽出（MANAGER 以上） */
+/** POST /api/v1/events/venues/:id/extract — 会場ページから LLM（Claude / GPT）でイベント候補を抽出（MANAGER 以上） */
 export const extractVenueEvents = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId } = req.body as { hotelId: string }
-  const result = await extractVenueEventsService(req.params.id, hotelId, req.user!.userId)
+  const { hotelId, llmProvider, llmModel } = req.body as { hotelId: string; llmProvider?: 'anthropic' | 'openai'; llmModel?: string }
+  const result = await extractVenueEventsService(req.params.id, hotelId, req.user!.userId, undefined, undefined, {
+    provider: llmProvider,
+    model: llmModel,
+  })
   await writeAuditLog({
     tenantId: req.user!.tenantId,
     userId: req.user!.userId,

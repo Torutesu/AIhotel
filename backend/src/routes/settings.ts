@@ -13,6 +13,7 @@ import {
   updatePriceRank,
   deletePriceRank,
   updateHotelSettings,
+  getLlmOptions,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -59,4 +60,12 @@ settingsRouter.put(
   requireHotelAccess((req) => req.params.id),
   validate(updateHotelSettingsSchema),
   updateHotelSettings
+)
+
+// GET /api/v1/settings/llm?hotelId= — LLM（Claude / GPT）の選択肢と現在の実効選択
+settingsRouter.get(
+  '/llm',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getLlmOptions
 )

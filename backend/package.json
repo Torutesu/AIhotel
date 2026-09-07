@@ -30,6 +30,7 @@
     "express-rate-limit": "^7.4.1",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "openai": "^7.10.0",
     "pdfkit": "^0.19.1",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0",

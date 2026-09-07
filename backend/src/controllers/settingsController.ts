@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import { getLlmOptionsService } from '../services/llm/llmService.js'
 import { asyncHandler } from '../middlewares/errorHandler.js'
 import { sendSuccess, sendCreated, sendDeleted } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
@@ -94,4 +95,13 @@ export const updateHotelSettings = asyncHandler(async (req: Request, res: Respon
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, hotel, 200, 'ホテル設定を更新しました')
+})
+
+/**
+ * LLM の選択肢（プロバイダの設定状況・既知モデル・このホテルの実効選択）
+ * GET /api/v1/settings/llm?hotelId=
+ */
+export const getLlmOptions = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  sendSuccess(res, await getLlmOptionsService(hotelId))
 })

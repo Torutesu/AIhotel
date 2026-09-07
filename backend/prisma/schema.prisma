@@ -126,6 +126,9 @@ model Hotel {
   jmaAreaCode      String?
   latitude         Float?
   longitude        Float?
+  // LLM の選択（会場ページ抽出・将来のAIコメント生成）。null なら環境変数の既定（LLM_PROVIDER / *_MODEL）
+  llmProvider      String? // anthropic | openai
+  llmModel         String?
   // 稼働中の需要予測モデル（rule-based-v2 / ridge-v1）。昇格は POST /pricing/models/promote（バックテスト合格が条件）
   activeForecaster String   @default("rule-based-v2")
   isActive         Boolean  @default(true)

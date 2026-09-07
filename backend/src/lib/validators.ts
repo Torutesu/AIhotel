@@ -204,6 +204,9 @@ export const updateHotelSettingsSchema = z.object({
   jmaAreaCode: z.string().regex(/^\d{6}$/, '気象庁の一次細分区域コードは6桁の数字です').nullable().optional(),
   latitude: z.number().min(-90).max(90).nullable().optional(),
   longitude: z.number().min(-180).max(180).nullable().optional(),
+  // LLM の選択（null で環境変数の既定に戻す）
+  llmProvider: z.enum(['anthropic', 'openai']).nullable().optional(),
+  llmModel: z.string().min(1).max(100).nullable().optional(),
 })
 
 // ======================================
@@ -350,8 +353,13 @@ export const detectCandidatesSchema = z.object({
   lookbackDays: z.number().int().min(60).max(800).optional(),
 })
 
+export const llmProviderSchema = z.enum(['anthropic', 'openai'])
+
 export const extractVenueSchema = z.object({
   hotelId: entityIdSchema,
+  // 任意: この実行だけ LLM を切り替える（既定はホテル設定 → 環境変数）
+  llmProvider: llmProviderSchema.optional(),
+  llmModel: z.string().min(1).max(100).optional(),
 })
 
 // ======================================

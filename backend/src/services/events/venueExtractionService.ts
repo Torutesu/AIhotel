@@ -1,7 +1,6 @@
-// 会場ページを取得し、Claude API（構造化出力）でイベント候補を抽出して Event（status=candidate, source=extracted）に保存する。
-// ANTHROPIC_API_KEY 未設定なら 400 を返す（Phase 4 の Claude 連携。docs/外部要因設計.md §3 #3 b）。
-import Anthropic from '@anthropic-ai/sdk'
-import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
+// 会場ページを取得し、LLM（Anthropic Claude または OpenAI GPT、services/llm/ で切替）の構造化出力で
+// イベント候補を抽出して Event（status=candidate, source=extracted）に保存する。
+// 選択したプロバイダの API キーが無ければ 400 を返す（docs/外部要因設計.md §3 #3 b）。
 import { prisma } from '../../lib/prisma.js'
 import { config } from '../../lib/config.js'
 import { BadRequestError, NotFoundError } from '../../middlewares/errorHandler.js'
@@ -16,35 +15,30 @@ import {
 } from './venueExtraction.js'
 import { estimateEventImpact } from './eventImpact.js'
 import { toIsoDate } from '../signals/holidaySignal.js'
+import { getLlmProviderForHotel, type LlmSelection } from '../llm/llmService.js'
+import type { LlmProvider, LlmProviderName } from '../llm/types.js'
 
 export interface VenueExtractor {
   extract(params: { venueName: string; url: string; asOfDate: string; pageText: string }): Promise<ExtractionResult>
 }
 
+const MAX_OUTPUT_TOKENS = 16000
+
 /**
- * Claude API による抽出器。構造化出力（zod スキーマ）で JSON を受け取る
+ * LLM プロバイダ（Claude / GPT）を使う抽出器
  */
-export function createClaudeExtractor(): VenueExtractor {
-  if (!config.ANTHROPIC_API_KEY) {
-    throw new BadRequestError('会場ページの抽出には ANTHROPIC_API_KEY の設定が必要です')
-  }
-  const client = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
+export function createLlmExtractor(provider: LlmProvider): VenueExtractor {
   return {
     async extract(params) {
-      const response = await client.messages.parse({
-        model: config.ANTHROPIC_MODEL,
-        max_tokens: 16000,
+      const res = await provider.generateStructured({
         system: EXTRACTION_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: buildExtractionUserMessage(params) }],
-        output_config: { format: zodOutputFormat(ExtractionResultSchema) },
+        user: buildExtractionUserMessage(params),
+        schema: ExtractionResultSchema,
+        schemaName: 'venue_events',
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
       })
-      if (response.stop_reason === 'refusal') {
-        throw new BadRequestError('Claude がこのページの処理を拒否しました')
-      }
-      if (!response.parsed_output) {
-        throw new BadRequestError('Claude の応答を解釈できませんでした（構造化出力が空）')
-      }
-      return response.parsed_output
+      logger.info({ provider: res.provider, model: res.model, usage: res.usage }, '会場ページからイベントを抽出しました')
+      return res.parsed
     },
   }
 }
@@ -58,6 +52,8 @@ export interface ExtractVenueEventsResult {
   created: number
   skippedDuplicates: number
   notes: string | null
+  /** 実際に使った LLM（プロバイダ・モデル・選択の出どころ） */
+  llm: LlmSelection | null
 }
 
 export async function fetchVenuePage(url: string): Promise<string> {
@@ -77,13 +73,20 @@ export async function extractVenueEventsService(
   hotelId: string,
   createdByUserId: string,
   extractor?: VenueExtractor,
-  fetchPage: (url: string) => Promise<string> = fetchVenuePage
+  fetchPage: (url: string) => Promise<string> = fetchVenuePage,
+  llmOverride?: { provider?: LlmProviderName; model?: string }
 ): Promise<ExtractVenueEventsResult> {
   const venue = await prisma.venue.findFirst({ where: { id: venueId, hotelId }, include: { hotel: { select: { totalRooms: true } } } })
   if (!venue) throw new NotFoundError('会場')
   if (!venue.websiteUrl) throw new BadRequestError('会場にイベントカレンダーのURLが設定されていません')
 
-  const ext = extractor ?? createClaudeExtractor()
+  let ext = extractor
+  let llm: LlmSelection | null = null
+  if (!ext) {
+    const { provider, selection } = await getLlmProviderForHotel(hotelId, llmOverride)
+    ext = createLlmExtractor(provider)
+    llm = selection
+  }
   const html = await fetchPage(venue.websiteUrl)
   const { text, truncated } = htmlToText(html)
   if (truncated) logger.warn({ venueId, url: venue.websiteUrl }, `会場ページが長いため先頭 ${text.length} 文字のみを抽出対象にしました`)
@@ -130,5 +133,5 @@ export async function extractVenueEventsService(
     created++
   }
 
-  return { venueId, venueName: venue.name, url: venue.websiteUrl, truncated, extracted: events.length, created, skippedDuplicates, notes: result.notes }
+  return { venueId, venueName: venue.name, url: venue.websiteUrl, truncated, extracted: events.length, created, skippedDuplicates, notes: result.notes, llm }
 }

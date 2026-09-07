@@ -54,8 +54,14 @@ const envSchema = z.object({
   OPEN_METEO_API_KEY: z.string().min(1).optional(),
 
   // ---- Claude API（会場ページからのイベント抽出。docs/外部要因設計.md §3 #3 b）。未設定なら抽出機能は無効
+  // ---- LLM（会場ページ抽出・将来のAIコメント生成）。プロバイダは環境の既定＋ホテル設定で切替（services/llm/）
+  LLM_PROVIDER: z.enum(['anthropic', 'openai']).default('anthropic'),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   ANTHROPIC_MODEL: z.string().min(1).default('claude-opus-5'),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_MODEL: z.string().min(1).default('gpt-5'),
+  // Azure OpenAI / 互換ゲートウェイを使う場合のみ設定
+  OPENAI_BASE_URL: z.string().url().optional(),
 
   // ---- 日次ジョブ（シグナル取り込み→予測→学習）。デフォルト無効（手動: POST /pricing/jobs/daily）
   DAILY_JOB_ENABLED: z

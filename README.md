@@ -262,7 +262,7 @@ pnpm --filter backend holidays:update # 内閣府の祝日CSVから src/data/jpH
 2. **天候**: 設定タブ（またはシード）でホテルに気象庁の府県予報区コード（例 東京都 `130000`）と一次細分区域コード（例 東京地方 `130010`）を登録する。コードは https://www.jma.go.jp/bosai/common/const/area.json の `offices` / `class10s`。8〜16日先まで補完したい場合のみ Open-Meteo の商用APIキーを `OPEN_METEO_API_KEY` に設定し `WEATHER_OPEN_METEO_ENABLED=true` にする。
 3. **日次の流れ**: `POST /api/v1/pricing/signals/ingest`（天候取り込み）→ `POST /api/v1/pricing/recompute`（予測＋価格決定）→ `POST /api/v1/pricing/learn`（前日実績で係数更新）。`DAILY_JOB_ENABLED=true` にすると `DAILY_JOB_HOUR_JST`（既定 4 時）に自動実行し、失敗はアラート（黄）に記録される。手動一括実行は `POST /api/v1/pricing/jobs/daily`（ADMIN）。
 4. **精度確認**: `POST /api/v1/pricing/backtest` で過去期間をリードタイム別に再予測し、要因なし（base のみ）との MAPE を比較できる。
-5. **イベント**: 設定タブの会場マスタに主要会場（収容人数・距離・イベントカレンダーURL）を登録すると、イベント登録時の影響度が自動推定される。`ANTHROPIC_API_KEY` を設定すると会場ページから候補を抽出でき、前年の稼働実績からも候補を検出できる。候補は承認するまで需要予測に使われない。
+5. **イベント**: 設定タブの会場マスタに主要会場（収容人数・距離・イベントカレンダーURL）を登録すると、イベント登録時の影響度が自動推定される。`ANTHROPIC_API_KEY` または `OPENAI_API_KEY` を設定すると会場ページから候補を抽出でき（LLM は Claude / GPT を環境変数 `LLM_PROVIDER` と設定タブのホテル設定で切替）、前年の稼働実績からも候補を検出できる。候補は承認するまで需要予測に使われない。
 6. **PMS / 競合データ**: API 直結までは設定タブの「データ取り込み」から CSV で OTB（`stayDate,roomsBooked`）と競合価格（`competitorName,date,price1P,price2P,price3P,soldOut`）を投入できる。
 7. **モデル運用**: 設定タブの「予測モデル」で稼働中モデルとチャレンジャー（ridge-v1）をバックテスト比較し、門番を通ったときだけ切り替える（ADMIN）。自動採用モードは価格戦略の設定で有効化する（既定は無効）。
 
