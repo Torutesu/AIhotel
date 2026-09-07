@@ -30,10 +30,11 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 - 前年比比較
 
 ### 💰 ダイナミックプライシング
-- AI需要予測に基づく価格最適化
-- リアルタイム価格調整
-- セグメント別価格設定
-- 価格変更履歴の追跡
+- AI需要予測に基づく価格最適化（需要予測層 → 価格決定層の2層。設計は `docs/外部要因設計.md`）
+- 外部要因: 祝日・連休（内閣府CSV同梱）、天候（気象庁 bosai JSON、Open-Meteo 任意）、イベント（手入力）
+- 価格戦略の重み（稼働率/ADR/競合追従）とガードレール（ランク範囲・最大変動幅・競合ポジション）
+- 推奨ランクの理由分解（需要要因 pt ＋ ランク寄与）と期待RevPAR、「今日決めるべき日」ダイジェスト
+- 推奨の採否記録と、実績からの係数学習・信頼度校正・バックテスト
 
 ### 📈 日別分析
 - **日別パフォーマンス分析**: 日次データの詳細分析
@@ -252,7 +253,15 @@ pnpm --filter backend db:migrate      # 開発用マイグレーション作成�
 pnpm --filter backend db:migrate:prod # 本番用マイグレーション適用（prisma migrate deploy）
 pnpm --filter backend db:seed         # シードデータ投入
 pnpm --filter backend db:studio       # Prisma Studio（DB GUI）起動
+pnpm --filter backend holidays:update # 内閣府の祝日CSVから src/data/jpHolidays.ts を再生成（年1回）
 ```
+
+### 外部要因エンジン（祝日・天候・学習）の使い方
+
+1. **祝日データ**: `backend/src/data/jpHolidays.ts` に同梱済み（2015〜翌年分）。内閣府が翌年分を公開したら `holidays:update` で再生成してコミットする。
+2. **天候**: 設定タブ（またはシード）でホテルに気象庁の府県予報区コード（例 東京都 `130000`）と一次細分区域コード（例 東京地方 `130010`）を登録する。コードは https://www.jma.go.jp/bosai/common/const/area.json の `offices` / `class10s`。8〜16日先まで補完したい場合のみ Open-Meteo の商用APIキーを `OPEN_METEO_API_KEY` に設定し `WEATHER_OPEN_METEO_ENABLED=true` にする。
+3. **日次の流れ**: `POST /api/v1/pricing/signals/ingest`（天候取り込み）→ `POST /api/v1/pricing/recompute`（予測＋価格決定）→ `POST /api/v1/pricing/learn`（前日実績で係数更新）。`DAILY_JOB_ENABLED=true` にすると `DAILY_JOB_HOUR_JST`（既定 4 時）に自動実行し、失敗はアラート（黄）に記録される。手動一括実行は `POST /api/v1/pricing/jobs/daily`（ADMIN）。
+4. **精度確認**: `POST /api/v1/pricing/backtest` で過去期間をリードタイム別に再予測し、要因なし（base のみ）との MAPE を比較できる。
 
 ### テスト・CI
 
