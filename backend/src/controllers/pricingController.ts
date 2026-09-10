@@ -16,6 +16,7 @@ import { getPricingDigestService } from '../services/pricing/digestService.js'
 import { learnFromActualsService, getCoefficientsService } from '../services/forecast/learningService.js'
 import { runBacktestService } from '../services/forecast/backtestService.js'
 import { runDailyJobService } from '../services/jobs/dailyJob.js'
+import { getFactorEvaluationService, getRecommendationEffectService } from '../services/forecast/evaluationService.js'
 import { trainModelService, compareModelsService, promoteModelService } from '../services/forecast/modelService.js'
 
 /**
@@ -277,4 +278,22 @@ export const promoteModel = asyncHandler(async (req: Request, res: Response) => 
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, result, 200, `稼働モデルを ${result.after} に切り替えました`)
+})
+
+/**
+ * 要因の評価（アブレーション・要因別成績表）
+ * GET /api/v1/pricing/evaluation/factors?hotelId=&lookbackDays=
+ */
+export const getFactorEvaluation = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, lookbackDays } = req.query as unknown as { hotelId: string; lookbackDays?: number }
+  sendSuccess(res, await getFactorEvaluationService(hotelId, lookbackDays))
+})
+
+/**
+ * 推奨の効果（採用日／上書き日／未判断日の RevPAR を需要レベル帯で比較）
+ * GET /api/v1/pricing/evaluation/effect?hotelId=&lookbackDays=
+ */
+export const getRecommendationEffect = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, lookbackDays } = req.query as unknown as { hotelId: string; lookbackDays?: number }
+  sendSuccess(res, await getRecommendationEffectService(hotelId, lookbackDays))
 })

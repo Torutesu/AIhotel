@@ -52,6 +52,8 @@ model Tenant {
   factorCoefficients       FactorCoefficient[]
   venues                   Venue[]
   forecastModelStates      ForecastModelState[]
+  chatConversations        ChatConversation[]
+  chatMessages             ChatMessage[]
 }
 
 // ======================================
@@ -159,6 +161,7 @@ model Hotel {
   factorCoefficients       FactorCoefficient[]
   venues                   Venue[]
   forecastModelStates      ForecastModelState[]
+  chatConversations        ChatConversation[]
 
   @@index([tenantId])
 }
@@ -572,20 +575,23 @@ model Competitor {
 }
 
 model CompetitorPriceData {
-  id           String     @id @default(cuid())
-  tenantId     String
-  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  competitorId String
-  competitor   Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
-  date         DateTime   @db.Date
-  price1P      Int?
-  price2P      Int?
-  price3P      Int?
-  dataSource   String // scraping, manual, import
-  reliability  String? // high, medium, low
-  soldOut      Boolean    @default(false) // 満室・売止め（エリア逼迫シグナル comp:soldout_share）
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id                   String     @id @default(cuid())
+  tenantId             String
+  tenant               Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  competitorId         String
+  competitor           Competitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  date                 DateTime   @db.Date
+  price1P              Int?
+  price2P              Int?
+  price3P              Int?
+  dataSource           String // scraping, manual, import
+  reliability          String? // high, medium, low
+  soldOut              Boolean    @default(false) // 満室・売止め（エリア逼迫シグナル comp:soldout_share）
+  // 売止めを逼迫シグナルから除外する（団体の売止め等、実需でないと人が判断した場合。会話FBから設定される）
+  soldOutIgnored       Boolean    @default(false)
+  soldOutIgnoredReason String?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
 
   @@unique([competitorId, date])
   @@index([tenantId])
@@ -801,6 +807,46 @@ model FactorCoefficient {
 
   @@unique([hotelId, factorKey])
   @@index([tenantId])
+}
+
+// ======================================
+// Chat（会話フィードバック — docs/外部要因設計.md §7）
+// ======================================
+
+model ChatConversation {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  userId    String
+  title     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ChatMessage[]
+
+  @@index([tenantId])
+  @@index([hotelId, userId, updatedAt])
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  tenantId       String
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String // user | assistant
+  content        String
+  // 回答の根拠（知識ベースの章）と、会話から実行した操作の記録
+  citations      Json?
+  actions        Json?
+  llmProvider    String?
+  llmModel       String?
+  createdAt      DateTime         @default(now())
+
+  @@index([tenantId])
+  @@index([conversationId, createdAt])
 }
 
 // ======================================

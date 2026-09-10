@@ -34,6 +34,9 @@ export const FACTOR_DEFAULTS: Record<string, number> = {
   // ---- 競合売止め比率（0〜1）に掛ける係数。全競合が売止めなら +8pt
   'comp:soldout_share': 0.08,
 
+  // ---- 競合との相対価格（demandModel.relativePriceLog）。ln(自社/競合)=+0.1（約10%高い）で −1.5pt
+  'comp:price_index': -0.15,
+
   // ---- 予約ペースの信頼度 α（リードタイム区分別）。D = (1-α)·Base + α·PaceProjection
   'pace:alpha_lead0_3': 0.8,
   'pace:alpha_lead4_7': 0.6,

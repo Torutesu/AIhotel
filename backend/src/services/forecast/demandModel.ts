@@ -47,6 +47,8 @@ export interface DemandModelInput {
   coefficients: CoefficientMap
   /** 競合の売止め比率（0〜1）。データが無ければ null。エリア逼迫の代理指標（docs/外部要因設計.md §3 #6） */
   competitorSoldOutShare?: number | null
+  /** 自社の現在価格 ÷ 競合価格中央値 の対数（ln）。+0.1 ≒ 競合より約10%高い。データが無ければ null */
+  relativePriceLog?: number | null
   fallbackOccupancy?: number
 }
 
@@ -162,6 +164,16 @@ export function computeDemand(input: DemandModelInput): DemandModelResult {
     const key = 'comp:soldout_share'
     const pt = getCoefficient(coefficients, key) * input.competitorSoldOutShare
     factors.push({ key, label: factorLabel(key), pt, detail: `競合の ${Math.round(input.competitorSoldOutShare * 100)}% が売止め` })
+    activeKeys.push(key)
+    total += pt
+  }
+
+  // ---- 競合との相対価格（高いほど予約ペースが落ちる）。係数は 'comp:price_index'（ln比 1.0 あたりの pt）
+  if (input.relativePriceLog != null && Number.isFinite(input.relativePriceLog) && Math.abs(input.relativePriceLog) > 0.005) {
+    const key = 'comp:price_index'
+    const pt = getCoefficient(coefficients, key) * input.relativePriceLog
+    const pct = Math.round((Math.exp(input.relativePriceLog) - 1) * 100)
+    factors.push({ key, label: factorLabel(key), pt, detail: `競合中央値比 ${pct >= 0 ? '+' : ''}${pct}%` })
     activeKeys.push(key)
     total += pt
   }

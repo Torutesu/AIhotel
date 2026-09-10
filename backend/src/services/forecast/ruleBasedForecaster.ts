@@ -7,6 +7,7 @@ import { buildCurveFromHistory, projectOccupancyFromPace, DEFAULT_BOOKING_CURVE 
 import { computeHolidaySignal, toIsoDate } from '../signals/holidaySignal.js'
 import { getWeatherSignalsService } from '../signals/signalService.js'
 import { getCompetitorSoldOutShareService } from '../integrations/competitorImportService.js'
+import { getAppliedRanksService, getCompetitorMedianPricesService } from '../pricing/marketContext.js'
 
 // ルールベース需要予測（F-DP-05。将来 ML モデルに差し替え予定）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
@@ -215,7 +216,7 @@ export const ruleBasedForecaster: DemandForecaster = {
     const historyWindowStart = addUtcDays(startDate, -400)
     const historyEnd = startDate < asOf ? startDate : asOf
 
-    const [dailyData, events, priceRanks, coefficients, weather, curveRows, pastCurveRows, soldOutShare] = await Promise.all([
+    const [dailyData, events, priceRanks, loadedCoefficients, weather, curveRows, pastCurveRows, soldOutShare, appliedRanks, compMedians, previousRecs] = await Promise.all([
       prisma.dailyData.findMany({
         where: { hotelId, date: { gte: historyWindowStart, lt: historyEnd }, occupancy: { not: null } },
         select: { date: true, occupancy: true },
@@ -240,7 +241,17 @@ export const ruleBasedForecaster: DemandForecaster = {
         select: { stayDate: true, daysBefore: true, roomsBooked: true },
       }),
       getCompetitorSoldOutShareService(hotelId, startDate, endDate),
+      getAppliedRanksService(hotelId, startDate, endDate),
+      getCompetitorMedianPricesService(hotelId, startDate, endDate),
+      // 「現在売っている価格」の代理: 採否記録が無ければ前回推奨ランク
+      prisma.aiPriceRecommendation.findMany({
+        where: { hotelId, roomTypeId: null, date: { gte: startDate, lte: endDate }, recommendedRank: { not: null } },
+        select: { date: true, recommendedRank: true },
+      }),
     ])
+    const coefficients = new Map(loadedCoefficients)
+    for (const [k, v] of Object.entries(input.coefficientOverrides ?? {})) coefficients.set(k, v)
+    const previousRankByDate = new Map(previousRecs.map((r) => [toIsoDate(r.date), r.recommendedRank!]))
 
     const history: OccupancyRecord[] = dailyData
       .filter((d): d is typeof d & { occupancy: number } => d.occupancy != null)
@@ -295,6 +306,12 @@ export const ruleBasedForecaster: DemandForecaster = {
         pace,
         coefficients,
         competitorSoldOutShare: soldOutShare.get(key) ?? null,
+        relativePriceLog: (() => {
+          const compMedian = compMedians.get(key)
+          const ourRank = appliedRanks.get(key) ?? previousRankByDate.get(key)
+          const ourPrice = ourRank != null ? priceByRank.get(ourRank) : undefined
+          return compMedian && compMedian > 0 && ourPrice && ourPrice > 0 ? Math.log(ourPrice / compMedian) : null
+        })(),
       })
       const baseRank = mapOccupancyToRank(demand.predictedOccupancy, maxRank)
       results.push({

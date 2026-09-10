@@ -13,6 +13,7 @@ import {
   learnSchema,
   backtestSchema,
   dailyJobSchema,
+  evaluationQuerySchema,
   trainModelSchema,
   compareModelsSchema,
   promoteModelSchema,
@@ -32,6 +33,8 @@ import {
   getCoefficients,
   backtest,
   runDailyJob,
+  getFactorEvaluation,
+  getRecommendationEffect,
   compareModels,
   trainModel,
   promoteModel,
@@ -184,4 +187,20 @@ pricingRouter.post(
   requireHotelAccess((req) => req.body?.hotelId),
   validate(promoteModelSchema),
   promoteModel
+)
+
+// GET /api/v1/pricing/evaluation/factors?hotelId= — 要因アブレーションと要因別成績表
+pricingRouter.get(
+  '/evaluation/factors',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(evaluationQuerySchema, 'query'),
+  getFactorEvaluation
+)
+
+// GET /api/v1/pricing/evaluation/effect?hotelId= — 推奨の効果（需要レベル帯別）
+pricingRouter.get(
+  '/evaluation/effect',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(evaluationQuerySchema, 'query'),
+  getRecommendationEffect
 )

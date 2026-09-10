@@ -3,7 +3,7 @@ import { asyncHandler, BadRequestError } from '../middlewares/errorHandler.js'
 import { sendSuccess } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
 import { importOnTheBooksService, type OtbRow } from '../services/integrations/otbImportService.js'
-import { importCompetitorPricesService, type CompetitorPriceRow } from '../services/integrations/competitorImportService.js'
+import { importCompetitorPricesService, setCompetitorSoldOutIgnoredService, type CompetitorPriceRow } from '../services/integrations/competitorImportService.js'
 import { parseCsv } from '../services/integrations/csv.js'
 
 function parseDate(v: string, field: string, row: number): Date {
@@ -86,4 +86,24 @@ export const importCompetitorPrices = asyncHandler(async (req: Request, res: Res
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, result, 200, `競合価格を ${result.imported}件取り込みました`)
+})
+
+/**
+ * 競合の売止めを逼迫シグナルから除外／復帰（MANAGER 以上・監査対象）
+ * PATCH /api/v1/integrations/competitor-prices/soldout
+ */
+export const setCompetitorSoldOutIgnored = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, competitorId, date, ignored, reason } = req.body as { hotelId: string; competitorId: string; date: Date; ignored: boolean; reason?: string }
+  const result = await setCompetitorSoldOutIgnoredService(hotelId, competitorId, date, ignored, reason)
+  await writeAuditLog({
+    tenantId: req.user!.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'CompetitorPriceData',
+    entityId: competitorId,
+    newValue: { ...result, reason },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, ignored ? `${result.competitorName} の ${result.date} の売止めをシグナルから除外しました` : `${result.competitorName} の ${result.date} の売止めをシグナルに戻しました`)
 })

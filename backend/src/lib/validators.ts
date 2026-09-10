@@ -394,6 +394,19 @@ export const backtestSchema = z.object({
   message: '開始日は終了日以前である必要があります',
 })
 
+export const evaluationQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  lookbackDays: z.coerce.number().int().min(14).max(730).optional(),
+})
+
+export const soldOutIgnoreSchema = z.object({
+  hotelId: entityIdSchema,
+  competitorId: entityIdSchema,
+  date: z.coerce.date(),
+  ignored: z.boolean(),
+  reason: z.string().max(300).optional(),
+})
+
 export const dailyJobSchema = z.object({
   hotelId: entityIdSchema.optional(),
 })

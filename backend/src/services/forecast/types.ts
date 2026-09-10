@@ -14,6 +14,8 @@ export interface ForecastInput {
   endDate: Date
   /** 基準日（この日に利用可能な情報だけで予測する）。省略時は今日 */
   asOfDate?: Date
+  /** 係数の一時上書き（アブレーション・what-if 用。DB には保存しない） */
+  coefficientOverrides?: Record<string, number>
 }
 
 export interface DailyForecast {

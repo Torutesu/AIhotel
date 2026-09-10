@@ -97,17 +97,38 @@ export async function importCompetitorPricesService(hotelId: string, rows: Compe
 export async function getCompetitorSoldOutShareService(hotelId: string, startDate: Date, endDate: Date): Promise<Map<string, number>> {
   const rows = await prisma.competitorPriceData.findMany({
     where: { date: { gte: startDate, lte: endDate }, competitor: { hotelId, isActive: true } },
-    select: { date: true, soldOut: true },
+    select: { date: true, soldOut: true, soldOutIgnored: true },
   })
   const agg = new Map<string, { total: number; soldOut: number }>()
   for (const r of rows) {
     const key = r.date.toISOString().slice(0, 10)
     const a = agg.get(key) ?? { total: 0, soldOut: 0 }
     a.total++
-    if (r.soldOut) a.soldOut++
+    if (r.soldOut && !r.soldOutIgnored) a.soldOut++
     agg.set(key, a)
   }
   const out = new Map<string, number>()
   for (const [key, a] of agg) if (a.total > 0) out.set(key, a.soldOut / a.total)
   return out
+}
+
+/**
+ * 特定日の競合の売止めを逼迫シグナルから除外する／戻す（団体の売止め等。会話FBからも呼ばれる）
+ */
+export async function setCompetitorSoldOutIgnoredService(
+  hotelId: string,
+  competitorId: string,
+  date: Date,
+  ignored: boolean,
+  reason?: string
+): Promise<{ competitorId: string; competitorName: string; date: string; soldOut: boolean; soldOutIgnored: boolean }> {
+  const competitor = await prisma.competitor.findFirst({ where: { id: competitorId, hotelId }, select: { id: true, name: true } })
+  if (!competitor) throw new NotFoundError('競合ホテル')
+  const row = await prisma.competitorPriceData.findUnique({ where: { competitorId_date: { competitorId, date } } })
+  if (!row) throw new NotFoundError('この日の競合価格データ')
+  const updated = await prisma.competitorPriceData.update({
+    where: { id: row.id },
+    data: { soldOutIgnored: ignored, soldOutIgnoredReason: ignored ? (reason ?? null) : null },
+  })
+  return { competitorId, competitorName: competitor.name, date: date.toISOString().slice(0, 10), soldOut: updated.soldOut, soldOutIgnored: updated.soldOutIgnored }
 }

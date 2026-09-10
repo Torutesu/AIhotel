@@ -1,8 +1,8 @@
 import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireRole, requireHotelAccess } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
-import { otbImportSchema, competitorPricesImportSchema } from '../lib/validators.js'
-import { importOnTheBooks, importCompetitorPrices } from '../controllers/integrationsController.js'
+import { otbImportSchema, competitorPricesImportSchema, soldOutIgnoreSchema } from '../lib/validators.js'
+import { importOnTheBooks, importCompetitorPrices, setCompetitorSoldOutIgnored } from '../controllers/integrationsController.js'
 
 // PMS/OTA 連携の器（docs/外部要因設計.md P2-11, §3 #5）。
 // API 直結のコネクタが入るまでは JSON/CSV の手動取り込みで同じテーブルを埋める
@@ -26,4 +26,13 @@ integrationsRouter.post(
   requireHotelAccess((req) => req.body?.hotelId),
   validate(competitorPricesImportSchema),
   importCompetitorPrices
+)
+
+// PATCH /api/v1/integrations/competitor-prices/soldout — 売止めをシグナルから除外／復帰。MANAGER 以上
+integrationsRouter.patch(
+  '/competitor-prices/soldout',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(soldOutIgnoreSchema),
+  setCompetitorSoldOutIgnored
 )
