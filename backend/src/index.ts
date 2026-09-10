@@ -17,6 +17,7 @@ import { analysisRouter } from './routes/analysis.js'
 import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
 import { reportsRouter } from './routes/reports.js'
+import { knowledgeRouter } from './routes/knowledge.js'
 import { integrationsRouter } from './routes/integrations.js'
 
 // Import middlewares
@@ -26,6 +27,7 @@ import { notFoundHandler } from './middlewares/notFoundHandler.js'
 // Import utilities
 import { logger, requestLogger } from './utils/logger.js'
 import { startDailyJobScheduler, stopDailyJobScheduler } from './services/jobs/dailyJob.js'
+import { reloadKnowledge } from './services/knowledge/knowledgeService.js'
 
 // ======================================
 // Configuration
@@ -121,6 +123,7 @@ app.use('/api/v1/analysis', analysisRouter)
 app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/reports', reportsRouter)
+app.use('/api/v1/knowledge', knowledgeRouter)
 app.use('/api/v1/integrations', integrationsRouter)
 
 // ======================================
@@ -145,6 +148,8 @@ const server = app.listen(PORT, () => {
   }, `🚀 Backend server running on http://localhost:${PORT}`)
   // 日次ジョブ（DAILY_JOB_ENABLED=true のときのみ。docs/外部要因設計.md §4）
   startDailyJobScheduler()
+  // 知識ベース（docs/knowledge）を起動時に読み込む
+  reloadKnowledge()
 })
 
 // Graceful shutdown

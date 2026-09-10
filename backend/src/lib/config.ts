@@ -63,6 +63,9 @@ const envSchema = z.object({
   // Azure OpenAI / 互換ゲートウェイを使う場合のみ設定
   OPENAI_BASE_URL: z.string().url().optional(),
 
+  // ---- 知識ベース（チャット・AIまとめの根拠となる Markdown）。backend/ 実行ディレクトリからの相対 or 絶対パス
+  KNOWLEDGE_DIR: z.string().min(1).default('../docs/knowledge'),
+
   // ---- 日次ジョブ（シグナル取り込み→予測→学習）。デフォルト無効（手動: POST /pricing/jobs/daily）
   DAILY_JOB_ENABLED: z
     .enum(['true', 'false'])

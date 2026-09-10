@@ -407,6 +407,11 @@ export const soldOutIgnoreSchema = z.object({
   reason: z.string().max(300).optional(),
 })
 
+export const knowledgeSearchSchema = z.object({
+  q: z.string().min(1).max(300),
+  k: z.coerce.number().int().min(1).max(20).optional(),
+})
+
 export const dailyJobSchema = z.object({
   hotelId: entityIdSchema.optional(),
 })
