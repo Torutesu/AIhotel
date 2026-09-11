@@ -12,6 +12,8 @@ import { AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
 
 import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
 import { DAY_NAMES } from "@/lib/date"
+import { toast } from "sonner"
+import { svgToPngBlob } from "@/lib/svg-export"
 import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
 import { SampleDataNotice } from "@/components/sample-data-notice"
 import { usePeriod } from "@/components/app-state-provider"
@@ -302,45 +304,23 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   }, [trendChartData, year, month])
 
   // グラフのPNGエクスポート（描画済みSVGをcanvasに転写。追加ライブラリ不要）
-  const exportTrendImage = useCallback(() => {
+  // 線色は var(--chart-N) / currentColor のため、書き出し前に実色へ解決する（U-10）
+  const exportTrendImage = useCallback(async () => {
     const svg = chartWrapperRef.current?.querySelector("svg")
     if (!svg) return
-    const clone = svg.cloneNode(true) as SVGSVGElement
-    const { width, height } = svg.getBoundingClientRect()
-    clone.setAttribute("width", String(width))
-    clone.setAttribute("height", String(height))
-    // 背景が透過だと黒背景で見えなくなるため白地を敷く
-    clone.style.background = "#ffffff"
-    const source = new XMLSerializer().serializeToString(clone)
-    const svgUrl = URL.createObjectURL(new Blob([source], { type: "image/svg+xml;charset=utf-8" }))
-
-    const image = new Image()
-    image.onload = () => {
-      const scale = 2 // 資料貼り付け用に2倍解像度
-      const canvas = document.createElement("canvas")
-      canvas.width = width * scale
-      canvas.height = height * scale
-      const ctx = canvas.getContext("2d")
-      if (!ctx) {
-        URL.revokeObjectURL(svgUrl)
-        return
-      }
-      ctx.fillStyle = "#ffffff"
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
-      URL.revokeObjectURL(svgUrl)
-      canvas.toBlob((blob) => {
-        if (!blob) return
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement("a")
-        link.href = url
-        link.download = `稼働ADR月間推移_${year}-${String(month).padStart(2, "0")}.png`
-        link.click()
-        URL.revokeObjectURL(url)
-      }, "image/png")
+    try {
+      const blob = await svgToPngBlob(svg)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `稼働ADR月間推移_${year}-${String(month).padStart(2, "0")}.png`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "画像の書き出しに失敗しました")
     }
-    image.onerror = () => URL.revokeObjectURL(svgUrl)
-    image.src = svgUrl
   }, [year, month])
 
   // 表示中の比較軸（F-DASH-02: 本日まで／累計進捗／年度累計）
@@ -756,7 +736,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
                   variant="outline"
                   size="sm"
                   className="h-7 gap-1.5 text-xs"
-                  onClick={exportTrendImage}
+                  onClick={() => void exportTrendImage()}
                   disabled={loading || trendChartData.length === 0}
                 >
                   <ImageDown className="h-3 w-3" />
