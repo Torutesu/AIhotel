@@ -24,12 +24,17 @@
   --border: #ededed; /* mist gray hairline */
   --input: #ededed;
   --ring: #0d0d0d; /* neutral ink — no chromatic accent on controls */
-  /* グラフ/データ指標色は元のパレットに戻す */
+  /* グラフ/データ指標色。カテゴリカルパレットとして色覚検証済み（全ペア PASS）。
+     chart-3〜5 は旧値が不合格だったため差し替えた:
+       旧 chart-3 oklch(0.7 0.12 180) は chart-2 との色差が ΔE 5.4（正常色覚）しかなく
+       3系列以上のグラフで見分けられなかった。旧 chart-4/5 は彩度が 0.10/0.08 で
+       グレーとして読まれていた。系列を6つ以上使う場合は色を足さず、
+       「その他」への集約か小倍数（small multiples）に切り替える。 */
   --chart-1: oklch(0.55 0.18 250);
   --chart-2: oklch(0.65 0.15 200);
-  --chart-3: oklch(0.7 0.12 180);
-  --chart-4: oklch(0.6 0.1 220);
-  --chart-5: oklch(0.75 0.08 160);
+  --chart-3: #eda100;
+  --chart-4: #d55181;
+  --chart-5: #15803d;
   --positive: oklch(0.55 0.18 250);
   --negative: oklch(0.55 0.22 25);
   --warning: #9a6208; /* accessible amber for caution/warning status */
