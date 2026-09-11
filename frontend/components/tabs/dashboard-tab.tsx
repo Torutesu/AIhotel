@@ -13,12 +13,13 @@ import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
 import { CalendarIcon, AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
 
-import { Tab } from "@shared/types"
+import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type DashboardKpi, type AlertItem, type AiSummary } from "@/lib/api"
 
 interface DashboardTabProps {
-  onTabChange?: (tab: Tab) => void
+  /** アラートからの画面遷移（F-4: resolveAlertLink で解決済みの遷移先を渡す） */
+  onAlertNavigate?: (target: AlertLinkTarget) => void
 }
 
 const now = new Date()
@@ -244,7 +245,7 @@ function ComparisonTable({
   )
 }
 
-export function DashboardTab({ onTabChange }: DashboardTabProps) {
+export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   const { hotelId } = useAuth()
 
   const [year, setYear] = useState(now.getFullYear())
@@ -899,6 +900,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
               <div className="space-y-3">
                 {alerts.map((alert) => {
                   const style = alertStyleFor(alert)
+                  const link = resolveAlertLink(alert.linkTab)
                   return (
                     <div key={alert.id} className={`border-l-4 ${style.border} ${style.bg} p-3 rounded-r`}>
                       <div className="flex items-start gap-2">
@@ -906,15 +908,13 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1 flex-wrap">
                             <span className={`text-xs font-semibold ${style.text}`}>{style.label}</span>
-                            {alert.linkTab && (
+                            {link && (
                               <button
-                                onClick={() => onTabChange?.(alert.linkTab as Tab)}
+                                onClick={() => onAlertNavigate?.(link)}
                                 className="text-xs text-primary hover:underline hover:text-[color:var(--cyan-edge)] transition-colors"
                               >
                                 {alert.targetDate ? format(new Date(alert.targetDate), "yyyy/MM/dd") : ""}
-                                {alert.linkTab === "pricing" && " (料金設定へ)"}
-                                {alert.linkTab === "daily" && " (日別分析へ)"}
-                                {alert.linkTab === "analysis" && " (各種分析へ)"}
+                                {` (${link.label})`}
                               </button>
                             )}
                           </div>

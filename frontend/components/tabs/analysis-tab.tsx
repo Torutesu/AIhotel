@@ -23,6 +23,7 @@ import {
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type MonthlyTrend, type CompetitorAnalysis } from "@/lib/api"
+import type { AnalysisView } from "@/lib/alert-link"
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
@@ -1788,6 +1789,8 @@ export function OtaCampaignSection() {
 interface AnalysisTabProps {
   /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
   onNavigateToPricing?: (date: Date) => void
+  /** 外部（アラート等）から指定された初期サブビュー。変化するたびにそのビューへ切り替える（F-4） */
+  requestedView?: AnalysisView | null
 }
 
 /**
@@ -1807,15 +1810,20 @@ const ANALYSIS_VIEWS = [
   { value: "free", label: "フリー分析", description: "任意の軸を組み合わせて分析し、販促参画データを管理する" },
 ]
 
-export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
+export function AnalysisTab({ onNavigateToPricing, requestedView }: AnalysisTabProps = {}) {
   const [targetPeriod, setTargetPeriod] = useState(DEFAULT_TARGET_PERIOD)
-  const [activeView, setActiveView] = useState("performance")
+  const [activeView, setActiveView] = useState<string>(requestedView ?? "performance")
   const [viewMode, setViewMode] = useState<"analysis" | "segment-settings">("analysis")
 
   // 日別テーブルの行クリックで選ばれた宿泊日（予約動向のブッキングカーブと連動する）
   const [curveStayDate, setCurveStayDate] = useState<Date | undefined>(undefined)
 
   const activeViewMeta = ANALYSIS_VIEWS.find((v) => v.value === activeView)
+
+  // アラートなどから特定のビューを指定された場合に追従する
+  useEffect(() => {
+    if (requestedView) setActiveView(requestedView)
+  }, [requestedView])
 
   // セグメント別クロス分析設定
   if (viewMode === "segment-settings") {

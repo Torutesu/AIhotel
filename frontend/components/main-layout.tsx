@@ -30,6 +30,7 @@ import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
 import { LoginForm } from "@/components/login-form"
 import type { Tab } from "@shared/types"
+import type { AlertLinkTarget, AnalysisView } from "@/lib/alert-link"
 
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
@@ -48,6 +49,8 @@ export function MainLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   // 分析タブの日付からダイナミックプライシングへ遷移する際の対象日
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
+  // アラートから分析タブへ遷移する際に開くサブビュー
+  const [analysisView, setAnalysisView] = useState<AnalysisView | null>(null)
   const { user, loading, logout, restoreError, retryRestore } = useAuth()
 
   // 折りたたみ状態を記憶する（デスクトップのみ意味を持つ）
@@ -67,6 +70,12 @@ export function MainLayout() {
   const selectTab = (tab: Tab) => {
     setActiveTab(tab)
     setMobileNavOpen(false)
+  }
+
+  // アラートの linkTab は Tab と 1:1 ではないため変換表で解決する（F-4）
+  const handleAlertNavigate = (target: AlertLinkTarget) => {
+    setAnalysisView(target.analysisView ?? null)
+    selectTab(target.tab)
   }
 
   if (loading) {
@@ -242,12 +251,13 @@ export function MainLayout() {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-auto">
-          {activeTab === "dashboard" && <DashboardTab onTabChange={setActiveTab} />}
+          {activeTab === "dashboard" && <DashboardTab onAlertNavigate={handleAlertNavigate} />}
           {activeTab === "pricing" && (
             <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
           )}
           {activeTab === "analysis" && (
             <AnalysisTab
+              requestedView={analysisView}
               onNavigateToPricing={(date) => {
                 setPricingFocusDate(date)
                 selectTab("pricing")
