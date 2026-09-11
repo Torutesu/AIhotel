@@ -79,7 +79,7 @@ next-env.d.ts
 *.db-wal
 
 # Docker
-.dockerignore
+# .dockerignore はコミットする（ビルドコンテキストの除外定義）
 docker-compose.override.yml
 
 # Temporary files
