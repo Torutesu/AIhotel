@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { dateOnly, todayJst } from './date.js'
 
 // ======================================
 // Common Validators
@@ -275,14 +276,48 @@ export const monthlyReportQuerySchema = z.object({
 // Forecast Validators（F-DP-05 / F-DP-03）
 // ======================================
 
+// 再計算できる期間の上限（C-3）。1日1行を書き込むため、無制限だと
+// 1リクエストで何万行も生成でき DB とレスポンス時間を圧迫する。
+export const MAX_FORECAST_RANGE_DAYS = 366
+
 export const recomputeForecastSchema = z.object({
   hotelId: entityIdSchema,
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
-}).refine(
-  (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
-  { message: '開始日は終了日以前である必要があります' }
-)
+}).superRefine((data, ctx) => {
+  // 需要予測は未来の価格を決めるためのもの。過去日を指定すると確定済み実績の
+  // 期間の AI 推奨を書き換えてしまうため、開始日は本日（JST）以降に限る（C-3）
+  const start = data.startDate ? dateOnly(data.startDate) : todayJst()
+  if (data.startDate && start < todayJst()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['startDate'],
+      message: '開始日は本日以降の日付を指定してください',
+    })
+    return
+  }
+
+  if (!data.endDate) return
+  const end = dateOnly(data.endDate)
+
+  if (end < start) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endDate'],
+      message: '開始日は終了日以前である必要があります',
+    })
+    return
+  }
+
+  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1
+  if (days > MAX_FORECAST_RANGE_DAYS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endDate'],
+      message: `再計算できる期間は最大${MAX_FORECAST_RANGE_DAYS}日です`,
+    })
+  }
+})
 
 // 重み付けは合計100%（F-DP-02）
 export const updateStrategySchema = z.object({

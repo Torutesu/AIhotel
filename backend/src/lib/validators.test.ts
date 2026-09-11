@@ -4,7 +4,10 @@ import {
   registerSchema,
   createPriceRankSchema,
   updateStrategySchema,
+  recomputeForecastSchema,
+  MAX_FORECAST_RANGE_DAYS,
 } from './validators.js'
+import { addUtcDays, todayJst } from './date.js'
 
 describe('loginSchema', () => {
   it('有効なメールアドレスと空でないパスワードを受け入れる', () => {
@@ -110,5 +113,68 @@ describe('updateStrategySchema', () => {
       weightCompetitor: 20,
     })
     expect(result.success).toBe(false)
+  })
+})
+
+describe('recomputeForecastSchema (C-3)', () => {
+  const hotelId = 'demo-hotel-001'
+  const iso = (d: Date) => d.toISOString().slice(0, 10)
+
+  it('日付を省略した場合は受け入れる（既定値で再計算する）', () => {
+    expect(recomputeForecastSchema.safeParse({ hotelId }).success).toBe(true)
+  })
+
+  it('開始日が今日（JST）なら受け入れる', () => {
+    const result = recomputeForecastSchema.safeParse({ hotelId, startDate: iso(todayJst()) })
+    expect(result.success).toBe(true)
+  })
+
+  it('過去日を開始日に指定すると拒否する', () => {
+    const result = recomputeForecastSchema.safeParse({
+      hotelId,
+      startDate: iso(addUtcDays(todayJst(), -1)),
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.errors[0].message).toContain('本日以降')
+    }
+  })
+
+  it('開始日が終了日より後なら拒否する', () => {
+    const start = addUtcDays(todayJst(), 10)
+    const result = recomputeForecastSchema.safeParse({
+      hotelId,
+      startDate: iso(start),
+      endDate: iso(addUtcDays(start, -1)),
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('期間がちょうど366日なら受け入れる', () => {
+    const start = todayJst()
+    const result = recomputeForecastSchema.safeParse({
+      hotelId,
+      startDate: iso(start),
+      endDate: iso(addUtcDays(start, MAX_FORECAST_RANGE_DAYS - 1)),
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('期間が367日以上なら拒否する', () => {
+    const start = todayJst()
+    const result = recomputeForecastSchema.safeParse({
+      hotelId,
+      startDate: iso(start),
+      endDate: iso(addUtcDays(start, MAX_FORECAST_RANGE_DAYS)),
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.errors[0].message).toContain(`${MAX_FORECAST_RANGE_DAYS}日`)
+    }
+  })
+
+  it('開始日を省略して終了日だけ指定した場合は今日起点で期間を判定する', () => {
+    const tooFar = addUtcDays(todayJst(), MAX_FORECAST_RANGE_DAYS)
+    expect(recomputeForecastSchema.safeParse({ hotelId, endDate: iso(tooFar) }).success).toBe(false)
   })
 })
