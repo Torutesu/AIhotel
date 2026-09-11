@@ -321,8 +321,15 @@ export function isReportCacheable(year: number, month: number, today: Date = tod
  * キャッシュキーに含めるデータの版。対象月の DailyData の updatedAt 最大値を使う（C-2）。
  * 元データが1件でも更新されればキーが変わり、レポートが再生成される。
  */
-export function dataVersionKey(latestUpdatedAt: Date | null): string {
-  return latestUpdatedAt ? `v${latestUpdatedAt.getTime()}` : 'v0'
+export function dataVersionKey(...updatedAts: Array<Date | null | undefined>): string {
+  // レポートが参照する全テーブルの updatedAt 最大値をキーにする。
+  // DailyData だけを見ていると、予算やホテル設定を後から変更しても
+  // 古いキャッシュを返し続けてしまう（R-4）
+  const latest = updatedAts.reduce<number>(
+    (max, d) => (d ? Math.max(max, d.getTime()) : max),
+    0
+  )
+  return latest > 0 ? `v${latest}` : 'v0'
 }
 
 function reportStorageKey(
@@ -339,8 +346,9 @@ function reportStorageKey(
 /**
  * 月次レポートを取得する。
  *
- * 当月・直近2か月は毎回生成する。それより古い月は元データ（DailyData）の
- * updatedAt 最大値をキーに含めたキャッシュを参照し、無ければ生成して保存する（C-2）。
+ * 当月・直近2か月は毎回生成する。それより古い月は元データ（DailyData・
+ * MonthlyBudget・Hotel）の updatedAt 最大値をキーに含めたキャッシュを参照し、
+ * 無ければ生成して保存する（C-2, R-4）。
  */
 export async function getMonthlyReportService(
   hotelId: string,
@@ -361,7 +369,22 @@ export async function getMonthlyReportService(
       where: { hotelId, date: { gte: start, lt: end } },
       _max: { updatedAt: true },
     })
-    key = reportStorageKey(hotelId, year, month, format, dataVersionKey(latest._max.updatedAt))
+    // レポートは DailyData に加えて MonthlyBudget（予算比）と
+    // Hotel（施設名・総客室数・週末定義）を参照するため、3つとも版に含める
+    const [budget, hotelRow] = await Promise.all([
+      prisma.monthlyBudget.findUnique({
+        where: { hotelId_year_month: { hotelId, year, month } },
+        select: { updatedAt: true },
+      }),
+      prisma.hotel.findUnique({ where: { id: hotelId }, select: { updatedAt: true } }),
+    ])
+    key = reportStorageKey(
+      hotelId,
+      year,
+      month,
+      format,
+      dataVersionKey(latest._max.updatedAt, budget?.updatedAt, hotelRow?.updatedAt)
+    )
 
     if (await storage.exists(key)) {
       const buffer = await storage.get(key)

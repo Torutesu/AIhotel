@@ -259,25 +259,33 @@ export async function createCompetitorService(input: CreateCompetitorInput) {
   const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
-  const count = await prisma.competitor.count({
-    where: { hotelId: input.hotelId, isActive: true },
-  })
-  if (count >= MAX_COMPETITORS) {
-    throw new BadRequestError(
-      `競合ホテルは最大${MAX_COMPETITORS}件までです。不要な競合を削除してから追加してください`
-    )
-  }
+  // 件数確認と作成を1トランザクションにまとめ、同時リクエストで上限を超えないようにする。
+  // Serializable にすることで、並行トランザクションが互いの count を見落として
+  // 両方とも作成に成功する事態を防ぐ（R-3）
+  return prisma.$transaction(
+    async (tx) => {
+      const count = await tx.competitor.count({
+        where: { hotelId: input.hotelId, isActive: true },
+      })
+      if (count >= MAX_COMPETITORS) {
+        throw new BadRequestError(
+          `競合ホテルは最大${MAX_COMPETITORS}件までです。不要な競合を削除してから追加してください`
+        )
+      }
 
-  return prisma.competitor.create({
-    data: {
-      hotelId: input.hotelId,
-      tenantId: hotel.tenantId,
-      name: input.name,
-      address: input.address ?? null,
-      category: input.category ?? null,
-      otaUrls: input.otaUrls ?? undefined,
+      return tx.competitor.create({
+        data: {
+          hotelId: input.hotelId,
+          tenantId: hotel.tenantId,
+          name: input.name,
+          address: input.address ?? null,
+          category: input.category ?? null,
+          otaUrls: input.otaUrls ?? undefined,
+        },
+      })
     },
-  })
+    { isolationLevel: 'Serializable' }
+  )
 }
 
 /**

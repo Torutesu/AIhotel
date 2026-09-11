@@ -64,5 +64,23 @@ describe('dataVersionKey (C-2)', () => {
 
   it('元データが無い場合は v0', () => {
     expect(dataVersionKey(null)).toBe('v0')
+    expect(dataVersionKey(null, undefined, null)).toBe('v0')
+  })
+
+  it('予算やホテル設定だけが更新されてもキーが変わる（R-4）', () => {
+    const daily = new Date('2026-06-30T10:00:00Z')
+    const before = dataVersionKey(daily, new Date('2026-06-30T09:00:00Z'), null)
+    const budgetUpdated = dataVersionKey(daily, new Date('2026-07-05T09:00:00Z'), null)
+    const hotelUpdated = dataVersionKey(daily, null, new Date('2026-07-06T09:00:00Z'))
+
+    expect(before).not.toBe(budgetUpdated)
+    expect(before).not.toBe(hotelUpdated)
+  })
+
+  it('最大の updatedAt が採用される（引数の順序に依存しない）', () => {
+    const a = new Date('2026-06-01T00:00:00Z')
+    const b = new Date('2026-07-01T00:00:00Z')
+    expect(dataVersionKey(a, b)).toBe(dataVersionKey(b, a))
+    expect(dataVersionKey(a, b)).toBe(`v${b.getTime()}`)
   })
 })
