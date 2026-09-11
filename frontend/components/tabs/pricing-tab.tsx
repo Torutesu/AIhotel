@@ -14,7 +14,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AlertCircle, Table2, Calendar, Edit2, Save, Info, RefreshCw, Loader2, Plus, Trash2 } from "lucide-react"
@@ -31,19 +31,10 @@ import { usePeriod } from "@/components/app-state-provider"
 import { LabeledMonthPicker } from "@/components/month-picker"
 import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
-import { DatePicker } from "@/components/date-picker"
-import { Input } from "@/components/ui/input"
+import { EventDialog, EVENT_TYPE_OPTIONS, type EventFormValues } from "@/components/pricing/event-dialog"
 import { DAY_NAMES, monthRange, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
 import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
-
-const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "concert", label: "コンサート" },
-  { value: "sports", label: "スポーツ" },
-  { value: "conference", label: "カンファレンス" },
-  { value: "festival", label: "祭り・催事" },
-  { value: "other", label: "その他" },
-]
 
 function eventTypeLabel(type: string): string {
   return EVENT_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type
@@ -271,12 +262,6 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null)
   // 削除確認ダイアログの対象イベント（F-5）
   const [eventPendingDelete, setEventPendingDelete] = useState<HotelEvent | null>(null)
-  const [newEventName, setNewEventName] = useState("")
-  const [newEventType, setNewEventType] = useState("concert")
-  const [newEventStart, setNewEventStart] = useState("")
-  const [newEventEnd, setNewEventEnd] = useState("")
-  const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low">("medium")
-  const [newEventLocation, setNewEventLocation] = useState("")
 
   // 日別分析から日付付きで遷移してきたら該当行をハイライトする（対象月の切り替えは呼び出し側が行う）
   useEffect(() => {
@@ -324,84 +309,57 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     loadEvents()
   }, [loadEvents])
 
-  const resetNewEventForm = useCallback(() => {
+  const openCreateEvent = useCallback(() => {
     setEditingEvent(null)
-    setNewEventName("")
-    setNewEventType("concert")
-    setNewEventStart("")
-    setNewEventEnd("")
-    setNewEventImpact("medium")
-    setNewEventLocation("")
+    setIsEventDialogOpen(true)
   }, [])
 
   /** 既存イベントを登録ダイアログに読み込んで編集モードで開く（U-3） */
   const openEditEvent = useCallback((ev: HotelEvent) => {
     setEditingEvent(ev)
-    setNewEventName(ev.name)
-    setNewEventType(ev.type)
-    setNewEventStart(toDateStr(new Date(ev.startDate)))
-    setNewEventEnd(toDateStr(new Date(ev.endDate)))
-    setNewEventImpact((ev.expectedImpact as "high" | "medium" | "low") ?? "medium")
-    setNewEventLocation(ev.location ?? "")
     setIsEventDialogOpen(true)
   }, [])
 
   /** 新規登録（POST /events）と編集（PUT /events/:id）を同じフォームで処理する（U-3） */
-  const handleSubmitEvent = useCallback(async () => {
-    if (!hotelId) return
-    if (!newEventName.trim() || !newEventType || !newEventStart || !newEventEnd) {
-      toast.error("イベント名・種別・期間を入力してください")
-      return
-    }
-    if (newEventStart > newEventEnd) {
-      toast.error("開始日は終了日以前にしてください")
-      return
-    }
-    setSavingEvent(true)
-    try {
-      const payload: CreateEventInput = {
-        hotelId,
-        name: newEventName.trim(),
-        type: newEventType,
-        startDate: newEventStart,
-        endDate: newEventEnd,
-        expectedImpact: newEventImpact,
-        location: newEventLocation.trim() || undefined,
+  const handleSubmitEvent = useCallback(
+    async (values: EventFormValues) => {
+      if (!hotelId) return
+      setSavingEvent(true)
+      try {
+        const payload: CreateEventInput = {
+          hotelId,
+          name: values.name.trim(),
+          type: values.type,
+          startDate: values.startDate,
+          endDate: values.endDate,
+          expectedImpact: values.expectedImpact,
+          location: values.location.trim() || undefined,
+        }
+        if (editingEvent) {
+          const { hotelId: _hotelId, ...updateInput } = payload
+          await api.updateEvent(editingEvent.id, hotelId, updateInput)
+          toast.success("イベントを更新しました")
+        } else {
+          await api.createEvent(payload)
+          toast.success("イベントを登録しました")
+        }
+        setIsEventDialogOpen(false)
+        setEditingEvent(null)
+        await loadEvents()
+      } catch (err) {
+        toast.error(
+          err instanceof ApiClientError
+            ? err.message
+            : editingEvent
+              ? "イベントの更新に失敗しました"
+              : "イベントの登録に失敗しました"
+        )
+      } finally {
+        setSavingEvent(false)
       }
-      if (editingEvent) {
-        const { hotelId: _hotelId, ...updateInput } = payload
-        await api.updateEvent(editingEvent.id, hotelId, updateInput)
-        toast.success("イベントを更新しました")
-      } else {
-        await api.createEvent(payload)
-        toast.success("イベントを登録しました")
-      }
-      setIsEventDialogOpen(false)
-      resetNewEventForm()
-      await loadEvents()
-    } catch (err) {
-      toast.error(
-        err instanceof ApiClientError
-          ? err.message
-          : editingEvent
-            ? "イベントの更新に失敗しました"
-            : "イベントの登録に失敗しました"
-      )
-    } finally {
-      setSavingEvent(false)
-    }
-  }, [
-    hotelId,
-    editingEvent,
-    newEventName,
-    newEventType,
-    newEventStart,
-    newEventEnd,
-    newEventImpact,
-    newEventLocation,
-    resetNewEventForm,
-    loadEvents,
-  ])
+    },
+    [hotelId, editingEvent, loadEvents]
+  )
 
   const handleDeleteEvent = useCallback(
     async (id: string) => {
@@ -837,119 +795,10 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
               <h3 className="text-lg font-semibold">当月のイベント情報</h3>
               <p className="text-xs text-muted-foreground mt-0.5">近隣イベントは需要予測の参考情報として登録されます</p>
             </div>
-            <Dialog
-              open={isEventDialogOpen}
-              onOpenChange={(open) => {
-                setIsEventDialogOpen(open)
-                if (!open) resetNewEventForm()
-              }}
-            >
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs gap-2" onClick={resetNewEventForm}>
-                  <Plus className="w-3.5 h-3.5" aria-hidden />
-                  イベントを追加
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[500px]">
-                <DialogHeader>
-                  <DialogTitle className="text-lg font-semibold">
-                    {editingEvent ? "イベント編集" : "イベント登録"}
-                  </DialogTitle>
-                  <DialogDescription className="text-sm">
-                    {editingEvent
-                      ? "登録済みのイベント情報を編集します。"
-                      : "近隣で開催されるイベント情報を登録します。"}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="new-event-name">イベント名</Label>
-                    <Input
-                      id="new-event-name"
-                      value={newEventName}
-                      onChange={(e) => setNewEventName(e.target.value)}
-                      placeholder="例：○○フェスティバル"
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="new-event-type">種別</Label>
-                      <Select value={newEventType} onValueChange={setNewEventType}>
-                        <SelectTrigger id="new-event-type" className="h-9 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {EVENT_TYPE_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="new-event-impact">影響度</Label>
-                      <Select value={newEventImpact} onValueChange={(v: "high" | "medium" | "low") => setNewEventImpact(v)}>
-                        <SelectTrigger id="new-event-impact" className="h-9 text-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="high">高</SelectItem>
-                          <SelectItem value="medium">中</SelectItem>
-                          <SelectItem value="low">低</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="new-event-start">開始日</Label>
-                      <DatePicker
-                        id="new-event-start"
-                        className="h-9 w-full text-sm"
-                        value={newEventStart ? new Date(newEventStart) : undefined}
-                        onChange={(date) => setNewEventStart(date ? toDateStr(date) : "")}
-                        placeholder="開始日を選択"
-                        ariaLabel="イベント開始日"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="new-event-end">終了日</Label>
-                      <DatePicker
-                        id="new-event-end"
-                        className="h-9 w-full text-sm"
-                        value={newEventEnd ? new Date(newEventEnd) : undefined}
-                        onChange={(date) => setNewEventEnd(date ? toDateStr(date) : "")}
-                        placeholder="終了日を選択"
-                        ariaLabel="イベント終了日"
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="new-event-location">開催場所（任意）</Label>
-                    <Input
-                      id="new-event-location"
-                      value={newEventLocation}
-                      onChange={(e) => setNewEventLocation(e.target.value)}
-                      placeholder="例：○○ホール"
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2 pt-2 border-t">
-                  <Button variant="outline" size="sm" onClick={() => setIsEventDialogOpen(false)}>
-                    キャンセル
-                  </Button>
-                  <Button size="sm" className="gap-2" disabled={savingEvent} onClick={handleSubmitEvent}>
-                    {savingEvent ? (
-                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
-                    ) : (
-                      <Save className="w-4 h-4" aria-hidden />
-                    )}
-                    {editingEvent ? "更新" : "登録"}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button variant="outline" size="sm" className="h-8 text-xs gap-2" onClick={openCreateEvent}>
+              <Plus className="w-3.5 h-3.5" aria-hidden />
+              イベントを追加
+            </Button>
           </div>
 
           {eventsLoading ? (
@@ -1015,6 +864,18 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
           )}
         </CardContent>
       </Card>
+
+      {/* イベント登録・編集ダイアログ（U-3 / U-11） */}
+      <EventDialog
+        open={isEventDialogOpen}
+        onOpenChange={(open) => {
+          setIsEventDialogOpen(open)
+          if (!open) setEditingEvent(null)
+        }}
+        event={editingEvent}
+        saving={savingEvent}
+        onSubmit={handleSubmitEvent}
+      />
 
       {/* イベント削除の確認（F-5） */}
       <ConfirmDialog

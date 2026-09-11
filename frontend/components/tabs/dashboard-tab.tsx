@@ -333,6 +333,9 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   const kpiRows = useMemo(() => {
     if (!kpi) return []
     const { summary, comparison, simulation } = kpi
+    // 実績が1日も登録されていない月は、実績ゼロではなく「未登録」として扱う（U-11）
+    const hasActuals = summary.actualDays > 0
+    const actualOr = (value: string) => (hasActuals ? value : "未登録")
     // 年度累計軸では実績側も年度累計値を使う
     const isFiscal = comparisonAxis === "fiscalYear"
     const revenueActual = isFiscal
@@ -347,7 +350,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {
         key: "roomRevenue",
         label: "室料売上",
-        actual: formatYen(revenueActual),
+        actual: actualOr(formatYen(revenueActual)),
         budgetRatio: axis?.budgetRevenueRatio != null ? formatPercent(axis.budgetRevenueRatio) : "-",
         budgetNegative: axis?.budgetRevenueRatio != null && axis.budgetRevenueRatio < 0.95,
         lastYearRatio: axis?.lastYearRevenueRatio != null ? formatPercent(axis.lastYearRevenueRatio) : "-",
@@ -361,7 +364,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {
         key: "soldRooms",
         label: "販売室数",
-        actual: `${summary.soldRooms.toLocaleString()}室`,
+        actual: actualOr(`${summary.soldRooms.toLocaleString()}室`),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -375,7 +378,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {
         key: "adr",
         label: "ADR",
-        actual: formatYen(adrActual),
+        actual: actualOr(formatYen(adrActual)),
         budgetRatio: axis?.budgetAdrRatio != null ? formatPercent(axis.budgetAdrRatio) : "-",
         budgetNegative: axis?.budgetAdrRatio != null && axis.budgetAdrRatio < 0.95,
         lastYearRatio: axis?.lastYearAdrRatio != null ? formatPercent(axis.lastYearAdrRatio) : "-",
@@ -389,7 +392,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {
         key: "occupancyRate",
         label: "稼働率",
-        actual: formatPercent(occupancyActual),
+        actual: actualOr(formatPercent(occupancyActual)),
         budgetRatio: axis?.budgetOccupancyRatio != null ? formatPercent(axis.budgetOccupancyRatio) : "-",
         budgetNegative: axis?.budgetOccupancyRatio != null && axis.budgetOccupancyRatio < 0.95,
         lastYearRatio:
@@ -404,7 +407,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {
         key: "revPar",
         label: "REV-Per",
-        actual: formatYen(summary.revPar),
+        actual: actualOr(formatYen(summary.revPar)),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -418,7 +421,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {
         key: "guests",
         label: "宿泊人数",
-        actual: `${summary.guests.toLocaleString()}人`,
+        actual: actualOr(`${summary.guests.toLocaleString()}人`),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -432,7 +435,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {
         key: "dor",
         label: "DOR",
-        actual: `${summary.dor.toFixed(2)}人`,
+        actual: actualOr(`${summary.dor.toFixed(2)}人`),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -446,7 +449,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {
         key: "guestUnitPrice",
         label: "客単価",
-        actual: formatYen(summary.guestUnitPrice),
+        actual: actualOr(formatYen(summary.guestUnitPrice)),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -475,15 +478,21 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       label: `${k.year}/${String(k.month).padStart(2, "0")}`,
     }))
 
+    // 実績が1日も無い月は「未登録」を返す（実績ゼロと区別する — U-11）
+    const withActuals =
+      (format: (k: DashboardKpi) => string) =>
+      (k: DashboardKpi): string =>
+        k.summary.actualDays > 0 ? format(k) : "未登録"
+
     const formatters: Record<string, (k: DashboardKpi) => string> = {
-      roomRevenue: (k) => formatYen(k.summary.roomRevenue),
-      soldRooms: (k) => `${k.summary.soldRooms.toLocaleString()}室`,
-      adr: (k) => formatYen(k.summary.adr),
-      occupancyRate: (k) => formatPercent(k.summary.occupancyRate),
-      revPar: (k) => formatYen(k.summary.revPar),
-      guests: (k) => `${k.summary.guests.toLocaleString()}人`,
-      dor: (k) => `${k.summary.dor.toFixed(2)}人`,
-      guestUnitPrice: (k) => formatYen(k.summary.guestUnitPrice),
+      roomRevenue: withActuals((k) => formatYen(k.summary.roomRevenue)),
+      soldRooms: withActuals((k) => `${k.summary.soldRooms.toLocaleString()}室`),
+      adr: withActuals((k) => formatYen(k.summary.adr)),
+      occupancyRate: withActuals((k) => formatPercent(k.summary.occupancyRate)),
+      revPar: withActuals((k) => formatYen(k.summary.revPar)),
+      guests: withActuals((k) => `${k.summary.guests.toLocaleString()}人`),
+      dor: withActuals((k) => `${k.summary.dor.toFixed(2)}人`),
+      guestUnitPrice: withActuals((k) => formatYen(k.summary.guestUnitPrice)),
     }
 
     const labels: Record<string, string> = {
@@ -988,7 +997,9 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
                 {kpi
                   ? comparisonAxis === "fiscalYear" && kpi.comparison
                     ? `${kpi.comparison.actualSummary.fiscalActualDays}日分の実績を集計（年度累計）`
-                    : `${kpi.summary.actualDays}日分の実績を集計`
+                    : kpi.summary.actualDays > 0
+                      ? `${kpi.summary.actualDays}日分の実績を集計`
+                      : "この月の実績は未登録です（0は実績ゼロではありません）"
                   : ""}
               </p>
             </div>
