@@ -38,6 +38,7 @@ import {
   type UpsertBudgetsRequest,
 } from "@/lib/api"
 import { formatGuests, formatPercent, formatYen } from "@/lib/format"
+import { canManage } from "@shared/types"
 
 /** 入力欄を持つ項目。budgetRooms / lastYearRooms はバックエンドが稼働率から導出する */
 type BudgetField =
@@ -138,7 +139,7 @@ function readOnlyText(raw: string, kind: FieldDef["kind"]): string {
 
 export function BudgetSection() {
   const { hotelId, user } = useAuth()
-  const canEdit = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const canEdit = canManage(user?.role)
 
   const currentYear = new Date().getFullYear()
   const [year, setYear] = useState(currentYear)

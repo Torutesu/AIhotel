@@ -122,7 +122,7 @@ export function SettingsTab() {
 
       <CompetitorSection />
 
-      {/* ユーザー管理（ADMIN / MANAGER のみ。OPERATOR では何も描画されない — X-3） */}
+      {/* ユーザー管理（管理者 / マネージャー / 運営のみ。OPERATOR では何も描画されない — X-3） */}
       <UserManagementSection />
 
       {/* 外観（テーマ）— next-themes が localStorage に保存し、即座に反映される */}

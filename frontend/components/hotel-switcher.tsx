@@ -2,8 +2,9 @@
 
 // ホテル切替（X-5 / N-6）
 //
-// 複数ホテルにアクセスできるユーザー（ADMIN、および hotelId が null の MANAGER/OPERATOR）
+// 複数ホテルにアクセスできるユーザー（hotelId が null のユーザー、および運営）
 // にだけ表示する。1件しか扱えないユーザーには何も描画しない。
+// 候補は GET /hotels が返すホテルそのまま。ADMIN でも自テナント分しか返らない（#62）。
 // 選択は URL の ?hotel= に載るため（AuthProvider が解決）、全タブがその選択に追従する。
 
 import { Building2 } from "lucide-react"

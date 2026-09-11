@@ -24,6 +24,7 @@ import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type Hotel } from "@/lib/api"
 import { DAY_NAMES, DEFAULT_WEEKEND_DAYS, parseWeekendDays } from "@/lib/date"
 import { zodResolver } from "@/lib/zod-resolver"
+import { canManage as canManageRole } from "@shared/types"
 
 /** 電話番号（日本の固定・携帯を想定した緩めの検証。数字・ハイフン・括弧・+ のみ） */
 const PHONE_PATTERN = /^[0-9+\-()\s]{10,20}$/
@@ -65,7 +66,7 @@ function toFormValues(hotel: Hotel): HotelFormValues {
 
 export function HotelSettingsCard() {
   const { hotelId, user, setHotel: setAuthHotel } = useAuth()
-  const canManage = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const canManage = canManageRole(user?.role)
 
   const [hotel, setHotel] = useState<Hotel | null>(null)
   const [loading, setLoading] = useState(true)

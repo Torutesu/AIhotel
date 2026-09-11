@@ -4,7 +4,7 @@
 // アプリ全体にログイン状態・アクセスできるホテル一覧・選択中のホテル（Hotel）を提供する。
 // 週末定義（Hotel.weekendDays）など施設ごとの設定はここで保持した hotel を唯一の出所とする（U-6）。
 //
-// 複数ホテルにアクセスできるユーザー（ADMIN、および hotelId が null の MANAGER/OPERATOR）は
+// 複数ホテルにアクセスできるユーザー（hotelId が null のユーザー、および運営）は
 // ヘッダーのホテル切替で対象を変えられる。選択は URL の ?hotel= に載せて全タブで共有する（X-5）。
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
@@ -39,16 +39,19 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 /**
  * ユーザーがアクセスできるホテルを解決する。
  *
- * - ADMIN は全ホテル（GET /hotels が全件を返す）
+ * - 運営（PLATFORM_ADMIN）は全テナントの全ホテル（GET /hotels が全件を返す）
  * - hotelId が固定されているユーザーは自ホテルのみ（他ホテルは requireHotelAccess が 403）
  * - hotelId が null のユーザーは自テナントの全ホテル（GET /hotels がテナントで絞って返す）
+ *
+ * ADMIN も #62 以降はテナント管理者なので、GET /hotels は自テナント分しか返さない。
+ * ここでロールを特別扱いせず、返ってきた一覧をそのまま候補にする。
  *
  * ホテル一覧を取得できなかった場合は /auth/me が返したホテルだけで動作させる。
  */
 async function resolveHotels(user: User & { hotel?: Hotel | null }): Promise<Hotel[]> {
   try {
     const hotels = await api.hotels()
-    if (user.role !== "ADMIN" && user.hotelId) {
+    if (user.role !== "PLATFORM_ADMIN" && user.hotelId) {
       return hotels.filter((h) => h.id === user.hotelId)
     }
     if (hotels.length > 0) return hotels

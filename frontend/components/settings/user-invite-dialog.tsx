@@ -1,7 +1,10 @@
 "use client"
 
-// ユーザー招待ダイアログ（X-3 / N-3）
+// ユーザー招待ダイアログ（X-3 / N-3 / #62）
 // POST /auth/register を呼ぶ。zod スキーマは backend の registerSchema と同じ制約にする。
+//
+// 作成されるユーザーのテナントは常に呼び出し元のテナント。ホテルを指定しない場合も
+// 自テナント内の全ホテルを見るユーザーになるだけで、テナントは越えない（#62）。
 
 import { useEffect } from "react"
 import { useForm } from "react-hook-form"
@@ -30,7 +33,7 @@ import { zodResolver } from "@/lib/zod-resolver"
 import type { Hotel } from "@/lib/api"
 import type { UserRole } from "@shared/types"
 
-/** ADMIN が「ホテル指定なし（テナント横断ユーザー）」を選ぶときの番兵値 */
+/** 管理者以上が「ホテル指定なし（テナント内の全ホテルを見るユーザー）」を選ぶときの番兵値 */
 export const NO_HOTEL_VALUE = "__none__"
 
 /** backend の registerSchema と同じ制約（backend/src/lib/validators.ts） */
@@ -47,7 +50,8 @@ export const inviteFormSchema = z.object({
     .regex(/[A-Z]/, "大文字を含めてください")
     .regex(/[a-z]/, "小文字を含めてください")
     .regex(/[0-9]/, "数字を含めてください"),
-  role: z.enum(["ADMIN", "MANAGER", "OPERATOR"]),
+  // 運営（PLATFORM_ADMIN）を選べるのは運営だけ。選択肢は roleOptions で絞る（#62）
+  role: z.enum(["PLATFORM_ADMIN", "ADMIN", "MANAGER", "OPERATOR"]),
   hotelId: z.string(),
 })
 
@@ -56,11 +60,11 @@ export type InviteFormValues = z.infer<typeof inviteFormSchema>
 interface UserInviteDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** 選択できるロール（MANAGER には ADMIN を出さない） */
+  /** 選択できるロール（MANAGER には管理者を、運営以外には運営を出さない — #62） */
   roleOptions: Array<{ value: UserRole; label: string }>
   /** 選択できるホテル（アクセスできるホテルのみ） */
   hotels: Hotel[]
-  /** ホテル指定なし（テナント横断ユーザー）を選べるか。ADMIN のみ */
+  /** ホテル指定なし（テナント内の全ホテルを見るユーザー）を選べるか。管理者以上のみ */
   allowNoHotel: boolean
   /** 初期選択のホテルID */
   defaultHotelId: string | null
@@ -198,7 +202,9 @@ export function UserInviteDialog({
                       </SelectItem>
                     ))}
                     {allowNoHotel && (
-                      <SelectItem value={NO_HOTEL_VALUE}>指定なし（テナント横断）</SelectItem>
+                      <SelectItem value={NO_HOTEL_VALUE}>
+                        指定なし（テナント内の全ホテル）
+                      </SelectItem>
                     )}
                   </SelectContent>
                 </Select>

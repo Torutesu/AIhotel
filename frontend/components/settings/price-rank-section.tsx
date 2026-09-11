@@ -29,6 +29,7 @@ import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
 import { formatYen } from "@/lib/format"
 import { zodResolver } from "@/lib/zod-resolver"
+import { canManage as canManageRole } from "@shared/types"
 
 /** 料金ランクの上限（F-SET-02。バリデータ・seed と揃える） */
 export const MAX_PRICE_RANKS = 40
@@ -92,7 +93,7 @@ const PRICE_FIELDS: Array<{
 
 export function PriceRankSection() {
   const { hotelId, user } = useAuth()
-  const canManage = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const canManage = canManageRole(user?.role)
 
   const [priceRanks, setPriceRanks] = useState<PriceRank[]>([])
   const [loading, setLoading] = useState(true)

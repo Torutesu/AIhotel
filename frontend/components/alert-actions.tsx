@@ -15,6 +15,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type AlertItem } from "@/lib/api"
+import { canManage } from "@shared/types"
 
 interface AlertActionsProps {
   alert: AlertItem
@@ -24,7 +25,7 @@ interface AlertActionsProps {
 
 export function AlertActions({ alert, onUpdated }: AlertActionsProps) {
   const { hotelId, user } = useAuth()
-  const canResolve = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const canResolve = canManage(user?.role)
   const [pending, setPending] = useState<"ACKNOWLEDGED" | "RESOLVED" | null>(null)
 
   const acknowledged = alert.status === "ACKNOWLEDGED"

@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PricingStrategy } from "@/lib/api"
+import { canManage } from "@shared/types"
 
 /** 重みの合計（必須値） */
 const TOTAL_WEIGHT = 100
@@ -55,7 +56,7 @@ function toWeightState(strategy: PricingStrategy): WeightState {
 
 export function StrategyWeightsCard() {
   const { hotelId, user } = useAuth()
-  const canEdit = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const canEdit = canManage(user?.role)
 
   const [strategy, setStrategy] = useState<PricingStrategy | null>(null)
   const [weights, setWeights] = useState<WeightState>({

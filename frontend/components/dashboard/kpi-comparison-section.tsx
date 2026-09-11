@@ -21,6 +21,7 @@ import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type DashboardKpi, type KpiSnapshot } from "@/lib/api"
 import { toDateStr } from "@/lib/date"
 import { formatPercent, formatYen } from "@/lib/format"
+import { canManage } from "@shared/types"
 
 interface KpiComparisonSectionProps {
   year: number
@@ -163,7 +164,7 @@ function SnapshotEmptyState({ detail }: { detail: string }) {
 
 export function KpiComparisonSection({ year, month, summary }: KpiComparisonSectionProps) {
   const { hotelId, user } = useAuth()
-  const canTakeSnapshot = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const canTakeSnapshot = canManage(user?.role)
   const [takingSnapshot, setTakingSnapshot] = useState(false)
 
   const [snapshots, setSnapshots] = useState<KpiSnapshot[]>([])

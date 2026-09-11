@@ -16,6 +16,7 @@ import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PricingSimulation } from "@/lib/api"
 import { daysInMonth, monthLabel, startOfToday, toDateStr } from "@/lib/date"
 import { formatPercent as pct, formatYen as yen } from "@/lib/format"
+import { canManage } from "@shared/types"
 
 /** カレンダー実績から算出した現在値（実データのみ。未確定なら null） */
 export interface CurrentPerformance {
@@ -42,7 +43,7 @@ export function LandingForecastSummary({
   onRecomputed,
 }: LandingForecastSummaryProps) {
   const { hotelId, user } = useAuth()
-  const canRecompute = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const canRecompute = canManage(user?.role)
 
   const [data, setData] = useState<PricingSimulation | null>(null)
   const [loading, setLoading] = useState(true)

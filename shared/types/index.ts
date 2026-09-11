@@ -7,7 +7,36 @@
 // ======================================
 
 // 要件定義書 §4: ADMIN=システム提供側 / MANAGER=支配人 / OPERATOR=現場フロント
-export type UserRole = 'ADMIN' | 'MANAGER' | 'OPERATOR'
+/**
+ * ロール（要件定義書 §5 / #62）。
+ * - PLATFORM_ADMIN（運営）: サービス提供側。tenantId は null。テナントを越えられる唯一のロール
+ * - ADMIN（管理者）: テナント管理者。自テナント内で最上位。他テナントには一切アクセスできない
+ * - MANAGER（マネージャー）: 支配人・レベニューマネージャー
+ * - OPERATOR（オペレーター）: 現場フロント担当
+ *
+ * 画面表示名は ROLE_LABELS（同ファイル）を唯一の出所とする。
+ */
+export type UserRole = 'PLATFORM_ADMIN' | 'ADMIN' | 'MANAGER' | 'OPERATOR'
+
+/** ロールの日本語表示名（UI でロールを描画するときは必ずこれを使う — #62） */
+export const ROLE_LABELS: Record<UserRole, string> = {
+  PLATFORM_ADMIN: '運営',
+  ADMIN: '管理者',
+  MANAGER: 'マネージャー',
+  OPERATOR: 'オペレーター',
+}
+
+/** 表示・選択肢の並び順（上位ロールから） */
+export const ROLE_ORDER: readonly UserRole[] = ['PLATFORM_ADMIN', 'ADMIN', 'MANAGER', 'OPERATOR']
+
+/**
+ * 設定変更・更新系を実行できるロール。
+ * バックエンドの `requireRole('ADMIN', 'MANAGER')` ＋ PLATFORM_ADMIN（全ロールの上位集合）
+ * と同じ判定を返す。UI で「403 になる操作を出さない／通る操作を隠さない」ために使う。
+ */
+export function canManage(role: UserRole | null | undefined): boolean {
+  return role === 'PLATFORM_ADMIN' || role === 'ADMIN' || role === 'MANAGER'
+}
 
 export interface User {
   id: string

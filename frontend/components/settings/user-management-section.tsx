@@ -1,11 +1,15 @@
 "use client"
 
-// ユーザー管理（X-3 / N-3）
+// ユーザー管理（X-3 / N-3 / #62）
 //
 // GET /users?hotelId= は ADMIN / MANAGER のみ（OPERATOR は 403）なので、
 // このセクション自体を ADMIN / MANAGER にしか描画しない。
 //
+// 一覧は「いま見ているホテルが属するテナント」のユーザーだけ。ADMIN は
+// テナント管理者であり、他テナントのユーザーは API 側でも見えない（#62）。
+//
 // バックエンドの不変条件を UI 側でも先回りして無効化する:
+//  - 運営（PLATFORM_ADMIN）ユーザーの操作と運営ロールの付与は運営のみ
 //  - MANAGER は ADMIN ユーザーを操作できず、ADMIN ロールも付与できない
 //  - 自分自身のロール変更・無効化はできない
 // それでも 400/403 が返った場合はバックエンドのメッセージをそのまま表示する。
@@ -33,20 +37,26 @@ import {
   type InviteFormValues,
 } from "@/components/settings/user-invite-dialog"
 import { api, ApiClientError } from "@/lib/api"
-import type { User, UserRole } from "@shared/types"
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  ADMIN: "管理者（ADMIN）",
-  MANAGER: "レベニューマネージャー（MANAGER）",
-  OPERATOR: "フロント担当（OPERATOR）",
-}
-
-const ROLE_ORDER: UserRole[] = ["ADMIN", "MANAGER", "OPERATOR"]
+// ロール表示名は @shared/types の ROLE_LABELS を唯一の出所とする（#62）
+import { ROLE_LABELS, ROLE_ORDER, type User, type UserRole } from "@shared/types"
 
 export function UserManagementSection() {
   const { hotelId, hotels, user } = useAuth()
-  const isAdmin = user?.role === "ADMIN"
+  /** 運営（PLATFORM_ADMIN）。運営ロールの表示・付与を許すのはこのロールだけ */
+  const isPlatformAdmin = user?.role === "PLATFORM_ADMIN"
+  /** テナント管理者以上（運営を含む）。ADMIN ユーザーの操作・ADMIN ロールの付与ができる */
+  const isAdmin = isPlatformAdmin || user?.role === "ADMIN"
   const canManageUsers = isAdmin || user?.role === "MANAGER"
+
+  /** そのロールを選択肢に出せるか（運営ロールは運営にだけ見せる） */
+  const canAssignRole = useCallback(
+    (role: UserRole): boolean => {
+      if (role === "PLATFORM_ADMIN") return isPlatformAdmin
+      if (role === "ADMIN") return isAdmin
+      return true
+    },
+    [isAdmin, isPlatformAdmin],
+  )
 
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
@@ -76,23 +86,36 @@ export function UserManagementSection() {
 
   const roleOptions = useMemo(
     () =>
-      ROLE_ORDER.filter((role) => isAdmin || role !== "ADMIN").map((role) => ({
+      ROLE_ORDER.filter(canAssignRole).map((role) => ({
         value: role,
         label: ROLE_LABELS[role],
       })),
-    [isAdmin],
+    [canAssignRole],
   )
 
   const hotelName = useCallback(
     (targetHotelId: string | null | undefined): string => {
-      if (!targetHotelId) return "指定なし（テナント横断）"
+      if (!targetHotelId) return "指定なし（テナント内の全ホテル）"
       return hotels.find((h) => h.id === targetHotelId)?.name ?? "他ホテル"
     },
     [hotels],
   )
 
-  /** そのユーザーを操作できるか（MANAGER は ADMIN ユーザーに触れない） */
-  const canEditUser = (target: User): boolean => isAdmin || target.role !== "ADMIN"
+  /**
+   * そのユーザーを操作できるか。
+   * 運営ユーザーは運営だけが、ADMIN ユーザーは ADMIN 以上だけが操作できる（#62）
+   */
+  const canEditUser = (target: User): boolean => {
+    if (target.role === "PLATFORM_ADMIN") return isPlatformAdmin
+    if (target.role === "ADMIN") return isAdmin
+    return true
+  }
+
+  /** 操作できない理由（title 属性に出す） */
+  const notEditableReason = (target: User): string =>
+    target.role === "PLATFORM_ADMIN"
+      ? "運営ユーザーを変更できるのは運営のみです"
+      : "管理者ユーザーを変更できるのは管理者のみです"
 
   const isSelf = (target: User): boolean => target.id === user?.id
 
@@ -166,7 +189,7 @@ export function UserManagementSection() {
             <CardDescription>
               同じテナントのユーザーの一覧・招待・ロール変更・有効/無効を管理します（現在{" "}
               {users.length} 名）
-              {!isAdmin && "。ADMIN ユーザーの変更と ADMIN ロールの付与は ADMIN のみ行えます"}
+              {!isAdmin && "。管理者ユーザーの変更と管理者ロールの付与は管理者のみ行えます"}
             </CardDescription>
           </div>
           <Button
@@ -231,17 +254,16 @@ export function UserManagementSection() {
                               self
                                 ? "自分自身のロールは変更できません"
                                 : !editable
-                                  ? "ADMIN ユーザーを変更できるのは ADMIN のみです"
+                                  ? notEditableReason(target)
                                   : undefined
                             }
                           >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {/* 自分や ADMIN ユーザーの行でも、現在値は必ず選択肢に含める */}
+                            {/* 自分や上位ロールの行でも、現在値は必ず選択肢に含める */}
                             {ROLE_ORDER.filter(
-                              (role) =>
-                                isAdmin || role !== "ADMIN" || target.role === "ADMIN",
+                              (role) => canAssignRole(role) || role === target.role,
                             ).map((role) => (
                               <SelectItem key={role} value={role}>
                                 {ROLE_LABELS[role]}
@@ -280,7 +302,7 @@ export function UserManagementSection() {
                               self
                                 ? "自分自身を無効化することはできません"
                                 : !editable
-                                  ? "ADMIN ユーザーを変更できるのは ADMIN のみです"
+                                  ? notEditableReason(target)
                                   : undefined
                             }
                           >
@@ -311,7 +333,7 @@ export function UserManagementSection() {
         onOpenChange={setInviteOpen}
         roleOptions={roleOptions}
         hotels={hotels}
-        // ホテル指定なし（テナント横断）のユーザーを作れるのは ADMIN のみ
+        // ホテル指定なし（テナント内の全ホテルを見るユーザー）を作れるのは管理者以上のみ
         allowNoHotel={isAdmin}
         defaultHotelId={hotelId}
         saving={inviting}

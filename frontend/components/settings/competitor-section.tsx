@@ -21,13 +21,13 @@ import {
   type CompetitorFormValues,
 } from "@/components/settings/competitor-dialog"
 import { api, ApiClientError, type CompetitorSetting } from "@/lib/api"
-import { MAX_COMPETITORS_PER_HOTEL } from "@shared/types"
+import { MAX_COMPETITORS_PER_HOTEL, canManage as canManageRole } from "@shared/types"
 
 const LIMIT_REASON = `競合ホテルは最大${MAX_COMPETITORS_PER_HOTEL}件までです。不要な競合を削除してから追加してください`
 
 export function CompetitorSection() {
   const { hotelId, user } = useAuth()
-  const canManage = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const canManage = canManageRole(user?.role)
 
   const [competitors, setCompetitors] = useState<CompetitorSetting[]>([])
   const [loading, setLoading] = useState(true)
