@@ -24,13 +24,15 @@ export const idParamSchema = z.object({
 // ======================================
 
 export const loginSchema = z.object({
-  email: z.string().email('有効なメールアドレスを入力してください'),
+  // メールアドレスは大文字小文字を区別しない（#44）。検索も登録も小文字で行う
+  email: z.string().trim().toLowerCase().email('有効なメールアドレスを入力してください'),
   // パスワード強度は登録時に強制する。ログイン時は空でないことのみ検証する
   password: z.string().min(1, 'パスワードは必須です'),
 })
 
 export const registerSchema = z.object({
-  email: z.string().email('有効なメールアドレスを入力してください'),
+  // メールアドレスは大文字小文字を区別しない（#44）。検索も登録も小文字で行う
+  email: z.string().trim().toLowerCase().email('有効なメールアドレスを入力してください'),
   password: z.string()
     .min(8, 'パスワードは8文字以上である必要があります')
     .regex(/[A-Z]/, '大文字を含める必要があります')

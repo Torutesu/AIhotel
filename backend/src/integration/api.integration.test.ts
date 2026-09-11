@@ -251,6 +251,52 @@ describeIntegration('API 統合テスト', () => {
       expect(res.body.success).toBe(false)
     })
 
+    it('メールアドレスの大文字小文字を区別せずログインできる（#44）', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: EMAILS.manager.toUpperCase(), password: PASSWORD })
+
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+      // 保存されている（正規化済みの）メールアドレスが返る
+      expect(res.body.data.user.email).toBe(EMAILS.manager)
+    })
+
+    it('大文字混じりで登録してもメールアドレスは小文字で保存される（#44）', async () => {
+      const mixedCase = `${PREFIX}-MixedCase@Example.COM`
+      const res = await request(app)
+        .post('/api/v1/auth/register')
+        .set('Authorization', `Bearer ${tokens.manager}`)
+        .send({
+          email: mixedCase,
+          password: 'Created1234',
+          name: '大文字混じり登録',
+          role: 'OPERATOR',
+          hotelId: HOTEL_A,
+        })
+
+      expect(res.status, JSON.stringify(res.body)).toBe(201)
+      expect(res.body.data.email).toBe(mixedCase.toLowerCase())
+
+      // 同じアドレスを別の大小文字で再登録しようとしても重複として弾かれる
+      const duplicate = await request(app)
+        .post('/api/v1/auth/register')
+        .set('Authorization', `Bearer ${tokens.manager}`)
+        .send({
+          email: mixedCase.toLowerCase(),
+          password: 'Created1234',
+          name: '重複登録',
+          role: 'OPERATOR',
+          hotelId: HOTEL_A,
+        })
+      expect(duplicate.status).toBe(409)
+
+      // 登録した大小文字のままでもログインできる
+      const login = await request(app)
+        .post('/api/v1/auth/login')
+        .send({ email: mixedCase, password: 'Created1234' })
+      expect(login.status, JSON.stringify(login.body)).toBe(200)
+    })
+
     it('リフレッシュトークンを Bearer に使うと 401（S-1）', async () => {
       const res = await request(app)
         .get('/api/v1/auth/me')
