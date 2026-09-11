@@ -1,4 +1,4 @@
-# レベスト — AIレベニュー管理システム (Revest / Revenue Management System)
+# レベスト — AIレベニュー管理システム (Hotel Revenue Management System)
 
 レベスト（レベニューストリーム）は、AIを活用したホテルの収益管理・価格最適化システムです。需要予測、競合分析、動的価格設定機能を提供します。
 

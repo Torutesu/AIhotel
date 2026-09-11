@@ -1,6 +1,6 @@
 # AGENTS.md — コーディングエージェント向けガイド
 
-レベスト（レベニューストリーム / Revest）— AIレベニュー管理システム（ホテル収益管理SaaS）。pnpmモノレポ。
+レベスト（レベニューストリーム）— AIレベニュー管理システム（ホテル収益管理SaaS）。pnpmモノレポ。
 このファイルはコードから推測できない規約と必須ルールのみを記載する。機能仕様は `要件定義書.md`、セットアップ手順は `README.md` を参照。
 
 ## 構成とコマンド
@@ -40,7 +40,7 @@ pnpm --filter backend build && pnpm --filter frontend build
 **スキーマ変更**: `prisma migrate dev` でマイグレーションファイルを生成しコミットする。`db:push` を使わない。`migrate reset` / `--force-reset` / `--accept-data-loss` は禁止（実行前にユーザー確認必須）
 
 **ブランド**（製品名とロゴ。勝手に変えない）:
-- 製品名は「レベスト」（レベニューストリーム / Revest）。旧名称「ホテレベ」は使わない
+- 製品名は「レベスト」（由来はレベニューストリーム）。カタカナ表記のみを使い、ラテン文字に転写しない。旧名称「ホテレベ」は使わない
 - ロゴは `frontend/components/brand-logo.tsx` の `BrandLogo` / `BrandMark` のみを使う。ワードマークをJSXに直接書かない
 - マークの形状（角丸比率 6.5/28、3本のバーとドットの座標）を変更しない。彩色・グラデーション・影を付けない
 - ファビコンは `frontend/app/icon.svg`。形状を変える場合は Figma の Logo ページと同時に更新する
@@ -50,6 +50,7 @@ pnpm --filter backend build && pnpm --filter frontend build
 - ロールは ADMIN / MANAGER / OPERATOR の3種
 - 料金ランクは最大40段階、需要レベルはA〜E、週末=金・土（`Hotel.weekendDays` を参照しハードコードしない）
 - 価格戦略の重み（稼働率/ADR/競合）は合計100%必須
+- ダッシュボードの「稼働・ADR月間推移」は左右二軸のまま維持する（稼働率%とADR円を単一軸2段に分離する案は検討のうえ不採用）
 
 **API契約**: パスは `/api/v1/<領域>`。レスポンスは `utils/response.ts` / `errorHandler.ts` 経由で
 成功 `{success: true, data}` / 失敗 `{success: false, error, errors?}` に統一。独自形式を作らない
