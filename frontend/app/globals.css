@@ -54,6 +54,56 @@
   --sidebar-ring: #0d0d0d;
 }
 
+/* ダークモード。next-themes が <html> に .dark を付与する（layout.tsx で attribute="class"）。
+   値は :root と同じ無彩色ランプから選び直したもので、単純な反転ではない。
+   本文・補助テキスト・状態色はすべて WCAG AA（4.5:1）以上を満たすことを確認済み。
+   フォーム境界の --input は非テキストコントラスト 3:1 を満たすため --border より明るい。
+   シャドウは意図的に据え置き（暗色面では見えないため、階層はヘアラインの境界だけで表す）。 */
+.dark {
+  --background: #0d0d0d;
+  --foreground: #ededed;
+  --card: #181818;
+  --card-foreground: #ededed;
+  --popover: #181818;
+  --popover-foreground: #ededed;
+  --primary: #ffffff; /* CTAの塊は白へ反転する */
+  --primary-foreground: #0d0d0d;
+  --secondary: #282828;
+  --secondary-foreground: #f3f3f3;
+  --muted: #282828;
+  --muted-foreground: #a1a1a1; /* 7.5:1 on --background */
+  --accent: #282828;
+  --accent-foreground: #f3f3f3;
+  --destructive: #ef4444; /* 5.2:1 as text on --background */
+  --destructive-foreground: #0d0d0d;
+  --border: #2e2e2e; /* 装飾的な区切り線 */
+  --input: #666666; /* 3.4:1 — フォーム境界は視認できる必要がある */
+  --ring: #ededed;
+  /* チャート色は暗色面で再検証した。明度帯が L 0.48–0.67 と狭いため
+     chart-3 のみ暗色面用の値に差し替える（他4色はそのまま帯に収まる）。 */
+  --chart-1: oklch(0.55 0.18 250);
+  --chart-2: oklch(0.65 0.15 200);
+  --chart-3: #c2870f;
+  --chart-4: #d55181;
+  --chart-5: #15803d;
+  --positive: #4da3ff;
+  --negative: #f87171;
+  --warning: #d9a036;
+  --ash-gray: #a1a1a1;
+  --stone-muted: #2e2e2e;
+  --sky-wash: #181818;
+  --cyan-edge: #3d3d3d;
+  --soot: #ededed;
+  --sidebar: #0d0d0d;
+  --sidebar-foreground: #ededed;
+  --sidebar-primary: #282828;
+  --sidebar-primary-foreground: #f3f3f3;
+  --sidebar-accent: #1f1f1f;
+  --sidebar-accent-foreground: #f3f3f3;
+  --sidebar-border: #2e2e2e;
+  --sidebar-ring: #ededed;
+}
+
 @theme inline {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-heading: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif; /* 単一書体、weightのみで階層を作る */
