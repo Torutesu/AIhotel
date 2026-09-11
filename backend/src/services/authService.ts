@@ -142,17 +142,32 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 }
 
 /**
- * ユーザー登録（ADMIN専用）
+ * ユーザー登録（ADMIN、および自テナント内の MANAGER — N-3）
  *
  * テナント分離のため公開登録は提供しない。作成されるユーザーの tenantId は
- * hotelId の所属テナントから導出し、リクエスト側で任意指定させない。
+ * 常に hotelId の所属テナントから導出し、リクエスト側で任意指定させない。
+ *
+ * MANAGER による登録の制約（権限昇格・テナント越えの防止）:
+ * - hotelId 必須（テナントを導出できないユーザーを作らせない）
+ * - そのホテルが自分と同じテナントであること
+ * - ADMIN ロールは付与できない
  */
 export async function registerService(
   input: RegisterInput,
-  createdBy: { userId: string; tenantId: string | null },
+  createdBy: { userId: string; tenantId: string | null; role: UserRole },
   ctx?: RequestContext
 ): Promise<Omit<User, 'password'>> {
   const { email, password, name, role, hotelId } = input
+  const isTenantManager = createdBy.role !== 'ADMIN'
+
+  if (isTenantManager) {
+    if (!hotelId) {
+      throw new ApiError(400, 'ホテルIDは必須です')
+    }
+    if (role === 'ADMIN') {
+      throw new ApiError(403, 'ADMIN ロールを付与できるのは ADMIN のみです')
+    }
+  }
 
   const existingUser = await prisma.user.findUnique({
     where: { email },
@@ -174,6 +189,11 @@ export async function registerService(
     }
 
     tenantId = hotel.tenantId
+  }
+
+  // 自テナント外のホテルにユーザーを作らせない（ADMIN のみテナント横断可）
+  if (isTenantManager && tenantId !== createdBy.tenantId) {
+    throw new ApiError(403, 'このホテルへのアクセス権限がありません')
   }
 
   const hashedPassword = await hashPassword(password)

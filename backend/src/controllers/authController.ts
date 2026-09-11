@@ -29,12 +29,12 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 })
 
 /**
- * ユーザー登録（ADMIN専用）
+ * ユーザー登録（ADMIN、および自テナント内の MANAGER — N-3）
  * POST /api/v1/auth/register
  */
 export const register = asyncHandler(async (req: Request, res: Response) => {
   const input: RegisterInput = req.body
-  const createdBy = { userId: req.user!.userId, tenantId: req.user!.tenantId }
+  const createdBy = { userId: req.user!.userId, tenantId: req.user!.tenantId, role: req.user!.role }
   const result = await registerService(input, createdBy, requestContext(req))
   sendCreated(res, result, 'ユーザーを登録しました')
 })

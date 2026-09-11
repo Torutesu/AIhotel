@@ -201,6 +201,20 @@ export const createCompetitorSchema = z.object({
 export const updateCompetitorSchema = createCompetitorSchema.omit({ hotelId: true }).partial()
 
 // ======================================
+// User Management Validators（N-3）
+// ======================================
+
+export const updateUserSchema = z
+  .object({
+    name: z.string().min(1, '名前は必須です').max(100).optional(),
+    role: z.enum(['ADMIN', 'MANAGER', 'OPERATOR']).optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: '更新する項目を指定してください',
+  })
+
+// ======================================
 // Query Validators
 // ======================================
 
@@ -337,3 +351,4 @@ export type BudgetMonthInput = z.infer<typeof budgetMonthSchema>
 export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>
 export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
 export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
+export type UpdateUserInput = z.infer<typeof updateUserSchema>

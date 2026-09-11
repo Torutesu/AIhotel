@@ -485,3 +485,27 @@ export interface CompetitorSetting {
 
 /** 1ホテルあたりに登録できる競合ホテルの上限（F-SET-03） */
 export const MAX_COMPETITORS_PER_HOTEL = 5
+
+// ======================================
+// User Management Types（N-3）
+// ======================================
+
+/** PUT /users/:id のリクエストボディ。省略した項目は変更しない */
+export interface UpdateUserRequest {
+  name?: string
+  role?: UserRole
+  isActive?: boolean
+}
+
+/**
+ * POST /auth/register のリクエストボディ。
+ * tenantId は受け取らず、常に hotelId の所属テナントから導出される。
+ * MANAGER が呼ぶ場合は hotelId 必須・自テナント内・role は ADMIN 以外に限る。
+ */
+export interface RegisterUserRequest {
+  email: string
+  password: string
+  name: string
+  role?: UserRole
+  hotelId?: string
+}
