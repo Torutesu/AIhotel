@@ -1,0 +1,2 @@
+# 静的ファイル置き場。Docker イメージが frontend/public を COPY するため、
+# 空でもディレクトリを残す（favicon は App Router の app/icon.svg を使用）。
