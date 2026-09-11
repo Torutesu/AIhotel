@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 import { monthRange } from '../lib/date.js'
+import { maxOf, mean, median, minOf } from '../lib/stats.js'
 
 /**
  * 日別価格カレンダー（F-DP-01）
@@ -64,10 +65,16 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       predictedAdr: rec.predictedAdr,
       actualOccupancy: actual?.occupancy ?? null,
       actualAdr: actual?.adr ?? null,
-      competitorAvgPrice:
-        compPrices && compPrices.length > 0
-          ? Math.round(compPrices.reduce((a, b) => a + b, 0) / compPrices.length)
-          : null,
+      // 競合料金の代表値。1社の極端な価格に引きずられない中央値を使う（C-9）
+      competitorMedianPrice: median(compPrices ?? []),
+      competitorMinPrice: minOf(compPrices ?? []),
+      competitorMaxPrice: maxOf(compPrices ?? []),
+      /**
+       * @deprecated `competitorMedianPrice` を使うこと（C-9）。
+       * 「平均」表現は廃止方針だが、フロントエンド（Wave B で移行）が参照しているため
+       * 当面は同じ値を返し続ける。フロント移行後に削除する。
+       */
+      competitorAvgPrice: mean(compPrices ?? []),
       confidence: rec.confidence,
     }
   })
