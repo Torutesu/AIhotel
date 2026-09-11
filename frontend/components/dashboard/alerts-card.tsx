@@ -2,8 +2,10 @@
 
 // アラート一覧（U-15 で dashboard-tab.tsx から分割）
 // GET /dashboard/alerts の実データ。ダッシュボードは Level 5・4 のみ表示する（F-DASH-05）。
+// 各カードから PATCH /dashboard/alerts/:id で確認済み・解決済みにできる（X-4）。
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { AlertActions } from "@/components/alert-actions"
 import { Skeleton } from "@/components/ui/skeleton"
 import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
 import type { AlertItem } from "@/lib/api"
@@ -13,9 +15,11 @@ interface AlertsCardProps {
   alerts: AlertItem[]
   loading: boolean
   onAlertNavigate?: (target: AlertLinkTarget) => void
+  /** 「確認済み」「解決済み」操作の後に一覧を取り直す（X-4） */
+  onAlertUpdated?: () => void
 }
 
-export function AlertsCard({ alerts, loading, onAlertNavigate }: AlertsCardProps) {
+export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }: AlertsCardProps) {
   const alertLevelStyles: Record<number, { border: string; bg: string; dot: string; label: string; text: string }> = {
     5: {
       border: "border-negative",
@@ -95,6 +99,10 @@ export function AlertsCard({ alerts, loading, onAlertNavigate }: AlertsCardProps
                       <p className={`text-sm ${style.text}`}>
                         {alert.title}: {alert.message}
                       </p>
+                      {/* 確認済み・解決済みの操作（X-4） */}
+                      <div className="mt-2">
+                        <AlertActions alert={alert} onUpdated={() => onAlertUpdated?.()} />
+                      </div>
                     </div>
                   </div>
                 </div>

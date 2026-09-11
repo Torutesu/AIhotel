@@ -21,6 +21,7 @@ import { useAppState, usePeriod } from "@/components/app-state-provider"
 import type { AnalysisView } from "@/lib/alert-link"
 
 import { DailyAiInsightSection } from "@/components/analysis/daily-ai-insight-section"
+import { LowAlertsSection } from "@/components/analysis/low-alerts-section"
 import { DailyPerformanceSection } from "@/components/analysis/daily-performance-section"
 import { BookingCurveSection } from "@/components/analysis/booking-curve-section"
 import { WeekdayPerformanceSection } from "@/components/analysis/weekday-performance-section"
@@ -100,6 +101,9 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
       </div>
 
       <DailyAiInsightSection />
+
+      {/* ダッシュボードが表示しない Level 3以下のアラート（X-4） */}
+      <LowAlertsSection />
 
       <Tabs
         value={activeView}
