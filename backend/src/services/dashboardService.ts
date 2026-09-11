@@ -107,6 +107,27 @@ export function fiscalYearStart(
 }
 
 /**
+ * 年度開始月から当月までの MonthlyBudget を取得する where 条件。
+ * 当月より先の月を含めない（含めると年度累計の予算が過大になる）。
+ */
+export function fiscalBudgetMonthsFilter(
+  year: number,
+  month: number,
+  startMonth = FISCAL_YEAR_START_MONTH
+): Array<{ year: number; month: { gte?: number; lte?: number } }> {
+  const start = fiscalYearStart(year, month, startMonth)
+
+  if (start.year === year) {
+    return [{ year, month: { gte: start.month, lte: month } }]
+  }
+
+  return [
+    { year: start.year, month: { gte: start.month } },
+    { year, month: { lte: month } },
+  ]
+}
+
+/**
  * 複数月の予算レコードを年度累計の比較対象に畳み込む。
  * ADRは売上÷室数の加重平均、稼働率は室数÷（客室数×期間日数）で再計算する。
  */
@@ -216,13 +237,7 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
         orderBy: { date: 'asc' },
       }),
       prisma.monthlyBudget.findMany({
-        where: {
-          hotelId,
-          OR: [
-            { year: fiscalStart.year, month: { gte: fiscalStart.month } },
-            ...(fiscalStart.year < year ? [{ year, month: { lte: month } }] : []),
-          ],
-        },
+        where: { hotelId, OR: fiscalBudgetMonthsFilter(year, month) },
       }),
       prisma.dailyData.findMany({
         where: { hotelId, date: { gte: lastYearRange.start, lt: lastYearRange.end } },
@@ -305,6 +320,8 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
         fiscalOccupancy: fiscalSummary.occupancyRate,
         fiscalActualDays: fiscalSummary.actualDays,
       },
+      // 年度累計軸では全指標を年度累計で表示するため summary と同じ形で返す
+      fiscalSummary,
     }
   })()
 

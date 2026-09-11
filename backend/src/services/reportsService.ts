@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { fileURLToPath } from 'url'
 import ExcelJS from 'exceljs'
 import PDFDocument from 'pdfkit'
@@ -300,14 +301,51 @@ async function generatePdfReport(data: MonthlyReportData): Promise<Buffer> {
   })
 }
 
-function reportStorageKey(hotelId: string, year: number, month: number, format: 'pdf' | 'excel'): string {
+function reportStorageKey(
+  hotelId: string,
+  year: number,
+  month: number,
+  format: 'pdf' | 'excel',
+  revision: string
+): string {
   const ext = format === 'excel' ? 'xlsx' : 'pdf'
-  return `reports/${hotelId}/${year}-${month}.${ext}`
+  return `reports/${hotelId}/${year}-${month}-${revision}.${ext}`
 }
 
 /**
- * 月次レポートを取得する。storage に既存キャッシュがあればそれを返し、
- * なければ集計・生成して storage に保存してから返す。
+ * レポートの元データの版を表すハッシュ。
+ * 対象月の DailyData / MonthlyBudget / Hotel の件数と最終更新時刻から算出し、
+ * キャッシュキーに含めることでデータ更新後に古いレポートが返るのを防ぐ。
+ */
+async function reportRevision(hotelId: string, year: number, month: number): Promise<string> {
+  const { start, end } = monthRange(year, month)
+
+  const [daily, budget, hotel] = await Promise.all([
+    prisma.dailyData.aggregate({
+      where: { hotelId, date: { gte: start, lt: end } },
+      _count: { _all: true },
+      _max: { updatedAt: true },
+    }),
+    prisma.monthlyBudget.findUnique({
+      where: { hotelId_year_month: { hotelId, year, month } },
+      select: { updatedAt: true },
+    }),
+    prisma.hotel.findUnique({ where: { id: hotelId }, select: { updatedAt: true } }),
+  ])
+
+  const source = [
+    daily._count._all,
+    daily._max.updatedAt?.toISOString() ?? '',
+    budget?.updatedAt.toISOString() ?? '',
+    hotel?.updatedAt.toISOString() ?? '',
+  ].join('|')
+
+  return createHash('sha256').update(source).digest('hex').slice(0, 16)
+}
+
+/**
+ * 月次レポートを取得する。元データの版を含むキーで storage を引き、
+ * 同じ版のキャッシュがあればそれを、なければ再生成して返す。
  */
 export async function getMonthlyReportService(
   hotelId: string,
@@ -315,7 +353,8 @@ export async function getMonthlyReportService(
   month: number,
   format: 'pdf' | 'excel'
 ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
-  const key = reportStorageKey(hotelId, year, month, format)
+  const revision = await reportRevision(hotelId, year, month)
+  const key = reportStorageKey(hotelId, year, month, format, revision)
   const contentType =
     format === 'excel'
       ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'

@@ -253,21 +253,24 @@ export interface ComparisonAxis {
   lastYearOccupancyRatio: number | null
 }
 
+/** KPI実績の集計値（当月・年度累計で共通） */
+export interface KpiSummary {
+  roomRevenue: number
+  soldRooms: number
+  adr: number
+  occupancyRate: number
+  revPar: number
+  guests: number
+  dor: number
+  guestUnitPrice: number
+  actualDays: number
+}
+
 export interface DashboardKpi {
   hotelId: string
   year: number
   month: number
-  summary: {
-    roomRevenue: number
-    soldRooms: number
-    adr: number
-    occupancyRate: number
-    revPar: number
-    guests: number
-    dor: number
-    guestUnitPrice: number
-    actualDays: number
-  }
+  summary: KpiSummary
   comparison: {
     budgetRevenue: number | null
     budgetRevenueToDate: number | null
@@ -291,6 +294,8 @@ export interface DashboardKpi {
       fiscalOccupancy: number
       fiscalActualDays: number
     }
+    /** 年度累計の実績（全指標。summary と同じ形） */
+    fiscalSummary: KpiSummary
   } | null
   dailyTrend: Array<{
     date: string
@@ -615,6 +620,17 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
               fiscalAdr: adr,
               fiscalOccupancy: Number(occupancyRate.toFixed(3)),
               fiscalActualDays: actualDays * elapsedFiscalMonths,
+            },
+            fiscalSummary: {
+              roomRevenue: fiscalRevenue,
+              soldRooms: soldRoomsSum * elapsedFiscalMonths,
+              adr,
+              occupancyRate: Number(occupancyRate.toFixed(3)),
+              revPar: Math.round(revPar),
+              guests: guestsSum * elapsedFiscalMonths,
+              dor,
+              guestUnitPrice,
+              actualDays: actualDays * elapsedFiscalMonths,
             },
           }
         : null,
