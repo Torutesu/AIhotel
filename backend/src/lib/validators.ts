@@ -37,7 +37,8 @@ export const registerSchema = z.object({
     .regex(/[a-z]/, '小文字を含める必要があります')
     .regex(/[0-9]/, '数字を含める必要があります'),
   name: z.string().min(1, '名前は必須です').max(100),
-  role: z.enum(['ADMIN', 'MANAGER', 'OPERATOR']).optional(),
+  // 運営（PLATFORM_ADMIN）を付与できるのは運営だけ。authService.registerService が検証する（#62）
+  role: z.enum(['PLATFORM_ADMIN', 'ADMIN', 'MANAGER', 'OPERATOR']).optional(),
   hotelId: entityIdSchema.optional(),
 })
 
@@ -49,8 +50,15 @@ export const refreshTokenSchema = z.object({
 // Hotel Validators
 // ======================================
 
+// ホテル作成（#62）。
+// tenantId はリクエストで自由に指定させない — テナント管理者（ADMIN）が他テナントに
+// ホテルを作れてしまうため、通常は呼び出し元トークンの tenantId から導出する。
+// 運営（PLATFORM_ADMIN）だけは自分の tenantId を持たないので、どのテナントに作るかを
+// 指定する手段が必要。そのため optional として受け付け、
+// PLATFORM_ADMIN 以外が送った場合は 403、PLATFORM_ADMIN が省いた場合は 400 を
+// コントローラ（hotelsController.createHotel）で返す。
 export const createHotelSchema = z.object({
-  tenantId: entityIdSchema,
+  tenantId: entityIdSchema.optional(),
   name: z.string().min(1, 'ホテル名は必須です').max(200),
   address: z.string().max(500).optional(),
   phone: z.string().max(20).optional(),
@@ -209,7 +217,8 @@ export const updateCompetitorSchema = createCompetitorSchema.omit({ hotelId: tru
 export const updateUserSchema = z
   .object({
     name: z.string().min(1, '名前は必須です').max(100).optional(),
-    role: z.enum(['ADMIN', 'MANAGER', 'OPERATOR']).optional(),
+    // 運営（PLATFORM_ADMIN）への昇格を許すのは運営だけ。usersService.updateUserService が検証する（#62）
+    role: z.enum(['PLATFORM_ADMIN', 'ADMIN', 'MANAGER', 'OPERATOR']).optional(),
     isActive: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {

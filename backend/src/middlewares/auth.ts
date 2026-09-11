@@ -51,17 +51,23 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
 /**
  * 特定のロールが必要なエンドポイント用ミドルウェア
  * authenticate の後に使用すること
+ *
+ * PLATFORM_ADMIN（運営）は全ロールの上位集合として扱い、requireRole の指定に
+ * 明示的に含まれていなくても常に通す（#62）。運営はテナントの新規作成・ホテルの
+ * 払い出し・緊急サポートのために全操作を行える必要があり、既存ルートの
+ * requireRole('ADMIN', 'MANAGER') を一つずつ書き換えると追加漏れが必ず起きるため、
+ * ここで一元的に許可する。
  */
 export function requireRole(...allowedRoles: UserRole[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
       return next(new ApiError(401, '認証が必要です'))
     }
-    
-    if (!allowedRoles.includes(req.user.role)) {
+
+    if (req.user.role !== 'PLATFORM_ADMIN' && !allowedRoles.includes(req.user.role)) {
       return next(new ApiError(403, 'この操作を行う権限がありません'))
     }
-    
+
     next()
   }
 }
@@ -70,12 +76,15 @@ export function requireRole(...allowedRoles: UserRole[]) {
  * 特定のホテルへのアクセス権限をチェックするミドルウェア
  * authenticate の後に使用すること。
  *
- * アクセス範囲（N-6）:
- * - ADMIN: 全テナント・全ホテル
- * - MANAGER / OPERATOR で hotelId が設定済み: そのホテルのみ
- * - MANAGER / OPERATOR で hotelId が null: 自テナント内の全ホテル
- *   （複数施設を統括するレベニューマネージャー向け。hotelId を持たないユーザーが
- *    どのホテルにもアクセスできず締め出されていた問題への対応）
+ * アクセス範囲（N-6 / #62）:
+ * - PLATFORM_ADMIN（運営）: 全テナント・全ホテル。テナントを越えられる唯一のロール
+ * - ADMIN / MANAGER / OPERATOR で hotelId が設定済み: そのホテルのみ
+ * - ADMIN / MANAGER / OPERATOR で hotelId が null: 自テナント内の全ホテル
+ *   （複数施設を統括するレベニューマネージャー・テナント管理者向け。hotelId を
+ *    持たないユーザーがどのホテルにもアクセスできず締め出されていた問題への対応）
+ *
+ * ADMIN（テナント管理者）は自テナント内では最上位だが、テナント境界は
+ * MANAGER / OPERATOR とまったく同じに扱う。他テナントのデータは読めても書けてもいけない（#62）。
  *
  * テナントが異なる場合はロールを問わず 403、
  * 論理削除（isActive=false）されたホテルへのアクセスは 404 にする（S-5）。
@@ -96,8 +105,10 @@ export function requireHotelAccess(hotelIdExtractor: (req: Request) => unknown) 
       }
       const requestedHotelId = rawHotelId ?? undefined
 
-      // ADMINは全てのホテルにアクセス可能（hotelId 未指定は後段の zod 検証に任せる）
-      if (req.user.role === 'ADMIN') {
+      // 運営（PLATFORM_ADMIN）だけが全テナントのホテルにアクセスできる（#62）。
+      // ADMIN は以降のテナント判定に落として自テナント内に閉じ込める。
+      // hotelId 未指定は後段の zod 検証に任せる
+      if (req.user.role === 'PLATFORM_ADMIN') {
         if (requestedHotelId && !(await findActiveHotelService(requestedHotelId))) {
           throw new NotFoundError('ホテル')
         }

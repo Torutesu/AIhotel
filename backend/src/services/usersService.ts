@@ -3,10 +3,11 @@ import { prisma } from '../lib/prisma.js'
 import { ApiError, BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
 import type { UpdateUserInput } from '../lib/validators.js'
 
-// ユーザー管理（N-3）。
+// ユーザー管理（N-3 / #62）。
 //
-// 操作できるのは ADMIN と、自テナント内の MANAGER のみ（ルータで requireRole 済み）。
-// テナント越えの参照・更新を防ぐため、ADMIN 以外は必ず actor.tenantId で絞り込む。
+// 操作できるのは ADMIN（テナント管理者）・MANAGER と、運営（PLATFORM_ADMIN）のみ
+// （ルータで requireRole 済み）。
+// テナント越えの参照・更新を防ぐため、運営以外は ADMIN を含めて必ず actor.tenantId で絞り込む。
 
 /** レスポンスに含めるユーザー項目（password は返さない） */
 export type SafeUser = Omit<User, 'password'>
@@ -46,10 +47,12 @@ export async function listUsersService(hotelId: string): Promise<SafeUser[]> {
 }
 
 /**
- * ユーザー更新（名前・ロール・有効/無効 — N-3）。
+ * ユーザー更新（名前・ロール・有効/無効 — N-3 / #62）。
  *
  * 不変条件:
- * - ADMIN 以外は自テナントのユーザーしか操作できない（他テナントは 404 = 存在を漏らさない）
+ * - 運営（PLATFORM_ADMIN）以外は ADMIN を含め自テナントのユーザーしか操作できない
+ *   （他テナントは 404 = 存在を漏らさない）
+ * - 運営ユーザーの変更と運営ロールの付与は運営のみ（テナント側から運営権限が生えないようにする）
  * - MANAGER は ADMIN ユーザーを操作できず、ADMIN ロールも付与できない（権限昇格の防止）
  * - 自分自身の無効化・ロール変更はできない（最後の管理者が自分を締め出す事故の防止）
  */
@@ -58,17 +61,32 @@ export async function updateUserService(
   input: UpdateUserInput,
   actor: UserActor
 ): Promise<{ before: SafeUser; after: SafeUser }> {
-  // ADMIN 以外はテナント条件を必ず付ける。該当なしは 403 ではなく 404 にして
+  const isPlatformAdmin = actor.role === 'PLATFORM_ADMIN'
+
+  // 運営以外はテナント条件を必ず付ける（ADMIN も例外ではない — #62）。
+  // 該当なしは 403 ではなく 404 にして
   // 「他テナントに、そのIDのユーザーが存在するか」を判別できないようにする
   const before = await prisma.user.findFirst({
     where: {
       id,
-      ...(actor.role !== 'ADMIN' && { tenantId: actor.tenantId ?? '__no_tenant__' }),
+      ...(!isPlatformAdmin && { tenantId: actor.tenantId ?? '__no_tenant__' }),
     },
   })
   if (!before) throw new NotFoundError('ユーザー')
 
-  if (actor.role !== 'ADMIN') {
+  // 運営ユーザーの変更・運営ロールの付与は運営だけに許す。
+  // テナント管理者（ADMIN）が自分やほかのユーザーを運営に昇格できると
+  // テナント境界が実質無効になるため（#62）
+  if (!isPlatformAdmin) {
+    if (before.role === 'PLATFORM_ADMIN') {
+      throw new ApiError(403, '運営（PLATFORM_ADMIN）ユーザーを変更できるのは運営のみです')
+    }
+    if (input.role === 'PLATFORM_ADMIN') {
+      throw new ApiError(403, '運営（PLATFORM_ADMIN）ロールを付与できるのは運営のみです')
+    }
+  }
+
+  if (actor.role !== 'ADMIN' && !isPlatformAdmin) {
     if (before.role === 'ADMIN') {
       throw new ApiError(403, 'ADMIN ユーザーを変更できるのは ADMIN のみです')
     }

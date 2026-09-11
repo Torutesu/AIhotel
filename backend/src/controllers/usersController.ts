@@ -6,7 +6,7 @@ import { listUsersService, updateUserService } from '../services/usersService.js
 import type { UpdateUserInput } from '../lib/validators.js'
 
 /**
- * ユーザー一覧（ADMIN / 自テナントの MANAGER — N-3）
+ * ユーザー一覧（自テナントの ADMIN / MANAGER、および運営 — N-3 / #62）
  * GET /api/v1/users?hotelId=
  */
 export const getUsers = asyncHandler(async (req: Request, res: Response) => {
@@ -16,7 +16,7 @@ export const getUsers = asyncHandler(async (req: Request, res: Response) => {
 })
 
 /**
- * ユーザー更新（名前・ロール・有効/無効。ADMIN / 自テナントの MANAGER — N-3）
+ * ユーザー更新（名前・ロール・有効/無効。自テナントの ADMIN / MANAGER、および運営 — N-3 / #62）
  * PUT /api/v1/users/:id
  */
 export const putUser = asyncHandler(async (req: Request, res: Response) => {

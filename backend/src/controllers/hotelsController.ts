@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
-import { asyncHandler } from '../middlewares/errorHandler.js'
+import { ApiError, BadRequestError, asyncHandler } from '../middlewares/errorHandler.js'
+import type { CreateHotelInput } from '../lib/validators.js'
 import { sendSuccess, sendCreated, sendDeleted } from '../utils/response.js'
 import {
   getHotelsService,
@@ -11,7 +12,7 @@ import {
 import { writeAuditLog } from '../services/auditService.js'
 
 /**
- * ホテル一覧取得。ADMIN は全件、それ以外は自テナントのみ（C-3）
+ * ホテル一覧取得。運営（PLATFORM_ADMIN）は全件、それ以外は自テナントのみ（C-3 / #62）
  * GET /api/v1/hotels
  */
 export const getHotels = asyncHandler(async (req: Request, res: Response) => {
@@ -30,18 +31,40 @@ export const getHotelById = asyncHandler(async (req: Request, res: Response) => 
 })
 
 /**
- * ホテル作成（ADMIN専用）
+ * ホテル作成（ADMIN / 運営 — #62）
  * POST /api/v1/hotels
+ *
+ * tenantId はリクエストボディからは受け取らず、原則として呼び出し元トークンの
+ * tenantId を使う。テナント管理者（ADMIN）が他テナントにホテルを作れないようにするため。
+ * 運営（PLATFORM_ADMIN）は自身の tenantId を持たないので、ボディの tenantId を
+ * このロールに限り許可する。
  */
 export const createHotel = asyncHandler(async (req: Request, res: Response) => {
-  const hotel = await createHotelService(req.body)
+  const { tenantId: requestedTenantId, ...hotelInput } = req.body as CreateHotelInput
+  const actor = req.user!
+  const isPlatformAdmin = actor.role === 'PLATFORM_ADMIN'
+
+  if (requestedTenantId !== undefined && !isPlatformAdmin) {
+    throw new ApiError(403, 'テナントを指定してホテルを作成できるのは運営のみです')
+  }
+
+  const tenantId = isPlatformAdmin ? requestedTenantId : actor.tenantId
+  if (!tenantId) {
+    throw new BadRequestError(
+      isPlatformAdmin
+        ? 'テナントIDは必須です'
+        : 'テナントに所属していないため、ホテルを作成できません'
+    )
+  }
+
+  const hotel = await createHotelService({ ...hotelInput, tenantId })
   await writeAuditLog({
     tenantId: hotel.tenantId,
     userId: req.user!.userId,
     action: 'CREATE',
     entity: 'Hotel',
     entityId: hotel.id,
-    newValue: req.body,
+    newValue: { ...hotelInput, tenantId },
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   })
