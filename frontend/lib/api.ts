@@ -407,6 +407,52 @@ export interface PricingCalendar {
   calendar: PricingCalendarDay[]
 }
 
+/** 月次着地シミュレーション（MonthlyLandingSimulation）。再計算バッチ／recompute で生成される */
+export interface MonthlyLandingSimulation {
+  id: string
+  hotelId: string
+  year: number
+  month: number
+  projectedRevenue: number | null
+  projectedAdr: number | null
+  projectedOccupancy: number | null
+  projectedRevPar: number | null
+  projectedRooms: number | null
+  computedAt: string
+}
+
+/** 月次予算（MonthlyBudget）。未登録なら null */
+export interface MonthlyBudgetRow {
+  id: string
+  hotelId: string
+  year: number
+  month: number
+  budgetRevenue: number | null
+  budgetRooms: number | null
+  budgetAdr: number | null
+  budgetOccupancy: number | null
+  budgetGuests: number | null
+  lastYearRevenue: number | null
+  lastYearRooms: number | null
+  lastYearAdr: number | null
+  lastYearOccupancy: number | null
+  lastYearGuests: number | null
+}
+
+/** GET /api/v1/pricing/simulation のレスポンス */
+export interface PricingSimulation {
+  simulation: MonthlyLandingSimulation | null
+  budget: MonthlyBudgetRow | null
+}
+
+/** POST /api/v1/pricing/recompute のレスポンス */
+export interface RecomputeForecastResult {
+  count: number
+  modelVersion: string
+  startDate: string
+  endDate: string
+}
+
 export interface PricingStrategy {
   id: string
   hotelId: string
@@ -1099,6 +1145,28 @@ export const api = {
         return mockStrategy
       }
     )
+  },
+
+  /**
+   * 月次着地シミュレーション（F-DP-04）。
+   * 行が無い月は simulation が null で返る。フロントエンドで平均値を捏造しないこと。
+   */
+  pricingSimulation(hotelId: string, year: number, month: number): Promise<PricingSimulation> {
+    return rawRequest(`/api/v1/pricing/simulation?hotelId=${hotelId}&year=${year}&month=${month}`)
+  },
+
+  /**
+   * 需要予測の再計算（F-DP-03「AI予測値へリセット」／F-DP-05）。MANAGER 以上。
+   * startDate は本日（JST）以降でなければバックエンドが 400 を返す。
+   */
+  recomputeForecast(
+    hotelId: string,
+    range?: { startDate?: string; endDate?: string }
+  ): Promise<RecomputeForecastResult> {
+    return rawRequest("/api/v1/pricing/recompute", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, ...range }),
+    })
   },
 
   bookingCurve(hotelId: string, date: string): Promise<BookingCurve> {

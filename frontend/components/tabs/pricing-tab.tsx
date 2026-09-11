@@ -27,7 +27,8 @@ import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } f
 import type { Event as HotelEvent } from "@shared/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
-import { DAY_NAMES, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
+import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
+import { DAY_NAMES, monthRange, parseMonthStr, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
 import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
@@ -300,33 +301,27 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     onFocusDateHandled?.()
   }, [focusDate, onFocusDateHandled])
 
+  const { year: selectedYear, month: selectedMonth } = useMemo(
+    () => parseMonthStr(targetMonth),
+    [targetMonth]
+  )
+
   // 表示は1か月のみ（表示する月は「対象月」で選択）
-  const monthRange = useMemo(() => {
-    const [yearStr, monthStr] = targetMonth.split("-")
-    const baseYear = Number.parseInt(yearStr, 10)
-    const baseMonth = Number.parseInt(monthStr, 10)
-    const start = new Date(baseYear, baseMonth - 1, 1)
-    const end = new Date(baseYear, baseMonth, 0)
-    return { startDate: toDateStr(start), endDate: toDateStr(end) }
-  }, [targetMonth])
+  const range = useMemo(() => monthRange(selectedYear, selectedMonth), [selectedYear, selectedMonth])
 
   const loadData = useCallback(async () => {
     if (!hotelId) return
     setLoading(true)
     setError(null)
     try {
-      const [yearStr, monthStr] = targetMonth.split("-")
-      const baseYear = Number.parseInt(yearStr, 10)
-      const baseMonth = Number.parseInt(monthStr, 10)
-
-      const calendar = await api.pricingCalendar(hotelId, baseYear, baseMonth)
+      const calendar = await api.pricingCalendar(hotelId, selectedYear, selectedMonth)
       setMonthsData([{ year: calendar.year, month: calendar.month, calendar: calendar.calendar }])
     } catch (err) {
       setError(err instanceof ApiClientError ? err.message : "データの取得に失敗しました")
     } finally {
       setLoading(false)
     }
-  }, [hotelId, targetMonth])
+  }, [hotelId, selectedYear, selectedMonth])
 
   useEffect(() => {
     loadData()
@@ -337,14 +332,14 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     setEventsLoading(true)
     setEventsError(null)
     try {
-      const result = await api.events(hotelId, monthRange.startDate, monthRange.endDate)
+      const result = await api.events(hotelId, range.startDate, range.endDate)
       setEvents(result)
     } catch (err) {
       setEventsError(err instanceof ApiClientError ? err.message : "イベント情報の取得に失敗しました")
     } finally {
       setEventsLoading(false)
     }
-  }, [hotelId, monthRange])
+  }, [hotelId, range])
 
   useEffect(() => {
     loadEvents()
@@ -409,19 +404,18 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     [hotelId, loadEvents]
   )
 
-  // 月間サマリー（実データから集計）
-  const overallSummary = useMemo(() => {
-    const allDays = monthsData.flatMap((m) => m.calendar)
-    const actualDays = allDays.filter((d) => d.actualAdr != null)
+  // 現在値（実績が確定した日のみを集計した実データ）。
+  // 着地予測は GET /pricing/simulation（LandingForecastSummary）が担当し、ここでは算出しない（U-2）。
+  const currentPerformance = useMemo(() => {
+    const actualDays = monthsData.flatMap((m) => m.calendar).filter((d) => d.actualAdr != null)
     return {
-      currentAdr: avg(actualDays.map((d) => d.actualAdr)) ?? avg(allDays.map((d) => d.recommendedPrice)),
-      landingAdr: avg(allDays.map((d) => d.predictedAdr)),
-      currentRevPar: avg(actualDays.map((d) => (d.actualAdr != null && d.actualOccupancy != null ? d.actualAdr * d.actualOccupancy : null))),
-      landingRevPar: avg(
-        allDays.map((d) => (d.predictedAdr != null && d.predictedOccupancy != null ? d.predictedAdr * d.predictedOccupancy : null))
+      adr: avg(actualDays.map((d) => d.actualAdr)),
+      occupancy: avg(actualDays.map((d) => d.actualOccupancy)),
+      revPar: avg(
+        actualDays.map((d) =>
+          d.actualAdr != null && d.actualOccupancy != null ? d.actualAdr * d.actualOccupancy : null
+        )
       ),
-      currentOccupancy: avg(actualDays.map((d) => d.actualOccupancy)),
-      landingOccupancy: avg(allDays.map((d) => d.predictedOccupancy)),
     }
   }, [monthsData])
 
@@ -512,8 +506,6 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
       {/* 価格設定パラメータとサマリーを1つのCardに統合 */}
       <Card>
         <CardContent className="py-2.5 px-3">
-          <h3 className="text-lg font-semibold mb-2.5">着地予測</h3>
-
           {/* フィルターコントロール（表示は1か月のみ・表示月を選択） */}
           <div className="flex items-center gap-3 flex-wrap mb-2.5">
             <div className="flex items-center gap-1.5">
@@ -556,41 +548,14 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
             </div>
           </div>
 
-          {/* サマリーカード（現在値と着地予測（AI予測）の6指標） */}
-          {loading ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3 border-t pt-2.5">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-16 w-full" />
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-6 gap-3 border-t pt-2.5">
-              <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">現在のADR</p>
-                <div className="text-lg font-semibold mb-0.5">{yen(overallSummary.currentAdr)}</div>
-              </div>
-              <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">現在の稼働率</p>
-                <div className="text-lg font-semibold mb-0.5">{pct(overallSummary.currentOccupancy)}</div>
-              </div>
-              <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">現在のRevPAR</p>
-                <div className="text-lg font-semibold mb-0.5">{yen(overallSummary.currentRevPar)}</div>
-              </div>
-              <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">着地予測ADR（AI予測）</p>
-                <div className="text-lg font-semibold mb-0.5 text-primary">{yen(overallSummary.landingAdr)}</div>
-              </div>
-              <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">着地予測稼働率（AI予測）</p>
-                <div className="text-lg font-semibold mb-0.5 text-primary">{pct(overallSummary.landingOccupancy)}</div>
-              </div>
-              <div className="flex flex-col">
-                <p className="text-xs text-muted-foreground mb-0.5">着地予測RevPAR（AI予測）</p>
-                <div className="text-lg font-semibold mb-0.5 text-primary">{yen(overallSummary.landingRevPar)}</div>
-              </div>
-            </div>
-          )}
+          {/* 着地予測（U-2 — GET /pricing/simulation / POST /pricing/recompute） */}
+          <LandingForecastSummary
+            year={selectedYear}
+            month={selectedMonth}
+            current={currentPerformance}
+            currentLoading={loading}
+            onRecomputed={loadData}
+          />
 
           <div className="border-t my-4"></div>
 
