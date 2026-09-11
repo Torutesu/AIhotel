@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import pino from 'pino'
 import { config } from '../lib/config.js'
 
@@ -35,7 +36,9 @@ const pinoOptions: pino.LoggerOptions = {
     err: pino.stdSerializers.err,
     // Express の Request をそのまま渡しても安全なヘッダーだけに絞る（Authorization/Cookie は出さない）
     req: (req) => ({
+      id: req.id,
       method: req.method,
+      // ルーター配下では req.url からマウント先のプレフィックスが落ちる（C-8）
       url: req.originalUrl ?? req.url,
       path: req.path,
       headers: {
@@ -157,23 +160,59 @@ export const logger = {
   },
 }
 
+// リクエスト相関 ID のヘッダー名（C-8）
+export const REQUEST_ID_HEADER = 'x-request-id'
+
+// クライアントが送ってきた値をそのままログに載せないよう、長さと文字種を制限する
+const MAX_REQUEST_ID_LENGTH = 128
+const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]+$/
+
+/**
+ * リクエスト相関 ID を採番するミドルウェア（C-8）。
+ *
+ * 受信した x-request-id が使える形式ならそれを引き継ぎ（ロードバランサや
+ * フロントエンドが採番したトレース ID をそのまま使えるようにする）、
+ * 無ければ生成する。いずれの場合もレスポンスヘッダーに echo back し、
+ * リクエストログ・エラーログの両方に含める。
+ */
+export function requestId() {
+  return (req: any, res: any, next: () => void) => {
+    const incoming = req.headers?.[REQUEST_ID_HEADER]
+    const candidate = Array.isArray(incoming) ? incoming[0] : incoming
+    const id =
+      typeof candidate === 'string' &&
+      candidate.length > 0 &&
+      candidate.length <= MAX_REQUEST_ID_LENGTH &&
+      SAFE_REQUEST_ID.test(candidate)
+        ? candidate
+        : randomUUID()
+
+    req.id = id
+    res.setHeader(REQUEST_ID_HEADER, id)
+    next()
+  }
+}
+
 // HTTPリクエストログ用ミドルウェア
 export function requestLogger() {
   return (req: any, res: any, next: () => void) => {
     const startTime = Date.now()
-    
+
     // レスポンス完了時にログ出力
     res.on('finish', () => {
       const duration = Date.now() - startTime
       const logData = {
+        requestId: req.id,
         method: req.method,
-        url: req.url,
+        // req.url はルーターにマウントされた時点でプレフィックスが落ちるため
+        // （/api/v1/events/:id が /:id になる）、必ず originalUrl を使う（C-8）
+        url: req.originalUrl ?? req.url,
         statusCode: res.statusCode,
         duration: `${duration}ms`,
         userAgent: req.headers['user-agent'],
-        ip: req.ip || req.connection?.remoteAddress,
+        ip: req.ip || req.socket?.remoteAddress,
       }
-      
+
       if (res.statusCode >= 500) {
         logger.error(logData, 'Request failed')
       } else if (res.statusCode >= 400) {
@@ -182,7 +221,7 @@ export function requestLogger() {
         logger.info(logData, 'Request completed')
       }
     })
-    
+
     next()
   }
 }

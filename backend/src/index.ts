@@ -23,7 +23,7 @@ import { errorHandler } from './middlewares/errorHandler.js'
 import { notFoundHandler } from './middlewares/notFoundHandler.js'
 
 // Import utilities
-import { logger, requestLogger } from './utils/logger.js'
+import { logger, requestId, requestLogger } from './utils/logger.js'
 import { verifyAccessToken } from './lib/auth.js'
 
 // ======================================
@@ -104,7 +104,8 @@ app.use('/api/', limiter)
 app.use(express.json({ limit: '1mb' }))
 app.use(express.urlencoded({ extended: true, limit: '1mb' }))
 
-// Request logging
+// Request correlation id + logging（C-8）。requestId は requestLogger より前に置く
+app.use(requestId())
 app.use(requestLogger())
 
 // ======================================

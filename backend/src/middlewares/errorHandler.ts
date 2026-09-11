@@ -138,15 +138,20 @@ export function errorHandler(
   // req.headers / req.body をそのまま出力しない（Authorization・パスワード・リフレッシュトークンが
   // ログに残るため — S-2）。req は logger の serializer で安全なヘッダーのみに絞られ、
   // 万一含まれた場合も pino の redact でマスクされる
+  // requestId を付けてリクエストログと突き合わせられるようにする（C-8）
+  const requestId = (req as Request & { id?: string }).id
+
   if (!isOperational || statusCode >= 500) {
     logger.error({
       err,
       req,
+      requestId,
       statusCode,
       message,
     }, message)
   } else {
     logger.warn({
+      requestId,
       statusCode,
       message,
       errors,
