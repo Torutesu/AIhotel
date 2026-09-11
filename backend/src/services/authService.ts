@@ -260,7 +260,14 @@ const REFRESH_REUSE_GRACE_MS = 10_000
  * 落ちた場合にセッションだけが消える（ユーザーが理由なくログアウトされる）。
  */
 export async function refreshTokenService(refreshToken: string): Promise<AuthResult> {
-  verifyRefreshToken(refreshToken)
+  // 署名不正・期限切れ・アクセストークンの流用（type クレーム違い）はすべて 401 にする。
+  // verifyRefreshToken は素の Error を投げるため、そのままだと errorHandler が 500 にしてしまい、
+  // クライアントが「再ログインが必要」を判別できなかった
+  try {
+    verifyRefreshToken(refreshToken)
+  } catch (error) {
+    throw new ApiError(401, error instanceof Error ? error.message : '無効なリフレッシュトークンです')
+  }
 
   const storedToken = await prisma.refreshToken.findUnique({
     where: { tokenHash: hashToken(refreshToken) },

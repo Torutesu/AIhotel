@@ -165,6 +165,19 @@ describeIntegration('リフレッシュトークンの回転と再利用検知�
     expect(audit).toBe(0)
   })
 
+  it('アクセストークンや不正な文字列をリフレッシュに使うと 401 になる（500 にしない）', async () => {
+    const session = await login()
+    const accessTokenRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: EMAIL, password: PASSWORD })
+    const accessToken = accessTokenRes.body.data.tokens.accessToken as string
+
+    expect((await refresh(accessToken)).status).toBe(401)
+    expect((await refresh('not-a-jwt')).status).toBe(401)
+    // 正規のリフレッシュトークンは引き続き使える
+    expect((await refresh(session.refreshToken)).status).toBe(200)
+  })
+
   it('期限切れトークンは日次バッチの一括削除で消える', async () => {
     await prisma.refreshToken.deleteMany({ where: { userId } })
     await prisma.refreshToken.create({
