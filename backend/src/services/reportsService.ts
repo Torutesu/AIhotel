@@ -4,7 +4,7 @@ import PDFDocument from 'pdfkit'
 import { prisma } from '../lib/prisma.js'
 import { storage } from '../lib/storage.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
-import { DEFAULT_WEEKEND_DAYS, monthRange } from '../lib/date.js'
+import { DEFAULT_WEEKEND_DAYS, monthRange, todayJst } from '../lib/date.js'
 
 // 月次レポート生成（F-REP-01: Excel / F-REP-02: PDF）。
 // DailyData / MonthlyBudget / MonthlyLandingSimulation を集計し、
@@ -295,14 +295,52 @@ async function generatePdfReport(data: MonthlyReportData): Promise<Buffer> {
   })
 }
 
-function reportStorageKey(hotelId: string, year: number, month: number, format: 'pdf' | 'excel'): string {
-  const ext = format === 'excel' ? 'xlsx' : 'pdf'
-  return `reports/${hotelId}/${year}-${month}.${ext}`
+// レポートをキャッシュしてよい「古さ」の下限（C-2）。
+// 当月と直近2か月（＝経過月数 0・1・2）はまだ日別データが動くのでキャッシュしない。
+const REPORT_CACHE_MIN_AGE_MONTHS = 3
+
+/**
+ * 指定年月が「今」から何か月前かを返す（C-2）。当月は 0、前月は 1、未来月は負数。
+ */
+export function monthsElapsedSince(year: number, month: number, today: Date = todayJst()): number {
+  return (today.getUTCFullYear() - year) * 12 + (today.getUTCMonth() + 1 - month)
 }
 
 /**
- * 月次レポートを取得する。storage に既存キャッシュがあればそれを返し、
- * なければ集計・生成して storage に保存してから返す。
+ * 月次レポートをキャッシュしてよいか（C-2）。
+ *
+ * 旧実装はファイルが存在すれば無条件に返していたため、日別データを修正しても
+ * 古いレポートが永久に返り続けた。当月・直近2か月は実績の入力／修正が続くので
+ * 毎回生成し、それより古い月だけキャッシュ対象にする（キーにデータの版も含める）。
+ */
+export function isReportCacheable(year: number, month: number, today: Date = todayJst()): boolean {
+  return monthsElapsedSince(year, month, today) >= REPORT_CACHE_MIN_AGE_MONTHS
+}
+
+/**
+ * キャッシュキーに含めるデータの版。対象月の DailyData の updatedAt 最大値を使う（C-2）。
+ * 元データが1件でも更新されればキーが変わり、レポートが再生成される。
+ */
+export function dataVersionKey(latestUpdatedAt: Date | null): string {
+  return latestUpdatedAt ? `v${latestUpdatedAt.getTime()}` : 'v0'
+}
+
+function reportStorageKey(
+  hotelId: string,
+  year: number,
+  month: number,
+  format: 'pdf' | 'excel',
+  dataVersion: string
+): string {
+  const ext = format === 'excel' ? 'xlsx' : 'pdf'
+  return `reports/${hotelId}/${year}-${month}-${dataVersion}.${ext}`
+}
+
+/**
+ * 月次レポートを取得する。
+ *
+ * 当月・直近2か月は毎回生成する。それより古い月は元データ（DailyData）の
+ * updatedAt 最大値をキーに含めたキャッシュを参照し、無ければ生成して保存する（C-2）。
  */
 export async function getMonthlyReportService(
   hotelId: string,
@@ -310,21 +348,32 @@ export async function getMonthlyReportService(
   month: number,
   format: 'pdf' | 'excel'
 ): Promise<{ buffer: Buffer; contentType: string; filename: string }> {
-  const key = reportStorageKey(hotelId, year, month, format)
   const contentType =
     format === 'excel'
       ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       : 'application/pdf'
   const filename = `monthly-report-${hotelId}-${year}-${String(month).padStart(2, '0')}.${format === 'excel' ? 'xlsx' : 'pdf'}`
 
-  if (await storage.exists(key)) {
-    const buffer = await storage.get(key)
-    return { buffer, contentType, filename }
+  let key: string | null = null
+  if (isReportCacheable(year, month)) {
+    const { start, end } = monthRange(year, month)
+    const latest = await prisma.dailyData.aggregate({
+      where: { hotelId, date: { gte: start, lt: end } },
+      _max: { updatedAt: true },
+    })
+    key = reportStorageKey(hotelId, year, month, format, dataVersionKey(latest._max.updatedAt))
+
+    if (await storage.exists(key)) {
+      const buffer = await storage.get(key)
+      return { buffer, contentType, filename }
+    }
   }
 
   const data = await buildMonthlyReportData(hotelId, year, month)
   const buffer = format === 'excel' ? await generateExcelReport(data) : await generatePdfReport(data)
-  await storage.put(key, buffer, contentType)
+  if (key) {
+    await storage.put(key, buffer, contentType)
+  }
 
   return { buffer, contentType, filename }
 }
