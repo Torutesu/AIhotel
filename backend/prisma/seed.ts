@@ -91,7 +91,11 @@ async function main() {
   }
   console.log(`✅ Price ranks: ${PRICE_RANK_COUNT}`)
 
-  // 5. Users（要件定義書 §4: ADMIN / MANAGER / OPERATOR）
+  // 5. Users（要件定義書 §5: 運営 / 管理者 / マネージャー / オペレーター）
+  //
+  // デモの3アカウントはすべてテナント所属（ADMIN もテナント管理者であり
+  // 他テナントには一切アクセスできない — #62）。
+  // 運営（PLATFORM_ADMIN）は tenantId / hotelId を持たない別枠のアカウントとして作る。
   const hashedPassword = await bcrypt.hash('Admin1234', 12)
   const users = [
     { email: 'admin@demo-hotel.example.com', name: '管理者', role: UserRole.ADMIN },
@@ -110,7 +114,22 @@ async function main() {
       },
     })
   }
-  console.log(`✅ Users: ${users.length} (password: Admin1234)`)
+
+  // 運営アカウント（PLATFORM_ADMIN）。テナントに属さないため tenantId / hotelId は null
+  const PLATFORM_ADMIN_EMAIL = 'platform@example.com'
+  await prisma.user.upsert({
+    where: { email: PLATFORM_ADMIN_EMAIL },
+    update: { tenantId: null, hotelId: null, role: UserRole.PLATFORM_ADMIN },
+    create: {
+      email: PLATFORM_ADMIN_EMAIL,
+      name: '運営',
+      role: UserRole.PLATFORM_ADMIN,
+      password: hashedPassword,
+      tenantId: null,
+      hotelId: null,
+    },
+  })
+  console.log(`✅ Users: ${users.length + 1} (password: Admin1234)`)
 
   // 6. Pricing strategy config
   await prisma.pricingStrategyConfig.upsert({
