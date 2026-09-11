@@ -1,13 +1,15 @@
 "use client"
 
-// 月初比較・日付比較（U-5 / F-DASH-04）
+// 月初比較・日付比較（U-5 / F-DASH-04 / X-7）
 // GET /api/v1/dashboard/kpi/comparison が返す KpiSnapshot を唯一の出所とする。
 // スナップショットが未取得の月は空配列が返るため、値を生成せず空状態を表示する。
+// MANAGER 以上は POST /dashboard/kpi/snapshot で当日時点のスナップショットを手動取得できる（X-7）。
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { CalendarIcon } from "lucide-react"
+import { CalendarIcon, CameraIcon, Loader2 } from "lucide-react"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
@@ -160,7 +162,9 @@ function SnapshotEmptyState({ detail }: { detail: string }) {
 }
 
 export function KpiComparisonSection({ year, month, summary }: KpiComparisonSectionProps) {
-  const { hotelId } = useAuth()
+  const { hotelId, user } = useAuth()
+  const canTakeSnapshot = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const [takingSnapshot, setTakingSnapshot] = useState(false)
 
   const [snapshots, setSnapshots] = useState<KpiSnapshot[]>([])
   const [loading, setLoading] = useState(true)
@@ -184,6 +188,25 @@ export function KpiComparisonSection({ year, month, summary }: KpiComparisonSect
     load()
   }, [load])
 
+  /** 当日時点のKPIを記録し、比較表を取り直す（同日・同対象月に対して冪等 — X-7） */
+  const takeSnapshot = async () => {
+    if (!hotelId) return
+    setTakingSnapshot(true)
+    try {
+      await api.createKpiSnapshot(hotelId, year, month)
+      toast.success(`${year}年${month}月のスナップショットを取得しました`, {
+        description: "同じ日に取り直しても記録は1件のままです。",
+      })
+      await load()
+    } catch (err) {
+      toast.error(
+        err instanceof ApiClientError ? err.message : "スナップショットの取得に失敗しました",
+      )
+    } finally {
+      setTakingSnapshot(false)
+    }
+  }
+
   /** 月初比較: 対象月に紐づく最も古いスナップショット */
   const monthStartSnapshot = snapshots[0] ?? null
 
@@ -203,10 +226,36 @@ export function KpiComparisonSection({ year, month, summary }: KpiComparisonSect
   return (
     <Card>
       <CardHeader className="pb-1">
-        <CardTitle className="text-base font-medium">月初比較・日付比較</CardTitle>
-        <p className="text-xs text-muted-foreground">
-          日次で記録したKPIスナップショットと現在の実績を比較します（GET /dashboard/kpi/comparison）
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-base font-medium">月初比較・日付比較</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              日次で記録したKPIスナップショットと現在の実績を比較します（GET /dashboard/kpi/comparison）
+            </p>
+          </div>
+          {canTakeSnapshot && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-2 text-xs"
+              disabled={takingSnapshot || !hotelId}
+              onClick={() => void takeSnapshot()}
+            >
+              {takingSnapshot ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <CameraIcon className="h-3.5 w-3.5" aria-hidden />
+              )}
+              月初スナップショットを取得
+            </Button>
+          )}
+        </div>
+        {canTakeSnapshot && (
+          <p className="text-xs text-muted-foreground">
+            通常は日次バッチが記録する処理です（バッチは未実装のため、ここから当日時点の
+            {year}年{month}月のKPIを手動で記録できます。同じ日に何度実行しても記録は1件のままです）。
+          </p>
+        )}
       </CardHeader>
       <CardContent className="pt-0">
         {loading ? (
