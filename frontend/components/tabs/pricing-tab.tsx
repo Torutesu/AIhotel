@@ -36,6 +36,7 @@ import {
   type DailySignal,
   type HotelEvent,
   type EventCandidate,
+  type EventImpact,
   type Venue,
 } from "@/lib/api"
 
@@ -509,7 +510,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   const [approveType, setApproveType] = useState("other")
   const [approveStart, setApproveStart] = useState("")
   const [approveEnd, setApproveEnd] = useState("")
-  const [approveImpact, setApproveImpact] = useState<"high" | "medium" | "low">("medium")
+  const [approveImpact, setApproveImpact] = useState<EventImpact>("medium")
 
   // 日別分析から日付付きで遷移してきたら、その月に切り替えて該当行をハイライトする
   useEffect(() => {
@@ -2128,7 +2129,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="approve-event-impact">影響度</Label>
-                    <Select value={approveImpact} onValueChange={(v: "high" | "medium" | "low") => setApproveImpact(v)}>
+                    <Select value={approveImpact} onValueChange={(v: EventImpact) => setApproveImpact(v)}>
                       <SelectTrigger id="approve-event-impact" className="h-9 text-sm">
                         <SelectValue />
                       </SelectTrigger>

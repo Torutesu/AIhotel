@@ -33,7 +33,9 @@ import {
   AlertCircle,
   ArrowRightLeft,
   BarChart3,
+  BookOpen,
   Edit2,
+  FlaskConical,
   ExternalLink,
   Loader2,
   Play,
@@ -63,6 +65,11 @@ import {
   type LlmOptions,
   type LlmProviderName,
   type LlmSelection,
+  type FactorEvaluation,
+  type RecommendationEffect,
+  type FactorVerdict,
+  type EffectGroupStats,
+  type KnowledgeStatus,
 } from "@/lib/api"
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
@@ -1036,6 +1043,383 @@ function ForecastModelCard({
   )
 }
 
+// ---- 要因の評価（アブレーション・成績表・推奨の効果） ----
+
+const LOOKBACK_OPTIONS = [60, 90, 180] as const
+
+function signedPt(value: number): string {
+  return `${value > 0 ? "+" : value < 0 ? "−" : "±"}${Math.abs(value).toFixed(1)} pt`
+}
+
+function contributionClass(value: number, muted: boolean): string {
+  if (muted || value === 0) return "text-muted-foreground"
+  return value > 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"
+}
+
+function VerdictBadge({ verdict }: { verdict: FactorVerdict }) {
+  switch (verdict) {
+    case "過小評価":
+      return <Badge className="bg-warning/15 text-warning border-transparent">過小評価</Badge>
+    case "過大評価":
+      return <Badge className="bg-[color:var(--negative)]/10 text-[color:var(--negative)] border-transparent">過大評価</Badge>
+    case "妥当":
+      return <Badge className="bg-[color:var(--positive)]/10 text-[color:var(--positive)] border-transparent">妥当</Badge>
+    default:
+      return <Badge variant="secondary" className="text-muted-foreground">データ不足</Badge>
+  }
+}
+
+function yen(value: number | null): string {
+  if (value == null) return "-"
+  return `¥${Math.round(value).toLocaleString("ja-JP")}`
+}
+
+function signedYen(value: number | null): string {
+  if (value == null) return "-"
+  const abs = `¥${Math.abs(Math.round(value)).toLocaleString("ja-JP")}`
+  return value > 0 ? `+${abs}` : value < 0 ? `−${abs}` : `±${abs}`
+}
+
+function EffectCell({ stats }: { stats: EffectGroupStats }) {
+  if (stats.days === 0) return <span className="text-muted-foreground">0日</span>
+  return (
+    <span className="tabular-nums">
+      {stats.days}日 ・ <span className="font-medium">{yen(stats.avgRevPar)}</span>
+    </span>
+  )
+}
+
+function demandLevelLabel(level: string): string {
+  return level === "all" ? "全体" : level
+}
+
+function FactorEvaluationCard({ hotelId }: { hotelId: string | null }) {
+  const [lookbackDays, setLookbackDays] = useState<(typeof LOOKBACK_OPTIONS)[number]>(90)
+  const [factors, setFactors] = useState<FactorEvaluation | null>(null)
+  const [effect, setEffect] = useState<RecommendationEffect | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // 実績との照合に時間がかかるためタブ表示時には読まず、ボタン押下時のみ取得する
+  const evaluate = useCallback(async () => {
+    if (!hotelId) return
+    setLoading(true)
+    setError(null)
+    try {
+      const [f, e] = await Promise.all([api.factorEvaluation(hotelId, lookbackDays), api.recommendationEffect(hotelId, lookbackDays)])
+      setFactors(f)
+      setEffect(e)
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "要因の評価に失敗しました")
+    } finally {
+      setLoading(false)
+    }
+  }, [hotelId, lookbackDays])
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <FlaskConical className="w-5 h-5" />
+              要因の評価
+            </CardTitle>
+            <CardDescription className="mt-1.5">
+              各要因を外したときの精度変化（アブレーション）、要因別の想定と実績の差（成績表）、推奨を採用した日と上書きした日の成果を実績と照合します
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Select value={String(lookbackDays)} onValueChange={(v) => setLookbackDays(Number(v) as (typeof LOOKBACK_OPTIONS)[number])}>
+              <SelectTrigger className="w-28 h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOOKBACK_OPTIONS.map((d) => (
+                  <SelectItem key={d} value={String(d)}>
+                    直近{d}日
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button size="sm" className="gap-2" disabled={loading || !hotelId} onClick={evaluate}>
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+              評価を実行
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {loading ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">実績と照合しています（数秒かかります）...</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-3 py-8 text-center">
+            <AlertCircle className="w-6 h-6 text-destructive" />
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <Button variant="outline" size="sm" onClick={evaluate} className="gap-2">
+              <RefreshCw className="w-4 h-4" />
+              再試行
+            </Button>
+          </div>
+        ) : !factors || !effect ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            期間を選んで「評価を実行」を押すと、要因ごとの貢献と推奨の効果を表示します。
+          </p>
+        ) : (
+          <>
+            {/* (a) アブレーション */}
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                <h4 className="text-sm font-medium">アブレーション（要因を外したときの精度変化）</h4>
+                <span className="text-xs text-muted-foreground">
+                  直近{factors.lookbackDays}日 ・ サンプル {factors.samples} 件
+                </span>
+              </div>
+              {factors.ablation.length === 0 ? (
+                <p className="text-sm text-muted-foreground">評価できる要因がありません。</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-1.5 px-2 font-medium">要因</th>
+                        <th className="text-right py-1.5 px-2 font-medium">効いた日数</th>
+                        <th className="text-right py-1.5 px-2 font-medium">外した場合のMAPE</th>
+                        <th className="text-right py-1.5 px-2 font-medium">貢献</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {factors.ablation.map((row) => {
+                        const inactive = row.activeDays === 0
+                        return (
+                          <tr key={row.group} className={`border-b last:border-b-0 ${inactive ? "text-muted-foreground" : ""}`}>
+                            <td className="py-1.5 px-2">
+                              {row.label}
+                              <span className="ml-1.5 text-xs text-muted-foreground font-mono">{row.group}</span>
+                            </td>
+                            <td className="text-right py-1.5 px-2 tabular-nums">{row.activeDays}日</td>
+                            <td className="text-right py-1.5 px-2 tabular-nums">
+                              {(row.mapeWithout * 100).toFixed(1)}%
+                              <span className="ml-1 text-xs text-muted-foreground">（現在 {(row.mapeWith * 100).toFixed(1)}%）</span>
+                            </td>
+                            <td className={`text-right py-1.5 px-2 tabular-nums font-medium ${contributionClass(row.contribution, inactive)}`}>
+                              {signedPt(row.contribution * 100)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">貢献 = 外した場合のMAPE − 現在のMAPE。正なら要因が精度に貢献、負なら外したほうが良い状態です。</p>
+            </div>
+
+            {/* (b) 要因別成績表 */}
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium">要因別成績表（想定ptと実績の差）</h4>
+              {factors.scorecard.length === 0 ? (
+                <p className="text-sm text-muted-foreground">評価できる要因がありません。</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-1.5 px-2 font-medium">要因</th>
+                        <th className="text-right py-1.5 px-2 font-medium">件数</th>
+                        <th className="text-right py-1.5 px-2 font-medium">想定 pt</th>
+                        <th className="text-right py-1.5 px-2 font-medium">実績との差 pt</th>
+                        <th className="text-center py-1.5 px-2 font-medium">判定</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {factors.scorecard.map((row) => (
+                        <tr key={row.key} className={`border-b last:border-b-0 ${row.verdict === "データ不足" ? "text-muted-foreground" : ""}`}>
+                          <td className="py-1.5 px-2">
+                            {row.label}
+                            {row.group && <span className="ml-1.5 text-xs text-muted-foreground font-mono">{row.group}</span>}
+                          </td>
+                          <td className="text-right py-1.5 px-2 tabular-nums">{row.samples}</td>
+                          <td className="text-right py-1.5 px-2 tabular-nums">{signedPt(row.assumedPt)}</td>
+                          <td className="text-right py-1.5 px-2 tabular-nums">
+                            {signedPt(row.meanResidualPt)}
+                            <span className="ml-1 text-xs text-muted-foreground">（正側 {Math.round(row.positiveShare * 100)}%）</span>
+                          </td>
+                          <td className="text-center py-1.5 px-2">
+                            <VerdictBadge verdict={row.verdict} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                実績との差が正なら想定より実績が強く（過小評価）、負なら想定ほど効いていません（過大評価）。件数が少ない要因はデータ不足です。
+              </p>
+            </div>
+
+            {/* (c) 推奨の効果 */}
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                <h4 className="text-sm font-medium">推奨の効果（需要レベル別）</h4>
+                <span className="text-xs text-muted-foreground">
+                  直近{effect.lookbackDays}日 ・ サンプル {effect.samples} 件
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-1.5 px-2 font-medium">需要</th>
+                      <th className="text-right py-1.5 px-2 font-medium">採用日数・平均RevPAR</th>
+                      <th className="text-right py-1.5 px-2 font-medium">上書き日数・平均RevPAR</th>
+                      <th className="text-right py-1.5 px-2 font-medium">未判断</th>
+                      <th className="text-right py-1.5 px-2 font-medium">差（採用−上書き）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...effect.rows, effect.overall].map((row, idx) => {
+                      const isOverall = idx === effect.rows.length
+                      const diff = row.revParDiffAdoptedVsOverridden
+                      return (
+                        <tr key={`${row.demandLevel}-${idx}`} className={`border-b last:border-b-0 ${isOverall ? "bg-muted/40 font-medium" : ""}`}>
+                          <td className="py-1.5 px-2">{demandLevelLabel(row.demandLevel)}</td>
+                          <td className="text-right py-1.5 px-2"><EffectCell stats={row.adopted} /></td>
+                          <td className="text-right py-1.5 px-2"><EffectCell stats={row.overridden} /></td>
+                          <td className="text-right py-1.5 px-2"><EffectCell stats={row.none} /></td>
+                          <td className={`text-right py-1.5 px-2 tabular-nums ${diff == null ? "text-muted-foreground" : diff > 0 ? "text-[color:var(--positive)]" : diff < 0 ? "text-[color:var(--negative)]" : ""}`}>
+                            {signedYen(diff)}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {effect.caveat && <p className="text-xs text-muted-foreground">{effect.caveat}</p>}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ---- 基礎資料（知識ベース: docs/knowledge の Markdown） ----
+
+function KnowledgeBaseCard({ isAdmin }: { isAdmin: boolean }) {
+  const { toast } = useToast()
+  const [status, setStatus] = useState<KnowledgeStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [reloading, setReloading] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setStatus(await api.knowledgeStatus())
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "基礎資料の状態を取得できませんでした")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const handleReload = async () => {
+    setReloading(true)
+    try {
+      const result = await api.reloadKnowledge()
+      toast({
+        title: "基礎資料を再読込しました",
+        description: `${result.documents.length} 文書・${result.chunks} 章（${result.dir}）`,
+      })
+      await load()
+    } catch (err) {
+      toast({
+        title: "基礎資料の再読込に失敗しました",
+        description: err instanceof ApiClientError ? err.message : undefined,
+        variant: "destructive",
+      })
+    } finally {
+      setReloading(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <BookOpen className="w-5 h-5" />
+              基礎資料（知識ベース）
+            </CardTitle>
+            <CardDescription className="mt-1.5">
+              docs/knowledge の Markdown が回答の根拠になります。章（## 見出し）単位で引用されます。
+            </CardDescription>
+          </div>
+          {isAdmin && (
+            <Button variant="outline" size="sm" className="gap-2" disabled={reloading || loading} onClick={handleReload}>
+              {reloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              再読込
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-2/3" />
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-4 w-3/5" />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <AlertCircle className="w-6 h-6 text-destructive" />
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <Button variant="outline" size="sm" onClick={load} className="gap-2">
+              <RefreshCw className="w-4 h-4" />
+              再試行
+            </Button>
+          </div>
+        ) : !status || status.documents.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            読み込まれた基礎資料がありません。{status?.dir ? `${status.dir} に Markdown を置いて再読込してください。` : ""}
+          </p>
+        ) : (
+          <>
+            <ul className="divide-y rounded-md border">
+              {status.documents.map((doc) => (
+                <li key={doc.file} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{doc.title}</p>
+                    <p className="truncate text-xs text-muted-foreground font-mono">{doc.file}</p>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{doc.sections} 章</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              {status.documents.length} 文書 ・ {status.chunks} 章
+              {status.dir ? ` ・ ${status.dir}` : ""}
+              {status.loadedAt ? ` ・ 読込 ${new Date(status.loadedAt).toLocaleString("ja-JP")}` : ""}
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function SettingsTab() {
   const { toast } = useToast()
   const { hotelId, user } = useAuth()
@@ -1823,6 +2207,12 @@ export function SettingsTab() {
 
       {/* 予測モデル（バックテスト比較・学習・切り替え） */}
       <ForecastModelCard hotelId={hotelId} canManage={canManageHotel} isAdmin={isAdmin} />
+
+      {/* 要因の評価（アブレーション・成績表・推奨の効果） */}
+      <FactorEvaluationCard hotelId={hotelId} />
+
+      {/* 基礎資料（知識ベース） */}
+      <KnowledgeBaseCard isAdmin={isAdmin} />
 
       {/* 表示設定 */}
       <Card>

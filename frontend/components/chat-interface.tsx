@@ -2,33 +2,104 @@
 
 import type React from "react"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Textarea } from "@/components/ui/textarea"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, X, Sparkles } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Send, X, Sparkles, Plus, History, Check, XCircle, AlertCircle, RefreshCw, Loader2, BookOpen } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { Message } from "@shared/types"
+import { useAuth } from "@/components/auth-provider"
+import {
+  api,
+  ApiClientError,
+  type ChatAction,
+  type ChatCitation,
+  type ChatConversationSummary,
+  type ChatTool,
+} from "@/lib/api"
 
 type ChatInterfaceProps = {
   isOpen: boolean
   onClose: () => void
 }
 
+/** 画面表示用のメッセージ。error はAPIエラー（再試行付き）の吹き出し */
+type UiMessage = {
+  id: string
+  role: "user" | "assistant" | "error"
+  content: string
+  citations?: ChatCitation[]
+  actions?: ChatAction[]
+  llmProvider?: string | null
+  llmModel?: string | null
+  /** error のとき: 再送する発言 */
+  retryContent?: string
+}
+
+const GREETING: UiMessage = {
+  id: "greeting",
+  role: "assistant",
+  content:
+    "こんにちは！AIアシスタントです。推奨ランクの理由説明・要因の評価・基礎資料の引用に加え、イベント登録や採否の記録も会話から行えます。",
+}
+
+/** バックエンドのツール名 → 「できること」の短い表示名。未知のツールは説明文の先頭を使う */
+const TOOL_LABELS: Record<string, string> = {
+  get_pricing_overview: "価格の概況",
+  explain_recommendation: "推奨の説明",
+  get_daily_digest: "今日の要点",
+  get_factor_scorecard: "要因評価",
+  search_knowledge: "基礎資料の引用",
+  register_event: "登録",
+  record_decision: "採否",
+  adjust_factor: "係数調整",
+  ignore_competitor_soldout: "競合満室の除外",
+}
+
+function toolLabel(tool: ChatTool): string {
+  return TOOL_LABELS[tool.name] ?? tool.description.split(/[。（(]/)[0].slice(0, 12)
+}
+
+function capabilitiesLine(tools: ChatTool[]): string | null {
+  if (tools.length === 0) return null
+  const uniq = (list: ChatTool[]) => Array.from(new Set(list.map(toolLabel)))
+  const read = uniq(tools.filter((t) => !t.write))
+  const write = uniq(tools.filter((t) => t.write))
+  const parts = [read.join("・")]
+  if (write.length > 0) parts.push(write.join("・"))
+  return `できること: ${parts.filter(Boolean).join(" / ")}`
+}
+
+function formatConversationDate(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  return d.toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })
+}
+
+const suggestedQuestions = ["今日決めるべき日は？", "今週末の推奨ランクの理由は？", "祝日の係数は効いている？", "ガードレールの考え方を教えて"]
+
 export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      role: "assistant",
-      content:
-        "こんにちは！ホテレベのAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。",
-      timestamp: new Date(),
-    },
-  ])
+  const { hotelId } = useAuth()
+  const [messages, setMessages] = useState<UiMessage[]>([GREETING])
   const [input, setInput] = useState("")
   const [isTyping, setIsTyping] = useState(false)
+  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [tools, setTools] = useState<ChatTool[]>([])
+  const [conversations, setConversations] = useState<ChatConversationSummary[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
+  const [loadingConversation, setLoadingConversation] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -36,139 +107,296 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
     }
   }, [isOpen])
 
+  // 開いたときにこのロールで使えるツールを取得し「できること」を表示する
   useEffect(() => {
-    if (scrollAreaRef.current) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight
+    if (!isOpen) return
+    let cancelled = false
+    api
+      .chatTools()
+      .then((list) => {
+        if (!cancelled) setTools(list)
+      })
+      .catch(() => {
+        if (!cancelled) setTools([])
+      })
+    return () => {
+      cancelled = true
     }
-  }, [messages])
+  }, [isOpen])
+
+  useEffect(() => {
+    const viewport = scrollAreaRef.current?.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]")
+    const target = viewport ?? scrollAreaRef.current
+    if (target) {
+      target.scrollTop = target.scrollHeight
+    }
+  }, [messages, isTyping])
+
+  const send = useCallback(
+    async (content: string, options: { appendUserMessage: boolean }) => {
+      const text = content.trim()
+      if (!text || !hotelId) return
+      if (options.appendUserMessage) {
+        setMessages((prev) => [...prev, { id: `u-${Date.now()}`, role: "user", content: text }])
+      }
+      setIsTyping(true)
+      try {
+        const reply = await api.sendChatMessage({
+          hotelId,
+          content: text,
+          ...(conversationId ? { conversationId } : {}),
+        })
+        setConversationId(reply.conversationId)
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: reply.message.id,
+            role: "assistant",
+            content: reply.message.content,
+            citations: reply.message.citations ?? [],
+            actions: reply.message.actions ?? [],
+            llmProvider: reply.message.llmProvider,
+            llmModel: reply.message.llmModel,
+          },
+        ])
+      } catch (err) {
+        // APIキー未設定（400）などはバックエンドの日本語メッセージをそのまま表示する
+        const message = err instanceof ApiClientError ? err.message : "応答の取得に失敗しました"
+        setMessages((prev) => [...prev, { id: `e-${Date.now()}`, role: "error", content: message, retryContent: text }])
+      } finally {
+        setIsTyping(false)
+      }
+    },
+    [hotelId, conversationId]
+  )
 
   const handleSend = async () => {
-    if (!input.trim()) return
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input,
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
+    if (!input.trim() || isTyping) return
+    const text = input
     setInput("")
-    setIsTyping(true)
-
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: getAIResponse(input),
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, aiResponse])
-      setIsTyping(false)
-    }, 1500)
+    await send(text, { appendUserMessage: true })
   }
 
-  const getAIResponse = (query: string): string => {
-    const lowerQuery = query.toLowerCase()
-
-    if (lowerQuery.includes("稼働率") || lowerQuery.includes("occupancy")) {
-      return "現在の稼働率は82.5%です。前月比-2.1%とやや低下していますが、週末は95%以上を維持しています。平日の稼働率向上のため、ビジネス客向けプロモーションの実施を推奨します。"
-    }
-
-    if (lowerQuery.includes("adr") || lowerQuery.includes("平均客室単価")) {
-      return "現在のADRは¥18,250です。前年同月比+3.2%と好調に推移しています。競合平均が¥17,800であることを考慮すると、さらに5-8%の値上げ余地があると分析しています。"
-    }
-
-    if (lowerQuery.includes("価格") || lowerQuery.includes("プライシング") || lowerQuery.includes("料金")) {
-      return "ダイナミックプライシング分析によると、4月5日（土）は需要が非常に高いため、現在価格¥24,000から¥26,500への値上げを推奨します。これにより約10.4%の増収が見込まれます。"
-    }
-
-    if (lowerQuery.includes("チャネル") || lowerQuery.includes("予約")) {
-      return "公式サイトが全体の38.5%を占め、最も重要な予約チャネルとなっています。公式アプリの成長率が+24.8%と突出しており、モバイル戦略の強化が効果を発揮しています。"
-    }
-
-    if (lowerQuery.includes("収益") || lowerQuery.includes("売上") || lowerQuery.includes("revenue")) {
-      return "今月の室料売上は¥12,450,000で、予算比+8.5%、前年比+12.3%と好調です。ADRの上昇が主な要因で、価格戦略が効果的に機能しています。"
-    }
-
-    if (lowerQuery.includes("レポート") || lowerQuery.includes("report")) {
-      return "レポートタブから月次レポート、四半期レポート、カスタムレポートを生成できます。PDF、Excel、CSV形式でのエクスポートに対応しています。定期レポートの自動配信設定も可能です。"
-    }
-
-    if (lowerQuery.includes("予測") || lowerQuery.includes("forecast")) {
-      return "AI予測によると、来月の稼働率は87.0%、ADRは¥18,333、室料売上は¥13,200,000に達する見込みです。地域イベントの開催により需要増加が期待されます。"
-    }
-
-    return "ご質問ありがとうございます。ダッシュボード、価格設定、日別分析、各種分析、レポートなど、システムの各機能についてサポートいたします。具体的にどのような情報をお探しですか？"
+  const handleRetry = async (message: UiMessage) => {
+    if (!message.retryContent || isTyping) return
+    setMessages((prev) => prev.filter((m) => m.id !== message.id))
+    await send(message.retryContent, { appendUserMessage: false })
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+  const handleNewConversation = () => {
+    setConversationId(null)
+    setMessages([GREETING])
+    setInput("")
+    inputRef.current?.focus()
+  }
+
+  const loadHistory = useCallback(async () => {
+    if (!hotelId) return
+    setHistoryLoading(true)
+    setHistoryError(null)
+    try {
+      setConversations(await api.chatConversations(hotelId))
+    } catch (err) {
+      setHistoryError(err instanceof ApiClientError ? err.message : "履歴の取得に失敗しました")
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [hotelId])
+
+  const openConversation = async (id: string) => {
+    if (!hotelId) return
+    setLoadingConversation(true)
+    try {
+      const conv = await api.chatConversation(id, hotelId)
+      setConversationId(conv.id)
+      setMessages(
+        conv.messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          citations: m.citations ?? [],
+          actions: m.actions ?? [],
+          llmProvider: m.llmProvider,
+          llmModel: m.llmModel,
+        }))
+      )
+    } catch (err) {
+      const message = err instanceof ApiClientError ? err.message : "会話の読み込みに失敗しました"
+      setMessages((prev) => [...prev, { id: `e-${Date.now()}`, role: "error", content: message }])
+    } finally {
+      setLoadingConversation(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Enter で送信、Shift+Enter で改行（日本語入力の変換確定は除外）
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       handleSend()
     }
   }
 
-  const suggestedQuestions = [
-    "今月の稼働率は？",
-    "価格を上げるべき日は？",
-    "最も収益性の高いチャネルは？",
-    "来月の予測を教えて",
-  ]
-
   if (!isOpen) return null
+
+  const capabilities = capabilitiesLine(tools)
 
   return (
     <div className="fixed inset-0 md:inset-auto md:bottom-24 md:right-6 w-full md:w-[420px] h-full md:h-[600px] bg-card border-0 md:border border-border rounded-none md:rounded-lg shadow-xs flex flex-col overflow-hidden z-30">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-border bg-muted/50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-foreground" />
+      <div className="border-b border-border bg-muted/50">
+        <div className="flex items-center justify-between p-4 pb-2">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5 text-foreground" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="font-heading font-medium tracking-tight">AIアシスタント</h3>
+              <p className="text-xs text-muted-foreground">収益管理をサポート</p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-heading font-medium tracking-tight">AIアシスタント</h3>
-            <p className="text-xs text-muted-foreground">収益管理をサポート</p>
+          <div className="flex items-center gap-1 shrink-0">
+            <DropdownMenu onOpenChange={(open) => open && loadHistory()}>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-1.5 h-8 px-2" disabled={!hotelId} title="過去の会話">
+                  <History className="w-4 h-4" />
+                  <span className="text-xs">履歴</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72 max-h-80 overflow-y-auto">
+                <DropdownMenuLabel className="text-xs">過去の会話</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {historyLoading ? (
+                  <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    読み込み中...
+                  </div>
+                ) : historyError ? (
+                  <div className="px-2 py-2 space-y-1.5">
+                    <p className="text-xs text-destructive">{historyError}</p>
+                    <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={loadHistory}>
+                      <RefreshCw className="w-3 h-3" />
+                      再試行
+                    </Button>
+                  </div>
+                ) : conversations.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">まだ会話はありません</p>
+                ) : (
+                  conversations.map((c) => (
+                    <DropdownMenuItem
+                      key={c.id}
+                      className={cn("flex flex-col items-start gap-0.5", c.id === conversationId && "bg-accent")}
+                      onSelect={() => openConversation(c.id)}
+                    >
+                      <span className="text-sm truncate w-full">{c.title || "（無題の会話）"}</span>
+                      <span className="text-[10px] text-muted-foreground">{formatConversationDate(c.updatedAt)}</span>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="ghost" size="sm" className="gap-1.5 h-8 px-2" onClick={handleNewConversation} title="新しい会話">
+              <Plus className="w-4 h-4" />
+              <span className="text-xs">新しい会話</span>
+            </Button>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <X className="w-5 h-5" />
+            </Button>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="w-5 h-5" />
-        </Button>
+        {capabilities && <p className="px-4 pb-2.5 text-[11px] leading-snug text-muted-foreground">{capabilities}</p>}
       </div>
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <div className="space-y-4">
-          {messages.map((message) => (
-            <div key={message.id} className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}>
-              <div
-                className={cn(
-                  "max-w-[85%] rounded-lg px-4 py-3 text-sm leading-relaxed",
-                  message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
-                )}
-              >
-                {message.content}
-              </div>
+          {loadingConversation && (
+            <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground py-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              会話を読み込んでいます...
             </div>
-          ))}
+          )}
+          {messages.map((message) => {
+            if (message.role === "error") {
+              return (
+                <div key={message.id} className="flex justify-start">
+                  <div className="max-w-[85%] rounded-lg px-4 py-3 text-sm leading-relaxed bg-destructive/10 border border-destructive/30 text-foreground space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                    </div>
+                    {message.retryContent && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 text-xs"
+                        disabled={isTyping}
+                        onClick={() => handleRetry(message)}
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                        再試行
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            }
+            const isUser = message.role === "user"
+            return (
+              <div key={message.id} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+                <div className={cn("max-w-[85%] space-y-1", isUser ? "items-end" : "items-start")}>
+                  <div
+                    className={cn(
+                      "rounded-lg px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words",
+                      isUser ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+                    )}
+                  >
+                    {message.content}
+                  </div>
+                  {!isUser && message.citations && message.citations.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {message.citations.map((c) => (
+                        <Badge key={c.id} variant="outline" className="gap-1 text-[10px] font-normal max-w-full">
+                          <BookOpen className="w-3 h-3 shrink-0" />
+                          <span className="text-muted-foreground shrink-0">出典</span>
+                          <span className="truncate">{c.path}</span>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {!isUser && message.actions && message.actions.length > 0 && (
+                    <ul className="space-y-1 pt-0.5">
+                      {message.actions.map((a, idx) => (
+                        <li
+                          key={`${a.tool}-${idx}`}
+                          className={cn("flex items-start gap-1.5 text-xs", a.ok ? "text-foreground" : "text-destructive")}
+                        >
+                          {a.ok ? (
+                            <Check className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[color:var(--positive)]" />
+                          ) : (
+                            <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                          )}
+                          <span className="break-words">{a.summary}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!isUser && (message.llmProvider || message.llmModel) && (
+                    <p className="text-[10px] text-muted-foreground">
+                      {[message.llmProvider, message.llmModel].filter(Boolean).join(" / ")}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
 
           {isTyping && (
             <div className="flex justify-start">
               <div className="bg-muted rounded-lg px-4 py-3">
                 <div className="flex gap-1">
-                  <div
-                    className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <div
-                    className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  />
-                  <div
-                    className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  />
+                  <div className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: "0ms" }} />
+                  <div className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: "150ms" }} />
+                  <div className="w-2 h-2 rounded-full bg-muted-foreground/50 animate-bounce" style={{ animationDelay: "300ms" }} />
                 </div>
               </div>
             </div>
@@ -184,7 +412,10 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
             {suggestedQuestions.map((question, index) => (
               <button
                 key={index}
-                onClick={() => setInput(question)}
+                onClick={() => {
+                  setInput(question)
+                  inputRef.current?.focus()
+                }}
                 className="text-xs px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 transition-colors"
               >
                 {question}
@@ -196,16 +427,18 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
 
       {/* Input */}
       <div className="p-4 border-t border-border bg-background">
-        <div className="flex gap-2">
-          <Input
+        <div className="flex gap-2 items-end">
+          <Textarea
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="質問を入力してください..."
-            className="flex-1"
+            onKeyDown={handleKeyDown}
+            placeholder={hotelId ? "質問を入力（Shift+Enter で改行）..." : "ホテル情報を読み込んでいます..."}
+            rows={1}
+            disabled={!hotelId}
+            className="flex-1 min-h-10 max-h-32 resize-none text-sm"
           />
-          <Button onClick={handleSend} size="icon" disabled={!input.trim() || isTyping}>
+          <Button onClick={handleSend} size="icon" disabled={!input.trim() || isTyping || !hotelId}>
             <Send className="w-4 h-4" />
           </Button>
         </div>

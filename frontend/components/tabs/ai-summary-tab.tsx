@@ -1,8 +1,17 @@
 "use client"
 
+import { useCallback, useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useToast } from "@/hooks/use-toast"
+import { useAuth } from "@/components/auth-provider"
+import { api, ApiClientError, type AiSummary } from "@/lib/api"
 import {
+  AlertCircle,
+  Loader2,
+  RefreshCw,
   Brain,
   ExternalLink,
   Sun,
@@ -254,7 +263,76 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="outline">-</Badge>
 }
 
+/** AIまとめ本文。行ごとに表示し「出典:」で始まる行は小さく薄く出す */
+function SummaryContent({ content }: { content: string }) {
+  const lines = content.split(/\r?\n/)
+  return (
+    <div className="space-y-1 text-sm leading-relaxed">
+      {lines.map((line, i) => {
+        if (line.trim() === "") return <div key={i} className="h-2" />
+        const isSource = /^出典[:：]/.test(line.trim())
+        const isHeading = /^【.+】/.test(line.trim())
+        return (
+          <p key={i} className={isSource ? "text-xs text-muted-foreground pt-1" : isHeading ? "font-medium" : undefined}>
+            {line}
+          </p>
+        )
+      })}
+    </div>
+  )
+}
+
 export function AISummaryTab() {
+  const { toast } = useToast()
+  const { hotelId, user } = useAuth()
+  const canGenerate = user?.role === "ADMIN" || user?.role === "MANAGER"
+  const [summary, setSummary] = useState<AiSummary | null>(null)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+
+  const loadSummary = useCallback(async () => {
+    if (!hotelId) return
+    setSummaryLoading(true)
+    setSummaryError(null)
+    try {
+      setSummary(await api.aiSummary(hotelId))
+    } catch (err) {
+      setSummaryError(err instanceof ApiClientError ? err.message : "AIまとめの取得に失敗しました")
+    } finally {
+      setSummaryLoading(false)
+    }
+  }, [hotelId])
+
+  useEffect(() => {
+    loadSummary()
+  }, [loadSummary])
+
+  const handleGenerate = async () => {
+    if (!hotelId) return
+    setGenerating(true)
+    try {
+      const created = await api.generateAiSummary(hotelId)
+      setSummary(created)
+      setSummaryError(null)
+      toast({
+        title: "AIまとめを生成しました",
+        description: created.modelVersion ? `モデル: ${created.modelVersion}` : undefined,
+      })
+      // 生成結果が最新として返るか再取得して同期する
+      await loadSummary()
+    } catch (err) {
+      // APIキー未設定（400）などはバックエンドの日本語メッセージをそのまま表示する
+      toast({
+        title: "AIまとめを生成できませんでした",
+        description: err instanceof ApiClientError ? err.message : undefined,
+        variant: "destructive",
+      })
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* ヘッダー */}
@@ -268,36 +346,62 @@ export function AISummaryTab() {
         </p>
       </div>
 
-      {/* AI総合コメント */}
+      {/* AI総合コメント（AiComment: 【注目】【次の一手】【注意】＋出典） */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            AI総合予測コメント
-          </CardTitle>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                AI総合予測コメント
+              </CardTitle>
+              <CardDescription className="mt-1.5">
+                実績・推奨・要因評価と基礎資料をもとにAIが「注目」「次の一手」「注意」をまとめます
+              </CardDescription>
+            </div>
+            {canGenerate && (
+              <Button size="sm" className="gap-2" disabled={generating || !hotelId} onClick={handleGenerate}>
+                {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                AIまとめを生成
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4 text-sm leading-relaxed">
-            <p>
-              <strong>【先6ヶ月の総合見通し】</strong><br />
-              2026年2月〜7月の期間は、<span className="brand-highlight">3月下旬〜5月上旬が最大の需要期</span>となる見込みです。
-              中国春節（2月上旬）のインバウンド需要に始まり、桜シーズン・ゴールデンウィークと続く高需要期間では、
-              価格戦略の最適化が収益最大化の鍵となります。
+          {summaryLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-5/6" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          ) : summaryError ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <AlertCircle className="w-6 h-6 text-destructive" />
+              <p className="text-sm text-muted-foreground">{summaryError}</p>
+              <Button variant="outline" size="sm" onClick={loadSummary} className="gap-2">
+                <RefreshCw className="w-4 h-4" />
+                再試行
+              </Button>
+            </div>
+          ) : generating ? (
+            <div className="flex flex-col items-center gap-3 py-6 text-center">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">AIまとめを生成しています（数十秒かかることがあります）...</p>
+            </div>
+          ) : summary?.content ? (
+            <div className="space-y-3">
+              <SummaryContent content={summary.content} />
+              <p className="text-xs text-muted-foreground">
+                {summary.modelVersion ? `モデル: ${summary.modelVersion} ・ ` : ""}
+                生成日時: {new Date(summary.generatedAt).toLocaleString("ja-JP")}
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              AIまとめはまだ生成されていません。
+              {canGenerate ? "「AIまとめを生成」を押すと作成されます。" : "MANAGER 以上のユーザーが生成できます。"}
             </p>
-            <p>
-              <strong>【注意事項】</strong><br />
-              <span className="text-warning">6月の梅雨シーズン</span>は需要が大幅に落ち込む予測のため、
-              早期の価格調整とプロモーション施策の準備を推奨します。
-              また、<span className="text-warning">4月に周辺で2軒の新規ホテルが開業予定</span>のため、
-              競合動向の監視を強化してください。
-            </p>
-            <p>
-              <strong>【推奨アクション】</strong><br />
-              ・桜シーズン（3月下旬〜4月上旬）：早期予約促進キャンペーンの実施<br />
-              ・GW（4/29〜5/5）：連泊割引プランの準備<br />
-              ・梅雨期（6月）：平日限定プランや地元向けプロモーションの検討
-            </p>
-          </div>
+          )}
         </CardContent>
       </Card>
 

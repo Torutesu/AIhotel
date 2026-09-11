@@ -56,6 +56,9 @@ export interface VenueExtractOptions {
   llmModel?: string | null
 }
 
+/** イベント影響度（バックエンド validators と同じ4値。共通型 Event には "negative" が未反映） */
+export type EventImpact = "high" | "medium" | "low" | "negative"
+
 export type EventSource = "manual" | "detected" | "extracted"
 export type EventStatus = "candidate" | "confirmed" | "rejected"
 
@@ -63,7 +66,8 @@ export type EventStatus = "candidate" | "confirmed" | "rejected"
  * イベント。会場・候補ステータス等（外部要因設計 Phase 2）はバックエンド側で追加されたため
  * 共通型 Event を拡張する。旧レスポンスとの互換のためすべて optional
  */
-export type HotelEvent = SharedEvent & {
+export type HotelEvent = Omit<SharedEvent, "expectedImpact"> & {
+  expectedImpact?: EventImpact
   venueId?: string | null
   venue?: { id: string; name: string } | null
   expectedAttendance?: number | null
@@ -136,7 +140,7 @@ export interface ReviewEventCandidateInput {
   type?: string
   startDate?: string
   endDate?: string
-  expectedImpact?: "high" | "medium" | "low"
+  expectedImpact?: EventImpact
 }
 
 export interface OtbImportInput {
@@ -207,6 +211,187 @@ export interface PromoteModelResult {
   before: string
   after: string
   gate: { ok: boolean; reason: string }
+}
+
+// ---- AIチャット（Phase 4: 会話から推奨の説明・要因評価・基礎資料の引用・設定変更） ----
+
+export interface ChatCitation {
+  id: string
+  /** "ドキュメント名 › 見出し" */
+  path: string
+}
+
+/** 会話から実行した設定変更 */
+export interface ChatAction {
+  tool: string
+  input: unknown
+  ok: boolean
+  summary: string
+}
+
+export interface ChatReplyMessage {
+  id: string
+  role: "assistant"
+  content: string
+  citations: ChatCitation[]
+  actions: ChatAction[]
+  llmProvider: string
+  llmModel: string
+  createdAt: string
+}
+
+export interface ChatReply {
+  conversationId: string
+  message: ChatReplyMessage
+  toolsUsed: string[]
+}
+
+export interface SendChatMessageInput {
+  hotelId: string
+  conversationId?: string
+  content: string
+  llmProvider?: LlmProviderName
+  llmModel?: string
+}
+
+export interface ChatConversationSummary {
+  id: string
+  title: string | null
+  userId: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ChatConversationMessage {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  citations: ChatCitation[] | null
+  actions: ChatAction[] | null
+  llmProvider: string | null
+  llmModel: string | null
+  createdAt: string
+}
+
+export interface ChatConversation extends ChatConversationSummary {
+  messages: ChatConversationMessage[]
+}
+
+/** チャットから利用できるツール（ロールに応じて write=true の変更系が含まれる） */
+export interface ChatTool {
+  name: string
+  description: string
+  write: boolean
+}
+
+export interface GenerateAiSummaryOptions {
+  section?: string
+  llmProvider?: LlmProviderName
+  llmModel?: string
+}
+
+// ---- 要因の評価（アブレーション・成績表・推奨の効果） ----
+
+/** contribution > 0 = 要因が精度に貢献（MAPE×100 の差、pt） */
+export interface AblationRow {
+  group: string
+  label: string
+  activeDays: number
+  mapeWith: number
+  mapeWithout: number
+  contribution: number
+}
+
+export type FactorVerdict = "過小評価" | "過大評価" | "妥当" | "データ不足"
+
+export interface FactorScorecardRow {
+  key: string
+  label: string
+  group: string | null
+  samples: number
+  assumedPt: number
+  meanResidualPt: number
+  positiveShare: number
+  verdict: FactorVerdict
+}
+
+export interface FactorEvaluation {
+  hotelId: string
+  lookbackDays: number
+  samples: number
+  ablation: AblationRow[]
+  scorecard: FactorScorecardRow[]
+}
+
+export interface EffectGroupStats {
+  days: number
+  avgRevPar: number | null
+  avgOccupancy: number | null
+  avgAdr: number | null
+}
+
+export interface EffectRow {
+  demandLevel: string
+  adopted: EffectGroupStats
+  overridden: EffectGroupStats
+  none: EffectGroupStats
+  revParDiffAdoptedVsOverridden: number | null
+}
+
+export interface RecommendationEffect {
+  hotelId: string
+  lookbackDays: number
+  samples: number
+  rows: EffectRow[]
+  overall: EffectRow
+  caveat: string
+}
+
+export interface SetCompetitorSoldOutIgnoredInput {
+  hotelId: string
+  competitorId: string
+  /** YYYY-MM-DD */
+  date: string
+  ignored: boolean
+  reason?: string
+}
+
+export interface CompetitorSoldOutResult {
+  competitorId: string
+  competitorName: string
+  date: string
+  soldOut: boolean
+  soldOutIgnored: boolean
+}
+
+// ---- 基礎資料（知識ベース: docs/knowledge の Markdown） ----
+
+export interface KnowledgeDocument {
+  file: string
+  title: string
+  sections: number
+}
+
+export interface KnowledgeStatus {
+  dir: string | null
+  loadedAt: string | null
+  chunks: number
+  documents: KnowledgeDocument[]
+}
+
+export interface KnowledgeSearchHit {
+  id: string
+  path: string
+  docTitle: string
+  heading: string
+  text: string
+  score: number
+}
+
+export interface KnowledgeReloadResult {
+  dir: string
+  chunks: number
+  documents: KnowledgeDocument[]
 }
 
 const ACCESS_TOKEN_KEY = "hrms.accessToken"
@@ -569,9 +754,13 @@ export interface AlertItem {
 
 export interface AiSummary {
   id: string
+  hotelId?: string
   section: string
   content: string
+  /** 生成に使ったモデル（例 "anthropic/claude-sonnet-4-5"）。seed データでは null */
+  modelVersion?: string | null
   generatedAt: string
+  createdAt?: string
 }
 
 export interface PricingCalendarDay {
@@ -830,7 +1019,7 @@ export interface CreateEventInput {
   endDate: string
   location?: string
   /** 省略時、venueId が指定されていればバックエンドが会場情報から推定する */
-  expectedImpact?: "high" | "medium" | "low"
+  expectedImpact?: EventImpact
   description?: string
   venueId?: string
   expectedAttendance?: number
@@ -1113,6 +1302,7 @@ function mockAiSummary(section?: string): AiSummary {
   return {
     id: "mock-ai-summary",
     section: section ?? "dashboard-summary",
+    modelVersion: null,
     content:
       "今月の稼働率は予算比 +2.1pt と好調に推移しています。週末（金・土）のADRは前年比 +6% で、" +
       "特に土曜日は満室に近い水準です。一方、平日火曜・水曜の稼働が予算を下回っており、" +
@@ -2036,6 +2226,201 @@ function mockImportCompetitorPrices(input: CompetitorImportInput): CompetitorImp
   return { imported, createdCompetitors: Array.from(created), skipped }
 }
 
+// ---- AIチャット・要因評価・知識ベースのモック（デモ表示用） ----
+
+const MOCK_CHAT_TOOLS: ChatTool[] = [
+  { name: "get_pricing_overview", description: "指定期間の推奨ランク・需要レベル・稼働率の概況を返す", write: false },
+  { name: "explain_recommendation", description: "指定日の推奨ランクの理由分解を返す", write: false },
+  { name: "get_daily_digest", description: "今日決めるべき日・昨日の答え合わせ・採用率を返す", write: false },
+  { name: "get_factor_scorecard", description: "外部要因・内部要因の評価（アブレーション・成績表）を返す", write: false },
+  { name: "search_knowledge", description: "基礎資料（docs/knowledge）を検索して引用する", write: false },
+  { name: "register_event", description: "イベントを登録する", write: true },
+  { name: "record_decision", description: "推奨の採否を記録する", write: true },
+  { name: "adjust_factor", description: "要因の係数を調整し今後90日を再計算する", write: true },
+  { name: "ignore_competitor_soldout", description: "競合の満室を需要シグナルから除外する", write: true },
+]
+
+const MOCK_CHAT_CITATION: ChatCitation = { id: "pricing-strategy#guardrails", path: "価格戦略とランク運用 › ガードレール" }
+
+const MOCK_KNOWLEDGE_DOCUMENTS: KnowledgeDocument[] = [
+  { file: "01-revenue-basics.md", title: "レベニューマネジメントの基礎", sections: 6 },
+  { file: "02-pricing-strategy.md", title: "価格戦略とランク運用", sections: 7 },
+  { file: "03-demand-factors.md", title: "需要要因と係数の考え方", sections: 8 },
+  { file: "04-competitor-analysis.md", title: "競合分析と満室の扱い", sections: 5 },
+  { file: "05-operations.md", title: "日次オペレーションと採否記録", sections: 4 },
+]
+
+const mockKnowledgeLoadedAt = { value: new Date().toISOString() }
+
+function mockKnowledgeStatus(): KnowledgeStatus {
+  return {
+    dir: "docs/knowledge",
+    loadedAt: mockKnowledgeLoadedAt.value,
+    chunks: MOCK_KNOWLEDGE_DOCUMENTS.reduce((sum, d) => sum + d.sections, 0),
+    documents: MOCK_KNOWLEDGE_DOCUMENTS,
+  }
+}
+
+function mockKnowledgeSearch(q: string, k: number): KnowledgeSearchHit[] {
+  const hits: KnowledgeSearchHit[] = [
+    {
+      id: MOCK_CHAT_CITATION.id,
+      path: MOCK_CHAT_CITATION.path,
+      docTitle: "価格戦略とランク運用",
+      heading: "ガードレール",
+      text: "推奨ランクは前日比で最大±3段階まで。競合の満室シグナルだけで上限ランクへ一気に上げず、稼働率とOTBの裏付けを確認する。",
+      score: 0.82,
+    },
+    {
+      id: "demand-factors#weights",
+      path: "需要要因と係数の考え方 › 係数の初期値",
+      docTitle: "需要要因と係数の考え方",
+      heading: "係数の初期値",
+      text: "祝日・連休は +8〜12pt、大型イベントは会場規模と距離に応じて +3〜15pt を初期値とし、成績表で見直す。",
+      score: 0.61,
+    },
+    {
+      id: "competitor-analysis#soldout",
+      path: "競合分析と満室の扱い › 満室の除外",
+      docTitle: "競合分析と満室の扱い",
+      heading: "満室の除外",
+      text: "改装・団体貸切など需要と無関係な満室は「無視」に設定し、需要シグナルから除外する。",
+      score: 0.44,
+    },
+  ]
+  const needle = q.trim()
+  const filtered = needle ? hits.filter((h) => h.text.includes(needle) || h.heading.includes(needle) || h.docTitle.includes(needle)) : hits
+  return (filtered.length > 0 ? filtered : hits).slice(0, k)
+}
+
+const mockConversations: ChatConversation[] = []
+
+function mockChatReply(input: SendChatMessageInput): ChatReply {
+  const now = new Date().toISOString()
+  let conversation = input.conversationId ? mockConversations.find((c) => c.id === input.conversationId) : undefined
+  if (!conversation) {
+    conversation = {
+      id: `mock-conv-${Date.now()}`,
+      title: input.content.slice(0, 30),
+      userId: getMockUser()?.id ?? "mock-user",
+      createdAt: now,
+      updatedAt: now,
+      messages: [],
+    }
+    mockConversations.unshift(conversation)
+  }
+  conversation.messages.push({
+    id: `mock-msg-${Date.now()}-u`,
+    role: "user",
+    content: input.content,
+    citations: null,
+    actions: null,
+    llmProvider: null,
+    llmModel: null,
+    createdAt: now,
+  })
+
+  const wantsRegister = input.content.includes("登録")
+  const actions: ChatAction[] = wantsRegister
+    ? [
+        {
+          tool: "register_event",
+          input: { name: "デモイベント", date: toLocalDateStr(mockAddDays(new Date(), 14)) },
+          ok: true,
+          summary: `イベント「デモイベント」を ${toLocalDateStr(mockAddDays(new Date(), 14))} に登録しました（デモ）`,
+        },
+      ]
+    : []
+  const content = wantsRegister
+    ? "ご依頼の内容をイベントとして登録しました。\n登録したイベントは需要レベルの算出に反映され、推奨ランクが次回の再計算で更新されます。\n\n" +
+      "なお、ガードレールにより推奨ランクの変動は前日比 ±3段階までに抑えられます。"
+    : "直近の推奨ランクは、週末（金・土）の需要レベル A〜B を根拠に上位ランクを提案しています。\n" +
+      "競合の満室シグナルだけで上限ランクへは上げず、稼働率とOTB（予約残）の裏付けを確認したうえで決めています。\n\n" +
+      "詳しい根拠は基礎資料「価格戦略とランク運用 › ガードレール」を参照してください。"
+  const llm = getMockLlmOptions().effective
+  const message: ChatReplyMessage = {
+    id: `mock-msg-${Date.now()}-a`,
+    role: "assistant",
+    content,
+    citations: [MOCK_CHAT_CITATION],
+    actions,
+    llmProvider: input.llmProvider ?? llm?.provider ?? "anthropic",
+    llmModel: input.llmModel ?? llm?.model ?? "mock-model",
+    createdAt: now,
+  }
+  conversation.messages.push({ ...message })
+  conversation.updatedAt = now
+  return {
+    conversationId: conversation.id,
+    message,
+    toolsUsed: wantsRegister ? ["search_knowledge", "register_event"] : ["explain_recommendation", "search_knowledge"],
+  }
+}
+
+function mockFactorEvaluation(hotelId: string, lookbackDays: number): FactorEvaluation {
+  return {
+    hotelId,
+    lookbackDays,
+    samples: Math.min(lookbackDays, 180),
+    ablation: [
+      // MAPE は割合（0.084 = 8.4%）。contribution = mapeWithout − mapeWith（正なら要因が精度に貢献）
+      { group: "holiday", label: "祝日・連休", activeDays: Math.round(lookbackDays * 0.14), mapeWith: 0.084, mapeWithout: 0.109, contribution: 0.025 },
+      { group: "event", label: "イベント", activeDays: Math.round(lookbackDays * 0.08), mapeWith: 0.084, mapeWithout: 0.096, contribution: 0.012 },
+      { group: "weather", label: "天候", activeDays: Math.round(lookbackDays * 0.22), mapeWith: 0.084, mapeWithout: 0.081, contribution: -0.003 },
+      { group: "competitor", label: "競合満室", activeDays: Math.round(lookbackDays * 0.05), mapeWith: 0.084, mapeWithout: 0.087, contribution: 0.003 },
+      { group: "schoolBreak", label: "学校休暇", activeDays: 0, mapeWith: 0.084, mapeWithout: 0.084, contribution: 0 },
+    ],
+    scorecard: [
+      { key: "holiday.publicHoliday", label: "祝日", group: "holiday", samples: 11, assumedPt: 10, meanResidualPt: 3.2, positiveShare: 0.73, verdict: "過小評価" },
+      { key: "holiday.longWeekend", label: "連休", group: "holiday", samples: 6, assumedPt: 12, meanResidualPt: 0.8, positiveShare: 0.5, verdict: "妥当" },
+      { key: "event.large", label: "大型イベント", group: "event", samples: 4, assumedPt: 15, meanResidualPt: -6.1, positiveShare: 0.25, verdict: "過大評価" },
+      { key: "weather.rain", label: "雨天", group: "weather", samples: 19, assumedPt: -4, meanResidualPt: -0.4, positiveShare: 0.47, verdict: "妥当" },
+      { key: "competitor.soldOut", label: "競合満室", group: "competitor", samples: 2, assumedPt: 5, meanResidualPt: 1.5, positiveShare: 0.5, verdict: "データ不足" },
+    ],
+  }
+}
+
+function mockRecommendationEffect(hotelId: string, lookbackDays: number): RecommendationEffect {
+  const row = (
+    demandLevel: string,
+    adopted: [number, number, number, number],
+    overridden: [number, number, number, number],
+    none: [number, number, number, number]
+  ): EffectRow => {
+    const stats = ([days, revPar, occ, adr]: [number, number, number, number]): EffectGroupStats => ({
+      days,
+      avgRevPar: days > 0 ? revPar : null,
+      avgOccupancy: days > 0 ? occ : null,
+      avgAdr: days > 0 ? adr : null,
+    })
+    const a = stats(adopted)
+    const o = stats(overridden)
+    return {
+      demandLevel,
+      adopted: a,
+      overridden: o,
+      none: stats(none),
+      revParDiffAdoptedVsOverridden: a.avgRevPar != null && o.avgRevPar != null ? Math.round(a.avgRevPar - o.avgRevPar) : null,
+    }
+  }
+  const rows = [
+    row("A", [9, 21800, 94.2, 23100], [4, 20400, 95.0, 21500], [3, 20900, 93.1, 22400]),
+    row("B", [14, 17600, 88.5, 19900], [6, 16900, 90.1, 18800], [5, 17100, 87.9, 19400]),
+    row("C", [18, 13900, 80.2, 17300], [5, 13700, 82.0, 16700], [9, 13500, 79.5, 17000]),
+    row("D", [11, 10800, 71.4, 15100], [3, 11200, 74.0, 15100], [6, 10500, 70.2, 15000]),
+    row("E", [4, 8100, 60.5, 13400], [0, 0, 0, 0], [3, 7900, 59.8, 13200]),
+  ]
+  return {
+    hotelId,
+    lookbackDays,
+    samples: rows.reduce((sum, r) => sum + r.adopted.days + r.overridden.days + r.none.days, 0),
+    rows,
+    overall: row("all", [56, 15200, 80.9, 18100], [18, 15600, 84.1, 17600], [26, 14400, 79.3, 17800]),
+    caveat:
+      "採用日と上書き日は需要レベルや曜日構成が異なるため、差は推奨の因果効果ではなく参考値です。上書きは需要が想定と異なった日に偏りやすい点に注意してください。",
+  }
+}
+
 // ---- API surface ----
 
 export const api = {
@@ -2546,6 +2931,164 @@ export const api = {
         }),
       () => {
         mockEvents = getMockEvents(hotelId).filter((e) => e.id !== id)
+      }
+    )
+  },
+
+  // ---- AIチャット（会話から推奨の説明・要因評価・基礎資料の引用・設定変更） ----
+
+  /**
+   * チャットに発言を送りアシスタントの返答を得る。
+   * LLM APIキー未設定時は 400 で日本語メッセージが返るため、そのまま画面に表示する（サイレントに代替しない）
+   */
+  sendChatMessage(input: SendChatMessageInput): Promise<ChatReply> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/chat/messages", {
+          method: "POST",
+          body: JSON.stringify({
+            hotelId: input.hotelId,
+            content: input.content,
+            ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+            ...(input.llmProvider != null ? { llmProvider: input.llmProvider } : {}),
+            ...(input.llmModel != null && input.llmModel !== "" ? { llmModel: input.llmModel } : {}),
+          }),
+        }),
+      () => mockChatReply(input)
+    )
+  },
+
+  /** 会話一覧（新しい順） */
+  chatConversations(hotelId: string): Promise<ChatConversationSummary[]> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/chat/conversations?hotelId=${hotelId}`),
+      () => mockConversations.map(({ messages: _messages, ...summary }) => summary)
+    )
+  },
+
+  /** 過去の会話（メッセージ込み） */
+  chatConversation(id: string, hotelId: string): Promise<ChatConversation> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/chat/conversations/${id}?hotelId=${hotelId}`),
+      () => {
+        const found = mockConversations.find((c) => c.id === id)
+        if (!found) throw new ApiClientError(404, "会話が見つかりません")
+        return found
+      }
+    )
+  },
+
+  /** このユーザーのロールでチャットから実行できるツール */
+  chatTools(): Promise<ChatTool[]> {
+    return withDemoFallback(
+      () => rawRequest("/api/v1/chat/tools"),
+      () => {
+        const role = getMockUser()?.role
+        const canWrite = role === "ADMIN" || role === "MANAGER"
+        return MOCK_CHAT_TOOLS.filter((t) => canWrite || !t.write)
+      }
+    )
+  },
+
+  /** AIまとめを生成する（MANAGER以上）。APIキー未設定時は 400 で日本語メッセージが返る */
+  generateAiSummary(hotelId: string, options: GenerateAiSummaryOptions = {}): Promise<AiSummary> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/dashboard/ai-summary/generate", {
+          method: "POST",
+          body: JSON.stringify({
+            hotelId,
+            ...(options.section ? { section: options.section } : {}),
+            ...(options.llmProvider != null ? { llmProvider: options.llmProvider } : {}),
+            ...(options.llmModel != null && options.llmModel !== "" ? { llmModel: options.llmModel } : {}),
+          }),
+        }),
+      () => {
+        const llm = getMockLlmOptions().effective
+        return {
+          ...mockAiSummary(options.section),
+          id: `mock-ai-summary-${Date.now()}`,
+          hotelId,
+          modelVersion: llm ? `${llm.provider}/${llm.model}` : "mock-model",
+          content:
+            "【注目】週末（金・土）の稼働率が 95% 前後で推移し、ADR も前年比 +6% と好調です。\n" +
+            "【次の一手】平日火曜・水曜の稼働が予算を下回っているため、平日限定プランまたは料金ランクの1段階引き下げを検討してください。\n" +
+            "【注意】来月上旬に周辺で新規ホテルが開業予定です。競合価格の監視を強化してください。\n" +
+            "出典: 価格戦略とランク運用 › ガードレール / 需要要因と係数の考え方 › 係数の初期値",
+          generatedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+        }
+      }
+    )
+  },
+
+  // ---- 要因の評価（アブレーション・成績表・推奨の効果） ----
+
+  factorEvaluation(hotelId: string, lookbackDays?: number): Promise<FactorEvaluation> {
+    const params = new URLSearchParams({ hotelId })
+    if (lookbackDays != null) params.set("lookbackDays", String(lookbackDays))
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/evaluation/factors?${params.toString()}`),
+      () => mockFactorEvaluation(hotelId, lookbackDays ?? 90)
+    )
+  },
+
+  recommendationEffect(hotelId: string, lookbackDays?: number): Promise<RecommendationEffect> {
+    const params = new URLSearchParams({ hotelId })
+    if (lookbackDays != null) params.set("lookbackDays", String(lookbackDays))
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/evaluation/effect?${params.toString()}`),
+      () => mockRecommendationEffect(hotelId, lookbackDays ?? 90)
+    )
+  },
+
+  /** 競合の満室を需要シグナルから除外／復帰する（MANAGER以上） */
+  setCompetitorSoldOutIgnored(input: SetCompetitorSoldOutIgnoredInput): Promise<CompetitorSoldOutResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/integrations/competitor-prices/soldout", {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        }),
+      () => {
+        const def = MOCK_COMPETITOR_DEFS.find((c) => c.id === input.competitorId)
+        return {
+          competitorId: input.competitorId,
+          competitorName: def?.name ?? input.competitorId,
+          date: input.date,
+          soldOut: true,
+          soldOutIgnored: input.ignored,
+        }
+      }
+    )
+  },
+
+  // ---- 基礎資料（知識ベース） ----
+
+  knowledgeStatus(): Promise<KnowledgeStatus> {
+    return withDemoFallback(
+      () => rawRequest("/api/v1/knowledge/status"),
+      () => mockKnowledgeStatus()
+    )
+  },
+
+  knowledgeSearch(q: string, k?: number): Promise<KnowledgeSearchHit[]> {
+    const params = new URLSearchParams({ q })
+    if (k != null) params.set("k", String(k))
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/knowledge/search?${params.toString()}`),
+      () => mockKnowledgeSearch(q, k ?? 5)
+    )
+  },
+
+  /** docs/knowledge を再読込する（ADMINのみ） */
+  reloadKnowledge(): Promise<KnowledgeReloadResult> {
+    return withDemoFallback(
+      () => rawRequest("/api/v1/knowledge/reload", { method: "POST" }),
+      () => {
+        mockKnowledgeLoadedAt.value = new Date().toISOString()
+        const status = mockKnowledgeStatus()
+        return { dir: status.dir ?? "docs/knowledge", chunks: status.chunks, documents: status.documents }
       }
     )
   },
