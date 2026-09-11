@@ -256,13 +256,21 @@ pnpm --filter backend db:studio       # Prisma Studio（DB GUI）起動
 pnpm --filter backend holidays:update # 内閣府の祝日CSVから src/data/jpHolidays.ts を再生成（年1回）
 ```
 
+### テナント導入の流れ
+
+1. テナントとホテルを作成し、ランク表・週末定義・気象庁コード・競合を登録する。
+2. `docs/knowledge/templates/個社MDテンプレート.md` の順にヒアリングし、設定タブ「個社MD」に貼り付けて保存する（保存時にルール節が反映され、需要予測が再計算される）。解釈できない行はエラーとして表示されるので、直してから再保存する。
+3. 過去実績（日別データ）とブッキングカーブを取り込み、`POST /api/v1/pricing/backtest` と設定タブ「要因の評価」で精度と要因の効き方を確認する。個社MDの「効かない要因」はここで見直す。
+4. `DAILY_JOB_ENABLED=true` で日次ジョブを有効にし、毎朝のダイジェストとチャットで運用を始める。
+
 ### 外部要因エンジン（祝日・天候・学習）の使い方
 
 1. **祝日データ**: `backend/src/data/jpHolidays.ts` に同梱済み（2015〜翌年分）。内閣府が翌年分を公開したら `holidays:update` で再生成してコミットする。
 2. **天候**: 設定タブ（またはシード）でホテルに気象庁の府県予報区コード（例 東京都 `130000`）と一次細分区域コード（例 東京地方 `130010`）を登録する。コードは https://www.jma.go.jp/bosai/common/const/area.json の `offices` / `class10s`。8〜16日先まで補完したい場合のみ Open-Meteo の商用APIキーを `OPEN_METEO_API_KEY` に設定し `WEATHER_OPEN_METEO_ENABLED=true` にする。
 3. **日次の流れ**: `POST /api/v1/pricing/signals/ingest`（天候取り込み）→ `POST /api/v1/pricing/recompute`（予測＋価格決定）→ `POST /api/v1/pricing/learn`（前日実績で係数更新）。`DAILY_JOB_ENABLED=true` にすると `DAILY_JOB_HOUR_JST`（既定 4 時）に自動実行し、失敗はアラート（黄）に記録される。手動一括実行は `POST /api/v1/pricing/jobs/daily`（ADMIN）。
 4. **精度確認**: `POST /api/v1/pricing/backtest` で過去期間をリードタイム別に再予測し、要因なし（base のみ）との MAPE を比較できる。`GET /api/v1/pricing/evaluation/factors` は要因を外したときの精度変化（アブレーション）と要因別の残差（過小/過大評価）、`GET /api/v1/pricing/evaluation/effect` は採用日と上書き日の RevPAR を需要レベル帯で比較する。
-5. **会話フィードバック**: `docs/knowledge/` の Markdown（レベニューマネジメントの基礎資料）を章単位で引用しながら、チャットで「なぜこのランクか」「今日何をすべきか」に答える。「9/20 は近くで工事だから下げて」「競合Aの売止めは団体」「連休前はもっと強気で」のような発話はイベント登録・採否記録・係数調整・売止め除外として実行され、監査ログと会話に残る。`ANTHROPIC_API_KEY` か `OPENAI_API_KEY` が必要。
+5. **3層の制御**: アルゴリズム（計算式と学習）／汎用MD（`docs/knowledge/`、テナント共通の基礎）／個社MD（テナント・ホテル単位のヒアリング結果、設定タブから保存）。優先順位は「個社の制約 > 学習済み係数 > 汎用の既定」。個社MDの「## ルール」節は保存時に解釈され、ランク範囲・最低価格・変動幅・競合ポジション・除外競合・効かない要因（係数を0に固定し学習でも動かさない）・自動採用に反映される。テンプレートは `docs/knowledge/templates/個社MDテンプレート.md`。
+6. **会話フィードバック**: `docs/knowledge/` の Markdown（レベニューマネジメントの基礎資料）を章単位で引用しながら、チャットで「なぜこのランクか」「今日何をすべきか」に答える。「9/20 は近くで工事だから下げて」「競合Aの売止めは団体」「連休前はもっと強気で」のような発話はイベント登録・採否記録・係数調整・売止め除外として実行され、監査ログと会話に残る。`ANTHROPIC_API_KEY` か `OPENAI_API_KEY` が必要。
 5. **イベント**: 設定タブの会場マスタに主要会場（収容人数・距離・イベントカレンダーURL）を登録すると、イベント登録時の影響度が自動推定される。`ANTHROPIC_API_KEY` または `OPENAI_API_KEY` を設定すると会場ページから候補を抽出でき（LLM は Claude / GPT を環境変数 `LLM_PROVIDER` と設定タブのホテル設定で切替）、前年の稼働実績からも候補を検出できる。候補は承認するまで需要予測に使われない。
 6. **PMS / 競合データ**: API 直結までは設定タブの「データ取り込み」から CSV で OTB（`stayDate,roomsBooked`）と競合価格（`competitorName,date,price1P,price2P,price3P,soldOut`）を投入できる。
 7. **モデル運用**: 設定タブの「予測モデル」で稼働中モデルとチャレンジャー（ridge-v1）をバックテスト比較し、門番を通ったときだけ切り替える（ADMIN）。自動採用モードは価格戦略の設定で有効化する（既定は無効）。
