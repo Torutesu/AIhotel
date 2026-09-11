@@ -2,6 +2,7 @@ import type React from "react"
 import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
+import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import "./globals.css"
 
@@ -19,10 +20,18 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="ja">
+    // next-themes は描画前に html へ class を付けるため suppressHydrationWarning が必要（U-12）
+    <html lang="ja" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
-        {children}
-        <Toaster />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <Toaster />
+        </ThemeProvider>
         {/* Vercel Insights のスクリプトは Vercel 上にしか存在しない。セルフホストでは
             毎リクエスト 404 になるため、Vercel 環境でのみ読み込む（F-9）。 */}
         {process.env.NEXT_PUBLIC_VERCEL_ENV ? <Analytics /> : null}
