@@ -28,10 +28,11 @@ import { AISummaryTab } from "@/components/tabs/ai-summary-tab"
 import { ChatInterface } from "@/components/chat-interface"
 import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
+import { useAppState } from "@/components/app-state-provider"
 import { LoginForm } from "@/components/login-form"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import type { Tab } from "@shared/types"
-import type { AlertLinkTarget, AnalysisView } from "@/lib/alert-link"
+import type { AlertLinkTarget } from "@/lib/alert-link"
 
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
@@ -56,14 +57,13 @@ const TAB_TITLES: Record<Tab, string> = {
 }
 
 export function MainLayout() {
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard")
+  // タブ・対象年月・分析ビューは URL（?tab=&year=&month=&view=）が唯一の出所（U-8）
+  const { tab: activeTab, setTab, navigate, setPeriodMonth } = useAppState()
   const [chatOpen, setChatOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   // 分析タブの日付からダイナミックプライシングへ遷移する際の対象日
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
-  // アラートから分析タブへ遷移する際に開くサブビュー
-  const [analysisView, setAnalysisView] = useState<AnalysisView | null>(null)
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const { user, loading, logout, restoreError, retryRestore } = useAuth()
@@ -88,14 +88,14 @@ export function MainLayout() {
   }
 
   const selectTab = (tab: Tab) => {
-    setActiveTab(tab)
+    setTab(tab)
     setMobileNavOpen(false)
   }
 
   // アラートの linkTab は Tab と 1:1 ではないため変換表で解決する（F-4）
   const handleAlertNavigate = (target: AlertLinkTarget) => {
-    setAnalysisView(target.analysisView ?? null)
-    selectTab(target.tab)
+    navigate({ tab: target.tab, analysisView: target.analysisView })
+    setMobileNavOpen(false)
   }
 
   if (loading) {
@@ -278,9 +278,11 @@ export function MainLayout() {
           )}
           {activeTab === "analysis" && (
             <AnalysisTab
-              requestedView={analysisView}
               onNavigateToPricing={(date) => {
                 setPricingFocusDate(date)
+                setPeriodMonth(
+                  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+                )
                 selectTab("pricing")
               }}
             />

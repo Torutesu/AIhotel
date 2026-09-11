@@ -13,6 +13,8 @@ import { AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CampaignParticipationManager } from "@/components/campaign-participation-manager"
 import { SampleDataNotice } from "@/components/sample-data-notice"
+import { useAppState, usePeriod } from "@/components/app-state-provider"
+import { LabeledMonthPicker } from "@/components/month-picker"
 import { SegmentCrossAnalysisSettings } from "@/components/segment-cross-analysis-settings"
 import {
   DailyAiInsightSection,
@@ -31,7 +33,6 @@ function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
 }
 
-const DEFAULT_TARGET_PERIOD = "2025-04"
 
 /**
  * 各分析セクション共通のprops。
@@ -50,18 +51,19 @@ interface FreeAnalysisRow {
   value: number
 }
 
+/**
+ * 対象期間の解決。props で渡されなければ全タブ共有の対象年月（URL同期）を使う。
+ * 年月をコンポーネント内に固定値で持たない（U-8）。
+ */
 function useTargetPeriod({ targetPeriod, onTargetPeriodChange }: AnalysisSectionProps) {
-  const [internalPeriod, setInternalPeriod] = useState(DEFAULT_TARGET_PERIOD)
-  const period = targetPeriod ?? internalPeriod
+  const { periodMonth, setPeriodMonth } = usePeriod()
+  const period = targetPeriod ?? periodMonth
   const setPeriod = useCallback(
     (value: string) => {
-      if (onTargetPeriodChange) {
-        onTargetPeriodChange(value)
-      } else {
-        setInternalPeriod(value)
-      }
+      if (onTargetPeriodChange) onTargetPeriodChange(value)
+      else setPeriodMonth(value)
     },
-    [onTargetPeriodChange],
+    [onTargetPeriodChange, setPeriodMonth],
   )
   return { targetPeriod: period, setTargetPeriod: setPeriod }
 }
@@ -1819,8 +1821,6 @@ export function OtaCampaignSection() {
 interface AnalysisTabProps {
   /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
   onNavigateToPricing?: (date: Date) => void
-  /** 外部（アラート等）から指定された初期サブビュー。変化するたびにそのビューへ切り替える（F-4） */
-  requestedView?: AnalysisView | null
 }
 
 /**
@@ -1840,20 +1840,16 @@ const ANALYSIS_VIEWS = [
   { value: "free", label: "フリー分析", description: "任意の軸を組み合わせて分析し、販促参画データを管理する" },
 ]
 
-export function AnalysisTab({ onNavigateToPricing, requestedView }: AnalysisTabProps = {}) {
-  const [targetPeriod, setTargetPeriod] = useState(DEFAULT_TARGET_PERIOD)
-  const [activeView, setActiveView] = useState<string>(requestedView ?? "performance")
+export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
+  // 対象年月・分析ビューは全タブ共有（URL の ?year=&month=&view= と同期 — U-8）
+  const { periodMonth: targetPeriod, setPeriodMonth: setTargetPeriod } = usePeriod()
+  const { analysisView: activeView, setAnalysisView } = useAppState()
   const [viewMode, setViewMode] = useState<"analysis" | "segment-settings">("analysis")
 
   // 日別テーブルの行クリックで選ばれた宿泊日（予約動向のブッキングカーブと連動する）
   const [curveStayDate, setCurveStayDate] = useState<Date | undefined>(undefined)
 
   const activeViewMeta = ANALYSIS_VIEWS.find((v) => v.value === activeView)
-
-  // アラートなどから特定のビューを指定された場合に追従する
-  useEffect(() => {
-    if (requestedView) setActiveView(requestedView)
-  }, [requestedView])
 
   // セグメント別クロス分析設定
   if (viewMode === "segment-settings") {
@@ -1889,7 +1885,11 @@ export function AnalysisTab({ onNavigateToPricing, requestedView }: AnalysisTabP
 
       <DailyAiInsightSection />
 
-      <Tabs value={activeView} onValueChange={setActiveView} className="space-y-4">
+      <Tabs
+        value={activeView}
+        onValueChange={(value) => setAnalysisView(value as AnalysisView)}
+        className="space-y-4"
+      >
         {/* 対象期間と分析軸の切り替え */}
         <Card>
           <CardContent className="px-4 py-3">
@@ -1909,22 +1909,12 @@ export function AnalysisTab({ onNavigateToPricing, requestedView }: AnalysisTabP
                   ))}
                 </TabsList>
               </div>
-              <div className="flex items-center gap-2">
-                <Label htmlFor="period" className="text-xs whitespace-nowrap text-muted-foreground">
-                  対象期間
-                </Label>
-                <Select value={targetPeriod} onValueChange={setTargetPeriod}>
-                  <SelectTrigger id="period" className="h-9 w-36 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="2025-03">2025年3月</SelectItem>
-                    <SelectItem value="2025-04">2025年4月</SelectItem>
-                    <SelectItem value="2025-05">2025年5月</SelectItem>
-                    <SelectItem value="2025-06">2025年6月</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <LabeledMonthPicker
+                id="analysis-period"
+                label="対象期間"
+                value={targetPeriod}
+                onChange={setTargetPeriod}
+              />
             </div>
             {activeViewMeta && (
               <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
@@ -1943,7 +1933,7 @@ export function AnalysisTab({ onNavigateToPricing, requestedView }: AnalysisTabP
             onNavigateToPricing={onNavigateToPricing}
             onSelectStayDate={(date) => {
               setCurveStayDate(date)
-              setActiveView("booking")
+              setAnalysisView("booking")
             }}
           />
           <WeekdayPerformanceSection />

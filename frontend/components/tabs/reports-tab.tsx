@@ -15,6 +15,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useAuth } from "@/components/auth-provider"
+import { usePeriod } from "@/components/app-state-provider"
+import { LabeledMonthPicker } from "@/components/month-picker"
 import { api, ApiClientError } from "@/lib/api"
 import { monthLabel } from "@/lib/date"
 
@@ -50,11 +52,10 @@ function saveBlob(blob: Blob, filename: string) {
 
 export function ReportsTab() {
   const { hotelId, hotel } = useAuth()
-  const now = new Date()
+  // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
+  const { year, month, periodMonth, setPeriodMonth } = usePeriod()
 
   const [reportType, setReportType] = useState<string>("monthly")
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1)
   const [reportFormat, setReportFormat] = useState<ReportFormat>("pdf")
   const [downloading, setDownloading] = useState(false)
 
@@ -114,41 +115,12 @@ export function ReportsTab() {
               </Select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Label htmlFor="report-year" className="text-xs whitespace-nowrap">
-                対象年
-              </Label>
-              <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-                <SelectTrigger id="report-year" className="h-9 w-24 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-                    <SelectItem key={y} value={String(y)}>
-                      {y}年
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Label htmlFor="report-month" className="text-xs whitespace-nowrap">
-                対象月
-              </Label>
-              <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
-                <SelectTrigger id="report-month" className="h-9 w-20 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                    <SelectItem key={m} value={String(m)}>
-                      {m}月
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <LabeledMonthPicker
+              id="report-period"
+              label="対象期間"
+              value={periodMonth}
+              onChange={setPeriodMonth}
+            />
 
             <div className="flex items-center gap-2">
               <Label htmlFor="report-format" className="text-xs whitespace-nowrap">

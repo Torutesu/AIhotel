@@ -27,9 +27,11 @@ import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } f
 import type { Event as HotelEvent } from "@shared/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { SampleDataNotice } from "@/components/sample-data-notice"
+import { usePeriod } from "@/components/app-state-provider"
+import { LabeledMonthPicker } from "@/components/month-picker"
 import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
-import { DAY_NAMES, monthRange, parseMonthStr, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
+import { DAY_NAMES, monthRange, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
 import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
@@ -232,12 +234,8 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   // 週末の定義は Hotel.weekendDays が唯一の出所（U-6）
   const { isWeekendDow } = useWeekend()
 
-  const now = new Date()
-  const [targetMonth, setTargetMonth] = useState(() =>
-    focusDate
-      ? `${focusDate.getFullYear()}-${String(focusDate.getMonth() + 1).padStart(2, "0")}`
-      : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-  )
+  // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
+  const { year: selectedYear, month: selectedMonth, periodMonth: targetMonth, setPeriodMonth } = usePeriod()
   // 日別分析から遷移してきた日（該当行をハイライトする）
   const [highlightedDate, setHighlightedDate] = useState<string | null>(
     focusDate ? toDateStr(focusDate) : null
@@ -278,18 +276,12 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low">("medium")
   const [newEventLocation, setNewEventLocation] = useState("")
 
-  // 日別分析から日付付きで遷移してきたら、その月に切り替えて該当行をハイライトする
+  // 日別分析から日付付きで遷移してきたら該当行をハイライトする（対象月の切り替えは呼び出し側が行う）
   useEffect(() => {
     if (!focusDate) return
-    setTargetMonth(`${focusDate.getFullYear()}-${String(focusDate.getMonth() + 1).padStart(2, "0")}`)
     setHighlightedDate(toDateStr(focusDate))
     onFocusDateHandled?.()
   }, [focusDate, onFocusDateHandled])
-
-  const { year: selectedYear, month: selectedMonth } = useMemo(
-    () => parseMonthStr(targetMonth),
-    [targetMonth]
-  )
 
   // 表示は1か月のみ（表示する月は「対象月」で選択）
   const range = useMemo(() => monthRange(selectedYear, selectedMonth), [selectedYear, selectedMonth])
@@ -533,16 +525,12 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         <CardContent className="py-2.5 px-3">
           {/* フィルターコントロール（表示は1か月のみ・表示月を選択） */}
           <div className="flex items-center gap-3 flex-wrap mb-2.5">
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="target-month" className="text-xs whitespace-nowrap">表示月</Label>
-              <input
-                id="target-month"
-                type="month"
-                value={targetMonth}
-                onChange={(e) => setTargetMonth(e.target.value)}
-                className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
-              />
-            </div>
+            <LabeledMonthPicker
+              id="pricing-period"
+              label="表示月"
+              value={targetMonth}
+              onChange={setPeriodMonth}
+            />
 
             <div className="flex items-center gap-1.5">
               <Label htmlFor="room-type" className="text-xs whitespace-nowrap">部屋タイプ</Label>

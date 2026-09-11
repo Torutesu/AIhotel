@@ -14,6 +14,8 @@ import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
 import { DAY_NAMES } from "@/lib/date"
 import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
 import { SampleDataNotice } from "@/components/sample-data-notice"
+import { usePeriod } from "@/components/app-state-provider"
+import { LabeledMonthPicker } from "@/components/month-picker"
 import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipProps } from "@/lib/chart-tooltip"
 import { useAuth } from "@/components/auth-provider"
@@ -23,8 +25,6 @@ interface DashboardTabProps {
   /** アラートからの画面遷移（F-4: resolveAlertLink で解決済みの遷移先を渡す） */
   onAlertNavigate?: (target: AlertLinkTarget) => void
 }
-
-const now = new Date()
 
 // 在庫表（日別・タイプ別残室推移）用のモック定義。
 // PMSでは過去時点の残室を確認できないため、日々の予約情報から残室推移を記録・表示する想定
@@ -111,8 +111,8 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   // 週末の定義は Hotel.weekendDays が唯一の出所（U-6）
   const { weekendDays, isWeekendDow } = useWeekend()
 
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth() + 1)
+  // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
+  const { year, month, periodMonth, setPeriodMonth } = usePeriod()
   // 伸び率の高いサイトの表示/非表示設定（設定画面から制御。対応APIがないため表示のみ）
   const [showTopSitesSection, setShowTopSitesSection] = useState(false)
 
@@ -635,38 +635,14 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   return (
     <div className="p-4 space-y-4">
       <div className="space-y-4">
-        {/* 対象年月選択 */}
+        {/* 対象年月選択（全タブ共有・URL同期） */}
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5">
-            <Label className="text-xs whitespace-nowrap">対象年</Label>
-            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-              <SelectTrigger className="w-24 h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i).map((y) => (
-                  <SelectItem key={y} value={String(y)}>
-                    {y}年
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Label className="text-xs whitespace-nowrap">対象月</Label>
-            <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
-              <SelectTrigger className="w-20 h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Array.from({ length: 12 }, (_, i) => (
-                  <SelectItem key={i + 1} value={String(i + 1)}>
-                    {i + 1}月
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <LabeledMonthPicker
+            id="dashboard-period"
+            label="対象年月"
+            value={periodMonth}
+            onChange={setPeriodMonth}
+          />
           {totalRooms != null && (
             <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-md ml-auto">
               <p className="text-xs text-muted-foreground">客室数</p>
