@@ -4,6 +4,7 @@ import {
   ratio,
   buildComparisonAxis,
   fiscalYearStart,
+  fiscalBudgetMonthsFilter,
   aggregateBudgets,
   type ActualDayRecord,
   type BudgetRecord,
@@ -113,6 +114,24 @@ describe('fiscalYearStart', () => {
 
   it('年度開始月を変更できる（1月始まり=暦年）', () => {
     expect(fiscalYearStart(2026, 3, 1)).toEqual({ year: 2026, month: 1 })
+  })
+})
+
+describe('fiscalBudgetMonthsFilter', () => {
+  it('年度開始年と同じ暦年の月は当月で上限を切る（将来月を含めない）', () => {
+    expect(fiscalBudgetMonthsFilter(2026, 9)).toEqual([{ year: 2026, month: { gte: 4, lte: 9 } }])
+    expect(fiscalBudgetMonthsFilter(2026, 4)).toEqual([{ year: 2026, month: { gte: 4, lte: 4 } }])
+  })
+
+  it('年度をまたぐ場合は前年4月以降＋当年当月まで', () => {
+    expect(fiscalBudgetMonthsFilter(2026, 2)).toEqual([
+      { year: 2025, month: { gte: 4 } },
+      { year: 2026, month: { lte: 2 } },
+    ])
+  })
+
+  it('年度開始月を変更できる', () => {
+    expect(fiscalBudgetMonthsFilter(2026, 6, 1)).toEqual([{ year: 2026, month: { gte: 1, lte: 6 } }])
   })
 })
 
