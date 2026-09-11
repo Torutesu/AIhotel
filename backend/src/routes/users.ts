@@ -14,8 +14,8 @@ usersRouter.use(requireRole('ADMIN', 'MANAGER'))
 // GET /api/v1/users?hotelId= — そのホテルが属するテナントのユーザー一覧
 usersRouter.get(
   '/',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   getUsers
 )
 

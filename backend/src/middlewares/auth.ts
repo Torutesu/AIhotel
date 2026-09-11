@@ -80,14 +80,21 @@ export function requireRole(...allowedRoles: UserRole[]) {
  * テナントが異なる場合はロールを問わず 403、
  * 論理削除（isActive=false）されたホテルへのアクセスは 404 にする（S-5）。
  */
-export function requireHotelAccess(hotelIdExtractor: (req: Request) => string | undefined) {
+export function requireHotelAccess(hotelIdExtractor: (req: Request) => unknown) {
   return async (req: Request, _res: Response, next: NextFunction) => {
     try {
       if (!req.user) {
         throw new ApiError(401, '認証が必要です')
       }
 
-      const requestedHotelId = hotelIdExtractor(req)
+      // 抽出値は必ずここで型を確かめる。ルート側では validate() を先に置いて
+      // zod 済みの値を渡す運用だが、順序を誤っても配列やオブジェクトが
+      // そのまま比較に流れ込まないよう、この層でも弾く
+      const rawHotelId = hotelIdExtractor(req)
+      if (rawHotelId !== undefined && rawHotelId !== null && typeof rawHotelId !== 'string') {
+        throw new ApiError(400, 'ホテルIDの形式が正しくありません')
+      }
+      const requestedHotelId = rawHotelId ?? undefined
 
       // ADMINは全てのホテルにアクセス可能（hotelId 未指定は後段の zod 検証に任せる）
       if (req.user.role === 'ADMIN') {

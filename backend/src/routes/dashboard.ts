@@ -25,7 +25,7 @@ export const dashboardRouter: ExpressRouter = Router()
 dashboardRouter.use(authenticate)
 // 参照系は hotelId をクエリで、操作系（PATCH/POST）はボディで受け取るため両方を見る
 dashboardRouter.use(
-  requireHotelAccess((req) => (req.query.hotelId as string | undefined) ?? req.body?.hotelId)
+  requireHotelAccess((req) => req.query.hotelId ?? req.body?.hotelId)
 )
 
 // GET /api/v1/dashboard/kpi?hotelId=&year=&month=

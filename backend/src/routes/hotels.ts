@@ -22,8 +22,8 @@ hotelsRouter.get('/', getHotels)
 // :id は idParamSchema で必ず検証する（C-11）
 hotelsRouter.get(
   '/:id',
-  requireHotelAccess((req) => req.params.id),
   validate(idParamSchema, 'params'),
+  requireHotelAccess((req) => req.params.id),
   getHotelById
 )
 

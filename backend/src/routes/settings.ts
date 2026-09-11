@@ -34,8 +34,8 @@ settingsRouter.use(authenticate)
 // GET /api/v1/settings/price-ranks?hotelId=
 settingsRouter.get(
   '/price-ranks',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   getPriceRanks
 )
 
@@ -43,27 +43,27 @@ settingsRouter.get(
 settingsRouter.post(
   '/price-ranks',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.body?.hotelId),
   validate(createPriceRankSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
   createPriceRank
 )
 
 settingsRouter.put(
   '/price-ranks/:id',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
   validate(updatePriceRankSchema),
+  requireHotelAccess((req) => req.query.hotelId),
   updatePriceRank
 )
 
 settingsRouter.delete(
   '/price-ranks/:id',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   deletePriceRank
 )
 
@@ -71,9 +71,9 @@ settingsRouter.delete(
 settingsRouter.put(
   '/hotel/:id',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.params.id),
   validate(idParamSchema, 'params'),
   validate(updateHotelSettingsSchema),
+  requireHotelAccess((req) => req.params.id),
   updateHotelSettings
 )
 
@@ -85,8 +85,8 @@ settingsRouter.put(
 // 1〜12月ぶんを必ず返す（未登録の月は budget: null）
 settingsRouter.get(
   '/budgets',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(yearQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   getBudgets
 )
 
@@ -94,8 +94,8 @@ settingsRouter.get(
 settingsRouter.put(
   '/budgets',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.body?.hotelId),
   validate(upsertBudgetsSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
   putBudgets
 )
 
@@ -106,34 +106,34 @@ settingsRouter.put(
 // GET /api/v1/settings/competitors?hotelId=
 settingsRouter.get(
   '/competitors',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   getCompetitors
 )
 
 settingsRouter.post(
   '/competitors',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.body?.hotelId),
   validate(createCompetitorSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
   createCompetitor
 )
 
 settingsRouter.put(
   '/competitors/:id',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
   validate(updateCompetitorSchema),
+  requireHotelAccess((req) => req.query.hotelId),
   updateCompetitor
 )
 
 settingsRouter.delete(
   '/competitors/:id',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   deleteCompetitor
 )

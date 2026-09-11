@@ -752,4 +752,31 @@ describeIntegration('API 統合テスト', () => {
       expect(res.status).toBe(403)
     })
   })
+
+  describe('hotelId の型検証（レビュー指摘 R-1）', () => {
+    it('hotelId を配列で渡すと 400（認可判定に配列が流れ込まない）', async () => {
+      const res = await request(app)
+        .get(`/api/v1/settings/price-ranks?hotelId=${HOTEL_A}&hotelId=${HOTEL_A}`)
+        .set('Authorization', `Bearer ${tokens.manager}`)
+
+      expect(res.status).toBe(400)
+    })
+
+    it('hotelId をオブジェクトで渡すと 400', async () => {
+      const res = await request(app)
+        .get(`/api/v1/settings/price-ranks?hotelId[id]=${HOTEL_A}`)
+        .set('Authorization', `Bearer ${tokens.manager}`)
+
+      expect(res.status).toBe(400)
+    })
+
+    it('body の hotelId が配列でも他ホテルへ書き込めない', async () => {
+      const res = await request(app)
+        .post('/api/v1/settings/price-ranks')
+        .set('Authorization', `Bearer ${tokens.manager}`)
+        .send({ hotelId: [HOTEL_A, HOTEL_B], rank: 39, label: 'R39', price1P: 1000, price2P: 2000 })
+
+      expect(res.status).toBe(400)
+    })
+  })
 })

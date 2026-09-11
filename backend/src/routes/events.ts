@@ -18,16 +18,16 @@ eventsRouter.use(authenticate)
 // GET /api/v1/events?hotelId=&startDate=&endDate=
 eventsRouter.get(
   '/',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(eventsQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   getEvents
 )
 
 // POST /api/v1/events — オペレーターも登録可能（要件定義書 F-DP-07）のため requireRole は付けない
 eventsRouter.post(
   '/',
-  requireHotelAccess((req) => req.body?.hotelId),
   validate(createEventSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
   createEvent
 )
 
@@ -35,10 +35,10 @@ eventsRouter.post(
 eventsRouter.put(
   '/:id',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
   validate(updateEventSchema),
+  requireHotelAccess((req) => req.query.hotelId),
   updateEvent
 )
 
@@ -46,8 +46,8 @@ eventsRouter.put(
 eventsRouter.delete(
   '/:id',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   deleteEvent
 )
