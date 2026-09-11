@@ -455,3 +455,33 @@ export interface UpsertBudgetsRequest {
     lastYearGuests?: number | null
   }>
 }
+
+// ======================================
+// Competitor Settings Types（N-2 / F-SET-03）
+// ======================================
+
+/** 競合ホテルの OTA 別 URL。キーは対応OTAに固定する（F-SET-03） */
+export interface CompetitorOtaUrls {
+  rakuten?: string | null
+  jalan?: string | null
+  ikkyu?: string | null
+  expedia?: string | null
+  agoda?: string | null
+}
+
+/** GET/POST/PUT /settings/competitors が返す競合ホテル（論理削除済みは返らない） */
+export interface CompetitorSetting {
+  id: string
+  tenantId: string
+  hotelId: string
+  name: string
+  address: string | null
+  category: string | null
+  otaUrls: CompetitorOtaUrls | null
+  isActive: boolean
+  createdAt: Date
+  updatedAt: Date
+}
+
+/** 1ホテルあたりに登録できる競合ホテルの上限（F-SET-03） */
+export const MAX_COMPETITORS_PER_HOTEL = 5

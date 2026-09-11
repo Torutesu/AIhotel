@@ -9,6 +9,8 @@ import {
   updatePriceRankSchema,
   updateHotelSettingsSchema,
   upsertBudgetsSchema,
+  createCompetitorSchema,
+  updateCompetitorSchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
@@ -18,6 +20,10 @@ import {
   updateHotelSettings,
   getBudgets,
   putBudgets,
+  getCompetitors,
+  createCompetitor,
+  updateCompetitor,
+  deleteCompetitor,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -91,4 +97,43 @@ settingsRouter.put(
   requireHotelAccess((req) => req.body?.hotelId),
   validate(upsertBudgetsSchema),
   putBudgets
+)
+
+// ======================================
+// 競合ホテル（N-2 / F-SET-03）
+// ======================================
+
+// GET /api/v1/settings/competitors?hotelId=
+settingsRouter.get(
+  '/competitors',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(hotelIdQuerySchema, 'query'),
+  getCompetitors
+)
+
+settingsRouter.post(
+  '/competitors',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(createCompetitorSchema),
+  createCompetitor
+)
+
+settingsRouter.put(
+  '/competitors/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
+  validate(updateCompetitorSchema),
+  updateCompetitor
+)
+
+settingsRouter.delete(
+  '/competitors/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
+  deleteCompetitor
 )

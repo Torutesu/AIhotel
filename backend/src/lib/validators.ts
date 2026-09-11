@@ -172,6 +172,35 @@ export const upsertBudgetsSchema = z
   })
 
 // ======================================
+// Competitor Validators（N-2 / F-SET-03）
+// ======================================
+
+/**
+ * OTA別URL（F-SET-03）。任意のキーを許すと JSON カラムが自由入力になり
+ * スクレイピング側の想定と乖離するため、対応OTAのキーに固定する。
+ * null は「登録を解除する」意図として許可する。
+ */
+const otaUrlValue = z.string().url('URLの形式が不正です').max(500).nullable().optional()
+
+export const otaUrlsSchema = z.object({
+  rakuten: otaUrlValue,
+  jalan: otaUrlValue,
+  ikkyu: otaUrlValue,
+  expedia: otaUrlValue,
+  agoda: otaUrlValue,
+})
+
+export const createCompetitorSchema = z.object({
+  hotelId: entityIdSchema,
+  name: z.string().min(1, '競合ホテル名は必須です').max(200),
+  address: z.string().max(500).nullable().optional(),
+  category: z.string().max(50).nullable().optional(),
+  otaUrls: otaUrlsSchema.nullable().optional(),
+})
+
+export const updateCompetitorSchema = createCompetitorSchema.omit({ hotelId: true }).partial()
+
+// ======================================
 // Query Validators
 // ======================================
 
@@ -306,3 +335,5 @@ export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
 export type BudgetMonthInput = z.infer<typeof budgetMonthSchema>
 export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>
+export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
+export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>

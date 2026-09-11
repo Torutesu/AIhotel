@@ -10,6 +10,10 @@ import {
   updateHotelSettingsService,
   getMonthlyBudgetsService,
   upsertMonthlyBudgetsService,
+  getCompetitorsService,
+  createCompetitorService,
+  updateCompetitorService,
+  deleteCompetitorService,
 } from '../services/settingsService.js'
 import type { UpsertBudgetsInput } from '../lib/validators.js'
 
@@ -133,4 +137,74 @@ export const putBudgets = asyncHandler(async (req: Request, res: Response) => {
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, after, 200, '予算を更新しました')
+})
+
+/**
+ * 競合ホテル一覧（N-2 / F-SET-03）
+ * GET /api/v1/settings/competitors?hotelId=
+ */
+export const getCompetitors = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const result = await getCompetitorsService(hotelId)
+  sendSuccess(res, result)
+})
+
+/**
+ * 競合ホテル作成（MANAGER 以上・監査対象 — N-2）
+ * POST /api/v1/settings/competitors
+ */
+export const createCompetitor = asyncHandler(async (req: Request, res: Response) => {
+  const competitor = await createCompetitorService(req.body)
+  await writeAuditLog({
+    tenantId: competitor.tenantId,
+    userId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'Competitor',
+    entityId: competitor.id,
+    newValue: competitor,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendCreated(res, competitor)
+})
+
+/**
+ * 競合ホテル更新（MANAGER 以上・監査対象 — N-2）
+ * PUT /api/v1/settings/competitors/:id?hotelId=
+ */
+export const updateCompetitor = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const { before, after } = await updateCompetitorService(req.params.id, hotelId, req.body)
+  await writeAuditLog({
+    tenantId: before.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'Competitor',
+    entityId: req.params.id,
+    oldValue: before,
+    newValue: req.body,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, after, 200, '競合ホテルを更新しました')
+})
+
+/**
+ * 競合ホテル削除（論理削除・MANAGER 以上・監査対象 — N-2）
+ * DELETE /api/v1/settings/competitors/:id?hotelId=
+ */
+export const deleteCompetitor = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const deleted = await deleteCompetitorService(req.params.id, hotelId)
+  await writeAuditLog({
+    tenantId: deleted.tenantId,
+    userId: req.user!.userId,
+    action: 'DELETE',
+    entity: 'Competitor',
+    entityId: req.params.id,
+    oldValue: deleted,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendDeleted(res)
 })

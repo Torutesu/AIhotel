@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import type { MonthlyBudget } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { monthRange } from '../lib/date.js'
@@ -6,6 +7,8 @@ import type {
   CreatePriceRankInput,
   UpdateHotelSettingsInput,
   UpsertBudgetsInput,
+  CreateCompetitorInput,
+  UpdateCompetitorInput,
 } from '../lib/validators.js'
 
 const MAX_PRICE_RANKS = 40 // F-SET-02
@@ -229,4 +232,95 @@ export async function upsertMonthlyBudgetsService(input: UpsertBudgetsInput) {
 
   const after = await getMonthlyBudgetsService(input.hotelId, input.year)
   return { tenantId: hotel.tenantId, before, after }
+}
+
+// ======================================
+// 競合ホテル（N-2 / F-SET-03）
+// ======================================
+
+/** 1ホテルあたりに登録できる競合の上限（F-SET-03: 最大5社） */
+export const MAX_COMPETITORS = 5
+
+/**
+ * 競合ホテル一覧（N-2）。論理削除済み（isActive=false）は返さない。
+ */
+export async function getCompetitorsService(hotelId: string) {
+  return prisma.competitor.findMany({
+    where: { hotelId, isActive: true },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
+/**
+ * 競合ホテル作成（N-2）。
+ * 有効な競合が上限（5社）に達している場合は 400 を返す。
+ */
+export async function createCompetitorService(input: CreateCompetitorInput) {
+  const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  const count = await prisma.competitor.count({
+    where: { hotelId: input.hotelId, isActive: true },
+  })
+  if (count >= MAX_COMPETITORS) {
+    throw new BadRequestError(
+      `競合ホテルは最大${MAX_COMPETITORS}件までです。不要な競合を削除してから追加してください`
+    )
+  }
+
+  return prisma.competitor.create({
+    data: {
+      hotelId: input.hotelId,
+      tenantId: hotel.tenantId,
+      name: input.name,
+      address: input.address ?? null,
+      category: input.category ?? null,
+      otaUrls: input.otaUrls ?? undefined,
+    },
+  })
+}
+
+/**
+ * 競合ホテル更新（N-2）。
+ * hotelId 条件を必ず含めてテナント越えの参照・更新を防ぐ（settingsService の既存パターン）。
+ */
+export async function updateCompetitorService(
+  id: string,
+  hotelId: string,
+  input: UpdateCompetitorInput
+) {
+  const before = await prisma.competitor.findFirst({ where: { id, hotelId, isActive: true } })
+  if (!before) throw new NotFoundError('競合ホテル')
+
+  const result = await prisma.competitor.updateMany({
+    where: { id, hotelId, isActive: true },
+    data: {
+      ...(input.name !== undefined && { name: input.name }),
+      ...(input.address !== undefined && { address: input.address }),
+      ...(input.category !== undefined && { category: input.category }),
+      ...(input.otaUrls !== undefined && { otaUrls: input.otaUrls ?? Prisma.DbNull }),
+    },
+  })
+  if (result.count === 0) throw new NotFoundError('競合ホテル')
+
+  const after = await prisma.competitor.findUnique({ where: { id } })
+  if (!after) throw new NotFoundError('競合ホテル')
+  return { before, after }
+}
+
+/**
+ * 競合ホテル削除（N-2）。
+ * 料金ランクと同じく論理削除にする（CompetitorPriceData の履歴を保持するため）。
+ */
+export async function deleteCompetitorService(id: string, hotelId: string) {
+  const before = await prisma.competitor.findFirst({ where: { id, hotelId, isActive: true } })
+  if (!before) throw new NotFoundError('競合ホテル')
+
+  const result = await prisma.competitor.updateMany({
+    where: { id, hotelId, isActive: true },
+    data: { isActive: false },
+  })
+  if (result.count === 0) throw new NotFoundError('競合ホテル')
+
+  return before
 }
