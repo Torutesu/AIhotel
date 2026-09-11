@@ -27,6 +27,7 @@ import { HotelSettingsCard } from "@/components/settings/hotel-settings-card"
 import { PriceRankSection } from "@/components/settings/price-rank-section"
 import { BudgetSection } from "@/components/settings/budget-section"
 import { CompetitorSection } from "@/components/settings/competitor-section"
+import { UserManagementSection } from "@/components/settings/user-management-section"
 
 // ダッシュボードKPI進捗表に表示する指標（施設ごとに選択可能。F-DASH-01）
 const DASHBOARD_KPI_ITEMS = [
@@ -120,6 +121,9 @@ export function SettingsTab() {
       <BudgetSection />
 
       <CompetitorSection />
+
+      {/* ユーザー管理（ADMIN / MANAGER のみ。OPERATOR では何も描画されない — X-3） */}
+      <UserManagementSection />
 
       {/* 外観（テーマ）— next-themes が localStorage に保存し、即座に反映される */}
       <Card>
