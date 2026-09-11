@@ -76,4 +76,13 @@ export default [
       'no-restricted-syntax': 'off',
     },
   },
+  {
+    // 統合テスト（N-8）はテナント・ユーザー等のフィクスチャを直接作る必要があるため、
+    // prisma クライアントの import 制限から除外する。
+    // アプリケーションコードは従来どおり services 層経由に限る
+    files: ['src/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': 'off',
+    },
+  },
 ]
