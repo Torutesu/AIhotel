@@ -587,3 +587,26 @@ export interface RecomputeSimulationResponse {
   /** AI予測で積み上げた日数 */
   predictedDays: number
 }
+
+// ======================================
+// Review Score Types（N-7 / F-ANA-04）
+// ======================================
+
+/**
+ * OTA・レビューサイトごとの口コミ評価点（GET /analysis/reviews）。
+ * 実運用では Phase 4 のスクレイピングが書き込む想定のテーブルで、
+ * 現在は seed データが入っている（値そのものは実APIの応答）。
+ */
+export interface ReviewScore {
+  id: string
+  tenantId: string
+  hotelId: string
+  /** 取得元（rakuten / jalan / ikkyu / google / tripadvisor 等） */
+  source: string
+  /** 評価点（5点満点） */
+  score: number
+  /** 口コミ件数（取得できない場合は null） */
+  reviewCount: number | null
+  /** 取得日時（ISO 8601 文字列） */
+  capturedAt: string
+}

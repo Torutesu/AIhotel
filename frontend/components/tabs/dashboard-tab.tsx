@@ -7,6 +7,7 @@
 // サンプル表示: 在庫表（PMS連携・残室推移の記録が未実装）
 
 import { useCallback, useEffect, useState } from "react"
+import { toast } from "sonner"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorCard } from "@/components/error-state"
@@ -119,6 +120,18 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     loadData()
   }, [loadData])
 
+  /** アラートの状態変更後にアラートだけ取り直す（X-4。画面全体の再取得は不要） */
+  const reloadAlerts = useCallback(async () => {
+    if (!hotelId) return
+    try {
+      setAlerts(await api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL))
+    } catch (err) {
+      toast.error(
+        err instanceof ApiClientError ? err.message : "アラートの再取得に失敗しました",
+      )
+    }
+  }, [hotelId])
+
   if (!hotelId) {
     return (
       <div className="p-4">
@@ -157,7 +170,12 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
           )}
         </div>
 
-        <AlertsCard alerts={alerts} loading={loading} onAlertNavigate={onAlertNavigate} />
+        <AlertsCard
+          alerts={alerts}
+          loading={loading}
+          onAlertNavigate={onAlertNavigate}
+          onAlertUpdated={() => void reloadAlerts()}
+        />
 
         <AiSummaryCard summary={aiSummary} loading={loading} />
 

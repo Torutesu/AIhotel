@@ -31,6 +31,7 @@ import { useAuth } from "@/components/auth-provider"
 import { useAppState } from "@/components/app-state-provider"
 import { LoginForm } from "@/components/login-form"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { HotelSwitcher } from "@/components/hotel-switcher"
 import type { Tab } from "@shared/types"
 import type { AlertLinkTarget } from "@/lib/alert-link"
 
@@ -66,7 +67,7 @@ export function MainLayout() {
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
-  const { user, loading, logout, restoreError, retryRestore } = useAuth()
+  const { user, loading, logout, restoreError, retryRestore, canSwitchHotel } = useAuth()
 
   // 表示中のタブをブラウザのタブ名に反映する（F-8）
   useEffect(() => {
@@ -187,6 +188,13 @@ export function MainLayout() {
           </Button>
         </div>
 
+        {/* ホテル切替（複数ホテルにアクセスできるユーザーのみ表示 — X-5） */}
+        {canSwitchHotel && (
+          <div className={cn("border-b border-sidebar-border px-4 py-3", collapsed && "md:px-2")}>
+            <HotelSwitcher compact={collapsed} className={cn(collapsed && "md:flex-col md:gap-1")} />
+          </div>
+        )}
+
         <nav className="flex-1 space-y-1 overflow-y-auto p-4">
           {tabs.map((tab) => {
             const Icon = tab.icon
@@ -274,6 +282,8 @@ export function MainLayout() {
           <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
             ホテレベ
           </h1>
+          {/* ホテル切替（複数ホテルにアクセスできるユーザーのみ表示 — X-5） */}
+          <HotelSwitcher compact className="ml-auto min-w-0 max-w-[55%]" />
         </div>
 
         <DemoModeBanner />

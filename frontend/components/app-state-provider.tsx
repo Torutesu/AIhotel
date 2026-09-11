@@ -1,10 +1,10 @@
 "use client"
 
-// 画面状態（タブ・対象年月・分析サブビュー）のURL同期（U-8）
+// 画面状態（タブ・対象年月・分析サブビュー・選択中ホテル）のURL同期（U-8 / X-5）
 //
-// 状態は URL クエリ（?tab=&year=&month=&view=）を唯一の出所として保持する。
+// 状態は URL クエリ（?tab=&year=&month=&view=&hotel=）を唯一の出所として保持する。
 // useState に二重管理しないため、リロード・ブラウザバック・ディープリンクがそのまま動く。
-// 対象年月は全タブで共有し、タブを切り替えても見ている月が変わらないようにする。
+// 対象年月と選択中ホテルは全タブで共有し、タブを切り替えても見ている対象が変わらないようにする。
 
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -27,6 +27,12 @@ const DEFAULT_VIEW: AnalysisView = "performance"
 interface AppStateValue {
   tab: Tab
   setTab: (tab: Tab) => void
+  /**
+   * 選択中のホテルID（URL の ?hotel=）。複数ホテルにアクセスできるユーザーの切替用（X-5）。
+   * 実際にどのホテルを表示するかの解決は AuthProvider が行う（アクセス権の検証が必要なため）。
+   */
+  hotelParam: string | null
+  setHotelParam: (hotelId: string | null) => void
   /** 全タブ共有の対象年 */
   year: number
   /** 全タブ共有の対象月（1-12） */
@@ -72,6 +78,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const year = parseYear(searchParams.get("year"), now.getFullYear())
   const month = parseMonth(searchParams.get("month"), now.getMonth() + 1)
   const analysisView = parseView(searchParams.get("view"))
+  const hotelParam = searchParams.get("hotel")
 
   const apply = useCallback(
     (patch: Record<string, string | null>) => {
@@ -94,6 +101,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return {
       tab,
       setTab: (next) => apply({ tab: next }),
+      hotelParam,
+      setHotelParam: (nextHotelId) => apply({ hotel: nextHotelId }),
       year,
       month,
       periodMonth,
@@ -117,7 +126,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         apply(patch)
       },
     }
-  }, [tab, year, month, analysisView, apply])
+  }, [tab, hotelParam, year, month, analysisView, apply])
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>
 }
