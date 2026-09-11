@@ -1,6 +1,6 @@
 # AGENTS.md — コーディングエージェント向けガイド
 
-AIレベニュー管理システム（ホテル収益管理SaaS）。pnpmモノレポ。
+レベスト（レベニューストリーム / Revest）— AIレベニュー管理システム（ホテル収益管理SaaS）。pnpmモノレポ。
 このファイルはコードから推測できない規約と必須ルールのみを記載する。機能仕様は `要件定義書.md`、セットアップ手順は `README.md` を参照。
 
 ## 構成とコマンド
@@ -38,6 +38,12 @@ pnpm --filter backend build && pnpm --filter frontend build
 - Prismaクライアントの import は `src/services/` と `src/lib/` のみ。controllers/routes はサービス関数を呼ぶ
 
 **スキーマ変更**: `prisma migrate dev` でマイグレーションファイルを生成しコミットする。`db:push` を使わない。`migrate reset` / `--force-reset` / `--accept-data-loss` は禁止（実行前にユーザー確認必須）
+
+**ブランド**（製品名とロゴ。勝手に変えない）:
+- 製品名は「レベスト」（レベニューストリーム / Revest）。旧名称「ホテレベ」は使わない
+- ロゴは `frontend/components/brand-logo.tsx` の `BrandLogo` / `BrandMark` のみを使う。ワードマークをJSXに直接書かない
+- マークの形状（角丸比率 6.5/28、3本のバーとドットの座標）を変更しない。彩色・グラデーション・影を付けない
+- ファビコンは `frontend/app/icon.svg`。形状を変える場合は Figma の Logo ページと同時に更新する
 
 **ドメイン確定値**（再議論・変更しない）:
 - バックエンドは Express+TypeScript+Prisma（FastAPIへ移行しない）。クラウド固有SDKを追加しない
