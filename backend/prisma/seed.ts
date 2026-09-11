@@ -2,6 +2,7 @@ import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/clie
 import bcrypt from 'bcryptjs'
 import { DEFAULT_BOOKING_CURVE, typicalFraction } from '../src/services/forecast/bookingCurve.js'
 import { recomputeForecastService } from '../src/services/forecast/forecastService.js'
+import { saveKnowledgeDocumentService } from '../src/services/knowledge/tenantKnowledgeService.js'
 
 const prisma = new PrismaClient()
 
@@ -29,6 +30,52 @@ function addDays(d: Date, days: number): Date {
   r.setUTCDate(r.getUTCDate() + days)
   return r
 }
+
+const DEMO_HOTEL_MD = `# デモホテル東京 個社MD
+
+## ホテル概要と客層
+丸の内のビジネスホテル、200室。平日は出張客が7割、金土はレジャーとインバウンドが増える。
+繁忙期は3月下旬・GW・9月連休・12月。閑散期は1月中旬〜2月と6月。
+
+## 価格方針
+レートの整合性を重視し、値崩れは避ける。公式サイトはOTAより500円安い設定を維持する。
+直前の投げ売りはしない（前日でも最低価格を割らない）。
+
+## 需要レベル別の方針
+A・Bは売り切りより単価を優先する。D・Eは最低価格を割らない範囲で需要喚起し、朝食付きプランの露出を増やす。
+
+## 繁忙期・団体の扱い
+GWと年末年始は連泊を優先。団体は10室以上で個別判断とし、団体で満室が見えても個人客の単価は下げない。
+
+## 競合の扱い
+競合ホテルAとBは追従対象。競合ホテルCは客層が違う（カプセル併設）ため価格決定から外す。
+競合の売止めは、金曜に限り団体であることが多いので実需とみなさない。
+
+## 外部要因で効くもの・効かないもの
+天候はほぼ効かない（出張客中心）。連休前夜と東京ドームの公演は強く効く。学校休暇は効かない。
+
+## 禁止事項・注意点
+前年同日より2段以上下げない。金曜の値下げは支配人承認が必要。
+
+## ルール
+最小ランク: 6
+最大ランク: 40
+最低価格: 9500
+最大変動幅: 4
+競合ポジション: +3%
+除外競合: 競合ホテルC
+需要レベルA: 下げない。満室が見えたら1段上げる
+需要レベルB: 据え置きを基本に、ペースが速ければ1段上げる
+需要レベルC: 戦略重みどおり
+需要レベルD: 最低価格を割らない範囲で1〜2段下げる
+需要レベルE: 最低価格を割らない範囲で需要喚起
+団体: 10室以上は個別判断（自動採用しない）
+効かない要因: 天候, 学校休暇
+効く要因: 連休, イベント
+自動採用: オフ
+禁止: 前年同日より2段以上下げない
+禁止: 金曜の値下げは支配人承認が必要
+`
 
 async function main() {
   console.log('🌱 Seeding database...')
@@ -417,6 +464,19 @@ async function main() {
   //     天候は取り込んでいないので天候要因なし（POST /pricing/signals/ingest で取り込める）
   const forecast = await recomputeForecastService(hotel.id)
   console.log(`✅ Forecast (${forecast.modelVersion}): ${forecast.count} days from ${forecast.asOfDate}`)
+
+  // 15. 個社MD（ヒアリング結果の例）。保存時にルール節が解釈され、ガードレール・除外競合・固定係数に反映される。
+  //     冪等にするため同名の既存文書は削除して作り直す
+  const adminUser = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo-hotel.example.com' } })
+  await prisma.knowledgeDocument.deleteMany({ where: { tenantId: tenant.id, title: 'デモホテル東京 個社MD' } })
+  const doc = await saveKnowledgeDocumentService({
+    tenantId: tenant.id,
+    hotelId: hotel.id,
+    userId: adminUser.id,
+    title: 'デモホテル東京 個社MD',
+    body: DEMO_HOTEL_MD,
+  })
+  console.log(`✅ Knowledge document: ${doc.document.title} v${doc.document.version}（ルール反映: ${doc.applied ? `${doc.applied.recomputedDays}日再計算` : 'なし'}）`)
 
   console.log('✨ Seeding completed!')
 }

@@ -18,6 +18,8 @@ export interface LearningSample {
 export interface CoefficientState {
   value: number
   sampleSize: number
+  /** 個社MDで固定された係数。学習で動かさない */
+  locked?: boolean
 }
 
 export interface LearningResult {
@@ -61,6 +63,7 @@ export function applyLearning(samples: LearningSample[], current: ReadonlyMap<st
       const share = residual / s.activeFactorKeys.length
       for (const key of s.activeFactorKeys) {
         const state = get(key)
+        if (state.locked) continue
         if (!touched.has(key)) touched.set(key, state.value)
         const eta = learningRate(state.sampleSize)
         const next = Math.min(COEFFICIENT_MAX, Math.max(COEFFICIENT_MIN, state.value + eta * share))

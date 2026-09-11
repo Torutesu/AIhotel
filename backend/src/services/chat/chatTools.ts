@@ -7,7 +7,7 @@ import { prisma } from '../../lib/prisma.js'
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../middlewares/errorHandler.js'
 import { writeAuditLog } from '../auditService.js'
 import type { ToolDefinition } from '../llm/types.js'
-import { searchKnowledge } from '../knowledge/knowledgeService.js'
+import { searchAllKnowledge } from '../knowledge/tenantKnowledgeService.js'
 import { getPricingDigestService, summarizeFactors } from '../pricing/digestService.js'
 import { recordDecisionService } from '../pricing/decisionService.js'
 import { createEventService } from '../eventsService.js'
@@ -143,12 +143,13 @@ export const CHAT_TOOLS: ChatTool[] = [
   {
     name: 'search_knowledge',
     description:
-      'レベニューマネジメントの基礎資料（知識ベース）から関連する章を検索する。考え方・判断基準・用語の説明を求められたら必ず呼び、回答では章の path を出典として明記する。資料に無いことは「基礎資料に記載なし」と答える',
+      '基礎資料（【汎用】レベニューマネジメントの基礎）と個社MD（【個社】このホテルの方針・制約）から関連する章を検索する。考え方・判断基準・用語の説明を求められたら必ず呼び、回答では章の label を出典として明記する。個社と汎用が食い違うときは個社を優先し、両方を示す。資料に無いことは「資料に記載なし」と答える',
     inputSchema: knowledgeInput,
     write: false,
-    async run(raw) {
+    async run(raw, ctx) {
       const input = knowledgeInput.parse(raw)
-      return searchKnowledge(input.query, 4).map((h) => ({ id: h.chunk.id, path: h.chunk.path, text: h.chunk.text }))
+      const hits = await searchAllKnowledge({ tenantId: ctx.tenantId, hotelId: ctx.hotelId }, input.query, 5)
+      return hits.map((h) => ({ id: h.chunk.id, path: h.chunk.path, label: h.label, scope: h.scope, text: h.chunk.text }))
     },
   },
   {

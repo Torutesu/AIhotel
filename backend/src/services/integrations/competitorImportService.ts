@@ -96,7 +96,7 @@ export async function importCompetitorPricesService(hotelId: string, rows: Compe
  */
 export async function getCompetitorSoldOutShareService(hotelId: string, startDate: Date, endDate: Date): Promise<Map<string, number>> {
   const rows = await prisma.competitorPriceData.findMany({
-    where: { date: { gte: startDate, lte: endDate }, competitor: { hotelId, isActive: true } },
+    where: { date: { gte: startDate, lte: endDate }, competitor: { hotelId, isActive: true, excludedFromPricing: false } },
     select: { date: true, soldOut: true, soldOutIgnored: true },
   })
   const agg = new Map<string, { total: number; soldOut: number }>()

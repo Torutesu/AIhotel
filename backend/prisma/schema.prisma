@@ -54,6 +54,8 @@ model Tenant {
   forecastModelStates      ForecastModelState[]
   chatConversations        ChatConversation[]
   chatMessages             ChatMessage[]
+  knowledgeDocuments       KnowledgeDocument[]
+  knowledgeRevisions       KnowledgeDocumentRevision[]
 }
 
 // ======================================
@@ -162,6 +164,7 @@ model Hotel {
   venues                   Venue[]
   forecastModelStates      ForecastModelState[]
   chatConversations        ChatConversation[]
+  knowledgeDocuments       KnowledgeDocument[]
 
   @@index([tenantId])
 }
@@ -554,19 +557,21 @@ model Campaign {
 // ======================================
 
 model Competitor {
-  id        String   @id @default(cuid())
-  tenantId  String
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId   String
-  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  name      String
-  address   String?
-  category  String?
+  id                  String   @id @default(cuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId             String
+  hotel               Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name                String
+  address             String?
+  category            String?
+  // 価格決定・逼迫シグナルから除外する（個社MDの「除外競合」。表示・比較には残す）
+  excludedFromPricing Boolean  @default(false)
   // OTA別URL（F-SET-03）: { "rakuten": "...", "jalan": "...", "ikkyu": "...", "expedia": "...", "agoda": "..." }
-  otaUrls   Json?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  otaUrls             Json?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   priceData CompetitorPriceData[]
 
@@ -803,6 +808,8 @@ model FactorCoefficient {
   factorKey  String // event:high, holiday:block_middle, weather:rain_lead0_3, calib:lead_0_3 ...
   value      Float
   sampleSize Int      @default(0)
+  // 個社MDの「効かない要因」で固定された係数。学習で上書きしない
+  locked     Boolean  @default(false)
   updatedAt  DateTime @updatedAt
 
   @@unique([hotelId, factorKey])
@@ -847,6 +854,52 @@ model ChatMessage {
 
   @@index([tenantId])
   @@index([conversationId, createdAt])
+}
+
+// ======================================
+// Knowledge（個社MD — テナント/ホテル単位の方針・制約。docs/外部要因設計.md §7）
+// ======================================
+
+// 個社MD本体。汎用MD（docs/knowledge、テナント共通）と別に、ヒアリング結果をここに入れる。
+// 「## ルール」節は保存時に解釈され（rules）、ガードレール・除外競合・固定係数に反映される
+model KnowledgeDocument {
+  id              String    @id @default(cuid())
+  tenantId        String
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // null ならテナント全体（複数ホテル共通）、指定があればそのホテル専用
+  hotelId         String?
+  hotel           Hotel?    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  title           String
+  body            String
+  version         Int       @default(1)
+  rules           Json? // 解釈済みルール（HotelRules）
+  rulesErrors     Json? // 解釈できなかった行
+  rulesAppliedAt  DateTime?
+  isActive        Boolean   @default(true)
+  updatedByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  revisions KnowledgeDocumentRevision[]
+
+  @@index([tenantId])
+  @@index([hotelId])
+}
+
+model KnowledgeDocumentRevision {
+  id              String            @id @default(cuid())
+  tenantId        String
+  tenant          Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documentId      String
+  document        KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version         Int
+  body            String
+  rules           Json?
+  createdByUserId String?
+  createdAt       DateTime          @default(now())
+
+  @@unique([documentId, version])
+  @@index([tenantId])
 }
 
 // ======================================

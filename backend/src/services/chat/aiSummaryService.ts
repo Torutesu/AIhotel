@@ -7,7 +7,7 @@ import { getLlmProviderForHotel } from '../llm/llmService.js'
 import type { LlmProviderName } from '../llm/types.js'
 import { getPricingDigestService } from '../pricing/digestService.js'
 import { getFactorEvaluationService } from '../forecast/evaluationService.js'
-import { searchKnowledge } from '../knowledge/knowledgeService.js'
+import { searchAllKnowledge, getTenantKnowledgeContextService } from '../knowledge/tenantKnowledgeService.js'
 
 const SummarySchema = z.object({
   headline: z.string().describe('1文の結論（今日いちばん大事なこと）'),
@@ -37,10 +37,15 @@ export async function generateAiSummaryService(
   if (!hotel) throw new NotFoundError('ホテル')
   const { provider, selection } = await getLlmProviderForHotel(hotelId, llmOverride)
   const [digest, evaluation] = await Promise.all([getPricingDigestService(hotelId), getFactorEvaluationService(hotelId, 90).catch(() => null)])
-  const knowledge = searchKnowledge('日次運用 判断 需要レベル 採用', 3).map((h) => ({ path: h.chunk.path, text: h.chunk.text }))
+  const [hits, tenantKnowledge] = await Promise.all([
+    searchAllKnowledge({ tenantId: hotel.tenantId, hotelId }, '日次運用 判断 需要レベル 採用 方針', 4),
+    getTenantKnowledgeContextService(hotel.tenantId, hotelId),
+  ])
+  const knowledge = hits.map((h) => ({ path: h.label, text: h.chunk.text }))
 
   const input = {
     hotel: { name: hotel.name, totalRooms: hotel.totalRooms },
+    hotelRules: tenantKnowledge.rulesSummary || null,
     asOfDate: digest.asOfDate,
     priorityDays: digest.priorityDays.slice(0, 6).map(({ topFactors: _t, ...rest }) => rest),
     changesSinceYesterday: digest.changesSinceYesterday.slice(0, 6),
@@ -54,7 +59,7 @@ export async function generateAiSummaryService(
 
   const res = await provider.generateStructured({
     system:
-      'あなたはホテルのレベニューマネジメント担当向けに毎朝の要約を書くアシスタントです。入力の数字だけを使い、推測で数字を作らないでください。考え方の根拠は knowledge の章を引用し、citations にその path を入れてください。日本語で簡潔に。',
+      'あなたはホテルのレベニューマネジメント担当向けに毎朝の要約を書くアシスタントです。入力の数字だけを使い、推測で数字を作らないでください。hotelRules（個社ルール）があれば最優先で従い、考え方の根拠は knowledge の章を引用して citations にその path（【個社】/【汎用】付き）を入れてください。日本語で簡潔に。',
     user: `以下のデータから今日のまとめを作ってください。\n${JSON.stringify(input, null, 1)}`,
     schema: SummarySchema,
     schemaName: 'daily_summary',

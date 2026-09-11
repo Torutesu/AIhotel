@@ -25,7 +25,7 @@ export async function getAppliedRanksService(hotelId: string, startDate: Date, e
  */
 export async function getCompetitorMedianPricesService(hotelId: string, startDate: Date, endDate: Date): Promise<Map<string, number>> {
   const rows = await prisma.competitorPriceData.findMany({
-    where: { date: { gte: startDate, lte: endDate }, competitor: { hotelId, isActive: true }, price1P: { not: null } },
+    where: { date: { gte: startDate, lte: endDate }, competitor: { hotelId, isActive: true, excludedFromPricing: false }, price1P: { not: null } },
     select: { date: true, price1P: true },
   })
   const byDate = new Map<string, number[]>()

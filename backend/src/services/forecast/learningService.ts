@@ -46,7 +46,7 @@ export async function learnFromActualsService(hotelId: string, asOfDate?: Date, 
       where: { hotelId, date: { gte: start, lte: end }, occupancy: { not: null } },
       select: { date: true, occupancy: true },
     }),
-    prisma.factorCoefficient.findMany({ where: { hotelId }, select: { factorKey: true, value: true, sampleSize: true } }),
+    prisma.factorCoefficient.findMany({ where: { hotelId }, select: { factorKey: true, value: true, sampleSize: true, locked: true } }),
     prisma.recommendationDecision.findMany({
       where: { hotelId, stayDate: { gte: start, lte: end } },
       orderBy: { createdAt: 'desc' },
@@ -91,12 +91,12 @@ export async function learnFromActualsService(hotelId: string, asOfDate?: Date, 
     learnedIds.push(s.id)
   }
 
-  const current = new Map<string, CoefficientState>(coefRows.map((r) => [r.factorKey, { value: r.value, sampleSize: r.sampleSize }]))
+  const current = new Map<string, CoefficientState>(coefRows.map((r) => [r.factorKey, { value: r.value, sampleSize: r.sampleSize, locked: r.locked }]))
   const result = applyLearning(samples, current)
 
   // ---- 価格弾力性（σ）: 価格を基準から動かした日の実績で推定し、指数平滑で反映
   let elasticity: LearnResult['elasticity'] = null
-  const sigmaEstimate = estimateSigma(elasticitySamples)
+  const sigmaEstimate = current.get('price:sigma')?.locked ? null : estimateSigma(elasticitySamples)
   if (sigmaEstimate) {
     const currentSigma = result.coefficients.get('price:sigma') ?? { value: getCoefficient(new Map(), 'price:sigma'), sampleSize: 0 }
     const lambda = Math.min(0.3, sigmaEstimate.samples / 20)

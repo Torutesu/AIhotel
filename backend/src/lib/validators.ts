@@ -427,6 +427,19 @@ export const generateAiSummarySchema = z.object({
   llmModel: z.string().min(1).max(100).optional(),
 })
 
+export const knowledgeDocumentSchema = z.object({
+  hotelId: entityIdSchema,
+  title: z.string().min(1).max(200),
+  body: z.string().min(1).max(200_000),
+  // true ならテナント全体（複数ホテル共通）の文書として保存
+  tenantWide: z.boolean().optional(),
+})
+
+export const knowledgePreviewSchema = z.object({
+  hotelId: entityIdSchema,
+  body: z.string().min(1).max(200_000),
+})
+
 export const dailyJobSchema = z.object({
   hotelId: entityIdSchema.optional(),
 })

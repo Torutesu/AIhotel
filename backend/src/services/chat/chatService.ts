@@ -8,6 +8,7 @@ import type { ChatTurnMessage, LlmProviderName, ToolCallRecord } from '../llm/ty
 import { findTool, toolsForRole, type ToolContext } from './chatTools.js'
 import { getPricingDigestService } from '../pricing/digestService.js'
 import { toIsoDate } from '../signals/holidaySignal.js'
+import { getTenantKnowledgeContextService } from '../knowledge/tenantKnowledgeService.js'
 
 const HISTORY_LIMIT = 20
 const MAX_TURNS = 6
@@ -16,6 +17,10 @@ const MAX_OUTPUT_TOKENS = 2000
 export interface Citation {
   id: string
   path: string
+  /** 'tenant'（個社MD）| 'global'（汎用MD） */
+  scope?: 'tenant' | 'global'
+  /** 表示用ラベル（【個社】/【汎用】付き） */
+  label?: string
 }
 
 export interface ChatAction {
@@ -30,8 +35,8 @@ export function collectCitations(toolCalls: ToolCallRecord[], answer: string): C
   const seen = new Map<string, Citation>()
   for (const call of toolCalls) {
     if (call.name !== 'search_knowledge' || !call.ok || !Array.isArray(call.output)) continue
-    for (const hit of call.output as Array<{ id: string; path: string }>) {
-      if (!seen.has(hit.id)) seen.set(hit.id, { id: hit.id, path: hit.path })
+    for (const hit of call.output as Array<{ id: string; path: string; scope?: 'tenant' | 'global'; label?: string }>) {
+      if (!seen.has(hit.id)) seen.set(hit.id, { id: hit.id, path: hit.path, scope: hit.scope, label: hit.label })
     }
   }
   const all = [...seen.values()]
@@ -68,6 +73,8 @@ export function buildSystemPrompt(params: {
   weights: { weightOccupancy: number; weightAdr: number; weightCompetitor: number } | null
   role: UserRole
   digestLine: string
+  rulesSummary?: string
+  tenantDocuments?: string[]
 }): string {
   return [
     `あなたは「${params.hotelName}」のレベニューマネジメント担当を支援するアシスタントです。今日は ${params.today}、客室数は ${params.totalRooms} 室です。`,
@@ -75,10 +82,12 @@ export function buildSystemPrompt(params: {
       ? `価格戦略の重み: 稼働率 ${params.weights.weightOccupancy}% / ADR ${params.weights.weightAdr}% / 競合追従 ${params.weights.weightCompetitor}%。`
       : '',
     `今日のダイジェスト: ${params.digestLine}`,
+    params.rulesSummary ? `このホテルの個社ルール（最優先で守る）: ${params.rulesSummary}` : '',
+    params.tenantDocuments?.length ? `個社MD: ${params.tenantDocuments.join('、')}（search_knowledge で【個社】として引用できる）` : '',
     '',
     '守ること:',
     '- 稼働率・ランク・価格・RevPAR などの数字は必ずツールで取得した値を使う。自分で計算・推測しない。',
-    '- 考え方や判断基準を説明するときは search_knowledge を呼び、回答の末尾に「出典: ドキュメント名 › 見出し」を書く。資料に無いことは「基礎資料に記載なし」と明言する。',
+    '- 考え方や判断基準を説明するときは search_knowledge を呼び、回答の末尾に「出典: 【個社】または【汎用】 ドキュメント名 › 見出し」を書く。個社と汎用が食い違うときは個社を優先し「御社ルールでは〜（汎用資料では〜）」と両方示す。資料に無いことは「資料に記載なし」と明言する。',
     '- 設定を変える操作（イベント登録・採否記録・係数調整・売止め除外）は、ユーザーが明確に求めたときだけ実行し、実行後は何がどう変わったか（ランクの前後など）を報告する。曖昧なら実行せず確認する。',
     `- ユーザーの権限は ${params.role} です。権限が無い操作を求められたら、その旨と誰に依頼すべきかを伝える。`,
     '- 日本語で、結論→根拠→次の一手の順に簡潔に。箇条書きは3〜5点まで。',
@@ -127,10 +136,11 @@ export async function sendChatMessageService(input: SendChatInput): Promise<Chat
 
   // LLM の選択（キー未設定なら 400）を先に確認してから DB に書く
   const { provider, selection } = await getLlmProviderForHotel(input.hotelId, input.llmOverride)
-  const [history, strategy, digest] = await Promise.all([
+  const [history, strategy, digest, tenantKnowledge] = await Promise.all([
     prisma.chatMessage.findMany({ where: { conversationId: conversation.id }, orderBy: { createdAt: 'desc' }, take: HISTORY_LIMIT }),
     prisma.pricingStrategyConfig.findUnique({ where: { hotelId: input.hotelId }, select: { weightOccupancy: true, weightAdr: true, weightCompetitor: true } }),
     getPricingDigestService(input.hotelId).catch(() => null),
+    getTenantKnowledgeContextService(hotel.tenantId, input.hotelId).catch(() => ({ rulesSummary: '', documentTitles: [] as string[], rules: null })),
   ])
 
   const digestLine = digest
@@ -150,7 +160,16 @@ export async function sendChatMessageService(input: SendChatInput): Promise<Chat
   const ctx: ToolContext = { hotelId: input.hotelId, tenantId: hotel.tenantId, userId: input.userId, role: input.role }
   const tools = toolsForRole(input.role)
   const result = await provider.generateWithTools({
-    system: buildSystemPrompt({ hotelName: hotel.name, today: toIsoDate(new Date()), totalRooms: hotel.totalRooms, weights: strategy, role: input.role, digestLine }),
+    system: buildSystemPrompt({
+      hotelName: hotel.name,
+      today: toIsoDate(new Date()),
+      totalRooms: hotel.totalRooms,
+      weights: strategy,
+      role: input.role,
+      digestLine,
+      rulesSummary: tenantKnowledge.rulesSummary,
+      tenantDocuments: tenantKnowledge.documentTitles,
+    }),
     messages,
     tools,
     execute: (name, toolInput) => findTool(name, input.role).run(toolInput, ctx),
