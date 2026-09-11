@@ -16,6 +16,19 @@ export interface JWTPayload {
   hotelId: string | null
 }
 
+// トークン種別クレーム。アクセストークンとリフレッシュトークンは同じ秘密鍵で署名するため、
+// type で区別しないとリフレッシュトークンを Bearer として流用できてしまう（S-1）
+type TokenType = 'access' | 'refresh'
+
+interface AccessTokenClaims extends JWTPayload {
+  type: 'access'
+}
+
+interface RefreshTokenClaims {
+  userId: string
+  type: 'refresh'
+}
+
 export interface TokenPair {
   accessToken: string
   refreshToken: string
@@ -75,18 +88,19 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 export function generateAccessToken(
   user: Pick<User, 'id' | 'email' | 'role' | 'tenantId' | 'hotelId'>
 ): string {
-  const payload: JWTPayload = {
+  const payload: AccessTokenClaims = {
     userId: user.id,
     email: user.email,
     role: user.role,
     tenantId: user.tenantId,
     hotelId: user.hotelId,
+    type: 'access',
   }
-  
+
   const options: SignOptions = {
     expiresIn: parseExpiresIn(JWT_EXPIRES_IN),
   }
-  
+
   return jwt.sign(payload, JWT_SECRET, options)
 }
 
@@ -97,12 +111,9 @@ export function generateRefreshToken(userId: string): string {
   const options: SignOptions = {
     expiresIn: parseExpiresIn(JWT_REFRESH_EXPIRES_IN),
   }
-  
-  return jwt.sign(
-    { userId, type: 'refresh' },
-    JWT_SECRET,
-    options
-  )
+
+  const payload: RefreshTokenClaims = { userId, type: 'refresh' }
+  return jwt.sign(payload, JWT_SECRET, options)
 }
 
 /**
@@ -126,12 +137,24 @@ export function hashToken(token: string): string {
 }
 
 /**
- * アクセストークンを検証する
+ * アクセストークンを検証する。
+ * type クレームが 'access' でないトークン（リフレッシュトークン等）は署名が正しくても拒否する（S-1）
  */
 export function verifyAccessToken(token: string): JWTPayload {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload
-    return decoded
+    const decoded = jwt.verify(token, JWT_SECRET) as Partial<AccessTokenClaims> & { type?: TokenType }
+
+    if (decoded.type !== 'access' || typeof decoded.userId !== 'string') {
+      throw new jwt.JsonWebTokenError('invalid token type')
+    }
+
+    return {
+      userId: decoded.userId,
+      email: decoded.email as string,
+      role: decoded.role as UserRole,
+      tenantId: decoded.tenantId ?? null,
+      hotelId: decoded.hotelId ?? null,
+    }
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
       throw new Error('トークンの有効期限が切れています')
@@ -148,9 +171,9 @@ export function verifyAccessToken(token: string): JWTPayload {
  */
 export function verifyRefreshToken(token: string): { userId: string } {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; type: string }
-    
-    if (decoded.type !== 'refresh') {
+    const decoded = jwt.verify(token, JWT_SECRET) as Partial<RefreshTokenClaims> & { type?: TokenType }
+
+    if (decoded.type !== 'refresh' || typeof decoded.userId !== 'string') {
       throw new Error('無効なリフレッシュトークンです')
     }
     

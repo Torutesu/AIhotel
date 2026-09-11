@@ -16,8 +16,7 @@ import { writeAuditLog } from '../services/auditService.js'
  */
 export const getHotels = asyncHandler(async (req: Request, res: Response) => {
   const user = req.user!
-  const tenantId = user.role === 'ADMIN' ? undefined : user.tenantId
-  const hotels = await getHotelsService(tenantId)
+  const hotels = await getHotelsService({ role: user.role, tenantId: user.tenantId })
   sendSuccess(res, hotels)
 })
 
