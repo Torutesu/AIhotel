@@ -14,6 +14,8 @@ import { ja } from "date-fns/locale/ja"
 import { CalendarIcon, AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
 
 import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
+import { DAY_NAMES } from "@/lib/date"
+import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipProps } from "@/lib/chart-tooltip"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type DashboardKpi, type AlertItem, type AiSummary } from "@/lib/api"
@@ -248,6 +250,8 @@ function ComparisonTable({
 
 export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   const { hotelId } = useAuth()
+  // 週末の定義は Hotel.weekendDays が唯一の出所（U-6）
+  const { weekendDays, isWeekendDow } = useWeekend()
 
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth() + 1)
@@ -733,7 +737,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     return Array.from({ length: 14 }, (_, i) => {
       const date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i)
       const dow = date.getDay()
-      const weekend = dow === 5 || dow === 6
+      const weekend = weekendDays.includes(dow)
       const rng = createSeededRandom(date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate())
       const types = INVENTORY_ROOM_TYPES.map((t) => {
         const capacity = Math.round(rooms * t.share)
@@ -748,7 +752,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       const totalDiff = types.reduce((a, t) => a + t.diff, 0)
       return { date, dow, types, totalRemaining, totalDiff }
     })
-  }, [totalRooms, snapshotPeriod])
+  }, [totalRooms, snapshotPeriod, weekendDays])
 
   const CustomTooltip = ({ active, payload }: ChartTooltipProps) => {
     if (active && payload && payload.length) {
@@ -1504,12 +1508,12 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
                 </thead>
                 <tbody>
                   {inventoryRows.map((row) => {
-                    const dayName = ["日", "月", "火", "水", "木", "金", "土"][row.dow]
-                    const isWeekend = row.dow === 5 || row.dow === 6
+                    const dayName = DAY_NAMES[row.dow]
+                    const isWeekend = isWeekendDow(row.dow)
                     return (
                       <tr key={row.date.toISOString()} className={`border-b hover:bg-muted/20 ${isWeekend ? "bg-primary/5" : ""}`}>
                         <td className="text-center py-1.5 px-2 font-medium border-r">{format(row.date, "M/d")}</td>
-                        <td className={`text-center py-1.5 px-2 border-r ${row.dow === 0 ? "text-negative" : row.dow === 6 ? "text-primary" : ""}`}>
+                        <td className={`text-center py-1.5 px-2 border-r ${isWeekend ? "text-primary font-medium" : ""}`}>
                           {dayName}
                         </td>
                         {row.types.map((t) => (

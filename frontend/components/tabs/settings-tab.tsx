@@ -22,11 +22,8 @@ import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type PriceRank } from "@/lib/api"
-import type { Hotel } from "@shared/types"
-
-const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
-const DEFAULT_WEEKEND_DAYS = [5, 6] // 金・土（要件定義書 §4）
+import { api, ApiClientError, type Hotel, type PriceRank } from "@/lib/api"
+import { DAY_NAMES as WEEKDAY_LABELS, DEFAULT_WEEKEND_DAYS, parseWeekendDays } from "@/lib/date"
 
 // ダッシュボードKPI進捗表に表示する指標（施設ごとに選択可能。F-DASH-01）
 const DASHBOARD_KPI_ITEMS = [
@@ -59,16 +56,8 @@ function parseDashboardKpiItems(raw: string | null): string[] {
   }
 }
 
-function parseWeekendDays(value: unknown): number[] {
-  if (Array.isArray(value)) {
-    const days = value.filter((v): v is number => typeof v === "number" && v >= 0 && v <= 6)
-    if (days.length > 0) return days
-  }
-  return DEFAULT_WEEKEND_DAYS
-}
-
 export function SettingsTab() {
-  const { hotelId, user } = useAuth()
+  const { hotelId, user, setHotel: setAuthHotel } = useAuth()
   const canManageHotel = user?.role === "ADMIN" || user?.role === "MANAGER"
 
   // ホテル情報設定（実データ — F-SET-01）
@@ -261,6 +250,8 @@ export function SettingsTab() {
           weekendDays,
         })
         setHotel(updated)
+        // 週末定義などの施設設定は AuthProvider が全画面へ配っているため、保存後に差し替える（U-6）
+        setAuthHotel(updated)
         toast.success("設定を保存しました", { description: "変更が正常に保存されました。" })
       } catch (err) {
         toast.error(

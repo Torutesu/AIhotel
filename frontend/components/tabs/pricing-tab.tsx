@@ -26,6 +26,8 @@ import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { DAY_NAMES, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
+import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
 const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -75,12 +77,6 @@ function formatEventRange(start: Date | string, end: Date | string): string {
   const e = formatEventDate(end)
   return s === e ? s : `${s} 〜 ${e}`
 }
-
-function toDateStr(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-}
-
-const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"]
 
 // 料金ランクのバッジカラー（バックエンドは40段階でランクを管理 — backend/prisma/seed.ts の PRICE_RANK_COUNT）
 const PRICE_RANK_COUNT = 40
@@ -199,10 +195,6 @@ function signedPt(value: number | null | undefined): string {
   return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}pt`
 }
 
-function monthLabelOf(year: number, month: number): string {
-  return `${year}年${month}月`
-}
-
 // 部屋タイプ・部屋タイプグループの選択肢（マスタ設定に相当するモック定義。先頭がデフォルト表示）
 const ROOM_TYPES = [
   { value: "standard", label: "スタンダード", priceFactor: 1.0 },
@@ -250,13 +242,10 @@ interface PricingTabProps {
   onFocusDateHandled?: () => void
 }
 
-/** Date を "yyyy-MM-dd" に整形する（ローカル時刻基準） */
-function toDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-}
-
 export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = {}) {
   const { hotelId } = useAuth()
+  // 週末の定義は Hotel.weekendDays が唯一の出所（U-6）
+  const { isWeekendDow } = useWeekend()
 
   const now = new Date()
   const [targetMonth, setTargetMonth] = useState(() =>
@@ -266,7 +255,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   )
   // 日別分析から遷移してきた日（該当行をハイライトする）
   const [highlightedDate, setHighlightedDate] = useState<string | null>(
-    focusDate ? toDateKey(focusDate) : null
+    focusDate ? toDateStr(focusDate) : null
   )
   const [roomType, setRoomType] = useState("all")
   const [calendarViewMode, setCalendarViewMode] = useState<"table" | "grid">("table")
@@ -306,7 +295,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   useEffect(() => {
     if (!focusDate) return
     setTargetMonth(`${focusDate.getFullYear()}-${String(focusDate.getMonth() + 1).padStart(2, "0")}`)
-    setHighlightedDate(toDateKey(focusDate))
+    setHighlightedDate(toDateStr(focusDate))
     onFocusDateHandled?.()
   }, [focusDate, onFocusDateHandled])
 
@@ -713,13 +702,13 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                               day.actualOccupancy != null && day.predictedOccupancy != null
                                 ? day.actualOccupancy - day.predictedOccupancy
                                 : null
-                            // 特日 > 祝日 > 通常曜日の順で色付け（色のみで表現、特日は別色）
+                            // 特日 > 祝日 > 週末（Hotel.weekendDays）の順で色付け（色のみで表現、特日は別色）
                             const dayColorClass = special
                               ? "text-warning font-semibold"
-                              : holiday || dow === 0
+                              : holiday
                                 ? "text-negative font-semibold"
-                                : dow === 6
-                                  ? "text-primary"
+                                : isWeekendDow(dow)
+                                  ? "text-primary font-medium"
                                   : ""
                             return (
                               <tr
@@ -1378,6 +1367,7 @@ function PriceGrid({
   onRoomTypeChange: (value: string) => void
   onSelectDay: (day: PricingCalendarDay) => void
 }) {
+  const { isWeekendDow } = useWeekend()
   const byDate = useMemo(() => new Map(days.map((d) => [d.date, d])), [days])
   const firstDay = new Date(year, month - 1, 1)
   const daysInMonth = new Date(year, month, 0).getDate()
@@ -1448,7 +1438,7 @@ function PriceGrid({
                   className={`
                     min-h-[110px] p-2 text-xs relative
                     ${cell.isCurrentMonth ? "" : "opacity-30"}
-                    ${cell.dayOfWeek === 0 ? "bg-negative/5" : cell.dayOfWeek === 6 ? "bg-primary/5" : ""}
+                    ${isWeekendDow(cell.dayOfWeek) ? "bg-primary/5" : ""}
                     border-r border-b
                     ${cell.isCurrentMonth && cell.data ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}
                   `}
@@ -1456,7 +1446,7 @@ function PriceGrid({
                   <div className="flex items-center justify-between mb-1">
                     <div
                       className={`font-medium inline-flex items-center justify-center ${
-                        cell.dayOfWeek === 0 ? "text-negative" : cell.dayOfWeek === 6 ? "text-primary" : ""
+                        isWeekendDow(cell.dayOfWeek) ? "text-primary" : ""
                       }`}
                     >
                       {cell.date}

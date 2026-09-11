@@ -18,6 +18,8 @@ import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
 
 import { useAuth } from "@/components/auth-provider"
+import { DAY_NAMES, startOfToday } from "@/lib/date"
+import { useWeekend } from "@/hooks/use-weekend"
 import { api, ApiClientError, type BookingCurve, type CompetitorPrices } from "@/lib/api"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
@@ -29,15 +31,11 @@ function yen(value: number | null | undefined): string {
 /** 競合比較テーブルの 1 行（`<競合ID>_<人数>名` の動的キーに価格が入る） */
 interface CompetitorComparisonRow {
   date: string
+  /** 曜日番号（0=日〜6=土）。週末判定に使う */
+  dow: number
   day: string
   ourPrice: number | null
   [key: string]: string | number | null
-}
-
-/** 今日の 0 時（ローカルタイム）を返す */
-function startOfToday(): Date {
-  const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
 }
 
 function occLabel(occ: number): string {
@@ -103,6 +101,8 @@ const DEMO_TOTAL_ROOMS = 300
 
 interface DailyRow {
   date: string
+  /** 曜日番号（0=日〜6=土）。週末判定に使う */
+  dow: number
   day: string
   rooms: number
   occ: number
@@ -135,16 +135,15 @@ function seededRandom(seed: number): () => number {
  * 対象月の日別実績を生成する。
  * 稼働率・ADR・RevPAR・室料売上が互いに整合するよう、販売室数とADRから逆算する。
  */
-function buildDailyRows(year: number, month: number): DailyRow[] {
+function buildDailyRows(year: number, month: number, weekendDays: number[]): DailyRow[] {
   const daysInMonth = new Date(year, month, 0).getDate()
-  const dayNames = ["日", "月", "火", "水", "木", "金", "土"]
 
   return Array.from({ length: daysInMonth }, (_, i) => {
     const day = i + 1
     const date = new Date(year, month - 1, day)
     const dow = date.getDay()
-    // 週末=金・土（Hotel.weekendDays に合わせる）
-    const isWeekend = dow === 5 || dow === 6
+    // 週末判定は Hotel.weekendDays に従う（ハードコード禁止 — U-6）
+    const isWeekend = weekendDays.includes(dow)
     const rng = seededRandom(year * 10000 + month * 100 + day)
 
     const occ = Math.min(1, Math.max(0.45, (isWeekend ? 0.95 : 0.72) + (rng() - 0.5) * 0.12))
@@ -161,7 +160,8 @@ function buildDailyRows(year: number, month: number): DailyRow[] {
 
     return {
       date: `${month}/${day}`,
-      day: dayNames[dow],
+      dow,
+      day: DAY_NAMES[dow],
       rooms,
       occ: Number((occ * 100).toFixed(1)),
       occAi: Number((occAi * 100).toFixed(1)),
@@ -193,6 +193,7 @@ export function DailyPerformanceSection({
   onNavigateToPricing,
   onSelectStayDate,
 }: DailyPerformanceSectionProps = {}) {
+  const { weekendDays, isWeekendDow } = useWeekend()
   const [internalTargetMonth, setInternalTargetMonth] = useState("2025-04")
   const targetMonth = targetMonthProp ?? internalTargetMonth
   const handleTargetMonthChange = (value: string) => {
@@ -215,8 +216,8 @@ export function DailyPerformanceSection({
 
   // 日別実績（対象月から決定的に生成。実データ接続までのデモ値）
   const dailyRows = useMemo(
-    () => buildDailyRows(targetYearNum, targetMonthNum),
-    [targetYearNum, targetMonthNum]
+    () => buildDailyRows(targetYearNum, targetMonthNum, weekendDays),
+    [targetYearNum, targetMonthNum, weekendDays]
   )
 
   // 表下部の合計・平均（日別実績から算出するため、対象月を変えても整合する）
@@ -432,7 +433,9 @@ export function DailyPerformanceSection({
                         </button>
                       </td>
                       <td className="py-2 px-2">
-                        <Badge variant={row.day === "土" || row.day === "日" ? "default" : "outline"} className="text-xs">{row.day}</Badge>
+                        <Badge variant={isWeekendDow(row.dow) ? "default" : "outline"} className="text-xs">
+                          {row.day}
+                        </Badge>
                       </td>
                       <td className="text-right py-2 px-2">{row.rooms}室</td>
                       <td className="text-right py-2 px-2">
@@ -964,6 +967,7 @@ export function WeekdayPerformanceSection() {
 /** 競合ホテルとの価格比較分析（実データ: api.competitorPrices。注意事項アラートを含む） */
 export function DailyCompetitorSection() {
   const { hotelId } = useAuth()
+  const { isWeekendDow } = useWeekend()
 
   // ---- 競合価格比較（実データ: api.competitorPrices。日付選択による1週間単位表示） ----
   const [weekStart, setWeekStart] = useState(() => format(new Date(), "yyyy-MM-dd"))
@@ -1030,7 +1034,8 @@ export function DailyCompetitorSection() {
       const own = ownByDate.get(date)
       const result: CompetitorComparisonRow = {
         date: `${d.getMonth() + 1}/${d.getDate()}`,
-        day: ["日", "月", "火", "水", "木", "金", "土"][d.getDay()],
+        dow: d.getDay(),
+        day: DAY_NAMES[d.getDay()],
         ourPrice: own?.price ?? null,
       }
       for (const comp of compByDate) {
@@ -1249,7 +1254,10 @@ export function DailyCompetitorSection() {
                                 <tr key={`${comp.id}-${occ}-${row.date}`} className="border-b hover:bg-muted/50">
                                   <td className="py-2 px-2 font-medium">{row.date}</td>
                                   <td className="py-2 px-2">
-                                    <Badge variant={row.day === "土" || row.day === "日" ? "default" : "outline"} className="text-xs">
+                                    <Badge
+                                      variant={isWeekendDow(Number(row.dow)) ? "default" : "outline"}
+                                      className="text-xs"
+                                    >
                                       {row.day}
                                     </Badge>
                                   </td>

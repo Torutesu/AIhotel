@@ -6,8 +6,17 @@
 // 許可オリジンを限定しているため、ブラウザが直接バックエンドを叩くと弾かれる。
 // プロキシ先はサーバー専用の BACKEND_URL（next.config.mjs）で指定する。
 
-import type { ApiResponse, User, UserRole, Hotel, Event as HotelEvent, PriceRank } from "@shared/types"
+import type {
+  ApiResponse,
+  User,
+  UserRole,
+  HotelDto as Hotel,
+  Event as HotelEvent,
+  PriceRank,
+} from "@shared/types"
+import { parseWeekendDays } from "@/lib/date"
 
+// フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
 export type { Hotel, PriceRank }
 export type { Event as HotelEvent } from "@shared/types"
 
@@ -506,8 +515,7 @@ function toLocalDateStr(date: Date): string {
 }
 
 function isMockWeekend(date: Date): boolean {
-  const weekendDays = Array.isArray(MOCK_HOTEL.weekendDays) ? (MOCK_HOTEL.weekendDays as number[]) : [5, 6]
-  return weekendDays.includes(date.getDay())
+  return parseWeekendDays(MOCK_HOTEL.weekendDays).includes(date.getDay())
 }
 
 function mockSeasonBoost(month: number): number {
