@@ -15,6 +15,7 @@ import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PricingSimulation } from "@/lib/api"
 import { daysInMonth, monthLabel, startOfToday, toDateStr } from "@/lib/date"
+import { formatPercent as pct, formatYen as yen } from "@/lib/format"
 
 /** カレンダー実績から算出した現在値（実データのみ。未確定なら null） */
 export interface CurrentPerformance {
@@ -31,16 +32,6 @@ interface LandingForecastSummaryProps {
   currentLoading: boolean
   /** 再計算後にカレンダー等を再取得させる */
   onRecomputed?: () => void | Promise<void>
-}
-
-function yen(value: number | null | undefined): string {
-  if (value == null) return "-"
-  return `¥${Math.round(value).toLocaleString()}`
-}
-
-function pct(value: number | null | undefined): string {
-  if (value == null) return "-"
-  return `${(value * 100).toFixed(1)}%`
 }
 
 export function LandingForecastSummary({

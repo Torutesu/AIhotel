@@ -15,6 +15,7 @@ import type {
   PriceRank,
 } from "@shared/types"
 import { parseWeekendDays } from "@/lib/date"
+import { createSeededRandom } from "@/lib/format"
 
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
 export type { Hotel, PriceRank }
@@ -640,14 +641,6 @@ export interface UpdateHotelSettingsInput {
 // ---- Dev-only demo data (ダッシュボード/ダイナミックプライシング画面用) ----
 // バックエンドの seed データと近い分布になるよう簡易な季節・曜日変動を再現しているだけの
 // ダミー値。実データではない。
-
-function createSeededRandom(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0
-    return state / 4294967296
-  }
-}
 
 function toLocalDateStr(date: Date): string {
   const y = date.getFullYear()

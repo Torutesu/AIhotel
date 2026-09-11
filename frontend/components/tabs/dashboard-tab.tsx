@@ -1,46 +1,31 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback, useRef, Fragment } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
-import { Button } from "@/components/ui/button"
-import { Skeleton } from "@/components/ui/skeleton"
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
-import { format } from "date-fns"
-import { AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
+// ダッシュボードタブ（U-15 で各セクションを components/dashboard/* へ分割したコンテナ）
+//
+// 実データ: GET /dashboard/kpi・/dashboard/alerts・/dashboard/ai-summary・
+//           /dashboard/kpi/comparison・/hotels
+// サンプル表示: 在庫表（PMS連携・残室推移の記録が未実装）
 
-import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
-import { DAY_NAMES } from "@/lib/date"
-import { toast } from "sonner"
-import { svgToPngBlob } from "@/lib/svg-export"
-import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
-import { SampleDataNotice } from "@/components/sample-data-notice"
-import { usePeriod } from "@/components/app-state-provider"
+import { useCallback, useEffect, useState } from "react"
+
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { ErrorCard } from "@/components/error-state"
 import { LabeledMonthPicker } from "@/components/month-picker"
-import { useWeekend } from "@/hooks/use-weekend"
-import { toNumber, type ChartTooltipProps } from "@/lib/chart-tooltip"
+import { usePeriod } from "@/components/app-state-provider"
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type DashboardKpi, type AlertItem, type AiSummary } from "@/lib/api"
+import { AlertsCard } from "@/components/dashboard/alerts-card"
+import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
+import { TrendChartCard } from "@/components/dashboard/trend-chart-card"
+import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
+import { KpiProgressSection, ALL_KPI_KEYS } from "@/components/dashboard/kpi-progress-section"
+import { InventoryTableCard } from "@/components/dashboard/inventory-table-card"
+import { api, ApiClientError, type AiSummary, type AlertItem, type DashboardKpi } from "@/lib/api"
+import type { AlertLinkTarget } from "@/lib/alert-link"
 
 interface DashboardTabProps {
   /** アラートからの画面遷移（F-4: resolveAlertLink で解決済みの遷移先を渡す） */
   onAlertNavigate?: (target: AlertLinkTarget) => void
 }
-
-// 在庫表（日別・タイプ別残室推移）用のモック定義。
-// PMSでは過去時点の残室を確認できないため、日々の予約情報から残室推移を記録・表示する想定
-const INVENTORY_ROOM_TYPES = [
-  { key: "standard", label: "スタンダード", share: 0.6 },
-  { key: "deluxe", label: "デラックス", share: 0.3 },
-  { key: "suite", label: "スイート", share: 0.1 },
-]
-
-const SNAPSHOT_OPTIONS = [
-  { value: "1", label: "前日時点" },
-  { value: "7", label: "1週間前時点" },
-  { value: "30", label: "1か月前時点" },
-]
 
 /**
  * ダッシュボードに表示するアラートの最小レベル（F-DASH-05）。
@@ -49,87 +34,16 @@ const SNAPSHOT_OPTIONS = [
  */
 const DASHBOARD_MIN_ALERT_LEVEL = 4
 
-// KPI進捗表に表示する指標（設定タブで施設ごとに選択。F-DASH-01）
-const ALL_KPI_KEYS = [
-  "roomRevenue",
-  "soldRooms",
-  "adr",
-  "occupancyRate",
-  "revPar",
-  "guests",
-  "dor",
-  "guestUnitPrice",
-] as const
-
+const TOP_SITES_KEY = "dashboard.showTopSitesSection"
 const dashboardKpiItemsKey = (hotelId: string) => `dashboard.kpiItems.${hotelId}`
-
-// KPI進捗の表示月数（開始月からの相対。F-DASH-01）
-const MONTH_SPAN_OPTIONS = [
-  { value: "1", label: "1か月" },
-  { value: "3", label: "3か月" },
-  { value: "6", label: "6か月" },
-  { value: "12", label: "12か月" },
-]
-
-// KPI進捗の比較軸（F-DASH-02）
-type ComparisonAxisKey = "toDate" | "cumulative" | "fiscalYear"
-
-const COMPARISON_AXES: Array<{ key: ComparisonAxisKey; label: string; description: string }> = [
-  { key: "toDate", label: "本日まで", description: "経過日数で按分した予算に対する進捗ペース" },
-  { key: "cumulative", label: "累計進捗", description: "月間予算に対する現時点の到達率" },
-  { key: "fiscalYear", label: "年度累計", description: "年度開始月から当月までの累計どうしの比較" },
-]
-
-function createSeededRandom(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0
-    return state / 4294967296
-  }
-}
-
-function formatYen(value: number | null | undefined): string {
-  if (value == null) return "-"
-  return `¥${Math.round(value).toLocaleString()}`
-}
-
-function formatPercent(value: number | null | undefined, digits = 1): string {
-  if (value == null) return "-"
-  return `${(value * 100).toFixed(digits)}%`
-}
-
-function formatRatio(actual: number | null | undefined, target: number | null | undefined): string {
-  if (actual == null || target == null || target === 0) return "-"
-  return `${((actual / target) * 100).toFixed(1)}%`
-}
-
-function ratioNegative(actual: number | null | undefined, target: number | null | undefined): boolean {
-  if (actual == null || target == null || target === 0) return false
-  return actual / target < 0.95
-}
 
 export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   const { hotelId } = useAuth()
-  // 週末の定義は Hotel.weekendDays が唯一の出所（U-6）
-  const { weekendDays, isWeekendDow } = useWeekend()
-
   // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
   const { year, month, periodMonth, setPeriodMonth } = usePeriod()
-  // 伸び率の高いサイトの表示/非表示設定（設定画面から制御。対応APIがないため表示のみ）
+
+  // 伸び率の高いサイトの表示/非表示（設定タブから制御。対応APIがないため枠のみ）
   const [showTopSitesSection, setShowTopSitesSection] = useState(false)
-
-  // 在庫表の比較時点（残室推移の記録データと比較する想定。対応APIがないためモック表示）
-  const [snapshotPeriod, setSnapshotPeriod] = useState("7")
-
-  // KPI進捗の比較軸（F-DASH-02: 本日まで／累計進捗／年度累計）
-  const [comparisonAxis, setComparisonAxis] = useState<ComparisonAxisKey>("toDate")
-
-  // KPI進捗の表示月数（1/3/6/12か月。開始月＝上部で選択中の対象年月）
-  const [monthSpan, setMonthSpan] = useState("1")
-  // 複数月表示時の各月KPI（開始月ぶんは kpi をそのまま使う）
-  const [spanKpis, setSpanKpis] = useState<DashboardKpi[]>([])
-  const [spanLoading, setSpanLoading] = useState(false)
-
   // 設定タブで選択されたKPI表示項目（施設ごと。未保存なら全項目）
   const [visibleKpiKeys, setVisibleKpiKeys] = useState<string[]>([...ALL_KPI_KEYS])
 
@@ -140,14 +54,10 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // 画像エクスポート時に描画済みSVGを取得するためのラッパー参照
-  const chartWrapperRef = useRef<HTMLDivElement>(null)
-
   useEffect(() => {
     const loadSettings = () => {
       if (typeof window === "undefined") return
-      const savedTopSites = localStorage.getItem("dashboard.showTopSitesSection")
-      setShowTopSitesSection(savedTopSites === "true")
+      setShowTopSitesSection(localStorage.getItem(TOP_SITES_KEY) === "true")
 
       // KPI表示項目（設定タブで施設ごとに保存。未保存・不正値なら全項目）
       if (!hotelId) return
@@ -159,7 +69,9 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       try {
         const parsed = JSON.parse(raw)
         const valid = Array.isArray(parsed)
-          ? parsed.filter((k): k is string => ALL_KPI_KEYS.includes(k as (typeof ALL_KPI_KEYS)[number]))
+          ? parsed.filter((k): k is string =>
+              ALL_KPI_KEYS.includes(k as (typeof ALL_KPI_KEYS)[number]),
+            )
           : []
         setVisibleKpiKeys(valid.length > 0 ? valid : [...ALL_KPI_KEYS])
       } catch {
@@ -168,7 +80,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     }
     loadSettings()
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "dashboard.showTopSitesSection" || e.key?.startsWith("dashboard.kpiItems.")) {
+      if (e.key === TOP_SITES_KEY || e.key?.startsWith("dashboard.kpiItems.")) {
         loadSettings()
       }
     }
@@ -207,395 +119,6 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     loadData()
   }, [loadData])
 
-  // 複数月表示（F-DASH-01）: 開始月からNか月ぶんを単月APIの並列取得で組み立てる
-  useEffect(() => {
-    const span = Number(monthSpan)
-    if (!hotelId || span <= 1) {
-      setSpanKpis([])
-      return
-    }
-    let cancelled = false
-    setSpanLoading(true)
-    const targets = Array.from({ length: span }, (_, i) => {
-      const offset = month - 1 + i
-      return { year: year + Math.floor(offset / 12), month: (offset % 12) + 1 }
-    })
-    Promise.all(targets.map((t) => api.dashboardKpi(hotelId, t.year, t.month)))
-      .then((results) => {
-        if (!cancelled) setSpanKpis(results)
-      })
-      .catch(() => {
-        // 単月表示は成功しているため、複数月ぶんの取得失敗時は単月表示にフォールバックする
-        if (!cancelled) setSpanKpis([])
-      })
-      .finally(() => {
-        if (!cancelled) setSpanLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [hotelId, year, month, monthSpan])
-
-  const todayKey = format(new Date(), "yyyy-MM-dd")
-
-  // 稼働率・ADRの月間推移チャートデータ（実績→予測の連続系列）
-  const trendChartData = useMemo(() => {
-    if (!kpi) return []
-    const rows = kpi.dailyTrend
-    return rows.map((row, idx) => {
-      const next = rows[idx + 1]
-      const isBoundary = row.isActual && !!next && !next.isActual
-      const [, m, d] = row.date.split("-")
-      return {
-        date: `${Number(m)}/${Number(d)}`,
-        rawDate: row.date,
-        occupancyActual: row.isActual && row.occupancy != null ? Math.round(row.occupancy * 1000) / 10 : null,
-        adrActual: row.isActual ? row.adr : null,
-        occupancyForecast: !row.isActual
-          ? row.predictedOccupancy != null
-            ? Math.round(row.predictedOccupancy * 1000) / 10
-            : null
-          : isBoundary && row.occupancy != null
-            ? Math.round(row.occupancy * 1000) / 10
-            : null,
-        adrForecast: !row.isActual ? row.predictedAdr : isBoundary ? row.adr : null,
-        occupancyLastYear:
-          row.lastYearOccupancy != null ? Math.round(row.lastYearOccupancy * 1000) / 10 : null,
-        adrLastYear: row.lastYearAdr,
-        isToday: row.date === todayKey,
-      }
-    })
-  }, [kpi, todayKey])
-
-  // グラフに引く予算・目標の水平線（F-DASH-03）。月次予算が未登録なら非表示
-  const budgetOccupancyLine = useMemo(() => {
-    const value = kpi?.comparison?.budgetOccupancy
-    return value != null ? Math.round(value * 1000) / 10 : null
-  }, [kpi])
-  const budgetAdrLine = kpi?.comparison?.budgetAdr ?? null
-
-  const hasLastYearTrend = useMemo(
-    () => trendChartData.some((d) => d.occupancyLastYear != null || d.adrLastYear != null),
-    [trendChartData]
-  )
-
-  // グラフのCSVエクスポート（日付・稼働率・ADR・予測・前年）
-  const exportTrendCsv = useCallback(() => {
-    if (trendChartData.length === 0) return
-    const header = ["日付", "稼働率(%)", "ADR(円)", "予測稼働率(%)", "予測ADR(円)", "前年稼働率(%)", "前年ADR(円)"]
-    const rows = trendChartData.map((d) => [
-      d.rawDate,
-      d.occupancyActual ?? "",
-      d.adrActual ?? "",
-      d.occupancyForecast ?? "",
-      d.adrForecast ?? "",
-      d.occupancyLastYear ?? "",
-      d.adrLastYear ?? "",
-    ])
-    const csv = [header, ...rows].map((cols) => cols.join(",")).join("\r\n")
-    // Excelで文字化けしないようBOM付きUTF-8で出力
-    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `稼働ADR月間推移_${year}-${String(month).padStart(2, "0")}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-  }, [trendChartData, year, month])
-
-  // グラフのPNGエクスポート（描画済みSVGをcanvasに転写。追加ライブラリ不要）
-  // 線色は var(--chart-N) / currentColor のため、書き出し前に実色へ解決する（U-10）
-  const exportTrendImage = useCallback(async () => {
-    const svg = chartWrapperRef.current?.querySelector("svg")
-    if (!svg) return
-    try {
-      const blob = await svgToPngBlob(svg)
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement("a")
-      link.href = url
-      link.download = `稼働ADR月間推移_${year}-${String(month).padStart(2, "0")}.png`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "画像の書き出しに失敗しました")
-    }
-  }, [year, month])
-
-  // 表示中の比較軸（F-DASH-02: 本日まで／累計進捗／年度累計）
-  const axis = useMemo(() => {
-    if (!kpi?.comparison) return null
-    return kpi.comparison[comparisonAxis] ?? null
-  }, [kpi, comparisonAxis])
-
-  // KPI進捗テーブル用の行（実データのみ。バックエンドが提供しない比較値は「-」表示）
-  const kpiRows = useMemo(() => {
-    if (!kpi) return []
-    const { summary, comparison, simulation } = kpi
-    // 実績が1日も登録されていない月は、実績ゼロではなく「未登録」として扱う（U-11）
-    const hasActuals = summary.actualDays > 0
-    const actualOr = (value: string) => (hasActuals ? value : "未登録")
-    // 年度累計軸では実績側も年度累計値を使う
-    const isFiscal = comparisonAxis === "fiscalYear"
-    const revenueActual = isFiscal
-      ? (comparison?.actualSummary.fiscalRevenue ?? summary.roomRevenue)
-      : summary.roomRevenue
-    const adrActual = isFiscal ? (comparison?.actualSummary.fiscalAdr ?? summary.adr) : summary.adr
-    const occupancyActual = isFiscal
-      ? (comparison?.actualSummary.fiscalOccupancy ?? summary.occupancyRate)
-      : summary.occupancyRate
-
-    return [
-      {
-        key: "roomRevenue",
-        label: "室料売上",
-        actual: actualOr(formatYen(revenueActual)),
-        budgetRatio: axis?.budgetRevenueRatio != null ? formatPercent(axis.budgetRevenueRatio) : "-",
-        budgetNegative: axis?.budgetRevenueRatio != null && axis.budgetRevenueRatio < 0.95,
-        lastYearRatio: axis?.lastYearRevenueRatio != null ? formatPercent(axis.lastYearRevenueRatio) : "-",
-        lastYearNegative: axis?.lastYearRevenueRatio != null && axis.lastYearRevenueRatio < 0.95,
-        aiPrediction: formatYen(simulation?.projectedRevenue),
-        aiBudgetRatio: formatRatio(simulation?.projectedRevenue, comparison?.budgetRevenue),
-        aiBudgetNegative: ratioNegative(simulation?.projectedRevenue, comparison?.budgetRevenue),
-        aiLastYearRatio: formatRatio(simulation?.projectedRevenue, comparison?.lastYearRevenue),
-        aiLastYearNegative: ratioNegative(simulation?.projectedRevenue, comparison?.lastYearRevenue),
-      },
-      {
-        key: "soldRooms",
-        label: "販売室数",
-        actual: actualOr(`${summary.soldRooms.toLocaleString()}室`),
-        budgetRatio: "-",
-        budgetNegative: false,
-        lastYearRatio: "-",
-        lastYearNegative: false,
-        aiPrediction: "-",
-        aiBudgetRatio: "-",
-        aiBudgetNegative: false,
-        aiLastYearRatio: "-",
-        aiLastYearNegative: false,
-      },
-      {
-        key: "adr",
-        label: "ADR",
-        actual: actualOr(formatYen(adrActual)),
-        budgetRatio: axis?.budgetAdrRatio != null ? formatPercent(axis.budgetAdrRatio) : "-",
-        budgetNegative: axis?.budgetAdrRatio != null && axis.budgetAdrRatio < 0.95,
-        lastYearRatio: axis?.lastYearAdrRatio != null ? formatPercent(axis.lastYearAdrRatio) : "-",
-        lastYearNegative: axis?.lastYearAdrRatio != null && axis.lastYearAdrRatio < 0.95,
-        aiPrediction: formatYen(simulation?.projectedAdr),
-        aiBudgetRatio: formatRatio(simulation?.projectedAdr, comparison?.budgetAdr),
-        aiBudgetNegative: ratioNegative(simulation?.projectedAdr, comparison?.budgetAdr),
-        aiLastYearRatio: formatRatio(simulation?.projectedAdr, comparison?.lastYearAdr),
-        aiLastYearNegative: ratioNegative(simulation?.projectedAdr, comparison?.lastYearAdr),
-      },
-      {
-        key: "occupancyRate",
-        label: "稼働率",
-        actual: actualOr(formatPercent(occupancyActual)),
-        budgetRatio: axis?.budgetOccupancyRatio != null ? formatPercent(axis.budgetOccupancyRatio) : "-",
-        budgetNegative: axis?.budgetOccupancyRatio != null && axis.budgetOccupancyRatio < 0.95,
-        lastYearRatio:
-          axis?.lastYearOccupancyRatio != null ? formatPercent(axis.lastYearOccupancyRatio) : "-",
-        lastYearNegative: axis?.lastYearOccupancyRatio != null && axis.lastYearOccupancyRatio < 0.95,
-        aiPrediction: formatPercent(simulation?.projectedOccupancy),
-        aiBudgetRatio: formatRatio(simulation?.projectedOccupancy, comparison?.budgetOccupancy),
-        aiBudgetNegative: ratioNegative(simulation?.projectedOccupancy, comparison?.budgetOccupancy),
-        aiLastYearRatio: formatRatio(simulation?.projectedOccupancy, comparison?.lastYearOccupancy),
-        aiLastYearNegative: ratioNegative(simulation?.projectedOccupancy, comparison?.lastYearOccupancy),
-      },
-      {
-        key: "revPar",
-        label: "REV-Per",
-        actual: actualOr(formatYen(summary.revPar)),
-        budgetRatio: "-",
-        budgetNegative: false,
-        lastYearRatio: "-",
-        lastYearNegative: false,
-        aiPrediction: formatYen(simulation?.projectedRevPar),
-        aiBudgetRatio: "-",
-        aiBudgetNegative: false,
-        aiLastYearRatio: "-",
-        aiLastYearNegative: false,
-      },
-      {
-        key: "guests",
-        label: "宿泊人数",
-        actual: actualOr(`${summary.guests.toLocaleString()}人`),
-        budgetRatio: "-",
-        budgetNegative: false,
-        lastYearRatio: "-",
-        lastYearNegative: false,
-        aiPrediction: "-",
-        aiBudgetRatio: "-",
-        aiBudgetNegative: false,
-        aiLastYearRatio: "-",
-        aiLastYearNegative: false,
-      },
-      {
-        key: "dor",
-        label: "DOR",
-        actual: actualOr(`${summary.dor.toFixed(2)}人`),
-        budgetRatio: "-",
-        budgetNegative: false,
-        lastYearRatio: "-",
-        lastYearNegative: false,
-        aiPrediction: "-",
-        aiBudgetRatio: "-",
-        aiBudgetNegative: false,
-        aiLastYearRatio: "-",
-        aiLastYearNegative: false,
-      },
-      {
-        key: "guestUnitPrice",
-        label: "客単価",
-        actual: actualOr(formatYen(summary.guestUnitPrice)),
-        budgetRatio: "-",
-        budgetNegative: false,
-        lastYearRatio: "-",
-        lastYearNegative: false,
-        aiPrediction: "-",
-        aiBudgetRatio: "-",
-        aiBudgetNegative: false,
-        aiLastYearRatio: "-",
-        aiLastYearNegative: false,
-      },
-    ]
-  }, [kpi, comparisonAxis, axis])
-
-  // 設定タブで選択された表示項目のみに絞る（F-DASH-01）
-  const visibleKpiRows = useMemo(
-    () => kpiRows.filter((row) => visibleKpiKeys.includes(row.key)),
-    [kpiRows, visibleKpiKeys]
-  )
-
-  // 複数月表示（F-DASH-01）: 指標×月のマトリクス。実績値のみを月ごとに並べる
-  const multiMonthTable = useMemo(() => {
-    if (Number(monthSpan) <= 1 || spanKpis.length === 0) return null
-
-    const columns = spanKpis.map((k) => ({
-      key: `${k.year}-${k.month}`,
-      label: `${k.year}/${String(k.month).padStart(2, "0")}`,
-    }))
-
-    // 実績が1日も無い月は「未登録」を返す（実績ゼロと区別する — U-11）
-    const withActuals =
-      (format: (k: DashboardKpi) => string) =>
-      (k: DashboardKpi): string =>
-        k.summary.actualDays > 0 ? format(k) : "未登録"
-
-    const formatters: Record<string, (k: DashboardKpi) => string> = {
-      roomRevenue: withActuals((k) => formatYen(k.summary.roomRevenue)),
-      soldRooms: withActuals((k) => `${k.summary.soldRooms.toLocaleString()}室`),
-      adr: withActuals((k) => formatYen(k.summary.adr)),
-      occupancyRate: withActuals((k) => formatPercent(k.summary.occupancyRate)),
-      revPar: withActuals((k) => formatYen(k.summary.revPar)),
-      guests: withActuals((k) => `${k.summary.guests.toLocaleString()}人`),
-      dor: withActuals((k) => `${k.summary.dor.toFixed(2)}人`),
-      guestUnitPrice: withActuals((k) => formatYen(k.summary.guestUnitPrice)),
-    }
-
-    const labels: Record<string, string> = {
-      roomRevenue: "室料売上",
-      soldRooms: "販売室数",
-      adr: "ADR",
-      occupancyRate: "稼働率",
-      revPar: "REV-Per",
-      guests: "宿泊人数",
-      dor: "DOR",
-      guestUnitPrice: "客単価",
-    }
-
-    const rows = ALL_KPI_KEYS.filter((key) => visibleKpiKeys.includes(key)).map((key) => ({
-      key,
-      label: labels[key],
-      values: spanKpis.map((k) => formatters[key](k)),
-    }))
-
-    return { columns, rows }
-  }, [monthSpan, spanKpis, visibleKpiKeys])
-
-  // 在庫表（日別・タイプ別残室と比較時点との差分）。日付から決定的に導出するモックデータ
-  const inventoryRows = useMemo(() => {
-    const rooms = totalRooms ?? 300
-    const periodDays = Number(snapshotPeriod)
-    const base = new Date()
-    return Array.from({ length: 14 }, (_, i) => {
-      const date = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i)
-      const dow = date.getDay()
-      const weekend = weekendDays.includes(dow)
-      const rng = createSeededRandom(date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate())
-      const types = INVENTORY_ROOM_TYPES.map((t) => {
-        const capacity = Math.round(rooms * t.share)
-        const occ = Math.min(0.98, Math.max(0.2, (weekend ? 0.88 : 0.66) - i * 0.015 + (rng() - 0.5) * 0.1))
-        const remaining = Math.max(0, Math.round(capacity * (1 - occ)))
-        // 比較時点の残室（過去ほど残室が多い＝その後の予約進捗ぶん）
-        const pace = capacity * (0.005 + rng() * 0.02)
-        const snapshotRemaining = Math.min(capacity, remaining + Math.round(pace * periodDays))
-        return { key: t.key, label: t.label, capacity, remaining, diff: remaining - snapshotRemaining }
-      })
-      const totalRemaining = types.reduce((a, t) => a + t.remaining, 0)
-      const totalDiff = types.reduce((a, t) => a + t.diff, 0)
-      return { date, dow, types, totalRemaining, totalDiff }
-    })
-  }, [totalRooms, snapshotPeriod, weekendDays])
-
-  const CustomTooltip = ({ active, payload }: ChartTooltipProps) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">{payload[0].payload?.date}</p>
-          <div className="space-y-1">
-            <p className="text-xs flex items-center gap-2">
-              <span className="w-3 h-0.5 bg-[color:var(--chart-1)]"></span>
-              <span>稼働率: {payload[0].value != null ? `${toNumber(payload[0].value).toFixed(1)}%` : "-"}</span>
-            </p>
-            <p className="text-xs flex items-center gap-2">
-              <span className="w-3 h-0.5 bg-[color:var(--chart-3)]"></span>
-              <span>ADR: {payload[1]?.value != null ? `¥${Math.round(toNumber(payload[1].value)).toLocaleString()}` : "-"}</span>
-            </p>
-          </div>
-        </div>
-      )
-    }
-    return null
-  }
-
-  // アラート重要度（1-5の5段階）。ダッシュボードはLevel 5・4のみ表示する（F-DASH-05）
-  const alertLevelStyles: Record<number, { border: string; bg: string; dot: string; label: string; text: string }> = {
-    5: {
-      border: "border-negative",
-      bg: "bg-negative/10",
-      dot: "bg-negative",
-      label: "Level 5 / すぐに修正する",
-      text: "text-negative",
-    },
-    4: {
-      border: "border-warning",
-      bg: "bg-warning/10",
-      dot: "bg-warning",
-      label: "Level 4 / 1週間内での経過観察が必要",
-      text: "text-warning",
-    },
-  }
-
-  // level未設定の旧データはseverityから補完する
-  const resolveAlertLevel = (alert: AlertItem): number =>
-    alert.level ?? (alert.severity === "RED" ? 5 : 4)
-
-  const alertStyleFor = (alert: AlertItem) => {
-    const level = resolveAlertLevel(alert)
-    return (
-      alertLevelStyles[level] ?? {
-        border: "border-border",
-        bg: "bg-muted/50",
-        dot: "bg-muted-foreground",
-        label: `Level ${level}`,
-        text: "text-muted-foreground",
-      }
-    )
-  }
-
   if (!hotelId) {
     return (
       <div className="p-4">
@@ -607,25 +130,16 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   if (error) {
     return (
       <div className="p-4">
-        <Card>
-          <CardContent className="py-8 flex flex-col items-center gap-3 text-center">
-            <AlertCircle className="w-8 h-8 text-destructive" />
-            <p className="text-sm text-muted-foreground">{error}</p>
-            <Button variant="outline" size="sm" onClick={loadData} className="gap-2">
-              <RefreshCw className="w-4 h-4" />
-              再試行
-            </Button>
-          </CardContent>
-        </Card>
+        <ErrorCard message={error} onRetry={loadData} />
       </div>
     )
   }
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="space-y-4 p-4">
       <div className="space-y-4">
         {/* 対象年月選択（全タブ共有・URL同期） */}
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex flex-wrap items-center gap-3">
           <LabeledMonthPicker
             id="dashboard-period"
             label="対象年月"
@@ -633,327 +147,21 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
             onChange={setPeriodMonth}
           />
           {totalRooms != null && (
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-md ml-auto">
+            <div className="ml-auto flex items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5">
               <p className="text-xs text-muted-foreground">客室数</p>
               <div className="text-lg font-bold">
                 {totalRooms.toLocaleString()}
-                <span className="text-sm font-semibold ml-0.5">室</span>
+                <span className="ml-0.5 text-sm font-semibold">室</span>
               </div>
             </div>
           )}
         </div>
 
-        {/* アラートセクション - 一番上に配置 */}
-        <Card>
-          <CardHeader className="pb-1">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle className="text-base font-medium">アラート</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                重要度5段階のうち Level 5・4 を表示（Level 3以下は各分析画面で確認）
-              </p>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {loading ? (
-              <div className="space-y-3">
-                <Skeleton className="h-16 w-full" />
-                <Skeleton className="h-16 w-full" />
-              </div>
-            ) : alerts.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                現在、対応が必要なアラート（Level 5・4）はありません。
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {alerts.map((alert) => {
-                  const style = alertStyleFor(alert)
-                  const link = resolveAlertLink(alert.linkTab)
-                  return (
-                    <div key={alert.id} className={`border-l-4 ${style.border} ${style.bg} p-3 rounded-r`}>
-                      <div className="flex items-start gap-2">
-                        <div className={`w-3 h-3 rounded-full ${style.dot} mt-1 flex-shrink-0`}></div>
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1 flex-wrap">
-                            <span className={`text-xs font-semibold ${style.text}`}>{style.label}</span>
-                            {link && (
-                              <button
-                                onClick={() => onAlertNavigate?.(link)}
-                                className="text-xs text-primary hover:underline hover:text-[color:var(--cyan-edge)] transition-colors"
-                              >
-                                {alert.targetDate ? format(new Date(alert.targetDate), "yyyy/MM/dd") : ""}
-                                {` (${link.label})`}
-                              </button>
-                            )}
-                          </div>
-                          <p className={`text-sm ${style.text}`}>
-                            {alert.title}: {alert.message}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <AlertsCard alerts={alerts} loading={loading} onAlertNavigate={onAlertNavigate} />
 
-        {/* AI解説セクション */}
-        <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
-          <CardHeader className="pb-1">
-            <CardTitle className="text-base font-medium flex items-center gap-2">
-              <span className="text-xl" aria-hidden>
-                🤖
-              </span>
-              AI解説
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {loading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-5/6" />
-                <Skeleton className="h-4 w-3/4" />
-              </div>
-            ) : aiSummary?.content ? (
-              <p className="max-h-60 overflow-y-auto text-sm leading-relaxed whitespace-pre-wrap">
-                {aiSummary.content}
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">この月のAIまとめはまだ生成されていません。</p>
-            )}
-          </CardContent>
-        </Card>
+        <AiSummaryCard summary={aiSummary} loading={loading} />
 
-        {/* 稼働・ADR月間推移 */}
-        <Card>
-          <CardHeader className="pb-1">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle className="text-base font-medium">稼働・ADR月間推移</CardTitle>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 text-xs"
-                  onClick={exportTrendCsv}
-                  disabled={loading || trendChartData.length === 0}
-                >
-                  <Download className="h-3 w-3" />
-                  CSV
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 text-xs"
-                  onClick={() => void exportTrendImage()}
-                  disabled={loading || trendChartData.length === 0}
-                >
-                  <ImageDown className="h-3 w-3" />
-                  画像
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {loading ? (
-              <Skeleton className="h-[300px] w-full" />
-            ) : trendChartData.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">この月のデータがありません。</p>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
-                  <div className="flex items-center gap-4 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-0.5 bg-[color:var(--chart-1)]"></div>
-                      <span className="font-medium text-xs">稼働率</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-0.5 bg-[color:var(--chart-3)]"></div>
-                      <span className="font-medium text-xs">ADR</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-4 h-0.5 bg-muted-foreground"></span>実線＝実績
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="w-4 border-t border-dashed border-muted-foreground"
-                        aria-hidden
-                      ></span>
-                      点線＝予測
-                    </span>
-                    {hasLastYearTrend && (
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-4 h-0.5 bg-[color:var(--chart-5)] opacity-70"></span>
-                        前年実績
-                      </span>
-                    )}
-                    {(budgetOccupancyLine != null || budgetAdrLine != null) && (
-                      <span className="flex items-center gap-1.5">
-                        <span
-                          className="w-4 border-t-2 border-dotted border-[color:var(--chart-4)]"
-                          aria-hidden
-                        ></span>
-                        予算・目標
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div ref={chartWrapperRef}>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={trendChartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fontSize: 11 }}
-                      interval={2}
-                      stroke="currentColor"
-                      opacity={0.6}
-                      label={{ value: "日付", position: "insideBottom", offset: -5, style: { textAnchor: "middle", fontSize: 12 } }}
-                    />
-                    <YAxis
-                      yAxisId="left"
-                      tick={{ fontSize: 12 }}
-                      stroke="currentColor"
-                      opacity={0.6}
-                      tickFormatter={(value) => `${value}%`}
-                      label={{ value: "稼働率", angle: -90, position: "insideLeft", style: { textAnchor: "middle", fontSize: 12 } }}
-                    />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
-                      tick={{ fontSize: 12 }}
-                      stroke="currentColor"
-                      opacity={0.6}
-                      tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
-                      label={{ value: "ADR（円）", angle: 90, position: "insideRight", style: { textAnchor: "middle", fontSize: 12 } }}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    {trendChartData.find((d) => d.isToday) && (
-                      <ReferenceLine
-                        x={trendChartData.find((d) => d.isToday)?.date}
-                        stroke="#666"
-                        strokeDasharray="5 5"
-                        strokeWidth={1.5}
-                        label={{ value: `本日 ${trendChartData.find((d) => d.isToday)?.date}`, position: "top", fill: "#666", fontSize: 11 }}
-                      />
-                    )}
-                    <Line
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="occupancyActual"
-                      stroke="var(--chart-1)"
-                      strokeWidth={2.5}
-                      dot={false}
-                      name="稼働率"
-                      activeDot={{ r: 6 }}
-                      connectNulls={false}
-                    />
-                    <Line
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="occupancyForecast"
-                      stroke="var(--chart-1)"
-                      strokeWidth={2.5}
-                      strokeDasharray="5 5"
-                      dot={false}
-                      name="稼働率（予測）"
-                      activeDot={{ r: 6 }}
-                      connectNulls={false}
-                    />
-                    <Line
-                      yAxisId="right"
-                      type="monotone"
-                      dataKey="adrActual"
-                      stroke="var(--chart-3)"
-                      strokeWidth={2.5}
-                      dot={false}
-                      name="ADR"
-                      activeDot={{ r: 6 }}
-                      connectNulls={false}
-                    />
-                    <Line
-                      yAxisId="right"
-                      type="monotone"
-                      dataKey="adrForecast"
-                      stroke="var(--chart-3)"
-                      strokeWidth={2.5}
-                      strokeDasharray="5 5"
-                      dot={false}
-                      name="ADR（予測）"
-                      activeDot={{ r: 6 }}
-                      connectNulls={false}
-                    />
-                    {/* 前年実績（細線で背面に重ねる） */}
-                    {hasLastYearTrend && (
-                      <Line
-                        yAxisId="left"
-                        type="monotone"
-                        dataKey="occupancyLastYear"
-                        stroke="var(--chart-5)"
-                        strokeWidth={1.5}
-                        strokeOpacity={0.7}
-                        dot={false}
-                        name="稼働率（前年）"
-                        activeDot={{ r: 4 }}
-                        connectNulls
-                      />
-                    )}
-                    {hasLastYearTrend && (
-                      <Line
-                        yAxisId="right"
-                        type="monotone"
-                        dataKey="adrLastYear"
-                        stroke="var(--chart-5)"
-                        strokeWidth={1.5}
-                        strokeOpacity={0.7}
-                        strokeDasharray="2 3"
-                        dot={false}
-                        name="ADR（前年）"
-                        activeDot={{ r: 4 }}
-                        connectNulls
-                      />
-                    )}
-                    {/* 予算・目標の水平線（月次予算が登録されている場合のみ） */}
-                    {budgetOccupancyLine != null && (
-                      <ReferenceLine
-                        yAxisId="left"
-                        y={budgetOccupancyLine}
-                        stroke="var(--chart-4)"
-                        strokeDasharray="2 2"
-                        strokeWidth={1.5}
-                        label={{
-                          value: `予算稼働率 ${budgetOccupancyLine.toFixed(1)}%`,
-                          position: "insideTopLeft",
-                          fill: "var(--chart-4)",
-                          fontSize: 10,
-                        }}
-                      />
-                    )}
-                    {budgetAdrLine != null && (
-                      <ReferenceLine
-                        yAxisId="right"
-                        y={budgetAdrLine}
-                        stroke="var(--chart-4)"
-                        strokeDasharray="2 2"
-                        strokeWidth={1.5}
-                        label={{
-                          value: `予算ADR ¥${Math.round(budgetAdrLine).toLocaleString()}`,
-                          position: "insideBottomRight",
-                          fill: "var(--chart-4)",
-                          fontSize: 10,
-                        }}
-                      />
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <TrendChartCard kpi={kpi} loading={loading} year={year} month={month} />
 
         {/* 月初比較・日付比較（U-5 — GET /dashboard/kpi/comparison） */}
         <KpiComparisonSection year={year} month={month} summary={kpi?.summary ?? null} />
@@ -970,268 +178,16 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
           </Card>
         )}
 
-        {/* KPI進捗状況 */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <h2 className="text-lg font-heading font-medium tracking-tight">KPI進捗状況</h2>
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* 開始月は上部の対象年月。ここでは表示月数を選ぶ（F-DASH-01） */}
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="kpi-month-span" className="text-xs whitespace-nowrap">
-                  {year}年{month}月から
-                </Label>
-                <Select value={monthSpan} onValueChange={setMonthSpan}>
-                  <SelectTrigger id="kpi-month-span" className="h-7 w-24 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {MONTH_SPAN_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {kpi
-                  ? comparisonAxis === "fiscalYear" && kpi.comparison
-                    ? `${kpi.comparison.actualSummary.fiscalActualDays}日分の実績を集計（年度累計）`
-                    : kpi.summary.actualDays > 0
-                      ? `${kpi.summary.actualDays}日分の実績を集計`
-                      : "この月の実績は未登録です（0は実績ゼロではありません）"
-                  : ""}
-              </p>
-            </div>
-          </div>
+        <KpiProgressSection
+          hotelId={hotelId}
+          kpi={kpi}
+          loading={loading}
+          year={year}
+          month={month}
+          visibleKpiKeys={visibleKpiKeys}
+        />
 
-          {/* 比較軸の切り替え（F-DASH-02） */}
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {COMPARISON_AXES.map((option) => (
-                <button
-                  key={option.key}
-                  onClick={() => setComparisonAxis(option.key)}
-                  title={option.description}
-                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                    comparisonAxis === option.key
-                      ? "border-transparent bg-primary text-primary-foreground"
-                      : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  }`}
-                >
-                  {option.key === "fiscalYear" && kpi?.comparison
-                    ? kpi.comparison.fiscalYearLabel
-                    : option.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {COMPARISON_AXES.find((o) => o.key === comparisonAxis)?.description}
-            </p>
-          </div>
-
-          {loading ? (
-            <Skeleton className="h-64 w-full" />
-          ) : kpi ? (
-            <Card>
-              <CardContent className="p-0 pt-2 pb-2">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b bg-muted/30">
-                        <th className="text-center py-1.5 px-2 font-medium border-r">指標</th>
-                        <th className="text-center py-1.5 px-2 font-medium border-r">
-                          {comparisonAxis === "fiscalYear" ? "年度累計実績" : "当月実績"}
-                        </th>
-                        <th className="text-center py-1.5 px-2 font-medium border-r">
-                          予算比（{COMPARISON_AXES.find((o) => o.key === comparisonAxis)?.label}）
-                        </th>
-                        <th className="text-center py-1.5 px-2 font-medium border-r">
-                          前年比（{COMPARISON_AXES.find((o) => o.key === comparisonAxis)?.label}）
-                        </th>
-                        <th className="text-center py-1.5 px-2 font-medium border-r">AI着地予測</th>
-                        <th className="text-center py-1.5 px-2 font-medium border-r">対予算(AI)</th>
-                        <th className="text-center py-1.5 px-2 font-medium">対前年(AI)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleKpiRows.map((row) => (
-                        <tr key={row.label} className="border-b hover:bg-muted/20">
-                          <td className="py-1.5 px-2 font-medium border-r bg-muted/10">{row.label}</td>
-                          <td className="text-right py-1.5 px-2 font-semibold border-r">{row.actual}</td>
-                          <td className={`text-right py-1.5 px-2 border-r ${row.budgetNegative ? "text-[color:var(--negative)]" : ""}`}>
-                            {row.budgetRatio}
-                          </td>
-                          <td className={`text-right py-1.5 px-2 border-r ${row.lastYearNegative ? "text-[color:var(--negative)]" : ""}`}>
-                            {row.lastYearRatio}
-                          </td>
-                          <td className="text-right py-1.5 px-2 border-r font-semibold text-positive">
-                            {row.aiPrediction}
-                          </td>
-                          <td className={`text-right py-1.5 px-2 border-r ${row.aiBudgetNegative ? "text-[color:var(--negative)]" : ""}`}>
-                            {row.aiBudgetRatio}
-                          </td>
-                          <td className={`text-right py-1.5 px-2 ${row.aiLastYearNegative ? "text-[color:var(--negative)]" : ""}`}>
-                            {row.aiLastYearRatio}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <p className="text-sm text-muted-foreground">データがありません。</p>
-          )}
-
-          {/* 複数月表示（F-DASH-01）: 指標×月の実績マトリクス */}
-          {Number(monthSpan) > 1 && (
-            <Card>
-              <CardHeader className="pb-1">
-                <CardTitle className="text-sm font-medium">
-                  月別実績推移（{year}年{month}月から{monthSpan}か月）
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-2">
-                {spanLoading ? (
-                  <Skeleton className="h-40 w-full" />
-                ) : multiMonthTable ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b bg-muted/30">
-                          <th className="text-center py-1.5 px-2 font-medium border-r whitespace-nowrap">指標</th>
-                          {multiMonthTable.columns.map((col) => (
-                            <th
-                              key={col.key}
-                              className="text-center py-1.5 px-2 font-medium border-r whitespace-nowrap"
-                            >
-                              {col.label}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {multiMonthTable.rows.map((row) => (
-                          <tr key={row.key} className="border-b hover:bg-muted/20">
-                            <td className="py-1.5 px-2 font-medium border-r bg-muted/10 whitespace-nowrap">
-                              {row.label}
-                            </td>
-                            {row.values.map((value, i) => (
-                              <td
-                                key={multiMonthTable.columns[i].key}
-                                className="text-right py-1.5 px-2 border-r whitespace-nowrap"
-                              >
-                                {value}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    月別データを取得できませんでした。表示月数を変更して再度お試しください。
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {/* 在庫表（日別・タイプ別残室推移） */}
-        <Card>
-          <CardHeader className="pb-1">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <CardTitle className="text-base font-medium">在庫表（日別・タイプ別残室推移）</CardTitle>
-                <p className="text-xs text-muted-foreground mt-1">
-                  日々の予約情報から残室数を記録し、選択した時点との推移を表示します（PMSでは過去時点の残室を確認できないため本システムで記録）
-                </p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="inventory-snapshot" className="text-xs whitespace-nowrap">
-                  比較時点
-                </Label>
-                <Select value={snapshotPeriod} onValueChange={setSnapshotPeriod}>
-                  <SelectTrigger id="inventory-snapshot" className="h-8 w-36 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SNAPSHOT_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="pt-2 space-y-2">
-            <SampleDataNotice detail="PMS連携と残室推移の記録が未実装のため、以下の残室数はサンプルです。" />
-            <div className="overflow-x-auto overflow-y-auto max-h-[520px]">
-              <table className="table-sticky-head w-full text-xs border-collapse">
-                <thead>
-                  <tr className="border-b bg-muted/30">
-                    <th rowSpan={2} className="text-center py-1.5 px-2 font-medium border-r">日付</th>
-                    <th rowSpan={2} className="text-center py-1.5 px-2 font-medium border-r">曜日</th>
-                    {INVENTORY_ROOM_TYPES.map((t) => (
-                      <th key={t.key} colSpan={2} className="text-center py-1.5 px-2 font-medium border-r">
-                        {t.label}
-                      </th>
-                    ))}
-                    <th colSpan={2} className="text-center py-1.5 px-2 font-medium">合計</th>
-                  </tr>
-                  <tr className="border-b bg-muted/30">
-                    {INVENTORY_ROOM_TYPES.map((t) => (
-                      <Fragment key={t.key}>
-                        <th className="text-center py-1 px-2 font-normal text-muted-foreground border-r border-dashed">残室</th>
-                        <th className="text-center py-1 px-2 font-normal text-muted-foreground border-r">推移</th>
-                      </Fragment>
-                    ))}
-                    <th className="text-center py-1 px-2 font-normal text-muted-foreground border-r border-dashed">残室</th>
-                    <th className="text-center py-1 px-2 font-normal text-muted-foreground">推移</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {inventoryRows.map((row) => {
-                    const dayName = DAY_NAMES[row.dow]
-                    const isWeekend = isWeekendDow(row.dow)
-                    return (
-                      <tr key={row.date.toISOString()} className={`border-b hover:bg-muted/20 ${isWeekend ? "bg-primary/5" : ""}`}>
-                        <td className="text-center py-1.5 px-2 font-medium border-r">{format(row.date, "M/d")}</td>
-                        <td className={`text-center py-1.5 px-2 border-r ${isWeekend ? "text-primary font-medium" : ""}`}>
-                          {dayName}
-                        </td>
-                        {row.types.map((t) => (
-                          <Fragment key={t.key}>
-                            <td className="text-right py-1.5 px-2 border-r border-dashed">
-                              {t.remaining}
-                              <span className="text-[9px] text-muted-foreground">/{t.capacity}</span>
-                            </td>
-                            <td className={`text-right py-1.5 px-2 border-r ${t.diff < 0 ? "text-[color:var(--positive)]" : t.diff > 0 ? "text-[color:var(--negative)]" : "text-muted-foreground"}`}>
-                              {t.diff === 0 ? "±0" : t.diff > 0 ? `+${t.diff}` : t.diff}
-                            </td>
-                          </Fragment>
-                        ))}
-                        <td className="text-right py-1.5 px-2 font-semibold border-r border-dashed">{row.totalRemaining}</td>
-                        <td className={`text-right py-1.5 px-2 font-semibold ${row.totalDiff < 0 ? "text-[color:var(--positive)]" : row.totalDiff > 0 ? "text-[color:var(--negative)]" : "text-muted-foreground"}`}>
-                          {row.totalDiff === 0 ? "±0" : row.totalDiff > 0 ? `+${row.totalDiff}` : row.totalDiff}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <p className="mt-2 text-[10px] text-muted-foreground">
-              ※ 推移は比較時点からの残室数の増減です（マイナス＝予約が進んで残室が減少）。表示は今後14日分です
-            </p>
-          </CardContent>
-        </Card>
+        <InventoryTableCard totalRooms={totalRooms} />
       </div>
     </div>
   )

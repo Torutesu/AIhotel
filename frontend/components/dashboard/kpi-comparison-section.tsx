@@ -18,22 +18,13 @@ import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type DashboardKpi, type KpiSnapshot } from "@/lib/api"
 import { toDateStr } from "@/lib/date"
+import { formatPercent, formatYen } from "@/lib/format"
 
 interface KpiComparisonSectionProps {
   year: number
   month: number
   /** 現在の当月実績（比較の「現在」側） */
   summary: DashboardKpi["summary"] | null
-}
-
-function formatYen(value: number | null | undefined): string {
-  if (value == null) return "-"
-  return `¥${Math.round(value).toLocaleString()}`
-}
-
-function formatPercent(value: number | null | undefined): string {
-  if (value == null) return "-"
-  return `${(value * 100).toFixed(1)}%`
 }
 
 interface ComparisonRow {
