@@ -499,7 +499,6 @@ export interface PricingCalendarDay {
   competitorMinPrice: number | null
   competitorMaxPrice: number | null
   /** @deprecated `competitorMedianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
-  competitorAvgPrice: number | null
   confidence: number | null
 }
 
@@ -621,7 +620,6 @@ export interface CompetitorAnalysis {
     /** 競合価格水準の代表値（中央値 — C-9） */
     medianPrice: number | null
     /** @deprecated `medianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
-    avgPrice: number | null
   }>
 }
 
@@ -963,7 +961,6 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
       competitorMedianPrice,
       competitorMinPrice: Math.round(competitorMedianPrice * 0.88),
       competitorMaxPrice: Math.round(competitorMedianPrice * 1.14),
-      competitorAvgPrice: competitorMedianPrice,
       confidence: Number((0.7 + rng() * 0.25).toFixed(2)),
     })
   }
@@ -1111,7 +1108,6 @@ function mockCompetitorAnalysis(
       minPrice: values.length > 0 ? Math.min(...values) : null,
       maxPrice: values.length > 0 ? Math.max(...values) : null,
       medianPrice: mockMedian(values),
-      avgPrice: mockMedian(values),
     }
   })
 

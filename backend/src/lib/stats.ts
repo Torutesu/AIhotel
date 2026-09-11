@@ -24,12 +24,3 @@ export function maxOf(values: number[]): number | null {
   return values.length > 0 ? Math.max(...values) : null
 }
 
-/**
- * 平均値。要素が無ければ null。
- * @deprecated 「平均」表現は廃止予定（C-9）。新しいフィールドでは median を使うこと。
- *   既存フィールド（avgPrice / competitorAvgPrice）の後方互換のためだけに残している。
- */
-export function mean(values: number[]): number | null {
-  if (values.length === 0) return null
-  return Math.round(values.reduce((a, b) => a + b, 0) / values.length)
-}

@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
-import { maxOf, mean, median, minOf } from '../lib/stats.js'
+import {maxOf, median, minOf} from '../lib/stats.js'
 
 /**
  * 年間推移 — 月単位（F-ANA-03: クォーターではなく月単位）
@@ -80,12 +80,6 @@ export async function getCompetitorAnalysisService(
         maxPrice: maxOf(prices),
         // 競合料金の代表値。1社の極端な価格に引きずられない中央値を使う（C-9）
         medianPrice: median(prices),
-        /**
-         * @deprecated `medianPrice` を使うこと（C-9）。
-         * 「平均」表現は廃止方針だが、フロントエンド（Wave B で移行）が参照しているため
-         * 当面は同じ値を返し続ける。フロント移行後に削除する。
-         */
-        avgPrice: mean(prices),
       }
     }),
   }
