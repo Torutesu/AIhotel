@@ -6,7 +6,7 @@
 //  - 実績推移 : いつ（日別・曜日別・年間の時系列）
 //  - 需要構成 : 誰が・どこから・何を（チャネル/部屋タイプ/セグメント）
 //  - 予約動向 : いつ予約が入るか（ブッキングカーブ・予約期間）
-//  - 競合比較 : 外部との比較
+//  - 競合比較 : 外部との比較（競合価格・口コミ評価点）
 //  - フリー分析: 自由軸の分析と販促データ管理
 
 import { useState } from "react"
@@ -31,6 +31,7 @@ import { RoomTypeAnalysisSection } from "@/components/analysis/room-type-analysi
 import { BookingPeriodAnalysisSection } from "@/components/analysis/booking-period-analysis-section"
 import { SegmentAnalysisSection } from "@/components/analysis/segment-analysis-section"
 import { CompetitorAnalysisSection } from "@/components/analysis/competitor-analysis-section"
+import { ReviewScoreSection } from "@/components/analysis/review-score-section"
 import { YearlyTrendSection } from "@/components/analysis/yearly-trend-section"
 import { FreeAnalysisSection } from "@/components/analysis/free-analysis-section"
 import { OtaCampaignSection } from "@/components/analysis/ota-campaign-section"
@@ -46,14 +47,18 @@ interface AnalysisTabProps {
  *  - 実績推移 : いつ（日別・曜日別・年間の時系列）
  *  - 需要構成 : 誰が・どこから・何を（チャネル/部屋タイプ/セグメント）
  *  - 予約動向 : いつ予約が入るか（ブッキングカーブ・予約期間）
- *  - 競合比較 : 外部との比較
+ *  - 競合比較 : 外部との比較（競合価格・口コミ評価点）
  *  - フリー分析: 自由軸の分析と販促データ管理
  */
 const ANALYSIS_VIEWS = [
   { value: "performance", label: "実績推移", description: "日別・曜日別・年間の時系列で実績を見る" },
   { value: "composition", label: "需要構成", description: "チャネル・部屋タイプ・顧客セグメント別に需要の内訳を見る" },
   { value: "booking", label: "予約動向", description: "宿泊日までのリードタイムで予約の入り方を見る" },
-  { value: "competitor", label: "競合比較", description: "競合ホテルとの価格を日別・期間集計で比較する" },
+  {
+    value: "competitor",
+    label: "競合比較",
+    description: "競合ホテルとの価格を日別・期間集計で比較し、OTA別の口コミ評価点を確認する",
+  },
   { value: "free", label: "フリー分析", description: "任意の軸を組み合わせて分析し、販促参画データを管理する" },
 ]
 
@@ -177,6 +182,8 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
         <TabsContent value="competitor" className="space-y-4">
           <DailyCompetitorSection />
           <CompetitorAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+          {/* 口コミ評価点（GET /analysis/reviews の実データ — X-6） */}
+          <ReviewScoreSection />
         </TabsContent>
 
         {/* フリー分析と販促データ管理 */}
