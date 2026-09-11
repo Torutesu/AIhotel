@@ -35,17 +35,17 @@ interface DashboardTabProps {
  */
 const DASHBOARD_MIN_ALERT_LEVEL = 4
 
-const TOP_SITES_KEY = "dashboard.showTopSitesSection"
-const dashboardKpiItemsKey = (hotelId: string) => `dashboard.kpiItems.${hotelId}`
+/** 設定タブでの保存を同じ画面のダッシュボードへ即時反映するためのイベント名（#51-2） */
+const PREFERENCES_UPDATED_EVENT = "preferencesUpdated"
 
 export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   const { hotelId } = useAuth()
   // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
   const { year, month, periodMonth, setPeriodMonth } = usePeriod()
 
-  // 伸び率の高いサイトの表示/非表示（設定タブから制御。対応APIがないため枠のみ）
+  // 伸び率の高いサイトの表示/非表示（設定タブから制御）
   const [showTopSitesSection, setShowTopSitesSection] = useState(false)
-  // 設定タブで選択されたKPI表示項目（施設ごと。未保存なら全項目）
+  // 設定タブで選択されたKPI表示項目（利用者・施設ごと。未保存なら全項目）
   const [visibleKpiKeys, setVisibleKpiKeys] = useState<string[]>([...ALL_KPI_KEYS])
 
   const [kpi, setKpi] = useState<DashboardKpi | null>(null)
@@ -55,41 +55,34 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // 表示設定はサーバ保存（#51-2）。端末やブラウザを変えても同じ表示になる。
+  // 取得に失敗しても画面は既定値で表示する（表示設定のためにダッシュボード全体を
+  // エラーにはしない）。
   useEffect(() => {
-    const loadSettings = () => {
-      if (typeof window === "undefined") return
-      setShowTopSitesSection(localStorage.getItem(TOP_SITES_KEY) === "true")
+    if (!hotelId) return
+    let cancelled = false
 
-      // KPI表示項目（設定タブで施設ごとに保存。未保存・不正値なら全項目）
-      if (!hotelId) return
-      const raw = localStorage.getItem(dashboardKpiItemsKey(hotelId))
-      if (!raw) {
-        setVisibleKpiKeys([...ALL_KPI_KEYS])
-        return
-      }
+    const loadPreferences = async () => {
       try {
-        const parsed = JSON.parse(raw)
-        const valid = Array.isArray(parsed)
-          ? parsed.filter((k): k is string =>
-              ALL_KPI_KEYS.includes(k as (typeof ALL_KPI_KEYS)[number]),
-            )
-          : []
+        const { dashboard } = await api.getPreferences(hotelId)
+        if (cancelled) return
+        setShowTopSitesSection(dashboard.showTopSitesSection)
+        const valid = dashboard.kpiItems.filter((k) =>
+          ALL_KPI_KEYS.includes(k as (typeof ALL_KPI_KEYS)[number]),
+        )
         setVisibleKpiKeys(valid.length > 0 ? valid : [...ALL_KPI_KEYS])
       } catch {
+        if (cancelled) return
+        setShowTopSitesSection(false)
         setVisibleKpiKeys([...ALL_KPI_KEYS])
       }
     }
-    loadSettings()
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === TOP_SITES_KEY || e.key?.startsWith("dashboard.kpiItems.")) {
-        loadSettings()
-      }
-    }
-    window.addEventListener("storage", handleStorageChange)
-    window.addEventListener("settingsUpdated", loadSettings)
+
+    loadPreferences()
+    window.addEventListener(PREFERENCES_UPDATED_EVENT, loadPreferences)
     return () => {
-      window.removeEventListener("storage", handleStorageChange)
-      window.removeEventListener("settingsUpdated", loadSettings)
+      cancelled = true
+      window.removeEventListener(PREFERENCES_UPDATED_EVENT, loadPreferences)
     }
   }, [hotelId])
 

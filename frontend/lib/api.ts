@@ -1168,6 +1168,19 @@ function getMockEvents(hotelId: string): HotelEvent[] {
 
 // ---- API surface ----
 
+/** ダッシュボードの表示設定（#51-2。サーバ保存され端末間で共有される） */
+export interface DashboardPreference {
+  /** 「販売サイト別実績」セクションを表示するか */
+  showTopSitesSection: boolean
+  /** KPI進捗表に表示する指標キー。1件以上必須 */
+  kpiItems: string[]
+}
+
+export interface UserPreferences {
+  hotelId: string
+  dashboard: DashboardPreference
+}
+
 export const api = {
   async login(email: string, password: string): Promise<LoginResult> {
     try {
@@ -1588,6 +1601,24 @@ export const api = {
     return rawRequest("/api/v1/dashboard/kpi/snapshot", {
       method: "POST",
       body: JSON.stringify({ hotelId, year, month }),
+    })
+  },
+
+  // ---- 画面表示設定（#51-2） ----
+
+  /** 自分の表示設定を取得する。未保存ならバックエンドが既定値を返す */
+  getPreferences(hotelId: string): Promise<UserPreferences> {
+    return rawRequest(`/api/v1/preferences?hotelId=${hotelId}`)
+  },
+
+  /** 自分の表示設定を保存する（ロール不問。他人の設定には影響しない） */
+  updatePreferences(
+    hotelId: string,
+    dashboard: DashboardPreference
+  ): Promise<UserPreferences> {
+    return rawRequest("/api/v1/preferences", {
+      method: "PUT",
+      body: JSON.stringify({ hotelId, dashboard }),
     })
   },
 }

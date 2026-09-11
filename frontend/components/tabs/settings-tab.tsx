@@ -5,12 +5,12 @@
 // 保存先が無い（＝入力しても捨てられる）設定は置かない方針。
 //  - ホテル情報・料金ランク: バックエンドに保存（各カードが担当）
 //  - テーマ: next-themes が localStorage に保存し、実際に画面へ反映される
-//  - ダッシュボード表示設定 / KPI表示項目: このブラウザの localStorage に保存し、
-//    ダッシュボードが実際に読み取って表示を変える
+//  - ダッシュボード表示設定 / KPI表示項目: バックエンドに保存し（#51-2）、
+//    どの端末・ブラウザからでも同じ表示になる
 // 以前あった「表示設定（言語・日付形式・通貨・数値形式）」「通知設定」「システム設定」は
 // 保存も反映もされない見せかけの設定だったため撤去した。
 
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTheme } from "next-themes"
 import { Save } from "lucide-react"
 import { toast } from "sonner"
@@ -23,6 +23,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { useAuth } from "@/components/auth-provider"
+import { ErrorCard } from "@/components/error-state"
+import { api, ApiClientError } from "@/lib/api"
 import { HotelSettingsCard } from "@/components/settings/hotel-settings-card"
 import { PriceRankSection } from "@/components/settings/price-rank-section"
 import { BudgetSection } from "@/components/settings/budget-section"
@@ -43,24 +45,8 @@ const DASHBOARD_KPI_ITEMS = [
 
 const ALL_DASHBOARD_KPI_KEYS: string[] = DASHBOARD_KPI_ITEMS.map((item) => item.key)
 
-const TOP_SITES_KEY = "dashboard.showTopSitesSection"
-
-// localStorage キー（hotelId ごとに保存。将来 Hotel の設定APIへ移行予定）
-const dashboardKpiItemsKey = (hotelId: string) => `dashboard.kpiItems.${hotelId}`
-
-function parseDashboardKpiItems(raw: string | null): string[] {
-  if (!raw) return ALL_DASHBOARD_KPI_KEYS
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return ALL_DASHBOARD_KPI_KEYS
-    const keys = parsed.filter(
-      (v): v is string => typeof v === "string" && ALL_DASHBOARD_KPI_KEYS.includes(v),
-    )
-    return keys.length > 0 ? keys : ALL_DASHBOARD_KPI_KEYS
-  } catch {
-    return ALL_DASHBOARD_KPI_KEYS
-  }
-}
+/** 保存を同じ画面のダッシュボードへ即時反映するためのイベント名（#51-2） */
+const PREFERENCES_UPDATED_EVENT = "preferencesUpdated"
 
 export function SettingsTab() {
   const { hotelId } = useAuth()
@@ -69,19 +55,34 @@ export function SettingsTab() {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
-  // ダッシュボード表示設定（このブラウザにのみ保存。ダッシュボードが読み取る）
+  // ダッシュボード表示設定（サーバ保存。ダッシュボードが読み取る — #51-2）
   const [showTopSitesSection, setShowTopSitesSection] = useState(false)
   const [dashboardKpiItems, setDashboardKpiItems] = useState<string[]>(ALL_DASHBOARD_KPI_KEYS)
+  const [preferencesLoading, setPreferencesLoading] = useState(true)
+  const [preferencesError, setPreferencesError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    if (typeof window === "undefined") return
-    setShowTopSitesSection(localStorage.getItem(TOP_SITES_KEY) === "true")
-  }, [])
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !hotelId) return
-    setDashboardKpiItems(parseDashboardKpiItems(localStorage.getItem(dashboardKpiItemsKey(hotelId))))
+  const loadPreferences = useCallback(async () => {
+    if (!hotelId) return
+    setPreferencesLoading(true)
+    setPreferencesError(null)
+    try {
+      const { dashboard } = await api.getPreferences(hotelId)
+      setShowTopSitesSection(dashboard.showTopSitesSection)
+      const valid = dashboard.kpiItems.filter((k) => ALL_DASHBOARD_KPI_KEYS.includes(k))
+      setDashboardKpiItems(valid.length > 0 ? valid : ALL_DASHBOARD_KPI_KEYS)
+    } catch (err) {
+      setPreferencesError(
+        err instanceof ApiClientError ? err.message : "表示設定の取得に失敗しました",
+      )
+    } finally {
+      setPreferencesLoading(false)
+    }
   }, [hotelId])
+
+  useEffect(() => {
+    loadPreferences()
+  }, [loadPreferences])
 
   const toggleDashboardKpiItem = (key: string, checked: boolean) => {
     setDashboardKpiItems((prev) => {
@@ -94,15 +95,24 @@ export function SettingsTab() {
     })
   }
 
-  /** 表示設定はこのブラウザに保存し、その場でダッシュボードへ通知する */
-  const handleSaveDisplaySettings = () => {
-    if (typeof window === "undefined" || !hotelId || dashboardKpiItems.length === 0) return
-    localStorage.setItem(TOP_SITES_KEY, String(showTopSitesSection))
-    localStorage.setItem(dashboardKpiItemsKey(hotelId), JSON.stringify(dashboardKpiItems))
-    window.dispatchEvent(new Event("settingsUpdated"))
-    toast.success("表示設定を保存しました", {
-      description: "ダッシュボードに反映されます（この端末のブラウザにのみ保存されます）。",
-    })
+  /** 表示設定をサーバに保存し、その場でダッシュボードへ通知する（#51-2） */
+  const handleSaveDisplaySettings = async () => {
+    if (!hotelId || dashboardKpiItems.length === 0) return
+    setSaving(true)
+    try {
+      await api.updatePreferences(hotelId, {
+        showTopSitesSection,
+        kpiItems: dashboardKpiItems,
+      })
+      window.dispatchEvent(new Event(PREFERENCES_UPDATED_EVENT))
+      toast.success("表示設定を保存しました", {
+        description: "ダッシュボードに反映されます（他の端末からも同じ表示になります）。",
+      })
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "表示設定の保存に失敗しました")
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -161,10 +171,16 @@ export function SettingsTab() {
         <CardHeader>
           <CardTitle>ダッシュボード表示設定</CardTitle>
           <CardDescription>
-            ダッシュボードに表示するセクションとKPI項目を選びます。この端末のブラウザにのみ保存されます。
+            ダッシュボードに表示するセクションとKPI項目を選びます。利用者ごとに保存され、別の端末でも同じ表示になります。
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {preferencesError && (
+            <ErrorCard message={preferencesError} onRetry={loadPreferences} />
+          )}
+          {preferencesLoading && (
+            <p className="text-sm text-muted-foreground">表示設定を読み込んでいます...</p>
+          )}
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label htmlFor="showTopSitesSection">「伸び率の高いサイト上位3件」を表示</Label>
@@ -216,10 +232,10 @@ export function SettingsTab() {
                   size="sm"
                   className="gap-2"
                   onClick={handleSaveDisplaySettings}
-                  disabled={dashboardKpiItems.length === 0 || !hotelId}
+                  disabled={dashboardKpiItems.length === 0 || !hotelId || saving || preferencesLoading}
                 >
                   <Save className="h-4 w-4" aria-hidden />
-                  表示設定を保存
+                  {saving ? "保存中..." : "表示設定を保存"}
                 </Button>
               </div>
             </div>
