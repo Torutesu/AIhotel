@@ -18,7 +18,7 @@ export async function getPriceRanksService(hotelId: string) {
  * 料金ランク作成
  */
 export async function createPriceRankService(input: CreatePriceRankInput) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: input.hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const count = await prisma.priceRank.count({
@@ -65,7 +65,7 @@ export async function deletePriceRankService(id: string, hotelId: string) {
  * ホテル設定更新（名称・住所・連絡先・部屋数・週末定義 — F-SET-01）
  */
 export async function updateHotelSettingsService(id: string, data: UpdateHotelSettingsInput) {
-  const hotel = await prisma.hotel.findUnique({ where: { id } })
+  const hotel = await prisma.hotel.findFirst({ where: { id, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   return prisma.hotel.update({

@@ -5,17 +5,38 @@ const LOG_LEVEL = config.LOG_LEVEL
 const LOG_FORMAT = config.LOG_FORMAT
 const IS_DEVELOPMENT = config.isDevelopment
 
+// 機微情報のマスク（S-2）。誤ってリクエスト全体やボディをログに渡しても
+// 認証情報・パスワード・トークンが平文で残らないようにする
+const REDACT_PATHS = [
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'req.headers["set-cookie"]',
+  'req.body.password',
+  'req.body.refreshToken',
+  'headers.authorization',
+  'headers.cookie',
+  'body.password',
+  'body.refreshToken',
+  '*.password',
+  '*.refreshToken',
+  '*.accessToken',
+  '*.authorization',
+  '*.cookie',
+]
+
 // Pinoロガーの設定
 const pinoOptions: pino.LoggerOptions = {
   level: LOG_LEVEL,
   // 本番環境ではタイムスタンプをISOフォーマットで出力
   timestamp: () => `,"time":"${new Date().toISOString()}"`,
+  redact: { paths: REDACT_PATHS, censor: '[REDACTED]' },
   // エラーオブジェクトのシリアライズ設定
   serializers: {
     err: pino.stdSerializers.err,
+    // Express の Request をそのまま渡しても安全なヘッダーだけに絞る（Authorization/Cookie は出さない）
     req: (req) => ({
       method: req.method,
-      url: req.url,
+      url: req.originalUrl ?? req.url,
       path: req.path,
       headers: {
         host: req.headers?.host,

@@ -4,11 +4,6 @@ import { ZodError } from 'zod'
 import { config } from '../lib/config.js'
 import { logger } from '../utils/logger.js'
 
-// Type guard for Prisma errors
-function isPrismaKnownRequestError(error: unknown): error is Prisma.PrismaClientKnownRequestError {
-  return error instanceof Error && 'code' in error && typeof (error as any).code === 'string'
-}
-
 // ======================================
 // Custom Error Classes
 // ======================================
@@ -112,10 +107,11 @@ export function errorHandler(
       message: e.message,
     }))
     isOperational = true
-  } else if (isPrismaKnownRequestError(err)) {
+  } else if (err instanceof Prisma.PrismaClientKnownRequestError) {
+    // 旧実装は「code が文字列の Error」を全て Prisma エラー扱いしていたため、
+    // fs の ENOENT 等まで 400「データベースエラー」になっていた（S-2）。instanceof で厳密に判定する
     isOperational = true
-    const prismaError = err as Prisma.PrismaClientKnownRequestError
-    switch (prismaError.code) {
+    switch (err.code) {
       case 'P2002':
         statusCode = 409
         message = '既に存在するデータです'
@@ -138,27 +134,25 @@ export function errorHandler(
     isOperational = true
   }
 
-  // Log the error
+  // Log the error。
+  // req.headers / req.body をそのまま出力しない（Authorization・パスワード・リフレッシュトークンが
+  // ログに残るため — S-2）。req は logger の serializer で安全なヘッダーのみに絞られ、
+  // 万一含まれた場合も pino の redact でマスクされる
   if (!isOperational || statusCode >= 500) {
     logger.error({
       err,
-      req: {
-        method: req.method,
-        url: req.url,
-        headers: req.headers,
-        body: req.body,
-      },
+      req,
       statusCode,
       message,
-    })
+    }, message)
   } else {
     logger.warn({
       statusCode,
       message,
       errors,
-      path: req.path,
+      path: req.originalUrl,
       method: req.method,
-    })
+    }, message)
   }
 
   // Send response

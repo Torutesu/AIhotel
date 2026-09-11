@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest'
+import jwt from 'jsonwebtoken'
 import {
   hashPassword,
   verifyPassword,
   generateAccessToken,
+  generateRefreshToken,
   verifyAccessToken,
+  verifyRefreshToken,
   hashToken,
   getRefreshTokenExpiry,
 } from './auth.js'
@@ -50,6 +53,42 @@ describe('generateAccessToken / verifyAccessToken', () => {
     const tampered = `${token}tampered`
 
     expect(() => verifyAccessToken(tampered)).toThrow()
+  })
+
+  it('アクセストークンには type=access クレームが含まれる（S-1）', () => {
+    const token = generateAccessToken(sampleUser)
+    const decoded = jwt.decode(token) as { type?: string }
+    expect(decoded.type).toBe('access')
+  })
+
+  it('検証結果に type クレームは含めない（req.user はユーザー情報のみ）', () => {
+    const decoded = verifyAccessToken(generateAccessToken(sampleUser))
+    expect(decoded).not.toHaveProperty('type')
+  })
+
+  it('リフレッシュトークンをアクセストークンとして検証すると失敗する（S-1）', () => {
+    const refreshToken = generateRefreshToken(sampleUser.id)
+    expect(() => verifyAccessToken(refreshToken)).toThrow('無効なトークンです')
+  })
+
+  it('type クレームの無い（旧形式の）トークンは署名が正しくても拒否する（S-1）', () => {
+    const legacy = jwt.sign(
+      { userId: sampleUser.id, email: sampleUser.email, role: sampleUser.role },
+      'test-jwt-secret-please-ignore-0123456789abcdef'
+    )
+    expect(() => verifyAccessToken(legacy)).toThrow('無効なトークンです')
+  })
+})
+
+describe('generateRefreshToken / verifyRefreshToken', () => {
+  it('生成したリフレッシュトークンを検証すると userId が往復する', () => {
+    const token = generateRefreshToken(sampleUser.id)
+    expect(verifyRefreshToken(token)).toEqual({ userId: sampleUser.id })
+  })
+
+  it('アクセストークンをリフレッシュトークンとして検証すると失敗する（S-1）', () => {
+    const accessToken = generateAccessToken(sampleUser)
+    expect(() => verifyRefreshToken(accessToken)).toThrow('無効なリフレッシュトークンです')
   })
 })
 

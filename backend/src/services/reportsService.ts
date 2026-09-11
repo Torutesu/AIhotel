@@ -68,7 +68,7 @@ interface MonthlyReportData {
  * 月次レポートの元データを集計する（Excel/PDF共通）
  */
 async function buildMonthlyReportData(hotelId: string, year: number, month: number): Promise<MonthlyReportData> {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const { start, end, daysInMonth } = monthRange(year, month)

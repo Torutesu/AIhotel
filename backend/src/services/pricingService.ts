@@ -13,7 +13,7 @@ function monthRange(year: number, month: number): { start: Date; end: Date } {
  * 現在価格・AI推奨ランク・需要レベル・競合平均を日別に返す
  */
 export async function getPricingCalendarService(hotelId: string, year: number, month: number) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const { start, end } = monthRange(year, month)
@@ -98,7 +98,7 @@ export async function updateStrategyService(
   weights: { weightOccupancy: number; weightAdr: number; weightCompetitor: number },
   updatedByUserId: string
 ) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const before = await prisma.pricingStrategyConfig.findUnique({ where: { hotelId } })

@@ -73,7 +73,7 @@ export async function recomputeForecastService(
   endDate?: Date,
   forecaster: DemandForecaster = ruleBasedForecaster
 ): Promise<RecomputeForecastResult> {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const start = dateOnly(startDate ?? new Date())

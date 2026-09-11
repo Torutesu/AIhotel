@@ -128,8 +128,8 @@ export async function registerService(
   let tenantId: string | null = null
 
   if (hotelId) {
-    const hotel = await prisma.hotel.findUnique({
-      where: { id: hotelId },
+    const hotel = await prisma.hotel.findFirst({
+      where: { id: hotelId, isActive: true },
     })
 
     if (!hotel) {

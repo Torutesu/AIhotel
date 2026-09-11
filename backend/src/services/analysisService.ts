@@ -5,7 +5,7 @@ import { NotFoundError } from '../middlewares/errorHandler.js'
  * 年間推移 — 月単位（F-ANA-03: クォーターではなく月単位）
  */
 export async function getMonthlyTrendService(hotelId: string, year: number) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const start = new Date(Date.UTC(year, 0, 1))

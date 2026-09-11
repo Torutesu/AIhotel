@@ -176,7 +176,7 @@ export function computeSummary(actualDays: ActualDayRecord[], totalRooms: number
  * 実績集計 + 予算比・前年比 + 日別推移（実績と AI 予測の連続系列 — F-DASH-03）
  */
 export async function getDashboardKpiService(hotelId: string, year: number, month: number) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const { start, end } = monthRange(year, month)
