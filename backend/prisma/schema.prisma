@@ -54,7 +54,8 @@ model Tenant {
 
 model User {
   id          String    @id @default(cuid())
-  // システム提供側の ADMIN はテナント横断のため tenantId は nullable
+  // 運営（PLATFORM_ADMIN）はテナント横断のため tenantId は nullable。
+  // ADMIN を含むテナント側のロールは必ず tenantId を持つ（#62）
   tenantId    String?
   tenant      Tenant?   @relation(fields: [tenantId], references: [id])
   email       String    @unique
@@ -91,9 +92,12 @@ model RefreshToken {
   @@index([expiresAt])
 }
 
-// 要件定義書 §4 のロール定義に対応:
-// ADMIN=システム提供側 / MANAGER=支配人・レベニューマネージャー / OPERATOR=現場フロント
+// 要件定義書 §5 のロール定義に対応（#62 でテナント横断権限を ADMIN から分離）:
+// PLATFORM_ADMIN=運営（サービス提供側。tenantId は null。唯一テナントを越えられる）
+// ADMIN=管理者（テナント管理者。自テナント内で最上位。他テナントには一切アクセスできない）
+// MANAGER=支配人・レベニューマネージャー / OPERATOR=現場フロント
 enum UserRole {
+  PLATFORM_ADMIN
   ADMIN
   MANAGER
   OPERATOR
