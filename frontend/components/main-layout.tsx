@@ -15,6 +15,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  AlertCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -47,7 +48,7 @@ export function MainLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   // 分析タブの日付からダイナミックプライシングへ遷移する際の対象日
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
-  const { user, loading, logout } = useAuth()
+  const { user, loading, logout, restoreError, retryRestore } = useAuth()
 
   // 折りたたみ状態を記憶する（デスクトップのみ意味を持つ）
   useEffect(() => {
@@ -72,6 +73,21 @@ export function MainLayout() {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // セッション確認が「未ログイン」以外の理由（429/503/ネットワーク断など）で失敗した場合は
+  // トークンを保持したまま再試行を促す（F-2）
+  if (!user && restoreError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive" aria-hidden />
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">セッションを確認できませんでした</p>
+          <p className="text-sm text-muted-foreground">{restoreError}</p>
+        </div>
+        <Button onClick={retryRestore}>再試行</Button>
       </div>
     )
   }
