@@ -1,5 +1,5 @@
 import { Router, type Router as ExpressRouter } from 'express'
-import { authenticate, requireHotelAccess } from '../middlewares/auth.js'
+import { authenticate, requireHotelAccess, requireRole } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
 import {
   eventsQuerySchema,
@@ -30,9 +30,10 @@ eventsRouter.post(
   createEvent
 )
 
-// PUT /api/v1/events/:id?hotelId=
+// PUT /api/v1/events/:id?hotelId= — 更新・削除は MANAGER 以上（登録のみオペレーター可 — S-4）
 eventsRouter.put(
   '/:id',
+  requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(hotelIdQuerySchema, 'query'),
   validate(updateEventSchema),
@@ -42,6 +43,7 @@ eventsRouter.put(
 // DELETE /api/v1/events/:id?hotelId=
 eventsRouter.delete(
   '/:id',
+  requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(hotelIdQuerySchema, 'query'),
   deleteEvent
