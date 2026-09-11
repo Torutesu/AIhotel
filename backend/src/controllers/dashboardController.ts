@@ -1,12 +1,16 @@
 import type { Request, Response } from 'express'
 import { asyncHandler } from '../middlewares/errorHandler.js'
-import { sendSuccess } from '../utils/response.js'
+import { sendSuccess, sendCreated } from '../utils/response.js'
+import { writeAuditLog } from '../services/auditService.js'
 import {
   getDashboardKpiService,
   getKpiComparisonService,
   getAlertsService,
   getAiSummaryService,
+  updateAlertStatusService,
+  createKpiSnapshotService,
 } from '../services/dashboardService.js'
+import type { UpdateAlertStatusInput, MonthTargetInput } from '../lib/validators.js'
 
 /**
  * 月別KPI取得
@@ -55,4 +59,53 @@ export const getAiSummary = asyncHandler(async (req: Request, res: Response) => 
   const { hotelId, section } = req.query as unknown as { hotelId: string; section?: string }
   const result = await getAiSummaryService(hotelId, section)
   sendSuccess(res, result)
+})
+
+/**
+ * アラートの状態遷移（N-4・監査対象）
+ * PATCH /api/v1/dashboard/alerts/:id
+ * body: { hotelId, status: 'ACKNOWLEDGED' | 'RESOLVED' }
+ */
+export const patchAlertStatus = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, status } = req.body as UpdateAlertStatusInput
+  const { before, after } = await updateAlertStatusService(req.params.id, hotelId, status)
+
+  await writeAuditLog({
+    tenantId: before.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'Alert',
+    entityId: before.id,
+    oldValue: { status: before.status, resolvedAt: before.resolvedAt },
+    newValue: { status: after.status, resolvedAt: after.resolvedAt },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+
+  sendSuccess(res, after, 200, 'アラートの状態を更新しました')
+})
+
+/**
+ * KPI スナップショット取得（MANAGER 以上・監査対象 — N-5 / F-DASH-04）
+ * POST /api/v1/dashboard/kpi/snapshot
+ * body: { hotelId, year, month }
+ *
+ * 同じ日に何度実行しても1行にまとまる（冪等）。
+ */
+export const postKpiSnapshot = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.body as MonthTargetInput
+  const snapshot = await createKpiSnapshotService(hotelId, year, month)
+
+  await writeAuditLog({
+    tenantId: snapshot.tenantId,
+    userId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'KpiSnapshot',
+    entityId: snapshot.id,
+    newValue: snapshot,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+
+  sendCreated(res, snapshot, 'KPIスナップショットを保存しました')
 })

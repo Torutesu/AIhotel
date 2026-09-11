@@ -1,9 +1,10 @@
 import { Router, type Router as ExpressRouter } from 'express'
-import { authenticate, requireHotelAccess } from '../middlewares/auth.js'
+import { authenticate, requireHotelAccess, requireRole } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
 import {
   eventsQuerySchema,
   hotelIdQuerySchema,
+  idParamSchema,
   createEventSchema,
   updateEventSchema,
 } from '../lib/validators.js'
@@ -17,32 +18,36 @@ eventsRouter.use(authenticate)
 // GET /api/v1/events?hotelId=&startDate=&endDate=
 eventsRouter.get(
   '/',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(eventsQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   getEvents
 )
 
 // POST /api/v1/events — オペレーターも登録可能（要件定義書 F-DP-07）のため requireRole は付けない
 eventsRouter.post(
   '/',
-  requireHotelAccess((req) => req.body?.hotelId),
   validate(createEventSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
   createEvent
 )
 
-// PUT /api/v1/events/:id?hotelId=
+// PUT /api/v1/events/:id?hotelId= — 更新・削除は MANAGER 以上（登録のみオペレーター可 — S-4）
 eventsRouter.put(
   '/:id',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
   validate(updateEventSchema),
+  requireHotelAccess((req) => req.query.hotelId),
   updateEvent
 )
 
 // DELETE /api/v1/events/:id?hotelId=
 eventsRouter.delete(
   '/:id',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   deleteEvent
 )

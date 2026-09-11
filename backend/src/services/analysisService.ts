@@ -1,11 +1,12 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
+import {maxOf, median, minOf} from '../lib/stats.js'
 
 /**
  * 年間推移 — 月単位（F-ANA-03: クォーターではなく月単位）
  */
 export async function getMonthlyTrendService(hotelId: string, year: number) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const start = new Date(Date.UTC(year, 0, 1))
@@ -75,12 +76,10 @@ export async function getCompetitorAnalysisService(
         name: c.name,
         category: c.category,
         sampleSize: prices.length,
-        minPrice: prices.length > 0 ? Math.min(...prices) : null,
-        maxPrice: prices.length > 0 ? Math.max(...prices) : null,
-        avgPrice:
-          prices.length > 0
-            ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
-            : null,
+        minPrice: minOf(prices),
+        maxPrice: maxOf(prices),
+        // 競合料金の代表値。1社の極端な価格に引きずられない中央値を使う（C-9）
+        medianPrice: median(prices),
       }
     }),
   }

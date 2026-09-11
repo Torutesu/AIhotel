@@ -9,13 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
+import { DatePicker } from "@/components/date-picker"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
-import { CalendarIcon, Plus, Trash2, Download, Upload, Save, AlertTriangle, KeyRound } from "lucide-react"
+import { Plus, Trash2, Download, Save, AlertTriangle, KeyRound } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import type { CampaignData } from "@shared/types"
 
 // OTAスクレイピング用アカウントの状態（モック）。
@@ -54,6 +54,8 @@ export function CampaignParticipationManager() {
   ])
 
   const [isAdding, setIsAdding] = useState(false)
+  // 削除確認ダイアログの対象キャンペーン（F-5）
+  const [campaignPendingDelete, setCampaignPendingDelete] = useState<CampaignData | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [formData, setFormData] = useState<Omit<CampaignData, "id">>({
     campaignName: "",
@@ -290,57 +292,27 @@ export function CampaignParticipationManager() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>開始日 *</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start text-left font-normal"
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {formData.startDate ? (
-                          format(formData.startDate, "yyyy年MM月dd日", { locale: ja })
-                        ) : (
-                          <span>開始日を選択</span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={formData.startDate || undefined}
-                        onSelect={(date) => setFormData({ ...formData, startDate: date || null })}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <Label htmlFor="campaign-start-date">開始日 *</Label>
+                  <DatePicker
+                    id="campaign-start-date"
+                    className="h-9 w-full justify-start text-sm font-normal"
+                    value={formData.startDate || undefined}
+                    onChange={(date) => setFormData({ ...formData, startDate: date || null })}
+                    placeholder="開始日を選択"
+                    ariaLabel="キャンペーン開始日"
+                  />
                 </div>
 
                 <div className="space-y-2">
-                  <Label>終了日 *</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-start text-left font-normal"
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {formData.endDate ? (
-                          format(formData.endDate, "yyyy年MM月dd日", { locale: ja })
-                        ) : (
-                          <span>終了日を選択</span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={formData.endDate || undefined}
-                        onSelect={(date) => setFormData({ ...formData, endDate: date || null })}
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
+                  <Label htmlFor="campaign-end-date">終了日 *</Label>
+                  <DatePicker
+                    id="campaign-end-date"
+                    className="h-9 w-full justify-start text-sm font-normal"
+                    value={formData.endDate || undefined}
+                    onChange={(date) => setFormData({ ...formData, endDate: date || null })}
+                    placeholder="終了日を選択"
+                    ariaLabel="キャンペーン終了日"
+                  />
                 </div>
               </div>
 
@@ -459,8 +431,9 @@ export function CampaignParticipationManager() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleDelete(campaign.id)}
+                            onClick={() => setCampaignPendingDelete(campaign)}
                             className="text-destructive"
+                            aria-label={`キャンペーン「${campaign.campaignName}」を削除`}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -474,6 +447,26 @@ export function CampaignParticipationManager() {
           )}
         </CardContent>
       </Card>
+
+      {/* キャンペーン削除の確認（F-5） */}
+      <ConfirmDialog
+        open={campaignPendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setCampaignPendingDelete(null)
+        }}
+        title="キャンペーンを削除しますか？"
+        description={
+          campaignPendingDelete
+            ? `「${campaignPendingDelete.campaignName}」を削除します。この操作は取り消せません。`
+            : undefined
+        }
+        confirmLabel="削除する"
+        onConfirm={() => {
+          const target = campaignPendingDelete
+          setCampaignPendingDelete(null)
+          if (target) handleDelete(target.id)
+        }}
+      />
     </div>
   )
 }

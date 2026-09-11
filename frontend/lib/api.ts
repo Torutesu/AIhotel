@@ -2,21 +2,51 @@
 
 // バックエンドAPIクライアント（C-6）
 // next.config.mjs の rewrites により /api/* はバックエンドへプロキシされる。
-// 直接バックエンドURLを叩く場合は NEXT_PUBLIC_BACKEND_URL を設定する。
+// ブラウザからは常に same-origin（相対パス）で呼ぶ（F-10）。バックエンドの CORS は
+// 許可オリジンを限定しているため、ブラウザが直接バックエンドを叩くと弾かれる。
+// プロキシ先はサーバー専用の BACKEND_URL（next.config.mjs）で指定する。
 
-import type { ApiResponse, User, UserRole, Hotel, Event as HotelEvent, PriceRank } from "@shared/types"
+import type {
+  ApiResponse,
+  User,
+  UserRole,
+  HotelDto as Hotel,
+  Event as HotelEvent,
+  PriceRank,
+  BudgetYear,
+  UpsertBudgetsRequest,
+  CompetitorSetting,
+  CompetitorOtaUrls,
+  RegisterUserRequest,
+  UpdateUserRequest,
+  UpdateAlertStatusRequest,
+  ReviewScore,
+} from "@shared/types"
+import { parseWeekendDays } from "@/lib/date"
+import { createSeededRandom } from "@/lib/format"
 
+// フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
 export type { Hotel, PriceRank }
 export type { Event as HotelEvent } from "@shared/types"
+// Wave C の画面が使う型（X-1〜X-7）。backend の契約は shared/types が唯一の出所
+export type {
+  BudgetYear,
+  MonthlyBudget,
+  UpsertBudgetsRequest,
+  CompetitorSetting,
+  CompetitorOtaUrls,
+  RegisterUserRequest,
+  UpdateUserRequest,
+  ReviewScore,
+  AlertStatus,
+} from "@shared/types"
 
 const ACCESS_TOKEN_KEY = "hrms.accessToken"
 const REFRESH_TOKEN_KEY = "hrms.refreshToken"
 const MOCK_USER_KEY = "hrms.mockUser"
 
-const BASE_URL =
-  typeof window !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL
-    ? process.env.NEXT_PUBLIC_BACKEND_URL
-    : ""
+/** 常に same-origin。rewrite（next.config.mjs）が /api/* をバックエンドへ中継する。 */
+const BASE_URL = ""
 
 export class ApiClientError extends Error {
   status: number
@@ -53,11 +83,11 @@ export function clearTokens() {
 }
 
 // ---- デモモード（バックエンド未接続時のダミーデータ表示） ----
-// NEXT_PUBLIC_DEMO_MODE=true のときのみ有効（next.config.mjs で既定値を設定）。
-// バックエンドが応答する限り常に実APIを使用し、接続できない場合に限りダミーデータへ
+// ビルド時に NEXT_PUBLIC_DEMO_MODE=true が明示された場合のみ有効（opt-in。既定は無効）。
+// 有効時もバックエンドが応答する限り常に実APIを使用し、接続できない場合に限りダミーデータへ
 // フォールバックする。フォールバックが起きた場合は画面上部にデモ表示バナーを出すため、
 // 「モックへのサイレントフォールバック禁止」の規約には抵触しない。
-// 本番でバックエンドを接続したら NEXT_PUBLIC_DEMO_MODE=false を設定すること。
+// 本番ビルドではこの変数を設定しないこと（デモ分岐はツリーシェイクで成果物から消える）。
 
 const MOCK_PASSWORD = "Admin1234"
 const MOCK_HOTEL_ID = "demo-hotel-001"
@@ -83,13 +113,19 @@ const MOCK_HOTEL: Hotel = {
   updatedAt: new Date(),
 }
 
-function isDemoModeEnabled(): boolean {
-  // 明示的に "false" が設定されたときだけ無効化する。
-  // ホスティング側の環境変数が未設定・値の誤り（例: "ture"）でもデモ表示が維持されるよう、
-  // 「既定で有効・明示的に無効化」の向きにしている。
-  // なおフォールバックの発動条件はバックエンドに到達できない場合のみで、
-  // 実APIが応答する限り常に実データを優先する。
-  return process.env.NEXT_PUBLIC_DEMO_MODE !== "false"
+/**
+ * デモモードが有効か（ビルド時に NEXT_PUBLIC_DEMO_MODE=true が明示されたときのみ true）。
+ * 未設定・値の誤り（例: "ture"）は無効側に倒す（opt-in）。本番ビルドで誤ってデモ認証情報や
+ * ダミーデータが表示されないようにするため、「既定で無効・明示的に有効化」の向きにしている。
+ * なおフォールバックの発動条件はバックエンドに到達できない場合のみで、
+ * 実APIが応答する限り常に実データを優先する。
+ */
+export function isDemoModeEnabled(): boolean {
+  // 注意: 他モジュールからこの関数を呼ぶ分岐はミニファイアで畳み込まれず、無効ビルドでも
+  // 分岐内のコードが成果物に残る（実行はされない）。成果物から確実に除去したい JSX 等では
+  // `process.env.NEXT_PUBLIC_DEMO_MODE === "true"` をそのモジュール内で直接評価すること
+  // （login-form.tsx 参照。verify-demo-mode.mjs で検証している）。
+  return process.env.NEXT_PUBLIC_DEMO_MODE === "true"
 }
 
 // ---- デモデータ表示状態（バナー通知用） ----
@@ -188,7 +224,9 @@ async function rawRequest<T>(
     throw new ApiClientError(0, "バックエンドに接続できません", true)
   }
 
-  if (res.status === 401 && retryOn401 && getRefreshToken()) {
+  // ログイン自体の 401（認証情報の誤り）はリフレッシュ対象外
+  if (res.status === 401 && retryOn401 && !path.startsWith("/api/v1/auth/login")) {
+    // 並列に 401 を受けても tryRefresh() は single-flight なので実際の更新は 1 回だけ
     const refreshed = await tryRefresh()
     if (refreshed) {
       return rawRequest<T>(path, options, false)
@@ -209,9 +247,86 @@ async function rawRequest<T>(
   return body.data as T
 }
 
-async function tryRefresh(): Promise<boolean> {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) return false
+/** ダウンロード用のバイナリレスポンス */
+export interface BinaryDownload {
+  blob: Blob
+  /** Content-Disposition から取り出したファイル名（取れなければ null） */
+  filename: string | null
+}
+
+/**
+ * バイナリ（PDF/Excel）を取得する。レポート出力のように成功時のエンベロープを持たない
+ * エンドポイント専用。失敗時はJSONのエラーエンベロープが返るため、そちらを読んで例外にする。
+ */
+async function rawBinaryRequest(path: string, retryOn401 = true): Promise<BinaryDownload> {
+  const token = getAccessToken()
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+    })
+  } catch {
+    throw new ApiClientError(0, "バックエンドに接続できません", true)
+  }
+
+  if (res.status === 401 && retryOn401) {
+    const refreshed = await tryRefresh()
+    if (refreshed) return rawBinaryRequest(path, false)
+  }
+
+  if (!res.ok) {
+    let message = `リクエストに失敗しました (${res.status})`
+    try {
+      const body = (await res.json()) as ApiResponse<unknown>
+      if (body?.error) message = body.error
+    } catch {
+      // JSONでない場合は既定のメッセージを使う
+    }
+    throw new ApiClientError(res.status, message)
+  }
+
+  return {
+    blob: await res.blob(),
+    filename: parseContentDispositionFilename(res.headers.get("Content-Disposition")),
+  }
+}
+
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1])
+    } catch {
+      // デコードできなければ素の filename にフォールバックする
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header)
+  return plain ? plain[1] : null
+}
+
+/**
+ * 認証が完全に失効したことをアプリ全体に通知する（F-2）。
+ * AuthProvider がこのイベントを購読してユーザーを破棄し、ログイン画面に戻す。
+ */
+export const AUTH_EXPIRED_EVENT = "auth:expired"
+
+function notifyAuthExpired() {
+  clearTokens()
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+  }
+}
+
+/**
+ * 実行中のリフレッシュ処理（single-flight 用）。
+ * 並列リクエストが同時に 401 を受けても、リフレッシュは 1 回だけ実行し全員でその結果を共有する。
+ * 各々がリフレッシュを投げるとトークンローテーションで後続が無効トークンを掴み、
+ * 結果として全員ログアウトになってしまうため（F-2）。
+ */
+let refreshInFlight: Promise<boolean> | null = null
+
+async function performRefresh(refreshToken: string): Promise<boolean> {
   try {
     const res = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
       method: "POST",
@@ -223,11 +338,27 @@ async function tryRefresh(): Promise<boolean> {
       storeTokens(body.data.tokens.accessToken, body.data.tokens.refreshToken)
       return true
     }
+    // サーバーがリフレッシュを拒否した（期限切れ・失効済み）→ 認証終了
+    notifyAuthExpired()
+    return false
   } catch {
-    // fall through
+    // ネットワーク到達不可。トークンは失効していない可能性が高いので破棄しない。
+    return false
   }
-  clearTokens()
-  return false
+}
+
+async function tryRefresh(): Promise<boolean> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) {
+    notifyAuthExpired()
+    return false
+  }
+  if (!refreshInFlight) {
+    refreshInFlight = performRefresh(refreshToken).finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
 }
 
 // ---- Response types (backend契約) ----
@@ -253,21 +384,24 @@ export interface ComparisonAxis {
   lastYearOccupancyRatio: number | null
 }
 
+/** KPI進捗表に出す実績サマリー（F-DASH-01 の8指標＋集計日数） */
+export interface ActualSummary {
+  roomRevenue: number
+  soldRooms: number
+  adr: number
+  occupancyRate: number
+  revPar: number
+  guests: number
+  dor: number
+  guestUnitPrice: number
+  actualDays: number
+}
+
 export interface DashboardKpi {
   hotelId: string
   year: number
   month: number
-  summary: {
-    roomRevenue: number
-    soldRooms: number
-    adr: number
-    occupancyRate: number
-    revPar: number
-    guests: number
-    dor: number
-    guestUnitPrice: number
-    actualDays: number
-  }
+  summary: ActualSummary
   comparison: {
     budgetRevenue: number | null
     budgetRevenueToDate: number | null
@@ -285,11 +419,15 @@ export interface DashboardKpi {
     /** 年度累計（年度開始月から当月までの累計どうしの比較） */
     fiscalYear: ComparisonAxis
     fiscalYearLabel: string
+    /**
+     * 比較軸ごとの実績サマリー（#54）。
+     * 年度累計軸でも8指標すべてが年度累計の値で揃うため、
+     * 画面側で月次実績にフォールバックしてはならない。
+     */
     actualSummary: {
-      fiscalRevenue: number
-      fiscalAdr: number
-      fiscalOccupancy: number
-      fiscalActualDays: number
+      toDate: ActualSummary
+      cumulative: ActualSummary
+      fiscalYear: ActualSummary
     }
   } | null
   dailyTrend: Array<{
@@ -309,6 +447,25 @@ export interface DashboardKpi {
     projectedOccupancy: number | null
     projectedRevPar: number | null
   } | null
+}
+
+/**
+ * KPIスナップショット（F-DASH-04）。日次バッチで取得した「その時点の当月見込み」。
+ * スナップショットが未取得の月は空配列が返る（画面側で値を捏造しないこと）。
+ */
+export interface KpiSnapshot {
+  id: string
+  hotelId: string
+  /** 取得日（ISO日付文字列） */
+  snapshotDate: string
+  targetYear: number
+  targetMonth: number
+  revenue: number | null
+  soldRooms: number | null
+  adr: number | null
+  occupancy: number | null
+  revPar: number | null
+  guests: number | null
 }
 
 export interface AlertItem {
@@ -344,7 +501,11 @@ export interface PricingCalendarDay {
   predictedAdr: number | null
   actualOccupancy: number | null
   actualAdr: number | null
-  competitorAvgPrice: number | null
+  /** 競合価格水準の代表値。1社の極端な価格に引きずられない中央値を使う（C-9） */
+  competitorMedianPrice: number | null
+  competitorMinPrice: number | null
+  competitorMaxPrice: number | null
+  /** @deprecated `competitorMedianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
   confidence: number | null
 }
 
@@ -353,6 +514,52 @@ export interface PricingCalendar {
   year: number
   month: number
   calendar: PricingCalendarDay[]
+}
+
+/** 月次着地シミュレーション（MonthlyLandingSimulation）。再計算バッチ／recompute で生成される */
+export interface MonthlyLandingSimulation {
+  id: string
+  hotelId: string
+  year: number
+  month: number
+  projectedRevenue: number | null
+  projectedAdr: number | null
+  projectedOccupancy: number | null
+  projectedRevPar: number | null
+  projectedRooms: number | null
+  computedAt: string
+}
+
+/** 月次予算（MonthlyBudget）。未登録なら null */
+export interface MonthlyBudgetRow {
+  id: string
+  hotelId: string
+  year: number
+  month: number
+  budgetRevenue: number | null
+  budgetRooms: number | null
+  budgetAdr: number | null
+  budgetOccupancy: number | null
+  budgetGuests: number | null
+  lastYearRevenue: number | null
+  lastYearRooms: number | null
+  lastYearAdr: number | null
+  lastYearOccupancy: number | null
+  lastYearGuests: number | null
+}
+
+/** GET /api/v1/pricing/simulation のレスポンス */
+export interface PricingSimulation {
+  simulation: MonthlyLandingSimulation | null
+  budget: MonthlyBudgetRow | null
+}
+
+/** POST /api/v1/pricing/recompute のレスポンス */
+export interface RecomputeForecastResult {
+  count: number
+  modelVersion: string
+  startDate: string
+  endDate: string
 }
 
 export interface PricingStrategy {
@@ -374,7 +581,18 @@ export interface CompetitorPrices {
   hotelId: string
   startDate: string
   endDate: string
-  ownPrices: Array<{ date: string; price: number | null; isActual: boolean }>
+  /**
+   * 自館の日別価格。`price` は人数非依存の代表値（実績日はADR、未来日はAI推奨価格）、
+   * `price1P`〜`price3P` は利用人数別の価格（#57）。値が無い人数は null。
+   */
+  ownPrices: Array<{
+    date: string
+    price: number | null
+    isActual: boolean
+    price1P: number | null
+    price2P: number | null
+    price3P: number | null
+  }>
   competitors: Array<{
     id: string
     name: string
@@ -417,7 +635,9 @@ export interface CompetitorAnalysis {
     sampleSize: number
     minPrice: number | null
     maxPrice: number | null
-    avgPrice: number | null
+    /** 競合価格水準の代表値（中央値 — C-9） */
+    medianPrice: number | null
+    /** @deprecated `medianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
   }>
 }
 
@@ -434,6 +654,18 @@ export interface CreateEventInput {
 
 export type UpdateEventInput = Partial<Omit<CreateEventInput, "hotelId">>
 
+/** POST /api/v1/settings/price-ranks のリクエスト（rank は 1〜40 — F-SET-02） */
+export interface CreatePriceRankInput {
+  hotelId: string
+  rank: number
+  label: string
+  price1P: number
+  price2P: number
+  /** 未設定は null。省略（undefined）は更新時に「変更しない」を意味する（R-2） */
+  price3P?: number | null
+  price4P?: number | null
+}
+
 export interface UpdateHotelSettingsInput {
   name?: string
   address?: string
@@ -443,17 +675,21 @@ export interface UpdateHotelSettingsInput {
   weekendDays?: number[]
 }
 
+/** POST /api/v1/settings/competitors のリクエスト（最大5件 — F-SET-03 / X-2） */
+export interface CreateCompetitorInput {
+  hotelId: string
+  name: string
+  address?: string | null
+  category?: string | null
+  otaUrls?: CompetitorOtaUrls | null
+}
+
+/** PUT /api/v1/settings/competitors/:id のリクエスト（hotelId はクエリで渡す） */
+export type UpdateCompetitorInput = Partial<Omit<CreateCompetitorInput, "hotelId">>
+
 // ---- Dev-only demo data (ダッシュボード/ダイナミックプライシング画面用) ----
 // バックエンドの seed データと近い分布になるよう簡易な季節・曜日変動を再現しているだけの
 // ダミー値。実データではない。
-
-function createSeededRandom(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0
-    return state / 4294967296
-  }
-}
 
 function toLocalDateStr(date: Date): string {
   const y = date.getFullYear()
@@ -463,8 +699,7 @@ function toLocalDateStr(date: Date): string {
 }
 
 function isMockWeekend(date: Date): boolean {
-  const weekendDays = Array.isArray(MOCK_HOTEL.weekendDays) ? (MOCK_HOTEL.weekendDays as number[]) : [5, 6]
-  return weekendDays.includes(date.getDay())
+  return parseWeekendDays(MOCK_HOTEL.weekendDays).includes(date.getDay())
 }
 
 function mockSeasonBoost(month: number): number {
@@ -566,22 +801,27 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   const fiscalRevenue = Math.round(totalRevenue * elapsedFiscalMonths * 0.98)
   const fiscalBudgetRevenue = Math.round((budgetRevenueToDate ?? 0) * elapsedFiscalMonths)
   const fiscalLastYearRevenue = Math.round(fiscalBudgetRevenue * 0.95)
+  const fiscalSoldRooms = soldRoomsSum * elapsedFiscalMonths
+  const fiscalGuests = guestsSum * elapsedFiscalMonths
+  const fiscalAdr = fiscalSoldRooms > 0 ? Math.round(fiscalRevenue / fiscalSoldRooms) : 0
+
+  const monthSummary: ActualSummary = {
+    roomRevenue: Math.round(totalRevenue),
+    soldRooms: soldRoomsSum,
+    adr,
+    occupancyRate: Number(occupancyRate.toFixed(3)),
+    revPar: Math.round(revPar),
+    guests: guestsSum,
+    dor,
+    guestUnitPrice,
+    actualDays,
+  }
 
   return {
     hotelId,
     year,
     month,
-    summary: {
-      roomRevenue: Math.round(totalRevenue),
-      soldRooms: soldRoomsSum,
-      adr,
-      occupancyRate: Number(occupancyRate.toFixed(3)),
-      revPar: Math.round(revPar),
-      guests: guestsSum,
-      dor,
-      guestUnitPrice,
-      actualDays,
-    },
+    summary: monthSummary,
     comparison:
       actualDays > 0 && budgetRevenueToDate
         ? {
@@ -606,15 +846,24 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
               fiscalBudgetRevenue,
               fiscalLastYearRevenue,
               fiscalRevenue,
-              adr,
+              fiscalAdr,
               occupancyRate
             ),
             fiscalYearLabel: `${fiscalStartYear}年度（4月〜${month}月）`,
             actualSummary: {
-              fiscalRevenue,
-              fiscalAdr: adr,
-              fiscalOccupancy: Number(occupancyRate.toFixed(3)),
-              fiscalActualDays: actualDays * elapsedFiscalMonths,
+              toDate: monthSummary,
+              cumulative: monthSummary,
+              fiscalYear: {
+                roomRevenue: fiscalRevenue,
+                soldRooms: fiscalSoldRooms,
+                adr: fiscalAdr,
+                occupancyRate: Number(occupancyRate.toFixed(3)),
+                revPar: Math.round(revPar),
+                guests: fiscalGuests,
+                dor: fiscalSoldRooms > 0 ? Number((fiscalGuests / fiscalSoldRooms).toFixed(2)) : 0,
+                guestUnitPrice: fiscalGuests > 0 ? Math.round(fiscalRevenue / fiscalGuests) : 0,
+                actualDays: actualDays * elapsedFiscalMonths,
+              },
             },
           }
         : null,
@@ -726,7 +975,7 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
     const price1P = mockRankToPrice1P(recommendedRank)
     const demandLevel: PricingCalendarDay["demandLevel"] =
       predictedOccupancy > 0.9 ? "A" : predictedOccupancy > 0.8 ? "B" : predictedOccupancy > 0.65 ? "C" : predictedOccupancy > 0.5 ? "D" : "E"
-    const competitorAvgPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
+    const competitorMedianPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
 
     calendar.push({
       date: toLocalDateStr(date),
@@ -741,12 +990,24 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
       predictedAdr,
       actualOccupancy: isPast ? Number(Math.min(1, predictedOccupancy + (rng() - 0.5) * 0.1).toFixed(3)) : null,
       actualAdr: isPast ? Math.round(predictedAdr * (1 + (rng() - 0.5) * 0.06)) : null,
-      competitorAvgPrice,
+      competitorMedianPrice,
+      competitorMinPrice: Math.round(competitorMedianPrice * 0.88),
+      competitorMaxPrice: Math.round(competitorMedianPrice * 1.14),
       confidence: Number((0.7 + rng() * 0.25).toFixed(2)),
     })
   }
 
   return { hotelId, year, month, calendar }
+}
+
+/** 中央値（デモデータ生成用） */
+function mockMedian(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid]
 }
 
 // 競合ホテル（seedと同等の3社構成）
@@ -799,10 +1060,15 @@ function mockCompetitorPrices(hotelId: string, startDate: string, endDate: strin
 
   const ownPrices = dates.map((date) => {
     const rng = createSeededRandom(date.getTime() / 86400000)
+    const price1P = basePrice(date, rng)
     return {
       date: toLocalDateStr(date),
-      price: basePrice(date, rng),
+      price: price1P,
       isActual: date <= today,
+      // 利用人数別の自館価格（料金ランク相当。1名を基準に2名・3名を積み上げる）
+      price1P,
+      price2P: Math.round(price1P * 1.4),
+      price3P: Math.round(price1P * 1.8),
     }
   })
 
@@ -878,8 +1144,7 @@ function mockCompetitorAnalysis(
       sampleSize: values.length,
       minPrice: values.length > 0 ? Math.min(...values) : null,
       maxPrice: values.length > 0 ? Math.max(...values) : null,
-      avgPrice:
-        values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null,
+      medianPrice: mockMedian(values),
     }
   })
 
@@ -940,6 +1205,19 @@ function getMockEvents(hotelId: string): HotelEvent[] {
 
 // ---- API surface ----
 
+/** ダッシュボードの表示設定（#51-2。サーバ保存され端末間で共有される） */
+export interface DashboardPreference {
+  /** 「販売サイト別実績」セクションを表示するか */
+  showTopSitesSection: boolean
+  /** KPI進捗表に表示する指標キー。1件以上必須 */
+  kpiItems: string[]
+}
+
+export interface UserPreferences {
+  hotelId: string
+  dashboard: DashboardPreference
+}
+
 export const api = {
   async login(email: string, password: string): Promise<LoginResult> {
     try {
@@ -979,7 +1257,11 @@ export const api = {
   me(): Promise<User & { hotel?: Hotel | null }> {
     if (isDemoModeEnabled()) {
       const mockUser = getMockUser()
-      if (mockUser) return Promise.resolve({ ...mockUser, hotel: MOCK_HOTEL })
+      if (mockUser) {
+        // リロード後にデモユーザーを復元した場合もデモ表示バナーを出す
+        markDemoDataInUse()
+        return Promise.resolve({ ...mockUser, hotel: MOCK_HOTEL })
+      }
     }
     return rawRequest("/api/v1/auth/me")
   },
@@ -995,6 +1277,22 @@ export const api = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/dashboard/kpi?hotelId=${hotelId}&year=${year}&month=${month}`),
       () => mockDashboardKpi(hotelId, year, month)
+    )
+  },
+
+  /**
+   * KPI比較（月初比較・日付比較 — F-DASH-04）。
+   * baseDate を省略すると対象月に紐づく全スナップショットを取得日の昇順で返す。
+   */
+  kpiComparison(
+    hotelId: string,
+    year: number,
+    month: number,
+    baseDate?: string
+  ): Promise<KpiSnapshot[]> {
+    const baseDateParam = baseDate ? `&baseDate=${baseDate}` : ""
+    return rawRequest(
+      `/api/v1/dashboard/kpi/comparison?hotelId=${hotelId}&year=${year}&month=${month}${baseDateParam}`
     )
   },
 
@@ -1046,6 +1344,43 @@ export const api = {
     )
   },
 
+  /**
+   * 月次着地シミュレーション（F-DP-04）。
+   * 行が無い月は simulation が null で返る。フロントエンドで平均値を捏造しないこと。
+   */
+  pricingSimulation(hotelId: string, year: number, month: number): Promise<PricingSimulation> {
+    return rawRequest(`/api/v1/pricing/simulation?hotelId=${hotelId}&year=${year}&month=${month}`)
+  },
+
+  /**
+   * 需要予測の再計算（F-DP-03「AI予測値へリセット」／F-DP-05）。MANAGER 以上。
+   * startDate は本日（JST）以降でなければバックエンドが 400 を返す。
+   */
+  recomputeForecast(
+    hotelId: string,
+    range?: { startDate?: string; endDate?: string }
+  ): Promise<RecomputeForecastResult> {
+    return rawRequest("/api/v1/pricing/recompute", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, ...range }),
+    })
+  },
+
+  /**
+   * 月次レポート（PDF / Excel）のダウンロード（F-REP-01/02）。
+   * レスポンスはバイナリのため Blob を返す。保存はコンポーネント側で行う。
+   */
+  monthlyReport(
+    hotelId: string,
+    year: number,
+    month: number,
+    format: "pdf" | "excel"
+  ): Promise<BinaryDownload> {
+    return rawBinaryRequest(
+      `/api/v1/reports/monthly?hotelId=${hotelId}&year=${year}&month=${month}&format=${format}`
+    )
+  },
+
   bookingCurve(hotelId: string, date: string): Promise<BookingCurve> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/daily/booking-curve?hotelId=${hotelId}&date=${date}`),
@@ -1087,10 +1422,25 @@ export const api = {
     )
   },
 
+  /** 料金ランクの追加（MANAGER以上。最大40段階 — F-SET-02） */
+  createPriceRank(input: CreatePriceRankInput): Promise<PriceRank> {
+    return rawRequest("/api/v1/settings/price-ranks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 料金ランクの削除（MANAGER以上 — F-SET-02） */
+  deletePriceRank(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/settings/price-ranks/${id}?hotelId=${hotelId}`, {
+      method: "DELETE",
+    })
+  },
+
   updatePriceRank(
     id: string,
     hotelId: string,
-    data: Partial<{ label: string; price1P: number; price2P: number; price3P: number; price4P: number }>
+    data: Partial<Omit<CreatePriceRankInput, "hotelId" | "rank">>
   ): Promise<PriceRank> {
     return withDemoFallback(
       () =>
@@ -1176,5 +1526,136 @@ export const api = {
         mockEvents = getMockEvents(hotelId).filter((e) => e.id !== id)
       }
     )
+  },
+
+  // ---- 月次予算（X-1 / N-1 / F-SET-04） ----
+
+  /** 年単位の月次予算。未登録の月も budget: null で必ず12件返る */
+  budgets(hotelId: string, year: number): Promise<BudgetYear> {
+    return rawRequest(`/api/v1/settings/budgets?hotelId=${hotelId}&year=${year}`)
+  },
+
+  /**
+   * 月次予算の一括保存（MANAGER以上）。送った月だけが upsert される。
+   * 稼働率は 0〜1 の比率で送ること（UI 側のパーセント入力は呼び出し元で変換する）。
+   */
+  saveBudgets(input: UpsertBudgetsRequest): Promise<BudgetYear> {
+    return rawRequest("/api/v1/settings/budgets", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  // ---- 競合ホテル（X-2 / N-2 / F-SET-03） ----
+
+  /** 競合ホテル一覧（有効なもののみ。最大5件） */
+  competitorSettings(hotelId: string): Promise<CompetitorSetting[]> {
+    return rawRequest(`/api/v1/settings/competitors?hotelId=${hotelId}`)
+  },
+
+  /** 競合ホテルの追加（MANAGER以上）。6件目は 400 になる */
+  createCompetitor(input: CreateCompetitorInput): Promise<CompetitorSetting> {
+    return rawRequest("/api/v1/settings/competitors", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 競合ホテルの更新（MANAGER以上） */
+  updateCompetitor(
+    id: string,
+    hotelId: string,
+    input: UpdateCompetitorInput
+  ): Promise<CompetitorSetting> {
+    return rawRequest(`/api/v1/settings/competitors/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 競合ホテルの削除（MANAGER以上・論理削除） */
+  deleteCompetitor(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/settings/competitors/${id}?hotelId=${hotelId}`, {
+      method: "DELETE",
+    })
+  },
+
+  // ---- ユーザー管理（X-3 / N-3 / #62） ----
+  // いずれも自テナント内に限定される（ADMIN も例外ではない）。テナントを越えられるのは運営のみ。
+
+  /** 同一テナントのユーザー一覧（ADMIN / MANAGER のみ。OPERATOR は 403） */
+  users(hotelId: string): Promise<User[]> {
+    return rawRequest(`/api/v1/users?hotelId=${hotelId}`)
+  },
+
+  /** ユーザーの名前・ロール・有効/無効の変更（自テナント内の ADMIN / MANAGER。運営ロールの付与は運営のみ） */
+  updateUser(id: string, input: UpdateUserRequest): Promise<User> {
+    return rawRequest(`/api/v1/users/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** ユーザーの招待（ADMIN / MANAGER）。作成先テナントは常に呼び出し元のテナント。MANAGER はホテル指定が必須 */
+  registerUser(input: RegisterUserRequest): Promise<User> {
+    return rawRequest("/api/v1/auth/register", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  // ---- アラート操作（X-4 / N-4） ----
+
+  /**
+   * アラートの状態遷移。ACKNOWLEDGED は全ロール、RESOLVED は MANAGER 以上。
+   * RESOLVED から ACKNOWLEDGED へ戻す操作はバックエンドが 400 で拒否する。
+   */
+  updateAlertStatus(
+    id: string,
+    hotelId: string,
+    status: UpdateAlertStatusRequest["status"]
+  ): Promise<AlertItem> {
+    return rawRequest(`/api/v1/dashboard/alerts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ hotelId, status }),
+    })
+  },
+
+  // ---- 口コミ評価点（X-6 / N-7 / F-ANA-04） ----
+
+  /** OTA別の口コミ評価点（取得日の降順・最大50件） */
+  reviewScores(hotelId: string): Promise<ReviewScore[]> {
+    return rawRequest(`/api/v1/analysis/reviews?hotelId=${hotelId}`)
+  },
+
+  // ---- KPIスナップショット取得（X-7 / N-5） ----
+
+  /**
+   * 当日時点のKPIスナップショットを保存する（MANAGER以上）。
+   * 通常は日次バッチが実行する処理で、同じ日・同じ対象月に対して冪等。
+   */
+  createKpiSnapshot(hotelId: string, year: number, month: number): Promise<KpiSnapshot> {
+    return rawRequest("/api/v1/dashboard/kpi/snapshot", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, year, month }),
+    })
+  },
+
+  // ---- 画面表示設定（#51-2） ----
+
+  /** 自分の表示設定を取得する。未保存ならバックエンドが既定値を返す */
+  getPreferences(hotelId: string): Promise<UserPreferences> {
+    return rawRequest(`/api/v1/preferences?hotelId=${hotelId}`)
+  },
+
+  /** 自分の表示設定を保存する（ロール不問。他人の設定には影響しない） */
+  updatePreferences(
+    hotelId: string,
+    dashboard: DashboardPreference
+  ): Promise<UserPreferences> {
+    return rawRequest("/api/v1/preferences", {
+      method: "PUT",
+      body: JSON.stringify({ hotelId, dashboard }),
+    })
   },
 }

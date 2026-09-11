@@ -1,331 +1,192 @@
 "use client"
 
+// レポートタブ（U-4 / F-REP-01・F-REP-02）
+// GET /api/v1/reports/monthly?format=pdf|excel を呼び、返ってきたバイナリを
+// ブラウザのダウンロードとして保存する。架空の「最近のレポート」「定期レポート設定」
+// 「クイックレポート」は実体が無いため撤去した。
+
 import { useState } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
-import { Button } from "@/components/ui/button"
+import { Download, FileSpreadsheet, FileText, Loader2 } from "lucide-react"
+import { toast } from "sonner"
+
 import { Badge } from "@/components/ui/badge"
-import { Download, FileText, Calendar, TrendingUp, Users, DollarSign } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useAuth } from "@/components/auth-provider"
+import { usePeriod } from "@/components/app-state-provider"
+import { LabeledMonthPicker } from "@/components/month-picker"
+import { api, ApiClientError } from "@/lib/api"
+import { monthLabel } from "@/lib/date"
+
+type ReportFormat = "pdf" | "excel"
+
+/**
+ * レポート種別。月次のみバックエンド（reportsService）が実装済みで、
+ * それ以外は器も無いため「準備中」として選択できないようにする。
+ */
+const REPORT_TYPES = [
+  { value: "monthly", label: "月次レポート", available: true },
+  { value: "quarterly", label: "四半期レポート", available: false },
+  { value: "annual", label: "年次レポート", available: false },
+  { value: "custom", label: "カスタムレポート", available: false },
+] as const
+
+const REPORT_FORMATS: Array<{ value: ReportFormat; label: string; extension: string }> = [
+  { value: "pdf", label: "PDF", extension: "pdf" },
+  { value: "excel", label: "Excel", extension: "xlsx" },
+]
+
+/** Blob をブラウザのダウンロードとして保存する */
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
 
 export function ReportsTab() {
-  const [reportType, setReportType] = useState("monthly")
-  const [reportPeriod, setReportPeriod] = useState("2025-04")
-  const [reportFormat, setReportFormat] = useState("pdf")
+  const { hotelId, hotel } = useAuth()
+  // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
+  const { year, month, periodMonth, setPeriodMonth } = usePeriod()
+
+  const [reportType, setReportType] = useState<string>("monthly")
+  const [reportFormat, setReportFormat] = useState<ReportFormat>("pdf")
+  const [downloading, setDownloading] = useState(false)
+
+  const selectedType = REPORT_TYPES.find((t) => t.value === reportType) ?? REPORT_TYPES[0]
+  const canDownload = hotelId != null && selectedType.available
+
+  const handleDownload = async () => {
+    if (!hotelId || !selectedType.available) return
+    setDownloading(true)
+    try {
+      const { blob, filename } = await api.monthlyReport(hotelId, year, month, reportFormat)
+      const extension =
+        REPORT_FORMATS.find((f) => f.value === reportFormat)?.extension ?? reportFormat
+      const fallbackName = `月次レポート_${hotel?.name ?? "hotel"}_${year}-${String(month).padStart(2, "0")}.${extension}`
+      saveBlob(blob, filename ?? fallbackName)
+      toast.success("レポートをダウンロードしました", {
+        description: `${monthLabel(year, month)}の月次レポート（${reportFormat === "pdf" ? "PDF" : "Excel"}）`,
+      })
+    } catch (err) {
+      toast.error(
+        err instanceof ApiClientError ? err.message : "レポートのダウンロードに失敗しました",
+      )
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <div className="p-4 space-y-3">
       {/* Header */}
       <div>
         <h2 className="text-2xl font-heading font-medium tracking-tight text-balance">レポート</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">各種レポートの生成とエクスポート</p>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          対象月の実績・予算・日別明細をPDFまたはExcelで出力します
+        </p>
       </div>
 
-      {/* Report Generator */}
       <Card>
         <CardContent className="py-3 px-4">
           <div className="flex items-end gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <Label htmlFor="report-type" className="text-xs whitespace-nowrap">レポートタイプ</Label>
+              <Label htmlFor="report-type" className="text-xs whitespace-nowrap">
+                レポートタイプ
+              </Label>
               <Select value={reportType} onValueChange={setReportType}>
-                <SelectTrigger id="report-type" className="h-9 w-40 text-sm">
+                <SelectTrigger id="report-type" className="h-9 w-44 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="monthly">月次レポート</SelectItem>
-                  <SelectItem value="quarterly">四半期レポート</SelectItem>
-                  <SelectItem value="annual">年次レポート</SelectItem>
-                  <SelectItem value="custom">カスタムレポート</SelectItem>
+                  {REPORT_TYPES.map((type) => (
+                    <SelectItem key={type.value} value={type.value} disabled={!type.available}>
+                      {type.label}
+                      {!type.available && "（準備中）"}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Label htmlFor="report-period" className="text-xs whitespace-nowrap">対象期間</Label>
-              <Select value={reportPeriod} onValueChange={setReportPeriod}>
-                <SelectTrigger id="report-period" className="h-9 w-36 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="2025-02">2025年2月</SelectItem>
-                  <SelectItem value="2025-03">2025年3月</SelectItem>
-                  <SelectItem value="2025-04">2025年4月</SelectItem>
-                  <SelectItem value="2025-q1">2025年 Q1</SelectItem>
-                  <SelectItem value="2025-ytd">2025年 年初来</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <LabeledMonthPicker
+              id="report-period"
+              label="対象期間"
+              value={periodMonth}
+              onChange={setPeriodMonth}
+            />
 
             <div className="flex items-center gap-2">
-              <Label htmlFor="report-format" className="text-xs whitespace-nowrap">出力形式</Label>
-              <Select value={reportFormat} onValueChange={setReportFormat}>
+              <Label htmlFor="report-format" className="text-xs whitespace-nowrap">
+                出力形式
+              </Label>
+              <Select
+                value={reportFormat}
+                onValueChange={(value: ReportFormat) => setReportFormat(value)}
+              >
                 <SelectTrigger id="report-format" className="h-9 w-32 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="pdf">PDF</SelectItem>
-                  <SelectItem value="excel">Excel</SelectItem>
-                  <SelectItem value="csv">CSV</SelectItem>
+                  {REPORT_FORMATS.map((f) => (
+                    <SelectItem key={f.value} value={f.value}>
+                      {f.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="flex gap-2 ml-auto">
-              <Button size="sm">
-                <Download className="w-4 h-4 mr-2" />
-                レポート生成
-              </Button>
-              <Button variant="outline" size="sm">
-                プレビュー
+            <div className="ml-auto">
+              <Button size="sm" onClick={handleDownload} disabled={!canDownload || downloading}>
+                {downloading ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden />
+                ) : (
+                  <Download className="w-4 h-4 mr-2" aria-hidden />
+                )}
+                レポートをダウンロード
               </Button>
             </div>
           </div>
+
+          {!selectedType.available && (
+            <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
+              {selectedType.label}は準備中です。現在出力できるのは月次レポートのみです。
+            </p>
+          )}
         </CardContent>
       </Card>
 
-      {/* Quick Reports */}
-      <div>
-        <h3 className="text-base font-semibold mb-2">クイックレポート</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-          <Card className="hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-3">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2.5 flex-1">
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                    <TrendingUp className="w-4 h-4 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm font-semibold">サマリー</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">月次の概要</p>
-                  </div>
-                </div>
-                <Badge variant="secondary" className="text-xs flex-shrink-0">月次</Badge>
-              </div>
-              <Button variant="outline" size="sm" className="w-full h-8 text-xs">
-                <Download className="w-3.5 h-3.5 mr-1.5" />
-                ダウンロード
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-3">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2.5 flex-1">
-                  <div className="w-8 h-8 rounded-lg bg-[color:var(--chart-2)]/10 flex items-center justify-center flex-shrink-0">
-                    <Calendar className="w-4 h-4 text-[color:var(--chart-2)]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm font-semibold">日別パフォーマンス</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">詳細な日次データ</p>
-                  </div>
-                </div>
-                <Badge variant="secondary" className="text-xs flex-shrink-0">日次</Badge>
-              </div>
-              <Button variant="outline" size="sm" className="w-full h-8 text-xs">
-                <Download className="w-3.5 h-3.5 mr-1.5" />
-                ダウンロード
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-3">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2.5 flex-1">
-                  <div className="w-8 h-8 rounded-lg bg-[color:var(--chart-3)]/10 flex items-center justify-center flex-shrink-0">
-                    <Users className="w-4 h-4 text-[color:var(--chart-3)]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm font-semibold">チャネル分析</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">予約チャネル別データ</p>
-                  </div>
-                </div>
-                <Badge variant="secondary" className="text-xs flex-shrink-0">月次</Badge>
-              </div>
-              <Button variant="outline" size="sm" className="w-full h-8 text-xs">
-                <Download className="w-3.5 h-3.5 mr-1.5" />
-                ダウンロード
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card className="hover:shadow-md transition-shadow cursor-pointer">
-            <CardContent className="p-3">
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2.5 flex-1">
-                  <div className="w-8 h-8 rounded-lg bg-[color:var(--chart-4)]/10 flex items-center justify-center flex-shrink-0">
-                    <DollarSign className="w-4 h-4 text-[color:var(--chart-4)]" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <CardTitle className="text-sm font-semibold">価格最適化レポート</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">価格戦略の効果分析</p>
-                  </div>
-                </div>
-                <Badge variant="secondary" className="text-xs flex-shrink-0">週次</Badge>
-              </div>
-              <Button variant="outline" size="sm" className="w-full h-8 text-xs">
-                <Download className="w-3.5 h-3.5 mr-1.5" />
-                ダウンロード
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Recent Reports */}
+      {/* 出力内容の説明（実装済みの範囲のみを記載する） */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-medium">最近のレポート</CardTitle>
+          <CardTitle className="text-base font-medium">月次レポートの内容</CardTitle>
         </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-2">
-            {[
-              {
-                name: "2025年3月 月次レポート",
-                type: "月次レポート",
-                date: "2025-04-02",
-                format: "PDF",
-                size: "2.4 MB",
-              },
-              {
-                name: "2025年Q1 四半期レポート",
-                type: "四半期レポート",
-                date: "2025-04-01",
-                format: "Excel",
-                size: "5.8 MB",
-              },
-              {
-                name: "チャネル分析 2025年3月",
-                type: "カスタムレポート",
-                date: "2025-03-28",
-                format: "PDF",
-                size: "1.8 MB",
-              },
-              {
-                name: "日別パフォーマンス 2025年3月",
-                type: "日次レポート",
-                date: "2025-03-25",
-                format: "CSV",
-                size: "0.5 MB",
-              },
-              {
-                name: "2025年2月 月次レポート",
-                type: "月次レポート",
-                date: "2025-03-02",
-                format: "PDF",
-                size: "2.3 MB",
-              },
-            ].map((report, index) => (
-              <div
-                key={index}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 border border-border rounded-lg hover:bg-muted/50 transition-colors"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-                    <FileText className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{report.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      <span className="text-xs text-muted-foreground">{report.type}</span>
-                      <span className="text-xs text-muted-foreground">•</span>
-                      <span className="text-xs text-muted-foreground">{report.date}</span>
-                      <span className="text-xs text-muted-foreground">•</span>
-                      <span className="text-xs text-muted-foreground">{report.size}</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
-                  <Badge variant="outline" className="text-xs">{report.format}</Badge>
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                    <Download className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+        <CardContent className="pt-0 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="gap-1.5 text-xs">
+              <FileText className="h-3.5 w-3.5" aria-hidden />
+              PDF
+            </Badge>
+            <Badge variant="outline" className="gap-1.5 text-xs">
+              <FileSpreadsheet className="h-3.5 w-3.5" aria-hidden />
+              Excel
+            </Badge>
+            <span className="text-xs text-muted-foreground">
+              {monthLabel(year, month)}・{hotel?.name ?? "所属ホテル"}
+            </span>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Scheduled Reports */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-medium">定期レポート設定</CardTitle>
-            <Button variant="outline" size="sm" className="h-8">
-              新規追加
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-2">
-            {[
-              {
-                name: "月次収益レポート",
-                frequency: "毎月1日",
-                recipients: "management@hotel.com",
-                format: "PDF",
-                status: "有効",
-              },
-              {
-                name: "週次パフォーマンスサマリー",
-                frequency: "毎週月曜日",
-                recipients: "revenue@hotel.com",
-                format: "Excel",
-                status: "有効",
-              },
-              {
-                name: "四半期分析レポート",
-                frequency: "四半期末",
-                recipients: "executives@hotel.com",
-                format: "PDF",
-                status: "有効",
-              },
-            ].map((schedule, index) => (
-              <div
-                key={index}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 border border-border rounded-lg hover:bg-muted/50 transition-colors"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium">{schedule.name}</p>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span className="text-xs text-muted-foreground">{schedule.frequency}</span>
-                    <span className="text-xs text-muted-foreground">•</span>
-                    <span className="text-xs text-muted-foreground">{schedule.recipients}</span>
-                    <span className="text-xs text-muted-foreground">•</span>
-                    <span className="text-xs text-muted-foreground">{schedule.format}</span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0 self-end sm:self-auto">
-                  <Badge variant="secondary" className="text-xs">{schedule.status}</Badge>
-                  <Button variant="ghost" size="sm" className="h-8">
-                    編集
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Report Templates */}
-      <Card className="border-l-4 border-l-primary">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-medium">レポートテンプレート</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 space-y-2">
-          <p className="text-sm text-muted-foreground">
-            カスタムレポートテンプレートを作成して、必要なデータを自動的に集計・出力できます。
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            <Button variant="outline" size="sm" className="h-8">
-              テンプレート管理
-            </Button>
-            <Button variant="outline" size="sm" className="h-8">
-              新規テンプレート作成
-            </Button>
-          </div>
+          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+            <li>月間サマリー（室料売上・販売室数・ADR・稼働率・REV-Per・宿泊人数）</li>
+            <li>月次予算および前年実績との比較</li>
+            <li>日別明細（稼働率・ADR・室料売上・週末区分）</li>
+          </ul>
         </CardContent>
       </Card>
     </div>

@@ -1,5 +1,6 @@
 import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { DEFAULT_WEEKEND_DAYS, addUtcDays, todayJst } from '../src/lib/date.js'
 
 const prisma = new PrismaClient()
 
@@ -18,15 +19,8 @@ const TENANT_CODE = 'demo-tenant'
 const HOTEL_ID = 'demo-hotel-001'
 const PRICE_RANK_COUNT = 40 // F-SET-02: 最大40段階
 
-function dateOnly(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-}
-
-function addDays(d: Date, days: number): Date {
-  const r = new Date(d)
-  r.setUTCDate(r.getUTCDate() + days)
-  return r
-}
+// 日付ユーティリティは src/lib/date.ts に集約している（C-6）
+const addDays = addUtcDays
 
 async function main() {
   console.log('🌱 Seeding database...')
@@ -54,7 +48,7 @@ async function main() {
       phone: '03-1234-5678',
       email: 'info@demo-hotel.example.com',
       totalRooms: 200,
-      weekendDays: [5, 6], // 金・土
+      weekendDays: [...DEFAULT_WEEKEND_DAYS], // 金・土
     },
   })
   console.log(`✅ Hotel: ${hotel.name}`)
@@ -97,7 +91,11 @@ async function main() {
   }
   console.log(`✅ Price ranks: ${PRICE_RANK_COUNT}`)
 
-  // 5. Users（要件定義書 §4: ADMIN / MANAGER / OPERATOR）
+  // 5. Users（要件定義書 §5: 運営 / 管理者 / マネージャー / オペレーター）
+  //
+  // デモの3アカウントはすべてテナント所属（ADMIN もテナント管理者であり
+  // 他テナントには一切アクセスできない — #62）。
+  // 運営（PLATFORM_ADMIN）は tenantId / hotelId を持たない別枠のアカウントとして作る。
   const hashedPassword = await bcrypt.hash('Admin1234', 12)
   const users = [
     { email: 'admin@demo-hotel.example.com', name: '管理者', role: UserRole.ADMIN },
@@ -116,7 +114,22 @@ async function main() {
       },
     })
   }
-  console.log(`✅ Users: ${users.length} (password: Admin1234)`)
+
+  // 運営アカウント（PLATFORM_ADMIN）。テナントに属さないため tenantId / hotelId は null
+  const PLATFORM_ADMIN_EMAIL = 'platform@example.com'
+  await prisma.user.upsert({
+    where: { email: PLATFORM_ADMIN_EMAIL },
+    update: { tenantId: null, hotelId: null, role: UserRole.PLATFORM_ADMIN },
+    create: {
+      email: PLATFORM_ADMIN_EMAIL,
+      name: '運営',
+      role: UserRole.PLATFORM_ADMIN,
+      password: hashedPassword,
+      tenantId: null,
+      hotelId: null,
+    },
+  })
+  console.log(`✅ Users: ${users.length + 1} (password: Admin1234)`)
 
   // 6. Pricing strategy config
   await prisma.pricingStrategyConfig.upsert({
@@ -154,7 +167,7 @@ async function main() {
   console.log(`✅ Competitors: ${competitors.length}`)
 
   // 8. 日別データ: 過去90日実績 + 今後90日AI予測
-  const today = dateOnly(new Date())
+  const today = todayJst()
   const totalRooms = 200
 
   await prisma.dailyData.deleteMany({ where: { hotelId: hotel.id } })
@@ -397,6 +410,40 @@ async function main() {
     },
   })
   console.log('✅ Landing simulation')
+
+  // 14. 口コミ評価点（F-ANA-04 / N-7）
+  // ReviewScore には一意制約が無いため、冪等性は「削除して作り直す」方式で担保する
+  // （競合・アラートと同じパターン）。
+  // 実運用ではOTAスクレイピング（Phase 4）が書き込む想定のテーブル。
+  await prisma.reviewScore.deleteMany({ where: { hotelId: hotel.id } })
+  const reviewSources = [
+    { source: 'rakuten', base: 4.32, reviewCount: 1840 },
+    { source: 'jalan', base: 4.18, reviewCount: 1260 },
+    { source: 'ikkyu', base: 4.45, reviewCount: 430 },
+    { source: 'google', base: 4.05, reviewCount: 2210 },
+    { source: 'tripadvisor', base: 4.21, reviewCount: 760 },
+  ]
+  const reviewRows = []
+  // 直近6か月ぶんを月初時点の取得値として並べる（推移グラフ用）
+  for (let monthsAgo = 5; monthsAgo >= 0; monthsAgo--) {
+    const capturedAt = new Date(
+      Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - monthsAgo, 1)
+    )
+    for (const src of reviewSources) {
+      // 月を追うごとにわずかに改善する想定。rng は決定的なので再実行しても同じ値になる
+      const drift = (5 - monthsAgo) * 0.02 + (rng() - 0.5) * 0.06
+      reviewRows.push({
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        source: src.source,
+        score: Math.round(Math.min(5, Math.max(1, src.base + drift)) * 100) / 100,
+        reviewCount: src.reviewCount - monthsAgo * 25,
+        capturedAt,
+      })
+    }
+  }
+  await prisma.reviewScore.createMany({ data: reviewRows })
+  console.log(`✅ Review scores: ${reviewRows.length}`)
 
   console.log('✨ Seeding completed!')
 }

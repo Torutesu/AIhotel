@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Send, X, Sparkles } from "lucide-react"
+import { SampleDataNotice } from "@/components/sample-data-notice"
 import { cn } from "@/lib/utils"
 import type { Message } from "@shared/types"
 
@@ -77,7 +78,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
     }
 
     if (lowerQuery.includes("adr") || lowerQuery.includes("平均客室単価")) {
-      return "現在のADRは¥18,250です。前年同月比+3.2%と好調に推移しています。競合平均が¥17,800であることを考慮すると、さらに5-8%の値上げ余地があると分析しています。"
+      return "現在のADRは¥18,250です。前年同月比+3.2%と好調に推移しています。競合の価格水準（中央値）が¥17,800であることを考慮すると、さらに5-8%の値上げ余地があると分析しています。"
     }
 
     if (lowerQuery.includes("価格") || lowerQuery.includes("プライシング") || lowerQuery.includes("料金")) {
@@ -103,7 +104,8 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
     return "ご質問ありがとうございます。ダッシュボード、価格設定、日別分析、各種分析、レポートなど、システムの各機能についてサポートいたします。具体的にどのような情報をお探しですか？"
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  // onKeyPress は非推奨（React 17+ / DOM 仕様）のため onKeyDown を使う
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -132,9 +134,13 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
             <p className="text-xs text-muted-foreground">収益管理をサポート</p>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="w-5 h-5" />
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="AIアシスタントを閉じる">
+          <X className="w-5 h-5" aria-hidden />
         </Button>
+      </div>
+
+      <div className="border-b border-border p-3">
+        <SampleDataNotice detail="Claude API との接続が未実装のため、応答は定型のサンプルです。" />
       </div>
 
       {/* Messages */}
@@ -201,11 +207,16 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             placeholder="質問を入力してください..."
             className="flex-1"
           />
-          <Button onClick={handleSend} size="icon" disabled={!input.trim() || isTyping}>
+          <Button
+            onClick={handleSend}
+            size="icon"
+            disabled={!input.trim() || isTyping}
+            aria-label="メッセージを送信"
+          >
             <Send className="w-4 h-4" />
           </Button>
         </div>

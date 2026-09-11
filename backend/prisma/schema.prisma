@@ -46,6 +46,7 @@ model Tenant {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  userPreferences          UserPreference[]
 }
 
 // ======================================
@@ -54,7 +55,8 @@ model Tenant {
 
 model User {
   id          String    @id @default(cuid())
-  // システム提供側の ADMIN はテナント横断のため tenantId は nullable
+  // 運営（PLATFORM_ADMIN）はテナント横断のため tenantId は nullable。
+  // ADMIN を含むテナント側のロールは必ず tenantId を持つ（#62）
   tenantId    String?
   tenant      Tenant?   @relation(fields: [tenantId], references: [id])
   email       String    @unique
@@ -70,28 +72,59 @@ model User {
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
+  preferences   UserPreference[]
 
   @@index([tenantId])
   @@index([hotelId])
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   tenantId  String?
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id])
   // 生トークンではなく SHA-256 ハッシュを保存する（DB漏洩時のセッション乗っ取り対策）
-  tokenHash String   @unique
+  tokenHash String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  // 回転（リフレッシュ）で使用済みになった時刻。null なら未使用の有効なトークン。
+  // 行を消さずに失効させることで「一度使ったトークンの再提示」＝盗用を検知できる（#49-4）
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
+  // ログイン時・日次バッチの期限切れトークン一括削除で使う（S-9 / #49-4）
+  @@index([expiresAt])
 }
 
-// 要件定義書 §4 のロール定義に対応:
-// ADMIN=システム提供側 / MANAGER=支配人・レベニューマネージャー / OPERATOR=現場フロント
+// 利用者ごとの画面表示設定（#51-2）。
+// 以前はブラウザの localStorage にのみ保存していたため、端末・ブラウザを変えると
+// 設定が消えていた。保存単位は (userId, hotelId) で、同じホテルの他の利用者には影響しない。
+model UserPreference {
+  id        String   @id @default(cuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  hotelId   String
+  hotel     Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // ダッシュボードの表示設定（showTopSitesSection / kpiItems）。
+  // 読み出し側で必ず正規化する（services/preferencesService.ts）
+  dashboard Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, hotelId])
+  @@index([tenantId])
+  @@index([hotelId])
+}
+
+// 要件定義書 §5 のロール定義に対応（#62 でテナント横断権限を ADMIN から分離）:
+// PLATFORM_ADMIN=運営（サービス提供側。tenantId は null。唯一テナントを越えられる）
+// ADMIN=管理者（テナント管理者。自テナント内で最上位。他テナントには一切アクセスできない）
+// MANAGER=支配人・レベニューマネージャー / OPERATOR=現場フロント
 enum UserRole {
+  PLATFORM_ADMIN
   ADMIN
   MANAGER
   OPERATOR
@@ -134,6 +167,7 @@ model Hotel {
   kpiSnapshots             KpiSnapshot[]
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
+  userPreferences          UserPreference[]
 
   @@index([tenantId])
 }
@@ -356,6 +390,13 @@ model AiPriceRecommendation {
   confidence         Float? // 0-1
   modelVersion       String?
   computedAt         DateTime     @default(now())
+  // 注意: PostgreSQL では NULL 同士が等しいとみなされないため、上の @@unique だけでは
+  // roomTypeId IS NULL のホテル全体行の重複を防げない（同一日の推奨が複数行でき、
+  // 料金カレンダーに同じ日が二重表示される）。部分ユニーク索引
+  // AiPriceRecommendation_hotelId_date_null_roomtype_key を
+  // migrations/20260911041135_ai_recommendation_partial_unique で手書きして補っている。
+  // 部分索引（WHERE 句付き）は schema.prisma では表現できないため、
+  // このモデルを変更する際はその索引が残っているか必ず確認すること（C-4）。
 
   @@unique([hotelId, date, roomTypeId])
   @@index([tenantId])

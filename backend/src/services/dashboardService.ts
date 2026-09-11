@@ -1,12 +1,6 @@
 import { prisma } from '../lib/prisma.js'
-import { NotFoundError } from '../middlewares/errorHandler.js'
-
-function monthRange(year: number, month: number): { start: Date; end: Date } {
-  return {
-    start: new Date(Date.UTC(year, month - 1, 1)),
-    end: new Date(Date.UTC(year, month, 1)),
-  }
-}
+import { BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
+import { monthRange, todayJst } from '../lib/date.js'
 
 /**
  * 年度の開始月（4月始まり）。
@@ -106,6 +100,77 @@ export function fiscalYearStart(
   return { year: month >= startMonth ? year : year - 1, month: startMonth }
 }
 
+/** MonthlyBudget を年度累計ぶんだけ取り出す where 条件の形 */
+export interface FiscalBudgetWhere {
+  OR: Array<{ year: number; month: { gte?: number; lte?: number } }>
+}
+
+/**
+ * 年度累計（年度開始月〜表示中の月）の予算だけを取得する where 条件を組み立てる（C-1）。
+ *
+ * 年度開始年と表示年が同じ場合に `lte: month` の上限が無いと、例えば 2026年9月の表示で
+ * 4月〜12月の予算まで合計してしまい、年度累計予算が実態より大きく出る。
+ * 年度をまたぐ場合（1〜3月の表示）は「開始年の開始月以降」＋「表示年の当月以前」の2条件になる。
+ */
+export function buildFiscalBudgetWhere(
+  year: number,
+  month: number,
+  fiscalStart: { year: number; month: number }
+): FiscalBudgetWhere {
+  if (fiscalStart.year === year) {
+    return { OR: [{ year, month: { gte: fiscalStart.month, lte: month } }] }
+  }
+  return {
+    OR: [
+      { year: fiscalStart.year, month: { gte: fiscalStart.month } },
+      { year, month: { lte: month } },
+    ],
+  }
+}
+
+/**
+ * 指定年月の「経過日数」を暦日ベースで返す（C-1）。
+ *
+ * 実績行の件数を経過日数として使うと、未入力の日があるぶんだけ按分予算が小さくなり、
+ * 未来月は 0 件なので予算が丸ごと 0 になってしまう。カレンダー基準で数える:
+ *   - 過去月: その月の日数すべて
+ *   - 当月　: 月初から本日（JST）まで（本日を含む）
+ *   - 未来月: 0
+ *
+ * @param today テスト用に基準日を差し替えるための引数。既定は JST の今日。
+ */
+export function elapsedDaysInMonth(year: number, month: number, today: Date = todayJst()): number {
+  const { start, end, daysInMonth } = monthRange(year, month)
+  if (today >= end) return daysInMonth
+  if (today < start) return 0
+  return today.getUTCDate()
+}
+
+/**
+ * 年度開始月から表示中の月までの経過日数の合計（C-1）。
+ * 年度累計の按分予算・稼働率の分母に使う。
+ */
+export function elapsedDaysInFiscalPeriod(
+  fiscalStart: { year: number; month: number },
+  year: number,
+  month: number,
+  today: Date = todayJst()
+): number {
+  let total = 0
+  let y = fiscalStart.year
+  let m = fiscalStart.month
+  // 年度開始月から表示中の月まで1か月ずつ進める（最大12か月）
+  while (y < year || (y === year && m <= month)) {
+    total += elapsedDaysInMonth(y, m, today)
+    m += 1
+    if (m > 12) {
+      m = 1
+      y += 1
+    }
+  }
+  return total
+}
+
 /**
  * 複数月の予算レコードを年度累計の比較対象に畳み込む。
  * ADRは売上÷室数の加重平均、稼働率は室数÷（客室数×期間日数）で再計算する。
@@ -145,15 +210,35 @@ export function aggregateBudgets(
   }
 }
 
+/** KPI進捗表に出す実績サマリー（F-DASH-01 の8指標＋集計日数） */
+export interface ActualSummary {
+  roomRevenue: number
+  soldRooms: number
+  adr: number
+  occupancyRate: number
+  revPar: number
+  guests: number
+  dor: number
+  guestUnitPrice: number
+  actualDays: number
+}
+
 /**
  * 実績KPIの集計（F-DASH-01）。
  * DOR = 宿泊人数 / 販売室数（1室あたり平均利用人数。要件定義書「14. 用語集」準拠）
+ *
+ * @param periodDays 稼働率・REV-Per の分母に使う期間日数。既定は実績行の件数。
+ *   年度累計軸では予算側と分母を揃えるため暦日ベースの経過日数を渡す（C-1 / #54）。
  */
-export function computeSummary(actualDays: ActualDayRecord[], totalRooms: number) {
+export function computeSummary(
+  actualDays: ActualDayRecord[],
+  totalRooms: number,
+  periodDays: number = actualDays.length
+): ActualSummary {
   const totalRevenue = actualDays.reduce((sum, d) => sum + (d.totalRevenue ?? 0), 0)
   const soldRooms = actualDays.reduce((sum, d) => sum + (d.soldRooms ?? 0), 0)
   const guests = actualDays.reduce((sum, d) => sum + (d.guests ?? 0), 0)
-  const roomNights = totalRooms * actualDays.length
+  const roomNights = totalRooms * periodDays
   const adr = soldRooms > 0 ? totalRevenue / soldRooms : 0
   const occupancyRate = roomNights > 0 ? soldRooms / roomNights : 0
   const revPar = roomNights > 0 ? totalRevenue / roomNights : 0
@@ -176,7 +261,7 @@ export function computeSummary(actualDays: ActualDayRecord[], totalRooms: number
  * 実績集計 + 予算比・前年比 + 日別推移（実績と AI 予測の連続系列 — F-DASH-03）
  */
 export async function getDashboardKpiService(hotelId: string, year: number, month: number) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const { start, end } = monthRange(year, month)
@@ -216,13 +301,8 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
         orderBy: { date: 'asc' },
       }),
       prisma.monthlyBudget.findMany({
-        where: {
-          hotelId,
-          OR: [
-            { year: fiscalStart.year, month: { gte: fiscalStart.month } },
-            ...(fiscalStart.year < year ? [{ year, month: { lte: month } }] : []),
-          ],
-        },
+        // 年度開始月〜当月の範囲に上下限を付ける（C-1）
+        where: { hotelId, ...buildFiscalBudgetWhere(year, month, fiscalStart) },
       }),
       prisma.dailyData.findMany({
         where: { hotelId, date: { gte: lastYearRange.start, lt: lastYearRange.end } },
@@ -234,8 +314,12 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
   const actualDays = dailyData.filter((d) => d.totalRevenue != null)
   const summary = computeSummary(actualDays, hotel.totalRooms)
 
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  const elapsedRatio = actualDays.length / daysInMonth
+  // 按分の分母・分子は暦日ベースにする（C-1）。
+  // 実績行の件数を使うと、未入力の日があるぶん按分予算が小さくなり、
+  // 実績が1件も無い未来月では予算が丸ごと 0 になってしまう。
+  const { daysInMonth } = monthRange(year, month)
+  const elapsedDays = elapsedDaysInMonth(year, month)
+  const elapsedRatio = elapsedDays / daysInMonth
 
   // 予算・前年比較（F-DASH-02）: 「本日まで」「累計進捗」「年度累計」の3軸
   const monthActual: ActualAggregate = {
@@ -271,8 +355,11 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
 
     // 年度累計: 年度開始月から当月実績までの累計どうしを比較
     const fiscalActualDays = fiscalDailyData.filter((d) => d.totalRevenue != null)
-    const fiscalSummary = computeSummary(fiscalActualDays, hotel.totalRooms)
-    const fiscalTargets = aggregateBudgets(fiscalBudgets, hotel.totalRooms, fiscalActualDays.length)
+    // 実績・予算の双方で稼働率／REV-Per の分母を暦日ベースの経過日数に揃える（C-1 / #54）。
+    // 実績行の件数を分母にすると、未入力日があるぶん年度累計の稼働率だけが高く出てしまう。
+    const fiscalElapsedDays = elapsedDaysInFiscalPeriod(fiscalStart, year, month)
+    const fiscalSummary = computeSummary(fiscalActualDays, hotel.totalRooms, fiscalElapsedDays)
+    const fiscalTargets = aggregateBudgets(fiscalBudgets, hotel.totalRooms, fiscalElapsedDays)
     const fiscalYear = buildComparisonAxis(
       {
         revenue: fiscalSummary.roomRevenue,
@@ -299,11 +386,14 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
       cumulative,
       fiscalYear,
       fiscalYearLabel: `${fiscalStart.year}年度（${fiscalStart.month}月〜${month}月）`,
+      // 比較軸ごとの実績サマリー（#54）。
+      // 軸を切り替えたときにフロントエンドが月次実績で穴埋めしないよう、
+      // 年度累計軸にも8指標すべてを揃えた実績を返す。
+      // 「本日まで」「累計進捗」はどちらも当月実績が比較対象なので同じサマリーを返す。
       actualSummary: {
-        fiscalRevenue: fiscalSummary.roomRevenue,
-        fiscalAdr: fiscalSummary.adr,
-        fiscalOccupancy: fiscalSummary.occupancyRate,
-        fiscalActualDays: fiscalSummary.actualDays,
+        toDate: summary,
+        cumulative: summary,
+        fiscalYear: fiscalSummary,
       },
     }
   })()
@@ -383,5 +473,91 @@ export async function getAiSummaryService(hotelId: string, section = 'dashboard-
   return prisma.aiComment.findFirst({
     where: { hotelId, section },
     orderBy: { generatedAt: 'desc' },
+  })
+}
+
+/**
+ * アラートの状態遷移（N-4）。
+ *
+ * ACKNOWLEDGED = 担当者が気づいた（現場が付ける）
+ * RESOLVED     = 対処が終わった（resolvedAt を記録し、一覧から外れる）
+ *
+ * hotelId 条件を含む updateMany で件数0なら 404 とし、テナント越えの更新を防ぐ。
+ * 解決済みアラートを再度 ACKNOWLEDGED に戻す操作は履歴として意味がないため 400 にする。
+ */
+export async function updateAlertStatusService(
+  id: string,
+  hotelId: string,
+  status: 'ACKNOWLEDGED' | 'RESOLVED'
+) {
+  const before = await prisma.alert.findFirst({ where: { id, hotelId } })
+  if (!before) throw new NotFoundError('アラート')
+
+  if (before.status === 'RESOLVED' && status === 'ACKNOWLEDGED') {
+    throw new BadRequestError('解決済みのアラートを確認済みに戻すことはできません')
+  }
+
+  const result = await prisma.alert.updateMany({
+    where: { id, hotelId },
+    data: {
+      status,
+      // 解決日時は最初に解決したときだけ記録する（再解決で上書きしない）
+      resolvedAt: status === 'RESOLVED' ? (before.resolvedAt ?? new Date()) : null,
+    },
+  })
+  if (result.count === 0) throw new NotFoundError('アラート')
+
+  const after = await prisma.alert.findUnique({ where: { id } })
+  if (!after) throw new NotFoundError('アラート')
+  return { before, after }
+}
+
+/**
+ * KPI スナップショットの取得・保存（N-5 / F-DASH-04）。
+ *
+ * 集計は getDashboardKpiService をそのまま呼んで再利用する。
+ * ダッシュボードの表示値とスナップショットの値がずれないよう、
+ * ここで KPI の計算式を再実装しないこと。
+ *
+ * 同じ日に何度実行しても結果が1行にまとまるよう
+ * @@unique([hotelId, snapshotDate, targetYear, targetMonth]) に対して upsert する（冪等）。
+ */
+export async function createKpiSnapshotService(hotelId: string, year: number, month: number) {
+  const hotel = await prisma.hotel.findFirst({
+    where: { id: hotelId, isActive: true },
+    select: { tenantId: true },
+  })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  const { summary } = await getDashboardKpiService(hotelId, year, month)
+
+  const snapshotDate = todayJst()
+  const values = {
+    revenue: summary.roomRevenue,
+    soldRooms: summary.soldRooms,
+    adr: summary.adr,
+    occupancy: summary.occupancyRate,
+    revPar: summary.revPar,
+    guests: summary.guests,
+  }
+
+  return prisma.kpiSnapshot.upsert({
+    where: {
+      hotelId_snapshotDate_targetYear_targetMonth: {
+        hotelId,
+        snapshotDate,
+        targetYear: year,
+        targetMonth: month,
+      },
+    },
+    update: values,
+    create: {
+      hotelId,
+      tenantId: hotel.tenantId,
+      snapshotDate,
+      targetYear: year,
+      targetMonth: month,
+      ...values,
+    },
   })
 }

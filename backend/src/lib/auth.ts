@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import jwt, { type SignOptions } from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import type { User, UserRole } from '@prisma/client'
@@ -14,6 +14,25 @@ export interface JWTPayload {
   role: UserRole
   tenantId: string | null
   hotelId: string | null
+}
+
+// トークン種別クレーム。アクセストークンとリフレッシュトークンは同じ秘密鍵で署名するため、
+// type で区別しないとリフレッシュトークンを Bearer として流用できてしまう（S-1）
+type TokenType = 'access' | 'refresh'
+
+interface AccessTokenClaims extends JWTPayload {
+  type: 'access'
+}
+
+interface RefreshTokenClaims {
+  userId: string
+  type: 'refresh'
+  // トークンごとに一意な識別子。これが無いと、同じユーザーが同じ秒内に
+  // 2回トークンを発行した場合（連続ログイン・同時リフレッシュ）に payload も iat も
+  // 完全に一致し、まったく同じトークン文字列が生成される。
+  // DB は tokenHash が @unique なので 2本目の保存が一意制約違反になり、
+  // 回転そのものが失敗していた（#49-4）
+  jti: string
 }
 
 export interface TokenPair {
@@ -51,11 +70,13 @@ function parseExpiresIn(expiresIn: string): number {
 // Password Utilities
 // ======================================
 
+const BCRYPT_COST = 12
+
 /**
  * パスワードをハッシュ化する
  */
 export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 12)
+  return bcrypt.hash(password, BCRYPT_COST)
 }
 
 /**
@@ -63,6 +84,32 @@ export async function hashPassword(password: string): Promise<string> {
  */
 export async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
   return bcrypt.compare(password, hashedPassword)
+}
+
+// ログイン失敗時のタイミングオラクル対策用ダミーハッシュ（S-8）。
+// 事前計算を防ぐためプロセス起動ごとにランダムな値から生成し、初回使用時にだけ計算する
+// （起動を bcrypt のコストぶん遅らせないため遅延生成）。
+let dummyPasswordHash: Promise<string> | null = null
+
+function getDummyPasswordHash(): Promise<string> {
+  dummyPasswordHash ??= bcrypt.hash(randomBytes(32).toString('hex'), BCRYPT_COST)
+  return dummyPasswordHash
+}
+
+/**
+ * パスワードを検証する。ハッシュが無い（＝該当ユーザーが存在しない）場合でも
+ * 同じコストのダミーハッシュと比較し、常に false を返す（S-8）。
+ *
+ * ユーザーの有無で bcrypt を実行するかどうかが変わると、応答時間の差から
+ * 登録済みメールアドレスを列挙できてしまうため、比較を必ず 1 回実行する。
+ */
+export async function verifyPasswordConstantWork(
+  password: string,
+  hashedPassword: string | null | undefined
+): Promise<boolean> {
+  const hash = hashedPassword ?? (await getDummyPasswordHash())
+  const matches = await bcrypt.compare(password, hash)
+  return hashedPassword ? matches : false
 }
 
 // ======================================
@@ -75,18 +122,19 @@ export async function verifyPassword(password: string, hashedPassword: string): 
 export function generateAccessToken(
   user: Pick<User, 'id' | 'email' | 'role' | 'tenantId' | 'hotelId'>
 ): string {
-  const payload: JWTPayload = {
+  const payload: AccessTokenClaims = {
     userId: user.id,
     email: user.email,
     role: user.role,
     tenantId: user.tenantId,
     hotelId: user.hotelId,
+    type: 'access',
   }
-  
+
   const options: SignOptions = {
     expiresIn: parseExpiresIn(JWT_EXPIRES_IN),
   }
-  
+
   return jwt.sign(payload, JWT_SECRET, options)
 }
 
@@ -97,12 +145,13 @@ export function generateRefreshToken(userId: string): string {
   const options: SignOptions = {
     expiresIn: parseExpiresIn(JWT_REFRESH_EXPIRES_IN),
   }
-  
-  return jwt.sign(
-    { userId, type: 'refresh' },
-    JWT_SECRET,
-    options
-  )
+
+  const payload: RefreshTokenClaims = {
+    userId,
+    type: 'refresh',
+    jti: randomBytes(16).toString('hex'),
+  }
+  return jwt.sign(payload, JWT_SECRET, options)
 }
 
 /**
@@ -126,12 +175,24 @@ export function hashToken(token: string): string {
 }
 
 /**
- * アクセストークンを検証する
+ * アクセストークンを検証する。
+ * type クレームが 'access' でないトークン（リフレッシュトークン等）は署名が正しくても拒否する（S-1）
  */
 export function verifyAccessToken(token: string): JWTPayload {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload
-    return decoded
+    const decoded = jwt.verify(token, JWT_SECRET) as Partial<AccessTokenClaims> & { type?: TokenType }
+
+    if (decoded.type !== 'access' || typeof decoded.userId !== 'string') {
+      throw new jwt.JsonWebTokenError('invalid token type')
+    }
+
+    return {
+      userId: decoded.userId,
+      email: decoded.email as string,
+      role: decoded.role as UserRole,
+      tenantId: decoded.tenantId ?? null,
+      hotelId: decoded.hotelId ?? null,
+    }
   } catch (error) {
     if (error instanceof jwt.TokenExpiredError) {
       throw new Error('トークンの有効期限が切れています')
@@ -148,9 +209,9 @@ export function verifyAccessToken(token: string): JWTPayload {
  */
 export function verifyRefreshToken(token: string): { userId: string } {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; type: string }
-    
-    if (decoded.type !== 'refresh') {
+    const decoded = jwt.verify(token, JWT_SECRET) as Partial<RefreshTokenClaims> & { type?: TokenType }
+
+    if (decoded.type !== 'refresh' || typeof decoded.userId !== 'string') {
       throw new Error('無効なリフレッシュトークンです')
     }
     

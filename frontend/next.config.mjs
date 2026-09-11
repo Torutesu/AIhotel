@@ -7,16 +7,16 @@ const __dirname = path.dirname(__filename)
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   env: {
-    // デモモードは lib/api.ts 側で「"false" のときだけ無効」と判定する。
-    // 未設定時に process.env.NEXT_PUBLIC_DEMO_MODE が undefined へインライン化されても
-    // 有効側に倒れるため、ここでは値をそのまま渡すだけにしている。
-    // バックエンドを接続したら、ホスティング側の環境変数に NEXT_PUBLIC_DEMO_MODE=false を設定して無効化する。
+    // デモモードは opt-in。lib/api.ts 側で「"true" のときだけ有効」と判定する。
+    // 未設定時は '' がインライン化されて無効になり、デモ分岐はツリーシェイクで成果物から消える
+    // （scripts/verify-demo-mode.mjs --expect-disabled で検証できる）。
+    // クライアントへのUI確認・デモ用ビルドでのみ NEXT_PUBLIC_DEMO_MODE=true を設定する。
     NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE ?? '',
   },
   images: {
     unoptimized: true,
   },
-  webpack: (config, { isServer }) => {
+  webpack: (config) => {
     // コンパイルタイムアウトを延長
     config.watchOptions = {
       ...config.watchOptions,
@@ -35,14 +35,9 @@ const nextConfig = {
     maxInactiveAge: 60 * 1000,
     pagesBufferLength: 5,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/:path*`,
-      },
-    ]
-  },
+  // /api/* の中継は app/api/[...path]/route.ts のルートハンドラで行う。
+  // rewrites() の destination は `next build` 時に routes-manifest.json へ焼き込まれ、
+  // 実行時の BACKEND_URL では差し替えられないため、ここでは定義しない（F-10）。
 }
 
 export default nextConfig

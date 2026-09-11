@@ -1,13 +1,16 @@
 import type { Request, Response, NextFunction } from 'express'
 import type { UserRole } from '@prisma/client'
 import { verifyAccessToken, JWTPayload } from '../lib/auth.js'
-import { ApiError } from './errorHandler.js'
+import { ApiError, NotFoundError } from './errorHandler.js'
+import { findActiveHotelService } from '../services/hotelsService.js'
 
 // Express Requestの拡張
 declare global {
   namespace Express {
     interface Request {
       user?: JWTPayload
+      /** リクエスト相関 ID（utils/logger.ts の requestId ミドルウェアが採番 — C-8） */
+      id?: string
     }
   }
 }
@@ -46,101 +49,105 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
 }
 
 /**
- * オプショナル認証ミドルウェア
- * トークンがあれば検証するが、なくてもエラーにしない
- */
-export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
-  try {
-    const authHeader = req.headers.authorization
-    
-    if (!authHeader) {
-      return next()
-    }
-    
-    const parts = authHeader.split(' ')
-    
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      return next()
-    }
-    
-    const token = parts[1]
-    const payload = verifyAccessToken(token)
-    
-    req.user = payload
-    next()
-  } catch {
-    // エラーがあっても無視して続行
-    next()
-  }
-}
-
-/**
  * 特定のロールが必要なエンドポイント用ミドルウェア
  * authenticate の後に使用すること
+ *
+ * PLATFORM_ADMIN（運営）は全ロールの上位集合として扱い、requireRole の指定に
+ * 明示的に含まれていなくても常に通す（#62）。運営はテナントの新規作成・ホテルの
+ * 払い出し・緊急サポートのために全操作を行える必要があり、既存ルートの
+ * requireRole('ADMIN', 'MANAGER') を一つずつ書き換えると追加漏れが必ず起きるため、
+ * ここで一元的に許可する。
  */
 export function requireRole(...allowedRoles: UserRole[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
       return next(new ApiError(401, '認証が必要です'))
     }
-    
-    if (!allowedRoles.includes(req.user.role)) {
+
+    if (req.user.role !== 'PLATFORM_ADMIN' && !allowedRoles.includes(req.user.role)) {
       return next(new ApiError(403, 'この操作を行う権限がありません'))
     }
-    
+
     next()
   }
 }
 
 /**
  * 特定のホテルへのアクセス権限をチェックするミドルウェア
- * authenticate の後に使用すること
+ * authenticate の後に使用すること。
+ *
+ * アクセス範囲（N-6 / #62）:
+ * - PLATFORM_ADMIN（運営）: 全テナント・全ホテル。テナントを越えられる唯一のロール
+ * - ADMIN / MANAGER / OPERATOR で hotelId が設定済み: そのホテルのみ
+ * - ADMIN / MANAGER / OPERATOR で hotelId が null: 自テナント内の全ホテル
+ *   （複数施設を統括するレベニューマネージャー・テナント管理者向け。hotelId を
+ *    持たないユーザーがどのホテルにもアクセスできず締め出されていた問題への対応）
+ *
+ * ADMIN（テナント管理者）は自テナント内では最上位だが、テナント境界は
+ * MANAGER / OPERATOR とまったく同じに扱う。他テナントのデータは読めても書けてもいけない（#62）。
+ *
+ * テナントが異なる場合はロールを問わず 403、
+ * 論理削除（isActive=false）されたホテルへのアクセスは 404 にする（S-5）。
  */
-export function requireHotelAccess(hotelIdExtractor: (req: Request) => string | undefined) {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return next(new ApiError(401, '認証が必要です'))
+export function requireHotelAccess(hotelIdExtractor: (req: Request) => unknown) {
+  return async (req: Request, _res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) {
+        throw new ApiError(401, '認証が必要です')
+      }
+
+      // 抽出値は必ずここで型を確かめる。ルート側では validate() を先に置いて
+      // zod 済みの値を渡す運用だが、順序を誤っても配列やオブジェクトが
+      // そのまま比較に流れ込まないよう、この層でも弾く
+      const rawHotelId = hotelIdExtractor(req)
+      if (rawHotelId !== undefined && rawHotelId !== null && typeof rawHotelId !== 'string') {
+        throw new ApiError(400, 'ホテルIDの形式が正しくありません')
+      }
+      const requestedHotelId = rawHotelId ?? undefined
+
+      // 運営（PLATFORM_ADMIN）だけが全テナントのホテルにアクセスできる（#62）。
+      // ADMIN は以降のテナント判定に落として自テナント内に閉じ込める。
+      // hotelId 未指定は後段の zod 検証に任せる
+      if (req.user.role === 'PLATFORM_ADMIN') {
+        if (requestedHotelId && !(await findActiveHotelService(requestedHotelId))) {
+          throw new NotFoundError('ホテル')
+        }
+        return next()
+      }
+
+      if (!requestedHotelId) {
+        throw new ApiError(400, 'ホテルIDが必要です')
+      }
+
+      // ホテル固定のユーザーは自ホテル以外を拒否する。
+      // DB 参照より前に弾くことで、他ホテルの存在有無を 403/404 の差から
+      // 推測できないようにする
+      if (req.user.hotelId && req.user.hotelId !== requestedHotelId) {
+        throw new ApiError(403, 'このホテルへのアクセス権限がありません')
+      }
+
+      // テナントに属さないユーザー（hotelId も tenantId も無い）はどのホテルにも触れない
+      if (!req.user.tenantId) {
+        throw new ApiError(403, 'このホテルへのアクセス権限がありません')
+      }
+
+      const hotel = await findActiveHotelService(requestedHotelId)
+      if (!hotel) {
+        throw new NotFoundError('ホテル')
+      }
+
+      // テナント越えは常に拒否する。
+      // hotelId が null のユーザーにとってはここが唯一の境界であり、
+      // hotelId を持つユーザーにとってはトークン発行後にテナントが変わった等の
+      // 不整合を弾く二重チェックになる
+      if (req.user.tenantId !== hotel.tenantId) {
+        throw new ApiError(403, 'このホテルへのアクセス権限がありません')
+      }
+
+      next()
+    } catch (error) {
+      next(error)
     }
-    
-    // ADMINは全てのホテルにアクセス可能
-    if (req.user.role === 'ADMIN') {
-      return next()
-    }
-    
-    const requestedHotelId = hotelIdExtractor(req)
-    
-    if (!requestedHotelId) {
-      return next(new ApiError(400, 'ホテルIDが必要です'))
-    }
-    
-    if (req.user.hotelId !== requestedHotelId) {
-      return next(new ApiError(403, 'このホテルへのアクセス権限がありません'))
-    }
-    
-    next()
   }
 }
 
-/**
- * 自分自身のリソースかどうかをチェックするミドルウェア
- */
-export function requireSelfOrAdmin(userIdExtractor: (req: Request) => string | undefined) {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return next(new ApiError(401, '認証が必要です'))
-    }
-    
-    // ADMINは全てのユーザーにアクセス可能
-    if (req.user.role === 'ADMIN') {
-      return next()
-    }
-    
-    const requestedUserId = userIdExtractor(req)
-    
-    if (req.user.userId !== requestedUserId) {
-      return next(new ApiError(403, 'このリソースへのアクセス権限がありません'))
-    }
-    
-    next()
-  }
-}

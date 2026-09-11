@@ -15,6 +15,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  AlertCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -27,8 +28,12 @@ import { AISummaryTab } from "@/components/tabs/ai-summary-tab"
 import { ChatInterface } from "@/components/chat-interface"
 import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
+import { useAppState } from "@/components/app-state-provider"
 import { LoginForm } from "@/components/login-form"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { HotelSwitcher } from "@/components/hotel-switcher"
 import type { Tab } from "@shared/types"
+import type { AlertLinkTarget } from "@/lib/alert-link"
 
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
@@ -40,14 +45,34 @@ const tabs = [
 
 const SIDEBAR_COLLAPSED_KEY = "hrms.sidebarCollapsed"
 
+const APP_NAME = "ホテレベ"
+
+/** タブごとのブラウザタブ表示名（F-8） */
+const TAB_TITLES: Record<Tab, string> = {
+  dashboard: "ダッシュボード",
+  pricing: "ダイナミックプライシング",
+  analysis: "分析",
+  reports: "レポート",
+  "ai-summary": "AIまとめ",
+  settings: "設定",
+}
+
 export function MainLayout() {
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard")
+  // タブ・対象年月・分析ビューは URL（?tab=&year=&month=&view=）が唯一の出所（U-8）
+  const { tab: activeTab, setTab, navigate, setPeriodMonth } = useAppState()
   const [chatOpen, setChatOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   // 分析タブの日付からダイナミックプライシングへ遷移する際の対象日
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
-  const { user, loading, logout } = useAuth()
+  // ログアウト確認ダイアログ（F-5）
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const { user, loading, logout, restoreError, retryRestore, canSwitchHotel } = useAuth()
+
+  // 表示中のタブをブラウザのタブ名に反映する（F-8）
+  useEffect(() => {
+    document.title = user ? `${TAB_TITLES[activeTab]} | ${APP_NAME}` : APP_NAME
+  }, [activeTab, user])
 
   // 折りたたみ状態を記憶する（デスクトップのみ意味を持つ）
   useEffect(() => {
@@ -64,7 +89,13 @@ export function MainLayout() {
   }
 
   const selectTab = (tab: Tab) => {
-    setActiveTab(tab)
+    setTab(tab)
+    setMobileNavOpen(false)
+  }
+
+  // アラートの linkTab は Tab と 1:1 ではないため変換表で解決する（F-4）
+  const handleAlertNavigate = (target: AlertLinkTarget) => {
+    navigate({ tab: target.tab, analysisView: target.analysisView })
     setMobileNavOpen(false)
   }
 
@@ -72,6 +103,21 @@ export function MainLayout() {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // セッション確認が「未ログイン」以外の理由（429/503/ネットワーク断など）で失敗した場合は
+  // トークンを保持したまま再試行を促す（F-2）
+  if (!user && restoreError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive" aria-hidden />
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">セッションを確認できませんでした</p>
+          <p className="text-sm text-muted-foreground">{restoreError}</p>
+        </div>
+        <Button onClick={retryRestore}>再試行</Button>
       </div>
     )
   }
@@ -120,8 +166,13 @@ export function MainLayout() {
             className="hidden h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent md:inline-flex"
             onClick={toggleCollapsed}
             title={collapsed ? "サイドバーを開く" : "サイドバーを折りたたむ"}
+            aria-label={collapsed ? "サイドバーを開く" : "サイドバーを折りたたむ"}
           >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            {collapsed ? (
+              <PanelLeftOpen className="h-4 w-4" aria-hidden />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" aria-hidden />
+            )}
           </Button>
 
           {/* モバイル: 閉じるボタン */}
@@ -131,10 +182,18 @@ export function MainLayout() {
             className="h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent md:hidden"
             onClick={() => setMobileNavOpen(false)}
             title="メニューを閉じる"
+            aria-label="メニューを閉じる"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden />
           </Button>
         </div>
+
+        {/* ホテル切替（複数ホテルにアクセスできるユーザーのみ表示 — X-5） */}
+        {canSwitchHotel && (
+          <div className={cn("border-b border-sidebar-border px-4 py-3", collapsed && "md:px-2")}>
+            <HotelSwitcher compact={collapsed} className={cn(collapsed && "md:flex-col md:gap-1")} />
+          </div>
+        )}
 
         <nav className="flex-1 space-y-1 overflow-y-auto p-4">
           {tabs.map((tab) => {
@@ -146,6 +205,7 @@ export function MainLayout() {
                 key={tab.id}
                 onClick={() => selectTab(tab.id)}
                 title={collapsed ? tab.label : undefined}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
                   collapsed && "md:justify-center md:px-0",
@@ -154,7 +214,7 @@ export function MainLayout() {
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
               >
-                <Icon className="h-5 w-5 flex-shrink-0" />
+                <Icon className="h-5 w-5 flex-shrink-0" aria-hidden />
                 <span className={cn(collapsed && "md:hidden")}>{tab.label}</span>
               </button>
             )
@@ -173,7 +233,7 @@ export function MainLayout() {
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             )}
           >
-            <Settings className="h-5 w-5 flex-shrink-0" />
+            <Settings className="h-5 w-5 flex-shrink-0" aria-hidden />
             <span className={cn(collapsed && "md:hidden")}>設定</span>
           </button>
 
@@ -191,10 +251,11 @@ export function MainLayout() {
               variant="ghost"
               size="icon"
               className="h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent"
-              onClick={() => logout()}
+              onClick={() => setLogoutConfirmOpen(true)}
               title="ログアウト"
+              aria-label="ログアウト"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="h-4 w-4" aria-hidden />
             </Button>
           </div>
 
@@ -213,20 +274,23 @@ export function MainLayout() {
             className="h-8 w-8 flex-shrink-0"
             onClick={() => setMobileNavOpen(true)}
             title="メニューを開く"
+            aria-label="メニューを開く"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5" aria-hidden />
           </Button>
           <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
           <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
             ホテレベ
           </h1>
+          {/* ホテル切替（複数ホテルにアクセスできるユーザーのみ表示 — X-5） */}
+          <HotelSwitcher compact className="ml-auto min-w-0 max-w-[55%]" />
         </div>
 
         <DemoModeBanner />
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-auto">
-          {activeTab === "dashboard" && <DashboardTab onTabChange={setActiveTab} />}
+          {activeTab === "dashboard" && <DashboardTab onAlertNavigate={handleAlertNavigate} />}
           {activeTab === "pricing" && (
             <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
           )}
@@ -234,6 +298,9 @@ export function MainLayout() {
             <AnalysisTab
               onNavigateToPricing={(date) => {
                 setPricingFocusDate(date)
+                setPeriodMonth(
+                  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+                )
                 selectTab("pricing")
               }}
             />
@@ -249,12 +316,27 @@ export function MainLayout() {
         size="icon"
         className="fixed bottom-6 right-6 z-30 h-14 w-14 rounded-full shadow-xs"
         onClick={() => setChatOpen(!chatOpen)}
+        aria-label={chatOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"}
+        aria-expanded={chatOpen}
       >
-        <MessageCircle className="h-6 w-6" />
+        <MessageCircle className="h-6 w-6" aria-hidden />
       </Button>
 
       {/* Chat Interface */}
       <ChatInterface isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+
+      {/* ログアウトの確認（F-5） */}
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        onOpenChange={setLogoutConfirmOpen}
+        title="ログアウトしますか？"
+        description="保存していない入力内容は失われます。"
+        confirmLabel="ログアウト"
+        onConfirm={() => {
+          setLogoutConfirmOpen(false)
+          void logout()
+        }}
+      />
     </div>
   )
 }

@@ -17,9 +17,21 @@ dotenv.config()
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  // CORS で許可するオリジン。カンマ区切りで複数指定できる（S-10）。
+  // Vercel の Preview URL など、本番以外のオリジンを追加で許可するために使う。
+  FRONTEND_URL: z
+    .string()
+    .default('http://localhost:3000')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    )
+    .pipe(z.array(z.string().url()).nonempty('FRONTEND_URL には少なくとも1つのURLが必要です')),
 
-  // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許す
+  // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許すが、
+  // NODE_ENV=production では必須にする（下の superRefine — S-7）
   DATABASE_URL: z.string().min(1).optional(),
 
   JWT_SECRET: z
@@ -29,8 +41,25 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().regex(/^\d+[dhms]$/).default('7d'),
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
-  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(100),
+  // 認証済みリクエストはユーザー単位でカウントするため、IP 単位の 100 では
+  // 同一拠点（NAT）からの複数ユーザーで枯渇する。既定を 1000/15分 に引き上げる（S-3）
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(1000),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+
+  // リバースプロキシ／ロードバランサ配下で X-Forwarded-For からクライアント IP を取る設定（S-3）。
+  // Express の 'trust proxy' にそのまま渡す。true/false・ホップ数（例 1）・'loopback' 等の文字列を許容。
+  // 未設定なら信頼しない（req.ip は直接接続元）。
+  TRUST_PROXY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v): boolean | number | string => {
+      if (v === undefined || v === '') return false
+      if (v === 'true') return true
+      if (v === 'false') return false
+      if (/^\d+$/.test(v)) return Number(v)
+      return v
+    }),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
@@ -41,6 +70,17 @@ const envSchema = z.object({
   // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
   STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
 })
+  // 本番では DATABASE_URL 未設定のまま起動させない（S-7）。
+  // 開発・テストでは型チェックや単体テストのみを回す用途があるため任意のままにする。
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production' && !env.DATABASE_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DATABASE_URL'],
+        message: 'NODE_ENV=production では DATABASE_URL が必須です',
+      })
+    }
+  })
 
 function loadConfig() {
   const parsed = envSchema.safeParse(process.env)

@@ -1,8 +1,11 @@
 import tsParser from '@typescript-eslint/parser'
+import tsPlugin from '@typescript-eslint/eslint-plugin'
 
 // アーキテクチャ境界を強制する Lint 設定。
 // クラウド・BaaS（AWS/GCP/Firebase/Supabase等）が未確定のため、
 // 差し替え時の影響範囲を config.ts と services/ に閉じ込めることが目的。
+//
+// あわせて @typescript-eslint の recommended と未使用コード検出を有効にしている（C-11）。
 export default [
   { ignores: ['dist/**', 'node_modules/**'] },
   {
@@ -12,7 +15,31 @@ export default [
       ecmaVersion: 2022,
       sourceType: 'module',
     },
+    plugins: {
+      '@typescript-eslint': tsPlugin,
+    },
     rules: {
+      ...tsPlugin.configs.recommended.rules,
+
+      // Express の Request 拡張（declare global { namespace Express { ... } }）は
+      // TypeScript の仕様上 namespace でしか書けないため、declare 配下のみ許可する
+      '@typescript-eslint/no-namespace': ['error', { allowDeclarations: true }],
+
+      // 未使用の変数・引数・import を検出して削除させる（C-11）。
+      // 意図的に使わないものは `_` プレフィックスで明示する
+      // （分割代入でのフィールド除外 `const { password: _, ...rest }` 等）。
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+          ignoreRestSiblings: true,
+        },
+      ],
+
       // 環境変数の直接参照を禁止（供給元が変わっても config.ts だけ直せば済むようにする）
       'no-restricted-syntax': [
         'error',
@@ -47,6 +74,15 @@ export default [
     files: ['src/lib/config.ts', 'src/**/*.test.ts', 'prisma/seed.ts'],
     rules: {
       'no-restricted-syntax': 'off',
+    },
+  },
+  {
+    // 統合テスト（N-8）はテナント・ユーザー等のフィクスチャを直接作る必要があるため、
+    // prisma クライアントの import 制限から除外する。
+    // アプリケーションコードは従来どおり services 層経由に限る
+    files: ['src/**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
 ]

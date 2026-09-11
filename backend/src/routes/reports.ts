@@ -12,7 +12,7 @@ reportsRouter.use(authenticate)
 // GET /api/v1/reports/monthly?hotelId=&year=&month=&format=pdf|excel
 reportsRouter.get(
   '/monthly',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(monthlyReportQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
   getMonthlyReport
 )

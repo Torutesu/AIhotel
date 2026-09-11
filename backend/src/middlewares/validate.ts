@@ -17,10 +17,12 @@ export function validate<T>(
     try {
       const data = req[target]
       const validated = await schema.parseAsync(data)
-      
-      // 検証後のデータで上書き（型変換が適用される）
-      req[target] = validated as any
-      
+
+      // 検証後のデータで上書き（型変換が適用される）。
+      // req.query / req.params は Express の型が固定されているため、
+      // any を使わずに書き込み可能な形へ絞ってから代入する（C-11）
+      ;(req as unknown as Record<ValidateTarget, unknown>)[target] = validated
+
       next()
     } catch (error) {
       if (error instanceof ZodError) {
@@ -33,72 +35,6 @@ export function validate<T>(
       } else {
         next(error)
       }
-    }
-  }
-}
-
-/**
- * 複数のターゲットを同時に検証するミドルウェア
- */
-export function validateMultiple<
-  TBody = unknown,
-  TQuery = unknown,
-  TParams = unknown
->(schemas: {
-  body?: ZodSchema<TBody>
-  query?: ZodSchema<TQuery>
-  params?: ZodSchema<TParams>
-}) {
-  return async (req: Request, _res: Response, next: NextFunction) => {
-    try {
-      const errors: Array<{ field: string; message: string }> = []
-      
-      if (schemas.body) {
-        try {
-          req.body = await schemas.body.parseAsync(req.body)
-        } catch (error) {
-          if (error instanceof ZodError) {
-            errors.push(...error.errors.map((err) => ({
-              field: `body.${err.path.join('.')}`,
-              message: err.message,
-            })))
-          }
-        }
-      }
-      
-      if (schemas.query) {
-        try {
-          req.query = await schemas.query.parseAsync(req.query) as any
-        } catch (error) {
-          if (error instanceof ZodError) {
-            errors.push(...error.errors.map((err) => ({
-              field: `query.${err.path.join('.')}`,
-              message: err.message,
-            })))
-          }
-        }
-      }
-      
-      if (schemas.params) {
-        try {
-          req.params = await schemas.params.parseAsync(req.params) as any
-        } catch (error) {
-          if (error instanceof ZodError) {
-            errors.push(...error.errors.map((err) => ({
-              field: `params.${err.path.join('.')}`,
-              message: err.message,
-            })))
-          }
-        }
-      }
-      
-      if (errors.length > 0) {
-        throw new ApiError(400, 'バリデーションエラー', errors)
-      }
-      
-      next()
-    } catch (error) {
-      next(error)
     }
   }
 }

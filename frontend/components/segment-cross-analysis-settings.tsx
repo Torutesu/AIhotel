@@ -9,13 +9,11 @@ import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Input } from "@/components/ui/input"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
-import { format } from "date-fns"
-import { ja } from "date-fns/locale/ja"
-import { CalendarIcon, Save } from "lucide-react"
+import { DatePicker } from "@/components/date-picker"
+import { Save } from "lucide-react"
 import { toast } from "sonner"
 import type { AnalysisSettings, DisplayMode, GraphType, SegmentCrossAnalysisSettings } from "@shared/types"
+import { SampleDataNotice } from "@/components/sample-data-notice"
 
 interface SegmentCrossAnalysisSettingsProps {
   onSave?: (settings: SegmentCrossAnalysisSettings) => void
@@ -80,7 +78,8 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
   })
 
   const [reservationTypeView, setReservationTypeView] = useState<"reservation" | "group">("reservation")
-  const [typeGroupingData, setTypeGroupingData] = useState([
+  // 表示専用（編集UIは未実装のため setter は持たない）
+  const [typeGroupingData] = useState([
     { actualType: "Bタイプ", groupResult: "シングル47室 → ダブル25室、ツイン18室、トリプル3室、その他1室" },
     { actualType: "Cタイプ", groupResult: "ダブル30室 → ダブル28室、その他2室" },
     { actualType: "Dタイプ", groupResult: "ツイン20室 → ツイン18室、ダブル2室" },
@@ -93,14 +92,14 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
     // バリデーション
     if (!dateFrom || !dateTo) {
       toast.error("期間を設定してください", {
-        description: "FROMとTOの日付を選択してください。",
+        description: "開始日と終了日を選択してください。",
       })
       return
     }
 
     if (dateFrom > dateTo) {
       toast.error("期間の設定が不正です", {
-        description: "FROMの日付はTOの日付より前である必要があります。",
+        description: "開始日は終了日より前の日付にしてください。",
       })
       return
     }
@@ -158,12 +157,12 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
-            <Label className="font-semibold w-24">KEY</Label>
+            <span className="text-sm font-semibold w-24">分析キー</span>
             <Input value={settings.key} readOnly className="flex-1" />
           </div>
 
           <div className="flex items-center gap-4">
-            <Label className="font-semibold w-24">選択肢</Label>
+            <span className="text-sm font-semibold w-24">選択肢</span>
             <Select value={settings.selection} onValueChange={(value) => onChange({ ...settings, selection: value })}>
               <SelectTrigger className="flex-1">
                 <SelectValue />
@@ -177,7 +176,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           </div>
 
           <div className="space-y-2">
-            <Label className="font-semibold">表示項目</Label>
+            <span className="text-sm font-semibold">表示項目</span>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <div className="flex items-center gap-2">
                 <Checkbox
@@ -215,7 +214,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           </div>
 
           <div className="flex items-center gap-4 flex-wrap">
-            <Label className="font-semibold w-24">個人・団体・TOTAL</Label>
+            <span className="text-sm font-semibold w-24">個人・団体・全体</span>
             <RadioGroup
               value={settings.individualGroupTotal}
               onValueChange={(value: "individual" | "group" | "total") =>
@@ -233,14 +232,14 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
               </div>
               <div className="flex items-center gap-2">
                 <RadioGroupItem value="total" id={`${title}-total`} />
-                <Label htmlFor={`${title}-total`} className="font-normal">TOTAL</Label>
+                <Label htmlFor={`${title}-total`} className="font-normal">全体</Label>
               </div>
             </RadioGroup>
           </div>
 
           {showRoomTypeToggle && (
             <div className="flex items-center gap-4">
-              <Label className="font-semibold w-24">部屋タイプを加える</Label>
+              <span className="text-sm font-semibold w-24">部屋タイプを加える</span>
               <Switch
                 checked={settings.includeRoomType}
                 onCheckedChange={(checked) => onChange({ ...settings, includeRoomType: checked })}
@@ -260,6 +259,8 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         <p className="text-muted-foreground mt-2">各種分析タイプの設定を行います</p>
       </div>
 
+      <SampleDataNotice detail="設定を保存するAPIが未実装のため、この画面の入力内容は保存されません。" />
+
       {/* 期間設定 */}
       <Card>
         <CardHeader>
@@ -268,32 +269,28 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         <CardContent>
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-              <Label className="font-semibold">FROM</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-[240px] justify-start text-left font-normal">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateFrom ? format(dateFrom, "yyyy年MM月dd日", { locale: ja }) : "日付を選択"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus locale={ja} />
-                </PopoverContent>
-              </Popover>
+              <Label htmlFor="segment-date-from" className="font-semibold">
+                開始日
+              </Label>
+              <DatePicker
+                id="segment-date-from"
+                className="h-9 w-full justify-start text-sm font-normal sm:w-[240px]"
+                value={dateFrom}
+                onChange={setDateFrom}
+                ariaLabel="集計期間の開始日"
+              />
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Label className="font-semibold">TO</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-[240px] justify-start text-left font-normal">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateTo ? format(dateTo, "yyyy年MM月dd日", { locale: ja }) : "日付を選択"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus locale={ja} />
-                </PopoverContent>
-              </Popover>
+              <Label htmlFor="segment-date-to" className="font-semibold">
+                終了日
+              </Label>
+              <DatePicker
+                id="segment-date-to"
+                className="h-9 w-full justify-start text-sm font-normal sm:w-[240px]"
+                value={dateTo}
+                onChange={setDateTo}
+                ariaLabel="集計期間の終了日"
+              />
             </div>
           </div>
         </CardContent>
@@ -306,7 +303,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <Label className="font-semibold">表示モード</Label>
+            <span className="text-sm font-semibold">表示モード</span>
             <RadioGroup
               value={displayMode}
               onValueChange={(value: DisplayMode) => setDisplayMode(value)}
@@ -325,7 +322,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
 
           {displayMode === "graph" && (
             <div className="flex items-center gap-4 flex-wrap">
-              <Label className="font-semibold">グラフ種類</Label>
+              <span className="text-sm font-semibold">グラフ種類</span>
               <RadioGroup
                 value={graphType}
                 onValueChange={(value: GraphType) => setGraphType(value)}
@@ -368,7 +365,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <Label className="font-semibold">表示方法</Label>
+            <span className="text-sm font-semibold">表示方法</span>
             <RadioGroup
               value={reservationTypeView}
               onValueChange={(value: "reservation" | "group") => setReservationTypeView(value)}
@@ -386,7 +383,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           </div>
 
           <div className="space-y-2">
-            <Label className="font-semibold">タイプ別予約タイプ</Label>
+            <span className="text-sm font-semibold">タイプ別予約タイプ</span>
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>

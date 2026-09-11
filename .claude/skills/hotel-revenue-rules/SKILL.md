@@ -19,7 +19,11 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 新しいAPIルートを追加するとき:
 
 1. `authenticate` ミドルウェアを必ず適用する（公開してよいのは `/auth/login`・`/auth/refresh`・ヘルスチェックのみ）。
-2. hotelId を受け取るエンドポイントには `requireHotelAccess((req) => ...)` を適用する（ADMIN以外は自ホテルのみ）。
+2. hotelId を受け取るエンドポイントには `requireHotelAccess((req) => ...)` を適用する
+   （自ホテル、hotelId が null なら自テナント内の全ホテル）。
+   **ADMIN を含め、テナントを越えたアクセスは `PLATFORM_ADMIN`（運営）以外に許さない**（#62）。
+   ロールによる早期 return でテナント判定を飛ばしてよいのは `PLATFORM_ADMIN` だけで、
+   `role === 'ADMIN'` を「全テナント可」の意味で使わない。サービス層のクエリも同様に `tenantId` で絞る。
 3. リクエストは必ず zod スキーマ（`backend/src/lib/validators.ts`）＋ `validate()` で検証する。無検証の `req.body`/`req.query` 直接参照は禁止。
 4. 設定変更・作成・削除系は `requireRole('ADMIN', 'MANAGER')` を検討し、`writeAuditLog()`（`services/auditService.ts`）で監査ログを記録する（要件: 全設定変更の記録）。
 
@@ -33,11 +37,19 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 
 - `JWT_SECRET` は必須・32文字以上。フォールバック値を書かない（未設定なら起動時に throw）。
 - リフレッシュトークンはDBに **SHA-256ハッシュのみ** 保存（`hashToken()`）。生トークンを保存しない。
-- `/auth/register` はADMIN専用。ユーザーの tenantId はリクエストから受け取らず hotelId の所属テナントから導出する。
+- アクセストークンは payload に `type: 'access'` を持ち、`verifyAccessToken` がこれを検証する。新しいトークン種別を足す場合も必ず `type` で区別する。
+- `/auth/register` は ADMIN / MANAGER（＋運営）専用。ユーザーの tenantId はリクエストから受け取らない。
+  テナント側のロールが作る場合は**作成者自身のテナント**を使い、他テナントのホテルIDを送られても
+  「指定されたホテルが見つかりません」（400）にしてホテルの存在を漏らさない（#52）。
+  運営のみ hotelId の所属テナントから導出する。運営ロールを付与できるのは運営だけ。
 
 ## ドメイン仕様の確定値
 
-- ロールは `ADMIN / MANAGER / OPERATOR` の3種（要件定義書 §4 準拠。STAFF/READONLYは廃止済み）。
+- ロールは `PLATFORM_ADMIN / ADMIN / MANAGER / OPERATOR` の4種（要件定義書 §5 準拠。STAFF/READONLYは廃止済み）。
+  日本語表示名は 運営 / 管理者 / マネージャー / オペレーター で、唯一の出所は `shared/types/index.ts` の `ROLE_LABELS`。
+  - `PLATFORM_ADMIN`（運営）= サービス提供側。`tenantId` は null。テナントを越えられる唯一のロールで、顧客には渡さない。
+    `requireRole` は PLATFORM_ADMIN を全ロールの上位集合として常に通す。
+  - `ADMIN`（管理者）= テナント管理者。自テナント内で最上位だが、他テナントのデータは読めても書けてもいけない。
 - 料金ランクは**最大40段階**（F-SET-02）。バリデータ・seed・フロントエンドすべて40で統一。
 - 週末定義は**金・土**（チェックイン日基準、F-DAILY-02）。`Hotel.weekendDays`（デフォルト `[5, 6]`）を参照し、ハードコードしない。
 - 価格戦略の重み（稼働率/ADR/競合追従）は**合計100%必須**（`updateStrategySchema` が強制）。
@@ -50,10 +62,16 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 
 ## 未実装領域（Phase 4 — 器だけ存在）
 
-PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成、バッチジョブ、PDF/Excel出力は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータで動く。これらを「実装済み」と記述・報告しない。
+PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成、バッチジョブ（スケジューラ）は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータで動く。これらを「実装済み」と記述・報告しない。
+
+PDF/Excel出力は**バックエンド実装済み**（`GET /reports/monthly?format=pdf|excel`）。フロントエンド未接続なだけなので「未実装」と書かない。
+
+フロントエンドの画面には実APIに未接続のサンプル表示が残っている（分析タブの大半・レポート・AIまとめ）。
+状況は `要件定義書.md` §6 と `docs/改善計画.md` を正とし、サンプル表示のセクションはUI上でその旨を明示する。
 
 ## コミット・検証
 
 - コミットは修正単位で分け、件名末尾に対応する指摘ID（`(C-2, C-3)` / `(W-4)` / `(Task-3)` 形式）を含める。
-- コミット前チェック: `pnpm --filter './*' type-check` → `pnpm --filter backend test` → 必要に応じ `pnpm --filter backend build` / `pnpm --filter frontend build`。backend の type-check には事前に `pnpm --filter backend db:generate` が必要。
-- デモ環境: シードは冪等（何度実行してもよい）。アカウントは admin/manager/operator@demo-hotel.example.com、パスワード `Admin1234`。
+- コミット前チェック: `pnpm --filter './*' type-check` → `pnpm --filter './*' lint` → `pnpm --filter backend test` → 必要に応じ `pnpm --filter backend build` / `pnpm --filter frontend build`。backend の type-check には事前に `pnpm --filter backend db:generate` が必要。
+- デモ環境: シードは冪等（何度実行してもよい）。アカウントは admin/manager/operator@demo-hotel.example.com と、
+  運営（PLATFORM_ADMIN）の platform@example.com。パスワードはいずれも `Admin1234`。

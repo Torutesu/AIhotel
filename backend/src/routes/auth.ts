@@ -37,8 +37,11 @@ const loginLimiter = rateLimit({
 router.post('/login', loginLimiter, validate(loginSchema), login)
 router.post('/refresh', validate(refreshTokenSchema), refresh)
 
-// ユーザー登録は ADMIN のみ（公開登録は任意テナントへの自己所属を許すため廃止）
-router.post('/register', authenticate, requireRole('ADMIN'), validate(registerSchema), register)
+// ユーザー登録は ADMIN と MANAGER のみ（運営 = PLATFORM_ADMIN も requireRole の上位集合として通る）。
+// 公開登録は任意テナントへの自己所属を許すため廃止。
+// ADMIN / MANAGER は自テナント内にしかユーザーを作れず、運営ロールは付与できない（N-3 / #62）。
+// テナントの導出と権限チェックは registerService が行う
+router.post('/register', authenticate, requireRole('ADMIN', 'MANAGER'), validate(registerSchema), register)
 
 // 認証が必要なエンドポイント
 router.post('/logout', authenticate, validate(refreshTokenSchema), logout)

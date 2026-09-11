@@ -16,7 +16,11 @@ export const analysisRouter: ExpressRouter = Router()
 
 // 全エンドポイント認証必須 + hotelId のテナント分離（C-2/C-3）
 analysisRouter.use(authenticate)
-analysisRouter.use(requireHotelAccess((req) => req.query.hotelId as string | undefined))
+analysisRouter.use(
+  // 各ルートの validate() より前に走るため、hotelId の型検証は
+  // requireHotelAccess 側の typeof チェックに任せる（文字列以外は 400）
+  requireHotelAccess((req) => req.query.hotelId)
+)
 
 // GET /api/v1/analysis/monthly?hotelId=&year=
 analysisRouter.get('/monthly', validate(yearQuerySchema, 'query'), getMonthlyTrend)

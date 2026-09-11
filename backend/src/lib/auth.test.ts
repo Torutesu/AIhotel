@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import jwt from 'jsonwebtoken'
 import {
   hashPassword,
   verifyPassword,
+  verifyPasswordConstantWork,
   generateAccessToken,
+  generateRefreshToken,
   verifyAccessToken,
+  verifyRefreshToken,
   hashToken,
   getRefreshTokenExpiry,
 } from './auth.js'
@@ -51,6 +55,42 @@ describe('generateAccessToken / verifyAccessToken', () => {
 
     expect(() => verifyAccessToken(tampered)).toThrow()
   })
+
+  it('アクセストークンには type=access クレームが含まれる（S-1）', () => {
+    const token = generateAccessToken(sampleUser)
+    const decoded = jwt.decode(token) as { type?: string }
+    expect(decoded.type).toBe('access')
+  })
+
+  it('検証結果に type クレームは含めない（req.user はユーザー情報のみ）', () => {
+    const decoded = verifyAccessToken(generateAccessToken(sampleUser))
+    expect(decoded).not.toHaveProperty('type')
+  })
+
+  it('リフレッシュトークンをアクセストークンとして検証すると失敗する（S-1）', () => {
+    const refreshToken = generateRefreshToken(sampleUser.id)
+    expect(() => verifyAccessToken(refreshToken)).toThrow('無効なトークンです')
+  })
+
+  it('type クレームの無い（旧形式の）トークンは署名が正しくても拒否する（S-1）', () => {
+    const legacy = jwt.sign(
+      { userId: sampleUser.id, email: sampleUser.email, role: sampleUser.role },
+      'test-jwt-secret-please-ignore-0123456789abcdef'
+    )
+    expect(() => verifyAccessToken(legacy)).toThrow('無効なトークンです')
+  })
+})
+
+describe('generateRefreshToken / verifyRefreshToken', () => {
+  it('生成したリフレッシュトークンを検証すると userId が往復する', () => {
+    const token = generateRefreshToken(sampleUser.id)
+    expect(verifyRefreshToken(token)).toEqual({ userId: sampleUser.id })
+  })
+
+  it('アクセストークンをリフレッシュトークンとして検証すると失敗する（S-1）', () => {
+    const accessToken = generateAccessToken(sampleUser)
+    expect(() => verifyRefreshToken(accessToken)).toThrow('無効なリフレッシュトークンです')
+  })
 })
 
 describe('hashToken', () => {
@@ -66,6 +106,43 @@ describe('hashToken', () => {
   it('SHA-256の16進文字列（64文字）を返す', () => {
     const hashed = hashToken('token-a')
     expect(hashed).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+describe('verifyPasswordConstantWork (S-8 タイミングオラクル対策)', () => {
+  it('ハッシュが無い（ユーザー不在）場合は false を返す', async () => {
+    await expect(verifyPasswordConstantWork('SuperSecret1', null)).resolves.toBe(false)
+    await expect(verifyPasswordConstantWork('SuperSecret1', undefined)).resolves.toBe(false)
+  })
+
+  it('正しいパスワードとハッシュの組み合わせでは true を返す', async () => {
+    const hashed = await hashPassword('SuperSecret1')
+    await expect(verifyPasswordConstantWork('SuperSecret1', hashed)).resolves.toBe(true)
+  })
+
+  it('誤ったパスワードでは false を返す', async () => {
+    const hashed = await hashPassword('SuperSecret1')
+    await expect(verifyPasswordConstantWork('WrongPassword1', hashed)).resolves.toBe(false)
+  })
+
+  it('ユーザー不在でも bcrypt 比較を行うため、実在ユーザーと同程度の時間がかかる', async () => {
+    const hashed = await hashPassword('SuperSecret1')
+
+    // 初回呼び出しでダミーハッシュを生成させ、計測対象から外す
+    await verifyPasswordConstantWork('SuperSecret1', null)
+
+    const measure = async (hash: string | null) => {
+      const start = performance.now()
+      await verifyPasswordConstantWork('SuperSecret1', hash)
+      return performance.now() - start
+    }
+
+    const missing = await measure(null)
+    const existing = await measure(hashed)
+
+    // bcrypt(cost 12) の比較は数十〜数百 ms かかる。ユーザー不在側が「即座に返る」
+    // （＝比較をスキップしている）状態を検出したいので、下限で判定する
+    expect(missing).toBeGreaterThan(existing / 4)
   })
 })
 

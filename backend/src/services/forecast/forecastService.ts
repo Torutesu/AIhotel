@@ -3,6 +3,7 @@ import { NotFoundError } from '../../middlewares/errorHandler.js'
 import type { DemandLevel } from '@prisma/client'
 import type { DailyForecast, DemandForecaster } from './types.js'
 import { ruleBasedForecaster } from './ruleBasedForecaster.js'
+import { addUtcDays, dateOnly, todayJst } from '../../lib/date.js'
 
 // 需要予測の再計算・DB反映（F-DP-05）。
 // F-DP-03（AI予測値へのリセット）のバックエンドとしても機能する:
@@ -11,48 +12,50 @@ import { ruleBasedForecaster } from './ruleBasedForecaster.js'
 
 const DEFAULT_FORECAST_DAYS = 90
 
-function addUtcDays(date: Date, days: number): Date {
-  const d = new Date(date)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d
-}
-
-function dateOnly(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-}
-
 /**
- * ホテル全体（roomTypeId=null）の AiPriceRecommendation を1件アップサートする。
+ * ホテル全体（roomTypeId=null）の AiPriceRecommendation を期間まとめて書き換える。
+ *
+ * 旧実装は1日につき findFirst + create/update の2クエリを直列に発行していたため、
+ * 90日で 180 往復していた。deleteMany + createMany の2クエリをトランザクションに
+ * まとめる（C-3）。
  *
  * @@unique([hotelId, date, roomTypeId]) は roomTypeId が NULL の場合、
- * SQL の仕様上 NULL 同士は等しいとみなされないため、Prisma の
- * upsert(where: { hotelId_date_roomTypeId: { ..., roomTypeId: null } }) は
- * 使用できない（実行時に "Argument roomTypeId must not be null" で拒否される）。
- * そのため findFirst → create/update による手動アップサートで対応する。
+ * SQL の仕様上 NULL 同士は等しいとみなされないため upsert が使えない
+ * （Prisma が "Argument roomTypeId must not be null" で拒否する）。
+ * 対象期間を一度消してから入れ直すことで、並行実行で生じた重複行も同時に解消する。
+ * NULL 同士の重複を DB 側で止める部分ユニーク索引は C-4 のマイグレーションで追加している。
  */
-async function upsertHotelWideRecommendation(hotelId: string, tenantId: string, forecast: DailyForecast): Promise<void> {
-  const existing = await prisma.aiPriceRecommendation.findFirst({
-    where: { hotelId, date: forecast.date, roomTypeId: null },
-    select: { id: true },
-  })
+async function replaceHotelWideRecommendations(
+  hotelId: string,
+  tenantId: string,
+  start: Date,
+  end: Date,
+  forecasts: DailyForecast[]
+): Promise<void> {
+  if (forecasts.length === 0) return
 
-  const data = {
-    predictedOccupancy: forecast.predictedOccupancy,
-    recommendedRank: forecast.recommendedRank,
-    recommendedPrice: forecast.recommendedPrice,
-    demandLevel: forecast.demandLevel as DemandLevel,
-    confidence: forecast.confidence,
-    modelVersion: forecast.modelVersion,
-    computedAt: new Date(),
-  }
+  const computedAt = new Date()
 
-  if (existing) {
-    await prisma.aiPriceRecommendation.update({ where: { id: existing.id }, data })
-  } else {
-    await prisma.aiPriceRecommendation.create({
-      data: { hotelId, tenantId, date: forecast.date, ...data },
-    })
-  }
+  await prisma.$transaction([
+    prisma.aiPriceRecommendation.deleteMany({
+      where: { hotelId, roomTypeId: null, date: { gte: start, lte: end } },
+    }),
+    prisma.aiPriceRecommendation.createMany({
+      data: forecasts.map((forecast) => ({
+        hotelId,
+        tenantId,
+        roomTypeId: null,
+        date: forecast.date,
+        predictedOccupancy: forecast.predictedOccupancy,
+        recommendedRank: forecast.recommendedRank,
+        recommendedPrice: forecast.recommendedPrice,
+        demandLevel: forecast.demandLevel as DemandLevel,
+        confidence: forecast.confidence,
+        modelVersion: forecast.modelVersion,
+        computedAt,
+      })),
+    }),
+  ])
 }
 
 export interface RecomputeForecastResult {
@@ -73,17 +76,15 @@ export async function recomputeForecastService(
   endDate?: Date,
   forecaster: DemandForecaster = ruleBasedForecaster
 ): Promise<RecomputeForecastResult> {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
-  const start = dateOnly(startDate ?? new Date())
+  const start = startDate ? dateOnly(startDate) : todayJst()
   const end = dateOnly(endDate ?? addUtcDays(start, DEFAULT_FORECAST_DAYS))
 
   const forecasts = await forecaster.forecast({ hotelId, startDate: start, endDate: end })
 
-  for (const forecast of forecasts) {
-    await upsertHotelWideRecommendation(hotelId, hotel.tenantId, forecast)
-  }
+  await replaceHotelWideRecommendations(hotelId, hotel.tenantId, start, end, forecasts)
 
   return {
     count: forecasts.length,

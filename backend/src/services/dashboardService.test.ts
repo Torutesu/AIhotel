@@ -5,6 +5,9 @@ import {
   buildComparisonAxis,
   fiscalYearStart,
   aggregateBudgets,
+  buildFiscalBudgetWhere,
+  elapsedDaysInMonth,
+  elapsedDaysInFiscalPeriod,
   type ActualDayRecord,
   type BudgetRecord,
 } from './dashboardService.js'
@@ -204,5 +207,154 @@ describe('aggregateBudgets', () => {
     const { budget } = aggregateBudgets(budgets, 100, 0)
     expect(budget.occupancy).toBeNull()
     expect(budget.revenue).toBe(24_000_000)
+  })
+})
+
+describe('buildFiscalBudgetWhere (C-1)', () => {
+  it('年度開始年＝表示年なら月に上限（lte）を付ける', () => {
+    // 2026年9月表示 → 2026年度（4月始まり）。4〜9月だけを対象にする
+    const where = buildFiscalBudgetWhere(2026, 9, { year: 2026, month: 4 })
+    expect(where).toEqual({ OR: [{ year: 2026, month: { gte: 4, lte: 9 } }] })
+  })
+
+  it('上限が欠けていると10〜12月の予算まで合算されてしまう（回帰テスト）', () => {
+    const clause = buildFiscalBudgetWhere(2026, 9, { year: 2026, month: 4 }).OR[0]
+    expect(clause.month.lte).toBe(9)
+    expect(clause.month.lte).not.toBeUndefined()
+  })
+
+  it('年度開始月そのものを表示している場合は1か月だけが対象', () => {
+    const where = buildFiscalBudgetWhere(2026, 4, { year: 2026, month: 4 })
+    expect(where).toEqual({ OR: [{ year: 2026, month: { gte: 4, lte: 4 } }] })
+  })
+
+  it('年度をまたぐ（1〜3月表示）場合は前年4月以降＋当年の当月以前の2条件', () => {
+    // 2026年2月表示 → 2025年度（2025年4月〜2026年2月）
+    const where = buildFiscalBudgetWhere(2026, 2, { year: 2025, month: 4 })
+    expect(where).toEqual({
+      OR: [
+        { year: 2025, month: { gte: 4 } },
+        { year: 2026, month: { lte: 2 } },
+      ],
+    })
+  })
+})
+
+describe('elapsedDaysInMonth (C-1)', () => {
+  const today = new Date(Date.UTC(2026, 8, 11)) // 2026-09-11
+
+  it('過去月はその月の日数すべて', () => {
+    expect(elapsedDaysInMonth(2026, 4, today)).toBe(30)
+    expect(elapsedDaysInMonth(2026, 8, today)).toBe(31)
+  })
+
+  it('当月は月初から本日まで（本日を含む）', () => {
+    expect(elapsedDaysInMonth(2026, 9, today)).toBe(11)
+  })
+
+  it('未来月は0', () => {
+    expect(elapsedDaysInMonth(2026, 10, today)).toBe(0)
+    expect(elapsedDaysInMonth(2027, 1, today)).toBe(0)
+  })
+
+  it('月末日が本日ならその月の日数と一致する', () => {
+    expect(elapsedDaysInMonth(2026, 9, new Date(Date.UTC(2026, 8, 30)))).toBe(30)
+  })
+
+  it('月初日が本日なら1日', () => {
+    expect(elapsedDaysInMonth(2026, 9, new Date(Date.UTC(2026, 8, 1)))).toBe(1)
+  })
+
+  it('実績データの件数に依存せず暦日で数える', () => {
+    // 実績件数ベースの旧実装では未入力日のぶんだけ按分予算が小さくなっていた
+    expect(elapsedDaysInMonth(2026, 5, today)).toBe(31)
+  })
+})
+
+describe('elapsedDaysInFiscalPeriod (C-1)', () => {
+  const today = new Date(Date.UTC(2026, 8, 11)) // 2026-09-11
+
+  it('年度開始月から当月までの暦日を合計する', () => {
+    // 4月30 + 5月31 + 6月30 + 7月31 + 8月31 + 9月11 = 164
+    expect(elapsedDaysInFiscalPeriod({ year: 2026, month: 4 }, 2026, 9, today)).toBe(164)
+  })
+
+  it('年度開始月を表示している場合はその月の経過日数のみ', () => {
+    expect(
+      elapsedDaysInFiscalPeriod({ year: 2026, month: 4 }, 2026, 4, new Date(Date.UTC(2026, 3, 10)))
+    ).toBe(10)
+  })
+
+  it('年をまたぐ年度でも合計できる', () => {
+    // 2025年4月〜2026年2月を 2026-02-10 時点で見る
+    // 2025: 30+31+30+31+31+30+31+30+31 = 275 / 2026: 31 + 10 = 41 → 316
+    const t = new Date(Date.UTC(2026, 1, 10))
+    expect(elapsedDaysInFiscalPeriod({ year: 2025, month: 4 }, 2026, 2, t)).toBe(316)
+  })
+})
+
+describe('年度累計の実績サマリー (#54)', () => {
+  // 年度開始月（4月）〜表示月（6月）の3か月ぶんの実績。
+  // 実績行は 2 日ぶんしか無いが、期間日数は暦日ベースで数える（C-1 と同じ期間定義）
+  const fiscalDays: ActualDayRecord[] = [
+    { totalRevenue: 3_000_000, soldRooms: 150, guests: 240 },
+    { totalRevenue: 2_000_000, soldRooms: 100, guests: 150 },
+  ]
+
+  it('年度累計でも8指標すべてを返す（販売室数・REV-Per・宿泊人数が欠けない）', () => {
+    const summary = computeSummary(fiscalDays, 200, 91)
+    expect(summary).toMatchObject({
+      roomRevenue: 5_000_000,
+      soldRooms: 250,
+      guests: 390,
+      actualDays: 2,
+    })
+    // 月次実績で穴埋めしていた3指標が年度累計の値で埋まっていること
+    expect(summary.soldRooms).toBeGreaterThan(0)
+    expect(summary.revPar).toBeGreaterThan(0)
+    expect(summary.guests).toBeGreaterThan(0)
+  })
+
+  it('年度売上 ÷ 販売室数 が表示中のADRと一致する（#54 の再現条件）', () => {
+    const summary = computeSummary(fiscalDays, 200, 91)
+    expect(summary.adr).toBe(20_000) // 5,000,000 / 250室
+    expect(Math.round(summary.roomRevenue / summary.soldRooms)).toBe(summary.adr)
+  })
+
+  it('稼働率・REV-Per の分母に暦日ベースの期間日数を使う（予算側と揃える）', () => {
+    // 200室 × 91日 = 18,200室ナイト
+    const summary = computeSummary(fiscalDays, 200, 91)
+    expect(summary.occupancyRate).toBe(0.014) // 250 / 18,200
+    expect(summary.revPar).toBe(275) // 5,000,000 / 18,200
+  })
+
+  it('期間日数を省略すると実績行の件数が分母になる（月次の既定動作は変えない）', () => {
+    const summary = computeSummary(fiscalDays, 200)
+    expect(summary.occupancyRate).toBe(0.625) // 250 / (200室 × 2日)
+    expect(summary.revPar).toBe(12_500) // 5,000,000 / 400
+  })
+
+  it('DOR・客単価は期間日数に依存しない（室数・人数ベースの指標）', () => {
+    const withPeriod = computeSummary(fiscalDays, 200, 91)
+    const withoutPeriod = computeSummary(fiscalDays, 200)
+    expect(withPeriod.dor).toBe(withoutPeriod.dor)
+    expect(withPeriod.guestUnitPrice).toBe(withoutPeriod.guestUnitPrice)
+    expect(withPeriod.dor).toBe(1.56) // 390人 / 250室
+    expect(withPeriod.guestUnitPrice).toBe(12_821) // 5,000,000 / 390人
+  })
+
+  it('年度累計の集計期間は elapsedDaysInFiscalPeriod と一致する', () => {
+    const today = new Date(Date.UTC(2026, 5, 30)) // 2026-06-30
+    const periodDays = elapsedDaysInFiscalPeriod({ year: 2026, month: 4 }, 2026, 6, today)
+    expect(periodDays).toBe(91) // 4月30 + 5月31 + 6月30
+    const summary = computeSummary(fiscalDays, 200, periodDays)
+    expect(summary.occupancyRate).toBe(0.014)
+  })
+
+  it('期間日数が0でもゼロ除算しない', () => {
+    const summary = computeSummary(fiscalDays, 200, 0)
+    expect(summary.occupancyRate).toBe(0)
+    expect(summary.revPar).toBe(0)
+    expect(summary.soldRooms).toBe(250)
   })
 })

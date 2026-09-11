@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // ビルド成果物にデモモードの処理が含まれているか検証する。
 //
-// デモ判定が false にインライン化されると、デモ関連のコードはツリーシェイクで
-// 丸ごと削除され、画面上はバックエンドエラーになる。トップレベル定数だけを見ても
-// 気づけないため、分岐の内側にしか存在しない文字列の有無で判定する。
+// デモモードは opt-in（NEXT_PUBLIC_DEMO_MODE=true のビルドでのみ有効）。
+// 無効時はデモ判定が false にインライン化され、デモ関連のコード（デモ認証情報の表示、
+// モックログイン、ダミーデータ）はツリーシェイクで丸ごと削除される。トップレベル定数だけを
+// 見ても気づけないため、分岐の内側にしか存在しない文字列の有無で判定する。
 //
 // 使い方:
-//   node scripts/verify-demo-mode.mjs            # 有効（既定）を期待
-//   node scripts/verify-demo-mode.mjs --expect-disabled
+//   node scripts/verify-demo-mode.mjs --expect-disabled   # 本番ビルド（変数未設定）: 無効を期待
+//   node scripts/verify-demo-mode.mjs                     # デモ用ビルド（=true）: 有効を期待
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -16,6 +17,7 @@ import { join } from 'node:path'
 const DEMO_ONLY_MARKERS = [
   'メールアドレスまたはパスワードが正しくありません', // mockLogin
   'コンペティターホテルA', // 競合モック
+  'デモアカウント', // ログイン画面のデモ認証情報（login-form.tsx）
 ]
 
 const CHUNK_DIR = join(process.cwd(), '.next', 'static', 'chunks')
@@ -52,7 +54,7 @@ if (expectDisabled) {
   console.log(`✓ デモモードは無効です（${files.length}ファイルを検査）`)
 } else {
   if (!enabled) {
-    console.error('✖ デモモードが無効化されています。ビルド時の NEXT_PUBLIC_DEMO_MODE を確認してください。')
+    console.error('✖ デモモードが有効になっていません。ビルド時に NEXT_PUBLIC_DEMO_MODE=true が設定されているか確認してください。')
     console.error(`  バンドルに存在しないマーカー: ${missing.join(', ')}`)
     process.exit(1)
   }

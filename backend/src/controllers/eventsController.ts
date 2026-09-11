@@ -48,18 +48,19 @@ export const createEvent = asyncHandler(async (req: Request, res: Response) => {
  */
 export const updateEvent = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId } = req.query as unknown as { hotelId: string }
-  const event = await updateEventService(req.params.id, hotelId, req.body)
+  const { before, after } = await updateEventService(req.params.id, hotelId, req.body)
   await writeAuditLog({
-    tenantId: event?.tenantId,
+    tenantId: before.tenantId,
     userId: req.user!.userId,
     action: 'UPDATE',
     entity: 'Event',
     entityId: req.params.id,
+    oldValue: before,
     newValue: req.body,
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   })
-  sendSuccess(res, event, 200, 'イベントを更新しました')
+  sendSuccess(res, after, 200, 'イベントを更新しました')
 })
 
 /**
@@ -68,12 +69,14 @@ export const updateEvent = asyncHandler(async (req: Request, res: Response) => {
  */
 export const deleteEvent = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId } = req.query as unknown as { hotelId: string }
-  await deleteEventService(req.params.id, hotelId)
+  const deleted = await deleteEventService(req.params.id, hotelId)
   await writeAuditLog({
+    tenantId: deleted.tenantId,
     userId: req.user!.userId,
     action: 'DELETE',
     entity: 'Event',
     entityId: req.params.id,
+    oldValue: deleted,
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   })

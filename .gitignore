@@ -79,7 +79,7 @@ next-env.d.ts
 *.db-wal
 
 # Docker
-.dockerignore
+# .dockerignore はコミットする（ビルドコンテキストの除外定義）
 docker-compose.override.yml
 
 # Temporary files
@@ -121,3 +121,5 @@ temp/
 # Local development
 .local/
 .localhost/
+# Claude Code のエージェント用 worktree
+.claude/worktrees/

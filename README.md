@@ -192,11 +192,16 @@ pnpm --filter backend db:seed
 
 シード投入後、以下のアカウントでログインできます（パスワードは全アカウント共通）。
 
-| ロール | メールアドレス | パスワード |
-| --- | --- | --- |
-| ADMIN | admin@demo-hotel.example.com | Admin1234 |
-| MANAGER | manager@demo-hotel.example.com | Admin1234 |
-| OPERATOR | operator@demo-hotel.example.com | Admin1234 |
+| ロール | 表示名 | メールアドレス | パスワード |
+| --- | --- | --- | --- |
+| PLATFORM_ADMIN | 運営 | platform@example.com | Admin1234 |
+| ADMIN | 管理者 | admin@demo-hotel.example.com | Admin1234 |
+| MANAGER | マネージャー | manager@demo-hotel.example.com | Admin1234 |
+| OPERATOR | オペレーター | operator@demo-hotel.example.com | Admin1234 |
+
+**運営（PLATFORM_ADMIN）はサービス提供側のアカウント**で、`tenantId` を持たず唯一テナントを越えられます
+（テナント作成・ホテルの払い出し・緊急サポート用）。顧客には渡しません。
+**ADMIN はテナント管理者**であり、自テナント内では最上位ですが他テナントのデータには一切アクセスできません（#62）。
 
 ### 5. 開発サーバーの起動
 
@@ -257,12 +262,11 @@ pnpm --filter backend db:studio       # Prisma Studio（DB GUI）起動
 ### テスト・CI
 
 - バックエンドは **Vitest** でユニットテストを実装（`backend/src/lib/auth.test.ts`、`backend/src/lib/validators.test.ts` 等）。`pnpm test` で実行。
-- **GitHub Actions**（`.github/workflows/ci.yml`）が `main` / `production-readiness` ブランチへのpush、および全PRに対して以下を必須ゲートとして実行します。
-  1. 依存関係インストール（`pnpm install --frozen-lockfile`）
-  2. Prisma Client生成（型チェックに必要）
-  3. 全ワークスペースの型チェック（`pnpm --filter './*' type-check`）
-  4. バックエンドのテスト（`pnpm --filter backend test`）
-  5. バックエンド・フロントエンドのビルド
+- **GitHub Actions**（`.github/workflows/ci.yml`）が `main` へのpushおよび全PRに対して以下を必須ゲートとして実行します。
+  - **verify**: 依存関係インストール（`--frozen-lockfile`）→ Prisma Client生成 → 全ワークスペースの型チェック → backend/frontend の lint → バックエンドのテスト → 両ビルド → デモモードが無効であることの検証
+  - **database**: PostgreSQL 16 サービス上で `prisma validate` → `migrate deploy` → スキーマドリフト検出（`migrate diff --exit-code`）→ seedを2回実行（冪等性）→ テスト
+  - **audit**: `pnpm audit --prod --audit-level=high`
+  - **docker**: backend / frontend の本番イメージビルド
 
 ### プロジェクト構造の詳細
 
@@ -446,12 +450,13 @@ docker build -f docker/frontend.Dockerfile -t hotel-revenue-frontend .
    - **Framework Preset**: Next.js（自動検出されるはず）
    - **Build Command**: `pnpm --filter frontend build` または空欄（自動検出）
    - **Output Directory**: `.next` または空欄（自動検出）
-   - **Install Command**: `pnpm install --no-frozen-lockfile` または空欄
+   - **Install Command**: `pnpm install --frozen-lockfile` または空欄
 
 3. **環境変数の設定**
    - Vercel ダッシュボードで環境変数を設定：
      ```
-     NEXT_PUBLIC_BACKEND_URL=<your-backend-url>
+     BACKEND_URL=<your-backend-url>        # /api/* の rewrite 先（サーバー側のみ）
+     NEXT_PUBLIC_DEMO_MODE=true           # クライアント向けデモ環境のときだけ。実運用では設定しない
      ```
 
 4. **デプロイ**
@@ -467,15 +472,16 @@ docker build -f docker/frontend.Dockerfile -t hotel-revenue-frontend .
 
 ```json
 {
-  "buildCommand": "pnpm --filter frontend build",
-  "installCommand": "pnpm install --no-frozen-lockfile",
-  "outputDirectory": "frontend/.next"
+  "buildCommand": "cd .. && pnpm --filter frontend build",
+  "installCommand": "cd .. && pnpm install --frozen-lockfile",
+  "outputDirectory": ".next"
 }
 ```
 
+Root Directory を `frontend` にしているため、コマンドは `cd ..` でリポジトリルートに戻ってから pnpm workspace として実行します。
+
 **重要**: Vercel のダッシュボードで **Root Directory** を `frontend` に設定する必要があります。`vercel.json` だけでは Root Directory を設定できません（Vercel の制限）。
 
-詳細は `VERCEL_SETUP.md` を参照してください。
 
 ### Backend（コンテナ、クラウド非依存）
 
@@ -501,18 +507,18 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 
 - `POST /api/v1/auth/login` - ログイン（JWTアクセストークン・リフレッシュトークン発行。専用のレート制限あり）
 - `POST /api/v1/auth/refresh` - リフレッシュトークンによるアクセストークン再発行（ローテーション）
-- `POST /api/v1/auth/register` - ユーザー登録（**ADMIN専用**）
+- `POST /api/v1/auth/register` - ユーザー登録（**ADMIN / MANAGER**。作成先テナントは常に作成者のテナント。運営ロールを付与できるのは運営のみ）
 - `POST /api/v1/auth/logout` - ログアウト（該当リフレッシュトークンを無効化）
 - `POST /api/v1/auth/logout-all` - 全セッションログアウト
 - `GET /api/v1/auth/me` - ログイン中ユーザー情報取得
 
 ### Hotels (`backend/src/routes/hotels.ts`)
 
-- `GET /api/v1/hotels` - ホテル一覧取得（ADMINは全件、それ以外は自テナントのみ）
-- `GET /api/v1/hotels/:id` - ホテル詳細取得（自ホテル or ADMINのみ）
-- `POST /api/v1/hotels` - ホテル作成（ADMIN専用）
-- `PUT /api/v1/hotels/:id` - ホテル更新（ADMIN専用）
-- `DELETE /api/v1/hotels/:id` - ホテル削除（ADMIN専用）
+- `GET /api/v1/hotels` - ホテル一覧取得（**運営は全件**、ADMIN を含むそれ以外は自テナントのみ）
+- `GET /api/v1/hotels/:id` - ホテル詳細取得（自テナントのホテル or 運営のみ）
+- `POST /api/v1/hotels` - ホテル作成（**ADMIN以上**。テナントは作成者のトークンから導出。`tenantId` を指定できるのは運営のみ）
+- `PUT /api/v1/hotels/:id` - ホテル更新（**ADMIN以上**。自テナントのホテルのみ）
+- `DELETE /api/v1/hotels/:id` - ホテル削除（**ADMIN以上**。自テナントのホテルのみ）
 
 ### Dashboard (`backend/src/routes/dashboard.ts`)
 
@@ -520,13 +526,28 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `GET /api/v1/dashboard/kpi/comparison` - 月初/日付比較（`hotelId`, `year`, `month`, `baseDate`）
 - `GET /api/v1/dashboard/alerts` - アラート一覧（`hotelId`）
 - `GET /api/v1/dashboard/ai-summary` - AIサマリー取得（`hotelId`, `section`）
+- `PATCH /api/v1/dashboard/alerts/:id` - アラートの状態遷移（ACKNOWLEDGEDはOPERATORも可、RESOLVEDは**MANAGER以上**）
+- `POST /api/v1/dashboard/kpi/snapshot` - 当日時点のKPIスナップショット生成（**MANAGER以上**。月初比較の元データ）
 
 ### Pricing (`backend/src/routes/pricing.ts`)
 
 - `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）
 - `GET /api/v1/pricing/strategy` - 価格戦略の重み付け取得（`hotelId`）
-- `PUT /api/v1/pricing/strategy` - 価格戦略の重み付け更新（**MANAGER以上**）
+- `PUT /api/v1/pricing/strategy` - 価格戦略の重み付け更新（**MANAGER以上**。重みの合計は100%必須）
 - `GET /api/v1/pricing/simulation` - 月間着地シミュレーション取得（`hotelId`, `year`, `month`）
+- `POST /api/v1/pricing/recompute` - ルールベース需要予測の再計算（**MANAGER以上**）
+- `POST /api/v1/pricing/simulation/recompute` - 月間着地シミュレーションの再計算（**MANAGER以上**）
+
+### Events（イベント・外部要因） (`backend/src/routes/events.ts`)
+
+- `GET /api/v1/events` - イベント一覧（`hotelId`, `startDate`, `endDate`）
+- `POST /api/v1/events` - イベント登録（OPERATORも可 — F-DP-07）
+- `PUT /api/v1/events/:id` - イベント更新（**MANAGER以上**）
+- `DELETE /api/v1/events/:id` - イベント削除（**MANAGER以上**）
+
+### Reports (`backend/src/routes/reports.ts`)
+
+- `GET /api/v1/reports/monthly` - 月次レポート出力（`hotelId`, `year`, `month`, `format=pdf|excel`）。PDFは日本語フォント同梱
 
 ### Daily（日別分析） (`backend/src/routes/daily.ts`)
 
@@ -539,21 +560,41 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `GET /api/v1/analysis/competitor` - 競合分析取得（`hotelId`, `startDate`, `endDate`）
 - `GET /api/v1/analysis/reviews` - 口コミ評価点取得（`hotelId`。現状はシードデータ、収集バッチは未実装）
 
+### Users (`backend/src/routes/users.ts`)
+
+- `GET /api/v1/users` - 自テナントのユーザー一覧（**ADMIN / MANAGER**。運営以外はテナントを越えられない）
+- `PUT /api/v1/users/:id` - ユーザーの氏名・ロール・有効/無効を更新（**自テナントのADMIN / MANAGER**。運営ロールの付与は運営のみ。自分自身の無効化・ロール変更は不可）
+
 ### Settings (`backend/src/routes/settings.ts`)
 
 - `GET /api/v1/settings/price-ranks` - 料金ランク一覧取得（`hotelId`。最大40段階）
 - `POST /api/v1/settings/price-ranks` - 料金ランク作成（**MANAGER以上**）
 - `PUT /api/v1/settings/price-ranks/:id` - 料金ランク更新（**MANAGER以上**）
-- `DELETE /api/v1/settings/price-ranks/:id` - 料金ランク削除（**MANAGER以上**）
+- `DELETE /api/v1/settings/price-ranks/:id` - 料金ランク削除（**MANAGER以上**、論理削除）
+- `PUT /api/v1/settings/hotel/:id` - ホテル設定更新（週末定義等。**MANAGER以上**）
+- `GET /api/v1/settings/budgets` - 月次予算の取得（`hotelId`, `year`。12か月分を返す）
+- `PUT /api/v1/settings/budgets` - 月次予算の年単位一括更新（**MANAGER以上**）
+- `GET /api/v1/settings/competitors` - 競合ホテル一覧（`hotelId`）
+- `POST /api/v1/settings/competitors` - 競合ホテル登録（**MANAGER以上**、1ホテルあたり最大5件）
+- `PUT /api/v1/settings/competitors/:id` - 競合ホテル更新（**MANAGER以上**）
+- `DELETE /api/v1/settings/competitors/:id` - 競合ホテル削除（**MANAGER以上**、論理削除）
+
+### バッチ（スケジューラから実行）
+
+- `pnpm --filter backend job:daily`（本番は `node dist/jobs/daily.js`）— 有効な全ホテルに対して
+  需要予測の再計算・着地シミュレーション更新・KPIスナップショット取得を実行する。cron / Cloud Scheduler から1日1回呼ぶ想定
 
 ### Health check（認証不要・`/api/v1`配下ではない）
 
-- `GET /health` - プロセスの死活監視
-- `GET /api/health` - APIの死活監視
+- `GET /health` - 死活監視（DB疎通を含む。DB断時は503）
+- `GET /api/health` - 同上（別名。レート制限の対象外）
 
 ### 未実装（Phase 4以降）
 
-PMS/OTA連携（取込・書き戻し）、OTAスクレイピング、需要予測MLモデル、Claude APIによるAIコメント自動生成（現状は `ai_comments` テーブルへのシードデータ表示のみ）、バッチジョブ、レポートのPDF/Excel出力、口コミの自動収集は未実装です。DBスキーマ（`Campaign`, `ReviewScore`, `GroupBooking`, `AuditLog` 等）とAPIの器は用意済みで、Phase 4で順次接続します。
+PMS/OTA連携（取込・書き戻し）、OTAスクレイピング、需要予測MLモデル、Claude APIによるAIコメント自動生成（現状は `ai_comments` テーブルへのシードデータ表示のみ）、バッチジョブ（スケジューラ）、口コミの自動収集は未実装です。DBスキーマ（`Campaign`, `ReviewScore`, `GroupBooking`, `AuditLog` 等）とAPIの器は用意済みで、Phase 4で順次接続します。
+
+なお **レポートのPDF/Excel出力はバックエンド実装済み**で、フロントエンドからの接続が残っています。
+画面ごとの実装状況は `要件定義書.md` §6、未解消の所見と対応タスクは `docs/改善計画.md` を参照してください。
 
 ## トラブルシューティング
 
@@ -610,13 +651,12 @@ PORT=3002  # デフォルトは 3001
 1. Vercel ダッシュボードで Root Directory を `frontend` に設定
 2. プロジェクトを再デプロイ
 
-詳細は `VERCEL_SETUP.md` を参照してください。
 
 #### エラー: "Cannot install with frozen-lockfile"
 
 **原因**: ロックファイルが古い
 
-**解決策**: `installCommand` に `--no-frozen-lockfile` を追加（既に設定済み）
+**解決策**: ロックファイルと `package.json` がずれています。ローカルで `pnpm install` を実行して `pnpm-lock.yaml` をコミットしてください（`--no-frozen-lockfile` で回避しない）。
 
 #### エラー: "pnpm: command not found"
 
@@ -672,10 +712,10 @@ Private
 
 ## サポート
 
-問題が発生した場合は、以下のドキュメントを参照してください：
+問題が発生した場合は、本 README の「セットアップ」「トラブルシューティング」節と以下を参照してください：
 
-- `SETUP.md` - セットアップガイド
-- `TROUBLESHOOTING.md` - トラブルシューティングガイド
-- `VERCEL_SETUP.md` - Vercel デプロイ設定ガイド
+- `要件定義書.md` - 機能要件と実装状況
+- `docs/改善計画.md` - 総点検の所見に基づく改善タスク一覧
+- `AGENTS.md` - 開発ルール（コーディングエージェント向け）
 
 または、プロジェクトの Issue を作成してください。
