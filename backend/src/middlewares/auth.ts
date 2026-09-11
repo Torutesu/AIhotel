@@ -69,7 +69,16 @@ export function requireRole(...allowedRoles: UserRole[]) {
 /**
  * 特定のホテルへのアクセス権限をチェックするミドルウェア
  * authenticate の後に使用すること。
- * 論理削除（isActive=false）されたホテルへのアクセスはロールを問わず 404 にする（S-5）
+ *
+ * アクセス範囲（N-6）:
+ * - ADMIN: 全テナント・全ホテル
+ * - MANAGER / OPERATOR で hotelId が設定済み: そのホテルのみ
+ * - MANAGER / OPERATOR で hotelId が null: 自テナント内の全ホテル
+ *   （複数施設を統括するレベニューマネージャー向け。hotelId を持たないユーザーが
+ *    どのホテルにもアクセスできず締め出されていた問題への対応）
+ *
+ * テナントが異なる場合はロールを問わず 403、
+ * 論理削除（isActive=false）されたホテルへのアクセスは 404 にする（S-5）。
  */
 export function requireHotelAccess(hotelIdExtractor: (req: Request) => string | undefined) {
   return async (req: Request, _res: Response, next: NextFunction) => {
@@ -92,7 +101,15 @@ export function requireHotelAccess(hotelIdExtractor: (req: Request) => string | 
         throw new ApiError(400, 'ホテルIDが必要です')
       }
 
-      if (req.user.hotelId !== requestedHotelId) {
+      // ホテル固定のユーザーは自ホテル以外を拒否する。
+      // DB 参照より前に弾くことで、他ホテルの存在有無を 403/404 の差から
+      // 推測できないようにする
+      if (req.user.hotelId && req.user.hotelId !== requestedHotelId) {
+        throw new ApiError(403, 'このホテルへのアクセス権限がありません')
+      }
+
+      // テナントに属さないユーザー（hotelId も tenantId も無い）はどのホテルにも触れない
+      if (!req.user.tenantId) {
         throw new ApiError(403, 'このホテルへのアクセス権限がありません')
       }
 
@@ -101,7 +118,10 @@ export function requireHotelAccess(hotelIdExtractor: (req: Request) => string | 
         throw new NotFoundError('ホテル')
       }
 
-      // トークン発行後にユーザーのテナントが変わった等の不整合も拒否する
+      // テナント越えは常に拒否する。
+      // hotelId が null のユーザーにとってはここが唯一の境界であり、
+      // hotelId を持つユーザーにとってはトークン発行後にテナントが変わった等の
+      // 不整合を弾く二重チェックになる
       if (req.user.tenantId !== hotel.tenantId) {
         throw new ApiError(403, 'このホテルへのアクセス権限がありません')
       }
