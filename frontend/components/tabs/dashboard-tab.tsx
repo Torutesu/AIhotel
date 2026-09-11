@@ -5,16 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
 import { Skeleton } from "@/components/ui/skeleton"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts"
 import { format } from "date-fns"
-import { ja } from "date-fns/locale/ja"
-import { CalendarIcon, AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
+import { AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
 
 import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
 import { DAY_NAMES } from "@/lib/date"
+import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
 import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipProps } from "@/lib/chart-tooltip"
 import { useAuth } from "@/components/auth-provider"
@@ -107,147 +105,6 @@ function ratioNegative(actual: number | null | undefined, target: number | null 
   return actual / target < 0.95
 }
 
-/**
- * 比較時点のKPIスナップショット（F-DASH-04）。
- * 予約は日々積み上がるため、過去時点ほど販売室数・売上が小さくなる想定で
- * 現在の実績から遡って生成する。対応APIが未整備のためモック値。
- */
-interface KpiSnapshot {
-  roomRevenue: number
-  soldRooms: number
-  adr: number
-  occupancyRate: number
-  revPar: number
-}
-
-function buildSnapshot(summary: DashboardKpi["summary"], daysAgo: number, seed: number): KpiSnapshot {
-  const rng = createSeededRandom(seed)
-  // 1日あたりの予約積み上がりペース（0.4〜0.9%/日）
-  const pace = 0.004 + rng() * 0.005
-  const pickup = Math.max(0.45, 1 - pace * Math.max(0, daysAgo))
-  // ADRは日次で大きくは動かないため、変動幅を小さくする
-  const adrShift = 1 - (rng() - 0.4) * 0.02 * Math.min(daysAgo / 7, 3)
-
-  const soldRooms = Math.round(summary.soldRooms * pickup)
-  const adr = Math.round(summary.adr * adrShift)
-  const roomRevenue = soldRooms * adr
-  const occupancyRate =
-    summary.soldRooms > 0
-      ? Number((summary.occupancyRate * pickup).toFixed(3))
-      : 0
-  const revPar = Math.round(adr * occupancyRate)
-
-  return { roomRevenue, soldRooms, adr, occupancyRate, revPar }
-}
-
-/** 現在値と比較時点の差分を、表示用に整形した行にする */
-function buildComparisonRows(summary: DashboardKpi["summary"], snapshot: KpiSnapshot) {
-  const diff = (current: number, before: number) => current - before
-  const rate = (current: number, before: number) =>
-    before === 0 ? null : (current - before) / before
-
-  return [
-    {
-      label: "室料売上",
-      current: formatYen(summary.roomRevenue),
-      before: formatYen(snapshot.roomRevenue),
-      diffLabel: `${diff(summary.roomRevenue, snapshot.roomRevenue) >= 0 ? "+" : "-"}${formatYen(Math.abs(diff(summary.roomRevenue, snapshot.roomRevenue)))}`,
-      diffRate: rate(summary.roomRevenue, snapshot.roomRevenue),
-    },
-    {
-      label: "販売室数",
-      current: `${summary.soldRooms.toLocaleString()}室`,
-      before: `${snapshot.soldRooms.toLocaleString()}室`,
-      diffLabel: `${diff(summary.soldRooms, snapshot.soldRooms) >= 0 ? "+" : ""}${diff(summary.soldRooms, snapshot.soldRooms).toLocaleString()}室`,
-      diffRate: rate(summary.soldRooms, snapshot.soldRooms),
-    },
-    {
-      label: "ADR",
-      current: formatYen(summary.adr),
-      before: formatYen(snapshot.adr),
-      diffLabel: `${diff(summary.adr, snapshot.adr) >= 0 ? "+" : "-"}${formatYen(Math.abs(diff(summary.adr, snapshot.adr)))}`,
-      diffRate: rate(summary.adr, snapshot.adr),
-    },
-    {
-      label: "稼働率",
-      current: formatPercent(summary.occupancyRate),
-      before: formatPercent(snapshot.occupancyRate),
-      diffLabel: `${summary.occupancyRate - snapshot.occupancyRate >= 0 ? "+" : ""}${((summary.occupancyRate - snapshot.occupancyRate) * 100).toFixed(1)}pt`,
-      diffRate: rate(summary.occupancyRate, snapshot.occupancyRate),
-    },
-    {
-      label: "REV-Per",
-      current: formatYen(summary.revPar),
-      before: formatYen(snapshot.revPar),
-      diffLabel: `${diff(summary.revPar, snapshot.revPar) >= 0 ? "+" : "-"}${formatYen(Math.abs(diff(summary.revPar, snapshot.revPar)))}`,
-      diffRate: rate(summary.revPar, snapshot.revPar),
-    },
-  ]
-}
-
-/** 月初比較・日付比較の表（F-DASH-04） */
-function ComparisonTable({
-  rows,
-  beforeLabel,
-  note,
-}: {
-  rows: ReturnType<typeof buildComparisonRows>
-  beforeLabel: string
-  note: string
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
-          <thead>
-            <tr className="border-b bg-muted/30">
-              <th className="text-left py-1.5 px-2 font-medium border-r">指標</th>
-              <th className="text-right py-1.5 px-2 font-medium border-r whitespace-nowrap">
-                {beforeLabel}
-              </th>
-              <th className="text-right py-1.5 px-2 font-medium border-r">現在</th>
-              <th className="text-right py-1.5 px-2 font-medium">増減</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.label} className="border-b hover:bg-muted/20">
-                <td className="py-1.5 px-2 font-medium border-r bg-muted/10 whitespace-nowrap">
-                  {row.label}
-                </td>
-                <td className="text-right py-1.5 px-2 border-r text-muted-foreground whitespace-nowrap">
-                  {row.before}
-                </td>
-                <td className="text-right py-1.5 px-2 border-r font-semibold whitespace-nowrap">
-                  {row.current}
-                </td>
-                <td
-                  className={`text-right py-1.5 px-2 whitespace-nowrap ${
-                    row.diffRate == null
-                      ? "text-muted-foreground"
-                      : row.diffRate >= 0
-                        ? "text-positive"
-                        : "text-negative"
-                  }`}
-                >
-                  {row.diffLabel}
-                  {row.diffRate != null && (
-                    <span className="ml-1 text-[10px]">
-                      ({row.diffRate >= 0 ? "+" : ""}
-                      {(row.diffRate * 100).toFixed(1)}%)
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <p className="text-[10px] text-muted-foreground">※ {note}（数値はモックデータです）</p>
-    </div>
-  )
-}
-
 export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   const { hotelId } = useAuth()
   // 週末の定義は Hotel.weekendDays が唯一の出所（U-6）
@@ -273,10 +130,6 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   // 設定タブで選択されたKPI表示項目（施設ごと。未保存なら全項目）
   const [visibleKpiKeys, setVisibleKpiKeys] = useState<string[]>([...ALL_KPI_KEYS])
 
-  // 日付比較設定（対応APIがないため参考値表示のまま）
-  const [comparisonType, setComparisonType] = useState<"previousDay" | "weekAgo" | "lastMonth" | "custom">("previousDay")
-  const [customComparisonDate, setCustomComparisonDate] = useState<Date | undefined>(undefined)
-
   const [kpi, setKpi] = useState<DashboardKpi | null>(null)
   const [alerts, setAlerts] = useState<AlertItem[]>([])
   const [aiSummary, setAiSummary] = useState<AiSummary | null>(null)
@@ -286,31 +139,6 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
 
   // 画像エクスポート時に描画済みSVGを取得するためのラッパー参照
   const chartWrapperRef = useRef<HTMLDivElement>(null)
-
-  const comparisonDate = useMemo(() => {
-    const base = new Date()
-    switch (comparisonType) {
-      case "previousDay": {
-        const d = new Date(base)
-        d.setDate(d.getDate() - 1)
-        return d
-      }
-      case "weekAgo": {
-        const d = new Date(base)
-        d.setDate(d.getDate() - 7)
-        return d
-      }
-      case "lastMonth": {
-        const d = new Date(base)
-        d.setMonth(d.getMonth() - 1)
-        return d
-      }
-      case "custom":
-        return customComparisonDate || base
-      default:
-        return base
-    }
-  }, [comparisonType, customComparisonDate])
 
   useEffect(() => {
     const loadSettings = () => {
@@ -513,38 +341,6 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     image.onerror = () => URL.revokeObjectURL(svgUrl)
     image.src = svgUrl
   }, [year, month])
-
-  // 月初比較（F-DASH-04）: 選択中の対象月の1日時点と現在を比較する
-  const monthStartComparison = useMemo(() => {
-    if (!kpi) return null
-    const monthStart = new Date(year, month - 1, 1)
-    const base = new Date()
-    // 選択中の月が過去なら月末まで、当月なら本日までの経過日数
-    const monthEnd = new Date(year, month, 0)
-    const until = base < monthEnd ? base : monthEnd
-    const daysAgo = Math.max(
-      1,
-      Math.round((until.getTime() - monthStart.getTime()) / 86400000)
-    )
-    const snapshot = buildSnapshot(kpi.summary, daysAgo, year * 100 + month)
-    return { snapshot, daysAgo, rows: buildComparisonRows(kpi.summary, snapshot) }
-  }, [kpi, year, month])
-
-  // 日付比較（F-DASH-04）: 選択した比較日と現在を比較する
-  const dateComparison = useMemo(() => {
-    if (!kpi) return null
-    const base = new Date()
-    const daysAgo = Math.max(
-      1,
-      Math.round((base.getTime() - comparisonDate.getTime()) / 86400000)
-    )
-    const seed =
-      comparisonDate.getFullYear() * 10000 +
-      (comparisonDate.getMonth() + 1) * 100 +
-      comparisonDate.getDate()
-    const snapshot = buildSnapshot(kpi.summary, daysAgo, seed)
-    return { snapshot, daysAgo, rows: buildComparisonRows(kpi.summary, snapshot) }
-  }, [kpi, comparisonDate])
 
   // 表示中の比較軸（F-DASH-02: 本日まで／累計進捗／年度累計）
   const axis = useMemo(() => {
@@ -1191,87 +987,8 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
           </CardContent>
         </Card>
 
-        {/* 月初比較・日付比較（F-DASH-04）。対応APIが未整備のため現在の実績から遡ったモック値 */}
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-base font-medium">月初比較・日付比較</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-3">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">月初比較</h3>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">vs {month}月1日</span>
-                </div>
-                {loading ? (
-                  <Skeleton className="h-40 w-full" />
-                ) : monthStartComparison ? (
-                  <ComparisonTable
-                    rows={monthStartComparison.rows}
-                    beforeLabel={`${month}/1時点`}
-                    note={`${month}月1日から${monthStartComparison.daysAgo}日分の積み上がり`}
-                  />
-                ) : (
-                  <p className="text-xs text-muted-foreground">データがありません。</p>
-                )}
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <h3 className="text-sm font-medium text-muted-foreground">日付比較</h3>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Select
-                      value={comparisonType}
-                      onValueChange={(value: "previousDay" | "weekAgo" | "lastMonth" | "custom") => {
-                        setComparisonType(value)
-                        if (value !== "custom") {
-                          setCustomComparisonDate(undefined)
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="w-32 h-7 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="previousDay">前日</SelectItem>
-                        <SelectItem value="weekAgo">1週間前</SelectItem>
-                        <SelectItem value="lastMonth">先月同日</SelectItem>
-                        <SelectItem value="custom">日付選択</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {comparisonType === "custom" && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button variant="outline" size="sm" className="h-7 text-xs">
-                            <CalendarIcon className="mr-1 h-3 w-3" />
-                            {customComparisonDate ? format(customComparisonDate, "M/d", { locale: ja }) : "選択"}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="end">
-                          <Calendar mode="single" selected={customComparisonDate} onSelect={(date) => setCustomComparisonDate(date)} initialFocus />
-                        </PopoverContent>
-                      </Popover>
-                    )}
-                  </div>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  <span className="whitespace-nowrap">vs {format(comparisonDate, "M月d日", { locale: ja })}</span>
-                </div>
-                {loading ? (
-                  <Skeleton className="h-40 w-full" />
-                ) : dateComparison ? (
-                  <ComparisonTable
-                    rows={dateComparison.rows}
-                    beforeLabel={format(comparisonDate, "M/d時点", { locale: ja })}
-                    note={`${dateComparison.daysAgo}日前との比較`}
-                  />
-                ) : (
-                  <p className="text-xs text-muted-foreground">データがありません。</p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* 月初比較・日付比較（U-5 — GET /dashboard/kpi/comparison） */}
+        <KpiComparisonSection year={year} month={month} summary={kpi?.summary ?? null} />
 
         {/* 伸び率の高いサイト上位3件（設定で有効化された場合のみ・対応APIなし） */}
         {showTopSitesSection && (

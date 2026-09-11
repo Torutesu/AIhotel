@@ -421,6 +421,25 @@ export interface DashboardKpi {
   } | null
 }
 
+/**
+ * KPIスナップショット（F-DASH-04）。日次バッチで取得した「その時点の当月見込み」。
+ * スナップショットが未取得の月は空配列が返る（画面側で値を捏造しないこと）。
+ */
+export interface KpiSnapshot {
+  id: string
+  hotelId: string
+  /** 取得日（ISO日付文字列） */
+  snapshotDate: string
+  targetYear: number
+  targetMonth: number
+  revenue: number | null
+  soldRooms: number | null
+  adr: number | null
+  occupancy: number | null
+  revPar: number | null
+  guests: number | null
+}
+
 export interface AlertItem {
   id: string
   severity: "RED" | "YELLOW"
@@ -1165,6 +1184,22 @@ export const api = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/dashboard/kpi?hotelId=${hotelId}&year=${year}&month=${month}`),
       () => mockDashboardKpi(hotelId, year, month)
+    )
+  },
+
+  /**
+   * KPI比較（月初比較・日付比較 — F-DASH-04）。
+   * baseDate を省略すると対象月に紐づく全スナップショットを取得日の昇順で返す。
+   */
+  kpiComparison(
+    hotelId: string,
+    year: number,
+    month: number,
+    baseDate?: string
+  ): Promise<KpiSnapshot[]> {
+    const baseDateParam = baseDate ? `&baseDate=${baseDate}` : ""
+    return rawRequest(
+      `/api/v1/dashboard/kpi/comparison?hotelId=${hotelId}&year=${year}&month=${month}${baseDateParam}`
     )
   },
 
