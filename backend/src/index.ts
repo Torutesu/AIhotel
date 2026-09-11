@@ -24,6 +24,7 @@ import { notFoundHandler } from './middlewares/notFoundHandler.js'
 
 // Import utilities
 import { logger, requestLogger } from './utils/logger.js'
+import { verifyAccessToken } from './lib/auth.js'
 
 // ======================================
 // Configuration
@@ -34,10 +35,37 @@ const PORT = config.PORT
 const FRONTEND_URL = config.FRONTEND_URL
 const NODE_ENV = config.NODE_ENV
 
+// リバースプロキシ配下では X-Forwarded-For を信頼しないと req.ip が全てプロキシの IP になり、
+// レートリミットが全ユーザーで共有されてしまう（S-3）
+app.set('trust proxy', config.TRUST_PROXY)
+
+const HEALTH_CHECK_PATHS = new Set(['/health', '/api/health'])
+
+/**
+ * レートリミットのキー（S-3）。
+ * 認証済みなら userId 単位、未認証なら IP 単位でカウントする。
+ * リミッターは authenticate より前段で動くため、Bearer トークンをここで検証して userId を取り出す
+ * （DB アクセスなし。無効なトークンなら IP にフォールバックし、認証エラー自体は後段に任せる）。
+ */
+function rateLimitKey(req: express.Request): string {
+  const authHeader = req.headers.authorization
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      return `user:${verifyAccessToken(authHeader.slice('Bearer '.length)).userId}`
+    } catch {
+      // 無効・期限切れトークンは IP 単位にフォールバック
+    }
+  }
+  return `ip:${req.ip ?? 'unknown'}`
+}
+
 // Rate limiter configuration
 const limiter = rateLimit({
   windowMs: config.RATE_LIMIT_WINDOW_MS, // 15 minutes
   max: config.RATE_LIMIT_MAX_REQUESTS,
+  keyGenerator: rateLimitKey,
+  // ヘルスチェック（監視系のポーリング）はレートリミットの対象外
+  skip: (req) => HEALTH_CHECK_PATHS.has(req.originalUrl.split('?')[0]),
   message: {
     success: false,
     error: 'リクエスト数の上限に達しました。しばらくしてから再度お試しください。',

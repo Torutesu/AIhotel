@@ -29,8 +29,25 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().regex(/^\d+[dhms]$/).default('7d'),
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
-  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(100),
+  // 認証済みリクエストはユーザー単位でカウントするため、IP 単位の 100 では
+  // 同一拠点（NAT）からの複数ユーザーで枯渇する。既定を 1000/15分 に引き上げる（S-3）
+  RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(1000),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+
+  // リバースプロキシ／ロードバランサ配下で X-Forwarded-For からクライアント IP を取る設定（S-3）。
+  // Express の 'trust proxy' にそのまま渡す。true/false・ホップ数（例 1）・'loopback' 等の文字列を許容。
+  // 未設定なら信頼しない（req.ip は直接接続元）。
+  TRUST_PROXY: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v): boolean | number | string => {
+      if (v === undefined || v === '') return false
+      if (v === 'true') return true
+      if (v === 'false') return false
+      if (/^\d+$/.test(v)) return Number(v)
+      return v
+    }),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
