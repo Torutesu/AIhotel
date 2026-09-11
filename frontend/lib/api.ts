@@ -226,6 +226,64 @@ async function rawRequest<T>(
   return body.data as T
 }
 
+/** ダウンロード用のバイナリレスポンス */
+export interface BinaryDownload {
+  blob: Blob
+  /** Content-Disposition から取り出したファイル名（取れなければ null） */
+  filename: string | null
+}
+
+/**
+ * バイナリ（PDF/Excel）を取得する。レポート出力のように成功時のエンベロープを持たない
+ * エンドポイント専用。失敗時はJSONのエラーエンベロープが返るため、そちらを読んで例外にする。
+ */
+async function rawBinaryRequest(path: string, retryOn401 = true): Promise<BinaryDownload> {
+  const token = getAccessToken()
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+    })
+  } catch {
+    throw new ApiClientError(0, "バックエンドに接続できません", true)
+  }
+
+  if (res.status === 401 && retryOn401) {
+    const refreshed = await tryRefresh()
+    if (refreshed) return rawBinaryRequest(path, false)
+  }
+
+  if (!res.ok) {
+    let message = `リクエストに失敗しました (${res.status})`
+    try {
+      const body = (await res.json()) as ApiResponse<unknown>
+      if (body?.error) message = body.error
+    } catch {
+      // JSONでない場合は既定のメッセージを使う
+    }
+    throw new ApiClientError(res.status, message)
+  }
+
+  return {
+    blob: await res.blob(),
+    filename: parseContentDispositionFilename(res.headers.get("Content-Disposition")),
+  }
+}
+
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1])
+    } catch {
+      // デコードできなければ素の filename にフォールバックする
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header)
+  return plain ? plain[1] : null
+}
+
 /**
  * 認証が完全に失効したことをアプリ全体に通知する（F-2）。
  * AuthProvider がこのイベントを購読してユーザーを破棄し、ログイン画面に戻す。
@@ -1178,6 +1236,21 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ hotelId, ...range }),
     })
+  },
+
+  /**
+   * 月次レポート（PDF / Excel）のダウンロード（F-REP-01/02）。
+   * レスポンスはバイナリのため Blob を返す。保存はコンポーネント側で行う。
+   */
+  monthlyReport(
+    hotelId: string,
+    year: number,
+    month: number,
+    format: "pdf" | "excel"
+  ): Promise<BinaryDownload> {
+    return rawBinaryRequest(
+      `/api/v1/reports/monthly?hotelId=${hotelId}&year=${year}&month=${month}&format=${format}`
+    )
   },
 
   bookingCurve(hotelId: string, date: string): Promise<BookingCurve> {
