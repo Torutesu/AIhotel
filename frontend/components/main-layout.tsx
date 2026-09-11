@@ -28,10 +28,11 @@ import { AISummaryTab } from "@/components/tabs/ai-summary-tab"
 import { ChatInterface } from "@/components/chat-interface"
 import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
+import { useAppState } from "@/components/app-state-provider"
 import { LoginForm } from "@/components/login-form"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import type { Tab } from "@shared/types"
-import type { AlertLinkTarget, AnalysisView } from "@/lib/alert-link"
+import type { AlertLinkTarget } from "@/lib/alert-link"
 
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
@@ -56,14 +57,13 @@ const TAB_TITLES: Record<Tab, string> = {
 }
 
 export function MainLayout() {
-  const [activeTab, setActiveTab] = useState<Tab>("dashboard")
+  // タブ・対象年月・分析ビューは URL（?tab=&year=&month=&view=）が唯一の出所（U-8）
+  const { tab: activeTab, setTab, navigate, setPeriodMonth } = useAppState()
   const [chatOpen, setChatOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   // 分析タブの日付からダイナミックプライシングへ遷移する際の対象日
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
-  // アラートから分析タブへ遷移する際に開くサブビュー
-  const [analysisView, setAnalysisView] = useState<AnalysisView | null>(null)
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const { user, loading, logout, restoreError, retryRestore } = useAuth()
@@ -88,14 +88,14 @@ export function MainLayout() {
   }
 
   const selectTab = (tab: Tab) => {
-    setActiveTab(tab)
+    setTab(tab)
     setMobileNavOpen(false)
   }
 
   // アラートの linkTab は Tab と 1:1 ではないため変換表で解決する（F-4）
   const handleAlertNavigate = (target: AlertLinkTarget) => {
-    setAnalysisView(target.analysisView ?? null)
-    selectTab(target.tab)
+    navigate({ tab: target.tab, analysisView: target.analysisView })
+    setMobileNavOpen(false)
   }
 
   if (loading) {
@@ -165,8 +165,13 @@ export function MainLayout() {
             className="hidden h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent md:inline-flex"
             onClick={toggleCollapsed}
             title={collapsed ? "サイドバーを開く" : "サイドバーを折りたたむ"}
+            aria-label={collapsed ? "サイドバーを開く" : "サイドバーを折りたたむ"}
           >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            {collapsed ? (
+              <PanelLeftOpen className="h-4 w-4" aria-hidden />
+            ) : (
+              <PanelLeftClose className="h-4 w-4" aria-hidden />
+            )}
           </Button>
 
           {/* モバイル: 閉じるボタン */}
@@ -176,8 +181,9 @@ export function MainLayout() {
             className="h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent md:hidden"
             onClick={() => setMobileNavOpen(false)}
             title="メニューを閉じる"
+            aria-label="メニューを閉じる"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden />
           </Button>
         </div>
 
@@ -191,6 +197,7 @@ export function MainLayout() {
                 key={tab.id}
                 onClick={() => selectTab(tab.id)}
                 title={collapsed ? tab.label : undefined}
+                aria-current={isActive ? "page" : undefined}
                 className={cn(
                   "flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
                   collapsed && "md:justify-center md:px-0",
@@ -199,7 +206,7 @@ export function MainLayout() {
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
               >
-                <Icon className="h-5 w-5 flex-shrink-0" />
+                <Icon className="h-5 w-5 flex-shrink-0" aria-hidden />
                 <span className={cn(collapsed && "md:hidden")}>{tab.label}</span>
               </button>
             )
@@ -218,7 +225,7 @@ export function MainLayout() {
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             )}
           >
-            <Settings className="h-5 w-5 flex-shrink-0" />
+            <Settings className="h-5 w-5 flex-shrink-0" aria-hidden />
             <span className={cn(collapsed && "md:hidden")}>設定</span>
           </button>
 
@@ -240,7 +247,7 @@ export function MainLayout() {
               title="ログアウト"
               aria-label="ログアウト"
             >
-              <LogOut className="h-4 w-4" />
+              <LogOut className="h-4 w-4" aria-hidden />
             </Button>
           </div>
 
@@ -259,8 +266,9 @@ export function MainLayout() {
             className="h-8 w-8 flex-shrink-0"
             onClick={() => setMobileNavOpen(true)}
             title="メニューを開く"
+            aria-label="メニューを開く"
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-5 w-5" aria-hidden />
           </Button>
           <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
           <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
@@ -278,9 +286,11 @@ export function MainLayout() {
           )}
           {activeTab === "analysis" && (
             <AnalysisTab
-              requestedView={analysisView}
               onNavigateToPricing={(date) => {
                 setPricingFocusDate(date)
+                setPeriodMonth(
+                  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+                )
                 selectTab("pricing")
               }}
             />
@@ -296,8 +306,10 @@ export function MainLayout() {
         size="icon"
         className="fixed bottom-6 right-6 z-30 h-14 w-14 rounded-full shadow-xs"
         onClick={() => setChatOpen(!chatOpen)}
+        aria-label={chatOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"}
+        aria-expanded={chatOpen}
       >
-        <MessageCircle className="h-6 w-6" />
+        <MessageCircle className="h-6 w-6" aria-hidden />
       </Button>
 
       {/* Chat Interface */}

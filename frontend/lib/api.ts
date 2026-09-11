@@ -6,8 +6,18 @@
 // 許可オリジンを限定しているため、ブラウザが直接バックエンドを叩くと弾かれる。
 // プロキシ先はサーバー専用の BACKEND_URL（next.config.mjs）で指定する。
 
-import type { ApiResponse, User, UserRole, Hotel, Event as HotelEvent, PriceRank } from "@shared/types"
+import type {
+  ApiResponse,
+  User,
+  UserRole,
+  HotelDto as Hotel,
+  Event as HotelEvent,
+  PriceRank,
+} from "@shared/types"
+import { parseWeekendDays } from "@/lib/date"
+import { createSeededRandom } from "@/lib/format"
 
+// フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
 export type { Hotel, PriceRank }
 export type { Event as HotelEvent } from "@shared/types"
 
@@ -217,6 +227,64 @@ async function rawRequest<T>(
   return body.data as T
 }
 
+/** ダウンロード用のバイナリレスポンス */
+export interface BinaryDownload {
+  blob: Blob
+  /** Content-Disposition から取り出したファイル名（取れなければ null） */
+  filename: string | null
+}
+
+/**
+ * バイナリ（PDF/Excel）を取得する。レポート出力のように成功時のエンベロープを持たない
+ * エンドポイント専用。失敗時はJSONのエラーエンベロープが返るため、そちらを読んで例外にする。
+ */
+async function rawBinaryRequest(path: string, retryOn401 = true): Promise<BinaryDownload> {
+  const token = getAccessToken()
+  let res: Response
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      headers: { ...(token && { Authorization: `Bearer ${token}` }) },
+    })
+  } catch {
+    throw new ApiClientError(0, "バックエンドに接続できません", true)
+  }
+
+  if (res.status === 401 && retryOn401) {
+    const refreshed = await tryRefresh()
+    if (refreshed) return rawBinaryRequest(path, false)
+  }
+
+  if (!res.ok) {
+    let message = `リクエストに失敗しました (${res.status})`
+    try {
+      const body = (await res.json()) as ApiResponse<unknown>
+      if (body?.error) message = body.error
+    } catch {
+      // JSONでない場合は既定のメッセージを使う
+    }
+    throw new ApiClientError(res.status, message)
+  }
+
+  return {
+    blob: await res.blob(),
+    filename: parseContentDispositionFilename(res.headers.get("Content-Disposition")),
+  }
+}
+
+function parseContentDispositionFilename(header: string | null): string | null {
+  if (!header) return null
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header)
+  if (utf8) {
+    try {
+      return decodeURIComponent(utf8[1])
+    } catch {
+      // デコードできなければ素の filename にフォールバックする
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header)
+  return plain ? plain[1] : null
+}
+
 /**
  * 認証が完全に失効したことをアプリ全体に通知する（F-2）。
  * AuthProvider がこのイベントを購読してユーザーを破棄し、ログイン画面に戻す。
@@ -354,6 +422,25 @@ export interface DashboardKpi {
   } | null
 }
 
+/**
+ * KPIスナップショット（F-DASH-04）。日次バッチで取得した「その時点の当月見込み」。
+ * スナップショットが未取得の月は空配列が返る（画面側で値を捏造しないこと）。
+ */
+export interface KpiSnapshot {
+  id: string
+  hotelId: string
+  /** 取得日（ISO日付文字列） */
+  snapshotDate: string
+  targetYear: number
+  targetMonth: number
+  revenue: number | null
+  soldRooms: number | null
+  adr: number | null
+  occupancy: number | null
+  revPar: number | null
+  guests: number | null
+}
+
 export interface AlertItem {
   id: string
   severity: "RED" | "YELLOW"
@@ -387,6 +474,11 @@ export interface PricingCalendarDay {
   predictedAdr: number | null
   actualOccupancy: number | null
   actualAdr: number | null
+  /** 競合価格水準の代表値。1社の極端な価格に引きずられない中央値を使う（C-9） */
+  competitorMedianPrice: number | null
+  competitorMinPrice: number | null
+  competitorMaxPrice: number | null
+  /** @deprecated `competitorMedianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
   competitorAvgPrice: number | null
   confidence: number | null
 }
@@ -396,6 +488,52 @@ export interface PricingCalendar {
   year: number
   month: number
   calendar: PricingCalendarDay[]
+}
+
+/** 月次着地シミュレーション（MonthlyLandingSimulation）。再計算バッチ／recompute で生成される */
+export interface MonthlyLandingSimulation {
+  id: string
+  hotelId: string
+  year: number
+  month: number
+  projectedRevenue: number | null
+  projectedAdr: number | null
+  projectedOccupancy: number | null
+  projectedRevPar: number | null
+  projectedRooms: number | null
+  computedAt: string
+}
+
+/** 月次予算（MonthlyBudget）。未登録なら null */
+export interface MonthlyBudgetRow {
+  id: string
+  hotelId: string
+  year: number
+  month: number
+  budgetRevenue: number | null
+  budgetRooms: number | null
+  budgetAdr: number | null
+  budgetOccupancy: number | null
+  budgetGuests: number | null
+  lastYearRevenue: number | null
+  lastYearRooms: number | null
+  lastYearAdr: number | null
+  lastYearOccupancy: number | null
+  lastYearGuests: number | null
+}
+
+/** GET /api/v1/pricing/simulation のレスポンス */
+export interface PricingSimulation {
+  simulation: MonthlyLandingSimulation | null
+  budget: MonthlyBudgetRow | null
+}
+
+/** POST /api/v1/pricing/recompute のレスポンス */
+export interface RecomputeForecastResult {
+  count: number
+  modelVersion: string
+  startDate: string
+  endDate: string
 }
 
 export interface PricingStrategy {
@@ -460,6 +598,9 @@ export interface CompetitorAnalysis {
     sampleSize: number
     minPrice: number | null
     maxPrice: number | null
+    /** 競合価格水準の代表値（中央値 — C-9） */
+    medianPrice: number | null
+    /** @deprecated `medianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
     avgPrice: number | null
   }>
 }
@@ -477,6 +618,17 @@ export interface CreateEventInput {
 
 export type UpdateEventInput = Partial<Omit<CreateEventInput, "hotelId">>
 
+/** POST /api/v1/settings/price-ranks のリクエスト（rank は 1〜40 — F-SET-02） */
+export interface CreatePriceRankInput {
+  hotelId: string
+  rank: number
+  label: string
+  price1P: number
+  price2P: number
+  price3P?: number
+  price4P?: number
+}
+
 export interface UpdateHotelSettingsInput {
   name?: string
   address?: string
@@ -490,14 +642,6 @@ export interface UpdateHotelSettingsInput {
 // バックエンドの seed データと近い分布になるよう簡易な季節・曜日変動を再現しているだけの
 // ダミー値。実データではない。
 
-function createSeededRandom(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0
-    return state / 4294967296
-  }
-}
-
 function toLocalDateStr(date: Date): string {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, "0")
@@ -506,8 +650,7 @@ function toLocalDateStr(date: Date): string {
 }
 
 function isMockWeekend(date: Date): boolean {
-  const weekendDays = Array.isArray(MOCK_HOTEL.weekendDays) ? (MOCK_HOTEL.weekendDays as number[]) : [5, 6]
-  return weekendDays.includes(date.getDay())
+  return parseWeekendDays(MOCK_HOTEL.weekendDays).includes(date.getDay())
 }
 
 function mockSeasonBoost(month: number): number {
@@ -769,7 +912,7 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
     const price1P = mockRankToPrice1P(recommendedRank)
     const demandLevel: PricingCalendarDay["demandLevel"] =
       predictedOccupancy > 0.9 ? "A" : predictedOccupancy > 0.8 ? "B" : predictedOccupancy > 0.65 ? "C" : predictedOccupancy > 0.5 ? "D" : "E"
-    const competitorAvgPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
+    const competitorMedianPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
 
     calendar.push({
       date: toLocalDateStr(date),
@@ -784,12 +927,25 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
       predictedAdr,
       actualOccupancy: isPast ? Number(Math.min(1, predictedOccupancy + (rng() - 0.5) * 0.1).toFixed(3)) : null,
       actualAdr: isPast ? Math.round(predictedAdr * (1 + (rng() - 0.5) * 0.06)) : null,
-      competitorAvgPrice,
+      competitorMedianPrice,
+      competitorMinPrice: Math.round(competitorMedianPrice * 0.88),
+      competitorMaxPrice: Math.round(competitorMedianPrice * 1.14),
+      competitorAvgPrice: competitorMedianPrice,
       confidence: Number((0.7 + rng() * 0.25).toFixed(2)),
     })
   }
 
   return { hotelId, year, month, calendar }
+}
+
+/** 中央値（デモデータ生成用） */
+function mockMedian(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid]
 }
 
 // 競合ホテル（seedと同等の3社構成）
@@ -921,8 +1077,8 @@ function mockCompetitorAnalysis(
       sampleSize: values.length,
       minPrice: values.length > 0 ? Math.min(...values) : null,
       maxPrice: values.length > 0 ? Math.max(...values) : null,
-      avgPrice:
-        values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null,
+      medianPrice: mockMedian(values),
+      avgPrice: mockMedian(values),
     }
   })
 
@@ -1045,6 +1201,22 @@ export const api = {
     )
   },
 
+  /**
+   * KPI比較（月初比較・日付比較 — F-DASH-04）。
+   * baseDate を省略すると対象月に紐づく全スナップショットを取得日の昇順で返す。
+   */
+  kpiComparison(
+    hotelId: string,
+    year: number,
+    month: number,
+    baseDate?: string
+  ): Promise<KpiSnapshot[]> {
+    const baseDateParam = baseDate ? `&baseDate=${baseDate}` : ""
+    return rawRequest(
+      `/api/v1/dashboard/kpi/comparison?hotelId=${hotelId}&year=${year}&month=${month}${baseDateParam}`
+    )
+  },
+
   /** minLevel を指定するとその重要度以上のみ取得（ダッシュボードは4＝Level 5・4のみ） */
   alerts(hotelId: string, minLevel?: number): Promise<AlertItem[]> {
     const levelParam = minLevel != null ? `&minLevel=${minLevel}` : ""
@@ -1093,6 +1265,43 @@ export const api = {
     )
   },
 
+  /**
+   * 月次着地シミュレーション（F-DP-04）。
+   * 行が無い月は simulation が null で返る。フロントエンドで平均値を捏造しないこと。
+   */
+  pricingSimulation(hotelId: string, year: number, month: number): Promise<PricingSimulation> {
+    return rawRequest(`/api/v1/pricing/simulation?hotelId=${hotelId}&year=${year}&month=${month}`)
+  },
+
+  /**
+   * 需要予測の再計算（F-DP-03「AI予測値へリセット」／F-DP-05）。MANAGER 以上。
+   * startDate は本日（JST）以降でなければバックエンドが 400 を返す。
+   */
+  recomputeForecast(
+    hotelId: string,
+    range?: { startDate?: string; endDate?: string }
+  ): Promise<RecomputeForecastResult> {
+    return rawRequest("/api/v1/pricing/recompute", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, ...range }),
+    })
+  },
+
+  /**
+   * 月次レポート（PDF / Excel）のダウンロード（F-REP-01/02）。
+   * レスポンスはバイナリのため Blob を返す。保存はコンポーネント側で行う。
+   */
+  monthlyReport(
+    hotelId: string,
+    year: number,
+    month: number,
+    format: "pdf" | "excel"
+  ): Promise<BinaryDownload> {
+    return rawBinaryRequest(
+      `/api/v1/reports/monthly?hotelId=${hotelId}&year=${year}&month=${month}&format=${format}`
+    )
+  },
+
   bookingCurve(hotelId: string, date: string): Promise<BookingCurve> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/daily/booking-curve?hotelId=${hotelId}&date=${date}`),
@@ -1132,6 +1341,21 @@ export const api = {
       () => rawRequest(`/api/v1/settings/price-ranks?hotelId=${hotelId}`),
       () => getMockPriceRanks(hotelId)
     )
+  },
+
+  /** 料金ランクの追加（MANAGER以上。最大40段階 — F-SET-02） */
+  createPriceRank(input: CreatePriceRankInput): Promise<PriceRank> {
+    return rawRequest("/api/v1/settings/price-ranks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 料金ランクの削除（MANAGER以上 — F-SET-02） */
+  deletePriceRank(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/settings/price-ranks/${id}?hotelId=${hotelId}`, {
+      method: "DELETE",
+    })
   },
 
   updatePriceRank(

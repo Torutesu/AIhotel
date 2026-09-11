@@ -49,6 +49,51 @@
   --sidebar-ring: #0d0d0d;
 }
 
+/* ダークテーマのトークン（U-12）。ライトの :root と同じキーを同じ役割で上書きする。
+   グラフ色は暗い背景でも見分けがつくよう、明度を上げた同系色にしている。 */
+.dark {
+  --background: #0d0d0d;
+  --foreground: #ededed;
+  --card: #181818;
+  --card-foreground: #ededed;
+  --popover: #181818;
+  --popover-foreground: #ededed;
+  --primary: #ffffff;
+  --primary-foreground: #0d0d0d;
+  --secondary: #282828;
+  --secondary-foreground: #ededed;
+  --muted: #212121;
+  --muted-foreground: #a1a1a1;
+  --accent: #282828;
+  --accent-foreground: #ffffff;
+  --destructive: #f87171;
+  --destructive-foreground: #0d0d0d;
+  --border: #2e2e2e;
+  --input: #2e2e2e;
+  --ring: #ededed;
+  --chart-1: oklch(0.72 0.16 250);
+  --chart-2: oklch(0.78 0.13 200);
+  --chart-3: oklch(0.82 0.11 180);
+  --chart-4: oklch(0.75 0.1 220);
+  --chart-5: oklch(0.85 0.07 160);
+  --positive: oklch(0.72 0.16 250);
+  --negative: oklch(0.7 0.19 25);
+  --warning: #f0b429;
+  --ash-gray: #a1a1a1;
+  --stone-muted: #282828;
+  --sky-wash: #212121;
+  --cyan-edge: #3d3d3d;
+  --soot: #ffffff;
+  --sidebar: #0d0d0d;
+  --sidebar-foreground: #ededed;
+  --sidebar-primary: #282828;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #212121;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: #2e2e2e;
+  --sidebar-ring: #ededed;
+}
+
 @theme inline {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-heading: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif; /* 単一書体、weightのみで階層を作る */
@@ -133,8 +178,8 @@
 @layer components {
   /* インライン強調（無彩色）— 太字+ニュートラルなピル背景で階層を作る */
   .brand-highlight {
-    color: #181818;
-    background-color: #ededed;
+    color: var(--accent-foreground);
+    background-color: var(--secondary);
     border-radius: 4px;
     padding: 2px 8px;
     font-weight: 500;

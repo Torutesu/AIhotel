@@ -53,12 +53,22 @@ export interface Hotel {
   phone: string | null
   email: string | null
   totalRooms: number
-  /** 週末定義（チェックイン日基準の曜日番号、0=日曜）。デフォルト [5, 6] = 金・土 */
-  weekendDays?: unknown
+  /**
+   * 週末定義（チェックイン日基準の曜日番号、0=日曜）。デフォルト [5, 6] = 金・土。
+   * DB では Json 列のため行の型としては `unknown` のままにしている。
+   * APIレスポンス／フロントエンドで扱う際は必ず {@link HotelDto}（`number[]` 確定）を使う。
+   */
+  weekendDays: unknown
   isActive: boolean
   createdAt: Date
   updatedAt: Date
 }
+
+/**
+ * APIレスポンスとしてのホテル。`weekendDays` は `number[]`（0=日〜6=土）で確定する。
+ * フロントエンドはこの型を使い、`as number[]` のキャストを行わない。
+ */
+export type HotelDto = Omit<Hotel, 'weekendDays'> & { weekendDays: number[] }
 
 export interface RoomType {
   id: string
