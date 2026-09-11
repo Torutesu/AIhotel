@@ -19,6 +19,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,9 +35,12 @@ import {
   ArrowRightLeft,
   BarChart3,
   BookOpen,
+  ChevronDown,
   Edit2,
+  FileText,
   FlaskConical,
   ExternalLink,
+  Info,
   Loader2,
   Play,
   Plus,
@@ -47,6 +51,7 @@ import {
   Upload,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { cn } from "@/lib/utils"
 
 import { useAuth } from "@/components/auth-provider"
 import {
@@ -70,6 +75,12 @@ import {
   type FactorVerdict,
   type EffectGroupStats,
   type KnowledgeStatus,
+  type KnowledgeDocumentSummary,
+  type RuleParseResult,
+  type ApplyRulesResult,
+  type SavedKnowledgeDocument,
+  type FactorGroup,
+  type DemandLevel,
 } from "@/lib/api"
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
@@ -1420,6 +1431,728 @@ function KnowledgeBaseCard({ isAdmin }: { isAdmin: boolean }) {
   )
 }
 
+// ---- 個社MD（ヒアリング結果） ----
+
+const HOTEL_MD_TEMPLATE = `# 〇〇ホテル 個社MD（ヒアリング記入用）
+
+## ホテル概要と客層
+所在地、客室数、主な客層（ビジネス／レジャー／インバウンド比率）、繁忙期と閑散期、平日と週末の違い。
+
+## 価格方針
+値崩れをどこまで許すか、レート整合性の考え方、公式サイトとOTAの価格差の方針。
+
+## 需要レベル別の方針
+A・Bのときに何を優先するか（売り切りか単価か）、D・Eのときに何をするか（需要喚起の手段、下限）。
+
+## 繁忙期・団体の扱い
+GW・お盆・年末年始の売り方、団体の受け方（何室以上は個別判断か、団体で満室のときの単価）。
+
+## 競合の扱い
+追従する競合、しない競合、競合の売止めをどう読むか（団体で売止めしがちな競合など）。
+
+## 外部要因で効くもの・効かないもの
+天候は効くか、近隣の会場とイベントの影響、学校休暇の影響、インバウンドの季節性。
+
+## 禁止事項・注意点
+やってはいけない価格操作、社内ルール、過去の失敗。
+
+## ルール
+最小ランク: 8
+最大ランク: 36
+最低価格: 9800
+最大変動幅: 3
+競合ポジション: +0%
+除外競合: 
+需要レベルA: 下げない。満室が見えたら1段上げる
+需要レベルB: 基本は据え置き、ペースが速ければ1段上げる
+需要レベルC: 戦略重みどおり
+需要レベルD: 最低価格を割らない範囲で1〜2段下げる
+需要レベルE: 最低価格を割らない範囲で需要喚起
+団体: 10室以上は個別判断（自動採用しない）
+効かない要因: 
+効く要因: 
+自動採用: オフ
+禁止: 前年同日より2段以上下げない
+`
+
+const FACTOR_GROUP_LABELS: Record<FactorGroup, string> = {
+  weather: "天候",
+  event: "イベント",
+  school: "学校休暇",
+  holiday: "祝日",
+  special: "特別期間",
+  comp: "競合",
+  weekend: "週末",
+}
+
+const FACTOR_GROUP_CHOICES = Object.values(FACTOR_GROUP_LABELS).join(", ")
+
+const RULE_KEY_HELP: Array<{ key: string; value: string }> = [
+  { key: "最小ランク / 最大ランク", value: "1〜40 の整数" },
+  { key: "最低価格", value: "円。ランク表からその価格以上の最も低いランクを最小ランクにする" },
+  { key: "最大変動幅", value: "1回の推奨で動かす最大ランク数" },
+  { key: "競合ポジション", value: "競合中央値に対する %（例 +5%）" },
+  { key: "除外競合", value: "価格決定と逼迫シグナルから外す競合名（部分一致、カンマ区切り）" },
+  { key: "需要レベルA〜E", value: "方針の文章（チャットとAIまとめの判断基準になる）" },
+  { key: "団体", value: "方針の文章" },
+  {
+    key: "効かない要因 / 効く要因",
+    value: `${FACTOR_GROUP_CHOICES} から選ぶ（カンマ区切り）。「効かない要因」はその係数を 0 に固定し、学習でも動かさない`,
+  },
+  { key: "自動採用", value: "オン / オフ" },
+  { key: "禁止 / 備考", value: "文章（複数行可。同じキーを複数行書ける）" },
+]
+
+const DEMAND_LEVELS: DemandLevel[] = ["A", "B", "C", "D", "E"]
+
+function RuleSyntaxHelp() {
+  const [open, setOpen] = useState(false)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-md border">
+      <CollapsibleTrigger asChild>
+        <button type="button" className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm font-medium">
+          <span className="flex items-center gap-2">
+            <Info className="w-4 h-4 text-muted-foreground" />
+            ルール節の書き方
+          </span>
+          <ChevronDown className={cn("w-4 h-4 text-muted-foreground transition-transform", open && "rotate-180")} />
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="border-t px-3 py-2">
+        <p className="text-xs text-muted-foreground mb-2">
+          「## ルール」節には「キー: 値」の行だけを書きます（それ以外の行はエラーになります）。係数の数字は書かず、方針だけを書いてください。
+        </p>
+        <dl className="grid grid-cols-1 sm:grid-cols-[minmax(0,180px)_1fr] gap-x-3 gap-y-1 text-xs">
+          {RULE_KEY_HELP.map((row) => (
+            <div key={row.key} className="contents">
+              <dt className="font-mono font-medium">{row.key}</dt>
+              <dd className="text-muted-foreground">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function rulesStatusBadge(doc: KnowledgeDocumentSummary) {
+  const errorCount = doc.rulesErrors?.length ?? 0
+  if (errorCount > 0) return <Badge variant="destructive">エラー {errorCount}件</Badge>
+  if (doc.rulesAppliedAt) return <Badge className="border-transparent bg-emerald-600 text-white">ルール反映済み</Badge>
+  if (doc.rules) return <Badge variant="secondary">未反映</Badge>
+  return (
+    <Badge variant="outline" className="text-muted-foreground">
+      ルール節なし
+    </Badge>
+  )
+}
+
+function formatAppliedSummary(applied: ApplyRulesResult): string {
+  const parts = [`${applied.recomputedDays}日を再計算`]
+  if (applied.excludedCompetitors.length > 0) parts.push(`除外競合 ${applied.excludedCompetitors.length} 件`)
+  if (applied.lockedFactorKeys.length > 0) parts.push(`係数固定 ${applied.lockedFactorKeys.length} 件`)
+  if (applied.competitorsNotFound.length > 0) parts.push(`見つからない競合: ${applied.competitorsNotFound.join(", ")}`)
+  return parts.join(" ・ ")
+}
+
+function RulesPreviewPanel({
+  preview,
+  loading,
+  error,
+  onRetry,
+}: {
+  preview: RuleParseResult | null
+  loading: boolean
+  error: string | null
+  onRetry: () => void
+}) {
+  if (error) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-4 text-center">
+        <AlertCircle className="w-5 h-5 text-destructive" />
+        <p className="text-xs text-muted-foreground">{error}</p>
+        <Button variant="outline" size="sm" onClick={onRetry} className="gap-2">
+          <RefreshCw className="w-3.5 h-3.5" />
+          再試行
+        </Button>
+      </div>
+    )
+  }
+  if (!preview) {
+    return (
+      <p className="text-xs text-muted-foreground py-2">
+        {loading ? "解釈中…" : "本文を入力すると「## ルール」節の解釈結果がここに表示されます"}
+      </p>
+    )
+  }
+  if (!preview.found) {
+    return (
+      <div className="space-y-1 py-2">
+        <Badge variant="outline" className="text-muted-foreground">
+          ルール節なし
+        </Badge>
+        <p className="text-xs text-muted-foreground">
+          「## ルール」節がありません。保存はできますが、ガードレール等には反映されません。
+        </p>
+      </div>
+    )
+  }
+
+  const r = preview.rules
+  const items: Array<{ label: string; value: React.ReactNode }> = []
+  if (r.minRank != null || r.maxRank != null) {
+    items.push({ label: "ランク範囲", value: `${r.minRank ?? "—"} 〜 ${r.maxRank ?? "—"}` })
+  }
+  if (r.minPrice != null) items.push({ label: "最低価格", value: `¥${r.minPrice.toLocaleString("ja-JP")}` })
+  if (r.maxDailyRankChange != null) items.push({ label: "変動幅", value: `最大 ${r.maxDailyRankChange} 段／回` })
+  if (r.competitorPositionPct != null) {
+    items.push({ label: "競合ポジション", value: `${r.competitorPositionPct >= 0 ? "+" : ""}${r.competitorPositionPct}%` })
+  }
+  if (r.excludedCompetitors.length > 0) items.push({ label: "除外競合", value: r.excludedCompetitors.join(", ") })
+  const levels = DEMAND_LEVELS.filter((lv) => r.levelPolicies[lv])
+  if (levels.length > 0) {
+    items.push({
+      label: "需要レベル別方針",
+      value: (
+        <ul className="space-y-0.5">
+          {levels.map((lv) => (
+            <li key={lv}>
+              <span className="font-mono font-medium mr-1">{lv}:</span>
+              {r.levelPolicies[lv]}
+            </li>
+          ))}
+        </ul>
+      ),
+    })
+  }
+  if (r.groupPolicy) items.push({ label: "団体", value: r.groupPolicy })
+  if (r.disabledFactorGroups.length > 0) {
+    items.push({
+      label: "効かない要因",
+      value: `${r.disabledFactorGroups.map((g) => FACTOR_GROUP_LABELS[g] ?? g).join(", ")}（係数を0に固定）`,
+    })
+  }
+  if (r.enabledFactorGroups.length > 0) {
+    items.push({ label: "効く要因", value: r.enabledFactorGroups.map((g) => FACTOR_GROUP_LABELS[g] ?? g).join(", ") })
+  }
+  if (r.autoAdopt != null) items.push({ label: "自動採用", value: r.autoAdopt ? "オン" : "オフ" })
+  if (r.prohibitions.length > 0) {
+    items.push({
+      label: "禁止",
+      value: (
+        <ul className="list-disc pl-4 space-y-0.5">
+          {r.prohibitions.map((p, i) => (
+            <li key={i}>{p}</li>
+          ))}
+        </ul>
+      ),
+    })
+  }
+  if (r.notes.length > 0) {
+    items.push({
+      label: "備考",
+      value: (
+        <ul className="list-disc pl-4 space-y-0.5">
+          {r.notes.map((n, i) => (
+            <li key={i}>{n}</li>
+          ))}
+        </ul>
+      ),
+    })
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        {preview.errors.length > 0 ? (
+          <Badge variant="destructive">エラー {preview.errors.length}件</Badge>
+        ) : (
+          <Badge className="border-transparent bg-emerald-600 text-white">解釈OK</Badge>
+        )}
+        {loading && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+      </div>
+      {preview.errors.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <p className="text-xs font-medium text-destructive mb-1">エラーがある間はルールは反映されません</p>
+          <ul className="space-y-0.5 text-xs text-destructive">
+            {preview.errors.map((e, i) => (
+              <li key={`${e.line}-${i}`}>
+                <span className="font-mono">{e.line}行目:</span> {e.reason}
+                {e.text && <span className="text-muted-foreground font-mono ml-1">（{e.text}）</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">解釈できた項目はありません</p>
+      ) : (
+        <dl className="grid grid-cols-[minmax(0,120px)_1fr] gap-x-3 gap-y-1.5 text-xs">
+          {items.map((item) => (
+            <div key={item.label} className="contents">
+              <dt className="text-muted-foreground">{item.label}</dt>
+              <dd className="min-w-0 break-words">{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  )
+}
+
+function TenantKnowledgeCard({ hotelId, canManage }: { hotelId: string | null; canManage: boolean }) {
+  const { toast } = useToast()
+  const [docs, setDocs] = useState<KnowledgeDocumentSummary[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // エディタ
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [title, setTitle] = useState("")
+  const [tenantWide, setTenantWide] = useState(false)
+  const [body, setBody] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [saveResult, setSaveResult] = useState<SavedKnowledgeDocument | null>(null)
+
+  // ルールのプレビュー（本文変更から600ms後に解釈）
+  const [preview, setPreview] = useState<RuleParseResult | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewNonce, setPreviewNonce] = useState(0)
+
+  const [applyingId, setApplyingId] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<KnowledgeDocumentSummary | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!hotelId) return
+    setLoading(true)
+    setError(null)
+    try {
+      setDocs(await api.knowledgeDocuments(hotelId))
+    } catch (err) {
+      setError(err instanceof ApiClientError ? err.message : "個社MDの一覧を取得できませんでした")
+    } finally {
+      setLoading(false)
+    }
+  }, [hotelId])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  useEffect(() => {
+    if (!editorOpen || !hotelId) return
+    if (!body.trim()) {
+      setPreview(null)
+      setPreviewError(null)
+      setPreviewLoading(false)
+      return
+    }
+    let cancelled = false
+    setPreviewLoading(true)
+    const timer = setTimeout(async () => {
+      try {
+        const result = await api.previewKnowledgeDocument(hotelId, body)
+        if (cancelled) return
+        setPreview(result)
+        setPreviewError(null)
+      } catch (err) {
+        if (cancelled) return
+        setPreviewError(err instanceof ApiClientError ? err.message : "ルールの解釈に失敗しました")
+      } finally {
+        if (!cancelled) setPreviewLoading(false)
+      }
+    }, 600)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [body, editorOpen, hotelId, previewNonce])
+
+  const openCreate = () => {
+    setEditingId(null)
+    setTitle("")
+    setTenantWide(false)
+    setBody("")
+    setPreview(null)
+    setPreviewError(null)
+    setSaveResult(null)
+    setEditorOpen(true)
+  }
+
+  const openEdit = async (doc: KnowledgeDocumentSummary) => {
+    if (!hotelId) return
+    setEditingId(doc.id)
+    setTitle(doc.title)
+    setTenantWide(doc.hotelId == null)
+    setBody("")
+    setPreview(null)
+    setPreviewError(null)
+    setSaveResult(null)
+    setEditorOpen(true)
+    setDetailLoading(true)
+    try {
+      const detail = await api.knowledgeDocument(doc.id, hotelId)
+      setTitle(detail.title)
+      setTenantWide(detail.hotelId == null)
+      setBody(detail.body)
+    } catch (err) {
+      toast({
+        title: "個社MDを読み込めませんでした",
+        description: err instanceof ApiClientError ? err.message : undefined,
+        variant: "destructive",
+      })
+      setEditorOpen(false)
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const insertTemplate = () => {
+    setBody((prev) => (prev.trim() ? `${prev.replace(/\s+$/, "")}\n\n${HOTEL_MD_TEMPLATE}` : HOTEL_MD_TEMPLATE))
+    if (!title.trim()) setTitle("個社MD（ヒアリング結果）")
+  }
+
+  const handleSave = async () => {
+    if (!hotelId) return
+    if (!title.trim()) {
+      toast({ title: "タイトルを入力してください", variant: "destructive" })
+      return
+    }
+    if (!body.trim()) {
+      toast({ title: "本文を入力してください", variant: "destructive" })
+      return
+    }
+    setSaving(true)
+    try {
+      const input = { hotelId, title: title.trim(), body, tenantWide }
+      const result = editingId
+        ? await api.updateKnowledgeDocument(editingId, input)
+        : await api.createKnowledgeDocument(input)
+      setSaveResult(result)
+      setEditingId(result.document.id)
+      toast({
+        title: result.message ?? "個社MDを保存しました",
+        description: result.applied ? formatAppliedSummary(result.applied) : undefined,
+      })
+      await load()
+    } catch (err) {
+      toast({
+        title: "個社MDの保存に失敗しました",
+        description: err instanceof ApiClientError ? err.message : undefined,
+        variant: "destructive",
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleApply = async (doc: KnowledgeDocumentSummary) => {
+    if (!hotelId) return
+    setApplyingId(doc.id)
+    try {
+      const result = await api.applyKnowledgeDocument(doc.id, hotelId)
+      toast({
+        title: result.message ?? (result.applied ? "ルールを反映しました" : "反映するルールがありません"),
+        description: result.applied ? formatAppliedSummary(result.applied) : undefined,
+        variant: result.applied ? "default" : "destructive",
+      })
+      await load()
+    } catch (err) {
+      toast({
+        title: "ルールの再反映に失敗しました",
+        description: err instanceof ApiClientError ? err.message : undefined,
+        variant: "destructive",
+      })
+    } finally {
+      setApplyingId(null)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!hotelId || !deleteTarget) return
+    setDeleting(true)
+    try {
+      await api.deleteKnowledgeDocument(deleteTarget.id, hotelId)
+      toast({ title: `「${deleteTarget.title}」を削除しました` })
+      setDeleteTarget(null)
+      await load()
+    } catch (err) {
+      toast({
+        title: "個社MDの削除に失敗しました",
+        description: err instanceof ApiClientError ? err.message : undefined,
+        variant: "destructive",
+      })
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const editorBusy = saving || detailLoading
+  const previewHasErrors = (preview?.errors.length ?? 0) > 0
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5" />
+              個社MD（ヒアリング結果）
+            </CardTitle>
+            <CardDescription className="mt-1.5">
+              テナント導入時のヒアリング結果をMarkdownで保存します。「## ルール」節は保存時に解釈され、ランク範囲・最低価格・変動幅・除外競合・効かない要因（係数固定）に反映されます。
+              <br />
+              その他の節はチャットとAIまとめが【個社】として引用します。
+              {!canManage && "（作成・編集にはMANAGER以上の権限が必要です）"}
+            </CardDescription>
+          </div>
+          {canManage && (
+            <Button variant="outline" size="sm" className="gap-2" onClick={openCreate} disabled={!hotelId}>
+              <Plus className="w-4 h-4" />
+              新規作成
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <AlertCircle className="w-6 h-6 text-destructive" />
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <Button variant="outline" size="sm" onClick={load} className="gap-2">
+              <RefreshCw className="w-4 h-4" />
+              再試行
+            </Button>
+          </div>
+        ) : docs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            個社MDはまだありません。{canManage ? "「新規作成」からヒアリング結果を登録してください。" : ""}
+          </p>
+        ) : (
+          <ul className="divide-y rounded-md border">
+            {docs.map((doc) => (
+              <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="truncate font-medium">{doc.title}</p>
+                    <Badge variant={doc.hotelId == null ? "secondary" : "outline"}>
+                      {doc.hotelId == null ? "テナント共通" : "このホテル"}
+                    </Badge>
+                    {rulesStatusBadge(doc)}
+                  </div>
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    v{doc.version} ・ 更新 {new Date(doc.updatedAt).toLocaleString("ja-JP")}
+                    {doc.rulesAppliedAt ? ` ・ ルール反映 ${new Date(doc.rulesAppliedAt).toLocaleString("ja-JP")}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button variant="ghost" size="sm" className="gap-1" onClick={() => openEdit(doc)}>
+                    <Edit2 className="w-3.5 h-3.5" />
+                    {canManage ? "編集" : "表示"}
+                  </Button>
+                  {canManage && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1"
+                        disabled={applyingId != null || !doc.rules}
+                        onClick={() => handleApply(doc)}
+                      >
+                        {applyingId === doc.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                        再反映
+                      </Button>
+                      <Button variant="ghost" size="sm" className="gap-1 text-destructive" onClick={() => setDeleteTarget(doc)}>
+                        <Trash2 className="w-3.5 h-3.5" />
+                        削除
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <RuleSyntaxHelp />
+      </CardContent>
+
+      {/* エディタ */}
+      <Dialog open={editorOpen} onOpenChange={(open) => !editorBusy && setEditorOpen(open)}>
+        <DialogContent className="sm:max-w-[1040px] max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingId ? "個社MDを編集" : "個社MDを新規作成"}</DialogTitle>
+            <DialogDescription>
+              「## ルール」節は保存時に解釈・反映されます。右側のプレビューで解釈結果を確認してください
+            </DialogDescription>
+          </DialogHeader>
+          {detailLoading ? (
+            <div className="space-y-2 py-4">
+              <Skeleton className="h-9 w-1/2" />
+              <Skeleton className="h-64 w-full" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-[3fr_2fr] gap-4">
+              <div className="space-y-3 min-w-0">
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-md-title">タイトル</Label>
+                  <Input
+                    id="tenant-md-title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="例: デモホテル東京 個社MD"
+                    disabled={!canManage || saving}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="tenant-md-tenant-wide"
+                    checked={tenantWide}
+                    onCheckedChange={(checked) => setTenantWide(checked === true)}
+                    disabled={!canManage || saving}
+                  />
+                  <Label htmlFor="tenant-md-tenant-wide" className="font-normal text-sm">
+                    テナント共通（全ホテルに適用）
+                  </Label>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <Label htmlFor="tenant-md-body">本文（Markdown）</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={insertTemplate}
+                      disabled={!canManage || saving}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      テンプレートを挿入
+                    </Button>
+                  </div>
+                  <Textarea
+                    id="tenant-md-body"
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    rows={24}
+                    spellCheck={false}
+                    className="font-mono text-xs leading-relaxed min-h-[420px]"
+                    placeholder="「テンプレートを挿入」を押すか、ヒアリング結果を貼り付けてください"
+                    disabled={!canManage || saving}
+                  />
+                </div>
+                <RuleSyntaxHelp />
+              </div>
+
+              <div className="space-y-3 min-w-0">
+                <div className="rounded-md border p-3 space-y-2">
+                  <p className="text-sm font-medium flex items-center gap-2">
+                    ルールのプレビュー
+                    {previewLoading && preview && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
+                  </p>
+                  <RulesPreviewPanel
+                    preview={preview}
+                    loading={previewLoading}
+                    error={previewError}
+                    onRetry={() => setPreviewNonce((n) => n + 1)}
+                  />
+                </div>
+
+                {saveResult && (
+                  <div className="rounded-md border p-3 space-y-1.5 text-xs">
+                    <p className="text-sm font-medium">保存結果</p>
+                    <p className="text-muted-foreground">
+                      v{saveResult.document.version} として保存しました
+                      {saveResult.message ? ` ・ ${saveResult.message}` : ""}
+                    </p>
+                    {saveResult.applied ? (
+                      <dl className="grid grid-cols-[minmax(0,120px)_1fr] gap-x-3 gap-y-1">
+                        <dt className="text-muted-foreground">再計算</dt>
+                        <dd>{saveResult.applied.recomputedDays} 日</dd>
+                        <dt className="text-muted-foreground">除外競合</dt>
+                        <dd>
+                          {saveResult.applied.excludedCompetitors.length > 0
+                            ? saveResult.applied.excludedCompetitors.join(", ")
+                            : "なし"}
+                        </dd>
+                        <dt className="text-muted-foreground">係数固定</dt>
+                        <dd>{saveResult.applied.lockedFactorKeys.length} 件</dd>
+                        {saveResult.applied.unlockedFactorKeys.length > 0 && (
+                          <>
+                            <dt className="text-muted-foreground">固定解除</dt>
+                            <dd>{saveResult.applied.unlockedFactorKeys.length} 件</dd>
+                          </>
+                        )}
+                        {saveResult.applied.competitorsNotFound.length > 0 && (
+                          <>
+                            <dt className="text-amber-600">見つからない競合</dt>
+                            <dd className="text-amber-600">{saveResult.applied.competitorsNotFound.join(", ")}</dd>
+                          </>
+                        )}
+                      </dl>
+                    ) : (
+                      <p className="text-amber-600">
+                        {saveResult.rulesFound ? "エラーがあるため、ルールは反映されていません" : "ルール節がないため、ルールは反映されていません"}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-2 flex-wrap pt-2">
+            <p className="text-xs text-amber-600">{previewHasErrors ? "エラーがある間はルールは反映されません" : ""}</p>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditorOpen(false)} disabled={saving}>
+                {saveResult ? "閉じる" : "キャンセル"}
+              </Button>
+              {canManage && (
+                <Button size="sm" className="gap-2" onClick={handleSave} disabled={editorBusy || !hotelId}>
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {previewHasErrors ? "エラーのまま保存" : "保存して反映"}
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 削除確認 */}
+      <AlertDialog open={deleteTarget != null} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>個社MDを削除しますか？</AlertDialogTitle>
+            <AlertDialogDescription>
+              「{deleteTarget?.title}」（v{deleteTarget?.version}）を削除します。チャットやAIまとめの【個社】引用元から外れます。反映済みのガードレール等の設定値は変更されません。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleDelete()
+              }}
+              disabled={deleting}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : "削除する"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
+  )
+}
+
 export function SettingsTab() {
   const { toast } = useToast()
   const { hotelId, user } = useAuth()
@@ -2213,6 +2946,9 @@ export function SettingsTab() {
 
       {/* 基礎資料（知識ベース） */}
       <KnowledgeBaseCard isAdmin={isAdmin} />
+
+      {/* 個社MD（ヒアリング結果 — テナント固有の知識文書とルール） */}
+      <TenantKnowledgeCard hotelId={hotelId} canManage={canManageHotel} />
 
       {/* 表示設定 */}
       <Card>

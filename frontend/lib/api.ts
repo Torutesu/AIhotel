@@ -219,6 +219,10 @@ export interface ChatCitation {
   id: string
   /** "ドキュメント名 › 見出し" */
   path: string
+  /** tenant = 個社MD（テナント固有）, global = 汎用MD（docs/knowledge） */
+  scope?: "tenant" | "global"
+  /** 表示用ラベル（例: 「【個社】デモホテル東京 個社MD › 価格方針」）。無ければ path を表示する */
+  label?: string
 }
 
 /** 会話から実行した設定変更 */
@@ -392,6 +396,107 @@ export interface KnowledgeReloadResult {
   dir: string
   chunks: number
   documents: KnowledgeDocument[]
+}
+
+// ---- 個社MD（テナント固有の知識文書。「## ルール」節は機械が読む） ----
+
+export type FactorGroup = "weather" | "event" | "school" | "holiday" | "special" | "comp" | "weekend"
+
+export type DemandLevel = "A" | "B" | "C" | "D" | "E"
+
+/** 「## ルール」節から解釈された個社ルール */
+export interface HotelRules {
+  minRank?: number
+  maxRank?: number
+  minPrice?: number
+  maxDailyRankChange?: number
+  competitorPositionPct?: number
+  excludedCompetitors: string[]
+  levelPolicies: Partial<Record<DemandLevel, string>>
+  groupPolicy?: string
+  disabledFactorGroups: FactorGroup[]
+  enabledFactorGroups: FactorGroup[]
+  autoAdopt?: boolean
+  prohibitions: string[]
+  notes: string[]
+}
+
+export interface RuleParseError {
+  line: number
+  text: string
+  reason: string
+}
+
+export interface RuleParseResult {
+  rules: HotelRules
+  errors: RuleParseError[]
+  /** 「## ルール」節が文書内に存在したか */
+  found: boolean
+}
+
+/** ルール反映の結果（保存・再反映時） */
+export interface ApplyRulesResult {
+  hotelIds: string[]
+  strategyUpdates: Record<string, unknown>
+  excludedCompetitors: string[]
+  competitorsNotFound: string[]
+  lockedFactorKeys: string[]
+  unlockedFactorKeys: string[]
+  recomputedDays: number
+}
+
+export interface KnowledgeDocumentSummary {
+  id: string
+  /** null = テナント共通（全ホテルに適用） */
+  hotelId: string | null
+  title: string
+  version: number
+  rules: HotelRules | null
+  rulesErrors: RuleParseError[] | null
+  rulesAppliedAt: string | null
+  isActive: boolean
+  updatedAt: string
+  updatedByUserId: string | null
+}
+
+export interface KnowledgeDocumentDetail extends KnowledgeDocumentSummary {
+  tenantId: string
+  body: string
+  createdAt: string
+  revisions: Array<{ version: number; createdAt: string; createdByUserId: string | null }>
+}
+
+export interface SaveKnowledgeDocumentInput {
+  hotelId: string
+  title: string
+  body: string
+  /** true のときテナント共通文書として保存する（hotelId = null） */
+  tenantWide?: boolean
+}
+
+export interface SavedKnowledgeDocument {
+  document: {
+    id: string
+    tenantId: string
+    hotelId: string | null
+    title: string
+    version: number
+    rules: HotelRules | null
+    rulesErrors: RuleParseError[]
+    rulesAppliedAt: string | null
+    updatedAt: string
+  }
+  /** ルールを反映した場合の結果。ルール節なし・エラーありのときは null */
+  applied: ApplyRulesResult | null
+  rulesFound: boolean
+  /** APIの message（例: 「個社MDを保存し、ルールを反映しました（91日を再計算）」）。フロントで付与する */
+  message?: string
+}
+
+export interface ApplyKnowledgeDocumentResult {
+  applied: ApplyRulesResult | null
+  /** APIの message。フロントで付与する */
+  message?: string
 }
 
 const ACCESS_TOKEN_KEY = "hrms.accessToken"
@@ -601,6 +706,16 @@ async function rawRequest<T>(
   options: RequestInit = {},
   retryOn401 = true
 ): Promise<T> {
+  const { data } = await rawRequestEnvelope<T>(path, options, retryOn401)
+  return data
+}
+
+/** data に加えて API の message も返す（保存結果のトーストなど、message を表示したい場合に使う） */
+async function rawRequestEnvelope<T>(
+  path: string,
+  options: RequestInit = {},
+  retryOn401 = true
+): Promise<{ data: T; message?: string }> {
   const token = getAccessToken()
   let res: Response
   try {
@@ -619,7 +734,7 @@ async function rawRequest<T>(
   if (res.status === 401 && retryOn401 && getRefreshToken()) {
     const refreshed = await tryRefresh()
     if (refreshed) {
-      return rawRequest<T>(path, options, false)
+      return rawRequestEnvelope<T>(path, options, false)
     }
   }
 
@@ -634,7 +749,7 @@ async function rawRequest<T>(
     throw new ApiClientError(res.status, body.error || `リクエストに失敗しました (${res.status})`)
   }
 
-  return body.data as T
+  return { data: body.data as T, message: body.message }
 }
 
 async function tryRefresh(): Promise<boolean> {
@@ -2293,6 +2408,331 @@ function mockKnowledgeSearch(q: string, k: number): KnowledgeSearchHit[] {
   return (filtered.length > 0 ? filtered : hits).slice(0, k)
 }
 
+
+// ---- 個社MD モック（メモリ内に1文書。保存でバージョンが上がる） ----
+
+const FACTOR_GROUP_LABELS: Record<FactorGroup, string> = {
+  weather: "天候",
+  event: "イベント",
+  school: "学校休暇",
+  holiday: "祝日",
+  special: "特別期間",
+  comp: "競合",
+  weekend: "週末",
+}
+
+const MOCK_TENANT_MD_BODY = `# デモホテル東京 個社MD（ヒアリング記入用）
+
+## ホテル概要と客層
+東京・品川駅から徒歩5分、客室数120室のビジネスホテル。平日はビジネス客が7割、週末はレジャー客とインバウンド（3割前後）が中心。
+繁忙期は3月下旬〜4月上旬（桜）、GW、10〜11月。閑散期は1月中旬〜2月と6月。日曜泊は平日以上に弱い。
+
+## 価格方針
+値崩れは最低価格 9,800円 まで。前年同日を大きく下回る価格は原則出さない。
+公式サイトはOTA最安値と同額（ベストレート保証）。OTA間で価格差を付けない。
+
+## 需要レベル別の方針
+A・Bのときは単価優先。売り切りは前日夕方まで待つ。
+D・Eのときは公式サイトの連泊割・早割で需要喚起し、最低価格を割る値下げはしない。
+
+## 繁忙期・団体の扱い
+GW・お盆・年末年始は3か月前から段階的に上げ、直前の値下げはしない。
+団体は10室以上を個別判断。団体で満室になった日の単価は団体単価で管理する（自動採用しない）。
+
+## 競合の扱い
+追従するのは コンペティターホテルA と コンペティターホテルC。
+コンペティターホテルB は団体で売止めになることが多く、満室シグナルとして信用しない（除外）。
+
+## 外部要因で効くもの・効かないもの
+天候はほぼ効かない（ビジネス客が中心のため）。品川・有明のイベントは大きく効く。学校休暇は週末のみ効く。
+
+## 禁止事項・注意点
+前年同日より2段以上下げない。競合の満室だけを理由に上限ランクまで一気に上げない。
+2024年の年末に直前値下げで単価を崩した反省があり、12月は直前値下げ禁止。
+
+## ルール
+最小ランク: 8
+最大ランク: 36
+最低価格: 9800
+最大変動幅: 3
+競合ポジション: +3%
+除外競合: コンペティターホテルB
+需要レベルA: 下げない。満室が見えたら1段上げる
+需要レベルB: 基本は据え置き、ペースが速ければ1段上げる
+需要レベルC: 戦略重みどおり
+需要レベルD: 最低価格を割らない範囲で1〜2段下げる
+需要レベルE: 最低価格を割らない範囲で需要喚起
+団体: 10室以上は個別判断（自動採用しない）
+効かない要因: 天候
+効く要因: イベント
+自動採用: オフ
+禁止: 前年同日より2段以上下げない
+禁止: 競合の満室だけを理由に上限ランクへ一気に上げない
+備考: 12月は直前値下げ禁止
+`
+
+function emptyHotelRules(): HotelRules {
+  return {
+    excludedCompetitors: [],
+    levelPolicies: {},
+    disabledFactorGroups: [],
+    enabledFactorGroups: [],
+    prohibitions: [],
+    notes: [],
+  }
+}
+
+/** 「## ルール」節を簡易解釈する（バックエンドの解釈器の挙動を模したデモ用） */
+function mockParseRules(body: string): RuleParseResult {
+  const lines = body.split(/\r?\n/)
+  const rules = emptyHotelRules()
+  const start = lines.findIndex((l) => l.trim().replace(/\s+/g, "") === "##ルール")
+  if (start < 0) return { rules, errors: [], found: false }
+
+  const errors: RuleParseError[] = []
+  const factorByLabel = new Map<string, FactorGroup>(
+    (Object.entries(FACTOR_GROUP_LABELS) as Array<[FactorGroup, string]>).map(([g, label]) => [label, g])
+  )
+  const parseInt10 = (value: string): number | null => {
+    const n = Number.parseInt(value.replace(/[,，円\s]/g, ""), 10)
+    return Number.isFinite(n) ? n : null
+  }
+  const splitList = (value: string): string[] =>
+    value
+      .split(/[,、，]/)
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0)
+
+  let inComment = false
+  for (let i = start + 1; i < lines.length; i++) {
+    const text = lines[i].trim()
+    const line = i + 1
+    if (text.startsWith("## ")) break
+    if (inComment) {
+      if (text.includes("-->")) inComment = false
+      continue
+    }
+    if (text.startsWith("<!--")) {
+      if (!text.includes("-->")) inComment = true
+      continue
+    }
+    if (!text) continue
+
+    const m = text.match(/^([^:：]+)[:：]\s*(.*)$/)
+    if (!m) {
+      errors.push({ line, text, reason: "「キー: 値」の形式ではありません" })
+      continue
+    }
+    const key = m[1].trim()
+    const value = m[2].trim()
+
+    if (key === "最小ランク" || key === "最大ランク" || key === "最大変動幅") {
+      if (!value) continue
+      const n = parseInt10(value)
+      if (n == null || n < 1 || (key !== "最大変動幅" && n > 40)) {
+        errors.push({ line, text, reason: key === "最大変動幅" ? "1以上の整数で指定してください" : "1〜40の整数で指定してください" })
+        continue
+      }
+      if (key === "最小ランク") rules.minRank = n
+      else if (key === "最大ランク") rules.maxRank = n
+      else rules.maxDailyRankChange = n
+    } else if (key === "最低価格") {
+      if (!value) continue
+      const n = parseInt10(value)
+      if (n == null || n < 0) {
+        errors.push({ line, text, reason: "円の整数で指定してください" })
+        continue
+      }
+      rules.minPrice = n
+    } else if (key === "競合ポジション") {
+      if (!value) continue
+      const pm = value.match(/^([+\-−±]?)\s*(\d+(?:\.\d+)?)\s*%?$/)
+      if (!pm) {
+        errors.push({ line, text, reason: "「+5%」のように % で指定してください" })
+        continue
+      }
+      const sign = pm[1] === "-" || pm[1] === "−" ? -1 : 1
+      rules.competitorPositionPct = sign * Number(pm[2])
+    } else if (key === "除外競合") {
+      rules.excludedCompetitors.push(...splitList(value))
+    } else if (/^需要レベル[A-E]$/.test(key)) {
+      const level = key.slice(-1) as DemandLevel
+      if (value) rules.levelPolicies[level] = value
+    } else if (key === "団体") {
+      if (value) rules.groupPolicy = value
+    } else if (key === "効かない要因" || key === "効く要因") {
+      const groups: FactorGroup[] = []
+      let bad: string | null = null
+      for (const label of splitList(value)) {
+        const g = factorByLabel.get(label)
+        if (!g) {
+          bad = label
+          break
+        }
+        groups.push(g)
+      }
+      if (bad != null) {
+        errors.push({
+          line,
+          text,
+          reason: `「${bad}」は要因名ではありません（${Object.values(FACTOR_GROUP_LABELS).join(", ")} から選んでください）`,
+        })
+        continue
+      }
+      if (key === "効かない要因") rules.disabledFactorGroups.push(...groups)
+      else rules.enabledFactorGroups.push(...groups)
+    } else if (key === "自動採用") {
+      if (!value) continue
+      if (/^(オン|on|ON|有効|true)$/i.test(value)) rules.autoAdopt = true
+      else if (/^(オフ|off|OFF|無効|false)$/i.test(value)) rules.autoAdopt = false
+      else errors.push({ line, text, reason: "オン / オフ で指定してください" })
+    } else if (key === "禁止") {
+      if (value) rules.prohibitions.push(value)
+    } else if (key === "備考") {
+      if (value) rules.notes.push(value)
+    } else {
+      errors.push({ line, text, reason: `「${key}」はルール節で使えないキーです` })
+    }
+  }
+
+  if (rules.minRank != null && rules.maxRank != null && rules.minRank > rules.maxRank) {
+    errors.push({ line: start + 1, text: "## ルール", reason: "最小ランクが最大ランクを上回っています" })
+  }
+  return { rules, errors, found: true }
+}
+
+function mockApplyRules(hotelId: string | null, rules: HotelRules): ApplyRulesResult {
+  const strategyUpdates: Record<string, unknown> = {}
+  if (rules.minRank != null) strategyUpdates.minRank = rules.minRank
+  if (rules.maxRank != null) strategyUpdates.maxRank = rules.maxRank
+  if (rules.minPrice != null) strategyUpdates.minPrice = rules.minPrice
+  if (rules.maxDailyRankChange != null) strategyUpdates.maxDailyRankChange = rules.maxDailyRankChange
+  if (rules.competitorPositionPct != null) strategyUpdates.competitorPositionPct = rules.competitorPositionPct
+  if (rules.autoAdopt != null) strategyUpdates.autoAdopt = rules.autoAdopt
+
+  const excludedCompetitors: string[] = []
+  const competitorsNotFound: string[] = []
+  for (const name of rules.excludedCompetitors) {
+    const hit = MOCK_COMPETITOR_DEFS.find((c) => c.name.includes(name))
+    if (hit) excludedCompetitors.push(hit.name)
+    else competitorsNotFound.push(name)
+  }
+  return {
+    hotelIds: [hotelId ?? MOCK_HOTEL_ID],
+    strategyUpdates,
+    excludedCompetitors,
+    competitorsNotFound,
+    lockedFactorKeys: rules.disabledFactorGroups.map((g) => `${g}.*`),
+    unlockedFactorKeys: rules.enabledFactorGroups.map((g) => `${g}.*`),
+    recomputedDays: 91,
+  }
+}
+
+const mockTenantDocuments: KnowledgeDocumentDetail[] = (() => {
+  const parsed = mockParseRules(MOCK_TENANT_MD_BODY)
+  const createdAt = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()
+  const updatedAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString()
+  return [
+    {
+      id: "mock-tenant-doc-1",
+      tenantId: MOCK_TENANT_ID,
+      hotelId: MOCK_HOTEL_ID,
+      title: "デモホテル東京 個社MD",
+      version: 2,
+      body: MOCK_TENANT_MD_BODY,
+      rules: parsed.rules,
+      rulesErrors: parsed.errors,
+      rulesAppliedAt: updatedAt,
+      isActive: true,
+      createdAt,
+      updatedAt,
+      updatedByUserId: "mock-manager",
+      revisions: [
+        { version: 2, createdAt: updatedAt, createdByUserId: "mock-manager" },
+        { version: 1, createdAt, createdByUserId: "mock-admin" },
+      ],
+    },
+  ]
+})()
+
+let mockTenantDocumentSeq = 1
+
+function toKnowledgeDocumentSummary(doc: KnowledgeDocumentDetail): KnowledgeDocumentSummary {
+  const { tenantId: _tenantId, body: _body, createdAt: _createdAt, revisions: _revisions, ...summary } = doc
+  return summary
+}
+
+function mockSaveKnowledgeDocument(existing: KnowledgeDocumentDetail | null, input: SaveKnowledgeDocumentInput): SavedKnowledgeDocument {
+  const parsed = mockParseRules(input.body)
+  const now = new Date().toISOString()
+  const hotelId = input.tenantWide ? null : input.hotelId
+  const canApply = parsed.found && parsed.errors.length === 0
+  const applied = canApply ? mockApplyRules(hotelId, parsed.rules) : null
+
+  let doc: KnowledgeDocumentDetail
+  if (existing) {
+    existing.title = input.title
+    existing.body = input.body
+    existing.hotelId = hotelId
+    existing.version += 1
+    existing.rules = parsed.found ? parsed.rules : null
+    existing.rulesErrors = parsed.errors
+    existing.rulesAppliedAt = canApply ? now : existing.rulesAppliedAt
+    existing.updatedAt = now
+    existing.updatedByUserId = getMockUser()?.id ?? null
+    existing.revisions.unshift({ version: existing.version, createdAt: now, createdByUserId: existing.updatedByUserId })
+    doc = existing
+  } else {
+    mockTenantDocumentSeq += 1
+    doc = {
+      id: `mock-tenant-doc-${mockTenantDocumentSeq}`,
+      tenantId: MOCK_TENANT_ID,
+      hotelId,
+      title: input.title,
+      version: 1,
+      body: input.body,
+      rules: parsed.found ? parsed.rules : null,
+      rulesErrors: parsed.errors,
+      rulesAppliedAt: canApply ? now : null,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+      updatedByUserId: getMockUser()?.id ?? null,
+      revisions: [{ version: 1, createdAt: now, createdByUserId: getMockUser()?.id ?? null }],
+    }
+    mockTenantDocuments.unshift(doc)
+  }
+
+  const message = !parsed.found
+    ? "個社MDを保存しました（「## ルール」節がないため、ルールは反映していません）"
+    : parsed.errors.length > 0
+      ? `個社MDを保存しました。解釈できない行が ${parsed.errors.length} 件あるため、ルールは反映していません`
+      : `個社MDを保存し、ルールを反映しました（${applied?.recomputedDays ?? 0}日を再計算）`
+
+  return {
+    document: {
+      id: doc.id,
+      tenantId: doc.tenantId,
+      hotelId: doc.hotelId,
+      title: doc.title,
+      version: doc.version,
+      rules: doc.rules,
+      rulesErrors: doc.rulesErrors ?? [],
+      rulesAppliedAt: doc.rulesAppliedAt,
+      updatedAt: doc.updatedAt,
+    },
+    applied,
+    rulesFound: parsed.found,
+    message,
+  }
+}
+
+function findMockTenantDocument(id: string): KnowledgeDocumentDetail {
+  const doc = mockTenantDocuments.find((d) => d.id === id)
+  if (!doc) throw new ApiClientError(404, "個社MDが見つかりません")
+  return doc
+}
+
 const mockConversations: ChatConversation[] = []
 
 function mockChatReply(input: SendChatMessageInput): ChatReply {
@@ -3089,6 +3529,110 @@ export const api = {
         mockKnowledgeLoadedAt.value = new Date().toISOString()
         const status = mockKnowledgeStatus()
         return { dir: status.dir ?? "docs/knowledge", chunks: status.chunks, documents: status.documents }
+      }
+    )
+  },
+
+  // ---- 個社MD（テナント固有の知識文書） ----
+
+  /** 個社MD一覧（このホテル向け＋テナント共通。テナント共通は hotelId = null） */
+  knowledgeDocuments(hotelId: string): Promise<KnowledgeDocumentSummary[]> {
+    const params = new URLSearchParams({ hotelId })
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/knowledge/documents?${params.toString()}`),
+      () =>
+        mockTenantDocuments
+          .filter((d) => d.hotelId == null || d.hotelId === hotelId)
+          .map(toKnowledgeDocumentSummary)
+    )
+  },
+
+  knowledgeDocument(id: string, hotelId: string): Promise<KnowledgeDocumentDetail> {
+    const params = new URLSearchParams({ hotelId })
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/knowledge/documents/${encodeURIComponent(id)}?${params.toString()}`),
+      () => ({ ...findMockTenantDocument(id), revisions: [...findMockTenantDocument(id).revisions] })
+    )
+  },
+
+  /** 「## ルール」節の解釈結果を保存せずに返す（エディタのプレビュー用） */
+  previewKnowledgeDocument(hotelId: string, body: string): Promise<RuleParseResult> {
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/knowledge/documents/preview", {
+          method: "POST",
+          body: JSON.stringify({ hotelId, body }),
+        }),
+      () => mockParseRules(body)
+    )
+  },
+
+  /** 個社MDを新規作成し、ルール節があれば反映する（MANAGER以上） */
+  createKnowledgeDocument(input: SaveKnowledgeDocumentInput): Promise<SavedKnowledgeDocument> {
+    return withDemoFallback(
+      async () => {
+        const { data, message } = await rawRequestEnvelope<SavedKnowledgeDocument>("/api/v1/knowledge/documents", {
+          method: "POST",
+          body: JSON.stringify(input),
+        })
+        return { ...data, message }
+      },
+      () => mockSaveKnowledgeDocument(null, input)
+    )
+  },
+
+  /** 個社MDを更新し、ルール節があれば反映する（MANAGER以上） */
+  updateKnowledgeDocument(id: string, input: SaveKnowledgeDocumentInput): Promise<SavedKnowledgeDocument> {
+    return withDemoFallback(
+      async () => {
+        const { data, message } = await rawRequestEnvelope<SavedKnowledgeDocument>(
+          `/api/v1/knowledge/documents/${encodeURIComponent(id)}`,
+          { method: "PUT", body: JSON.stringify(input) }
+        )
+        return { ...data, message }
+      },
+      () => mockSaveKnowledgeDocument(findMockTenantDocument(id), input)
+    )
+  },
+
+  /** 保存済みの個社MDのルールを再反映する（MANAGER以上） */
+  applyKnowledgeDocument(id: string, hotelId: string): Promise<ApplyKnowledgeDocumentResult> {
+    const params = new URLSearchParams({ hotelId })
+    return withDemoFallback(
+      async () => {
+        const { data, message } = await rawRequestEnvelope<ApplyKnowledgeDocumentResult>(
+          `/api/v1/knowledge/documents/${encodeURIComponent(id)}/apply?${params.toString()}`,
+          { method: "POST" }
+        )
+        return { ...data, message }
+      },
+      () => {
+        const doc = findMockTenantDocument(id)
+        const parsed = mockParseRules(doc.body)
+        if (!parsed.found) {
+          return { applied: null, message: "「## ルール」節がないため、反映するルールがありません" }
+        }
+        if (parsed.errors.length > 0) {
+          return { applied: null, message: `解釈できない行が ${parsed.errors.length} 件あるため、ルールは反映していません` }
+        }
+        doc.rules = parsed.rules
+        doc.rulesErrors = []
+        doc.rulesAppliedAt = new Date().toISOString()
+        const applied = mockApplyRules(doc.hotelId, parsed.rules)
+        return { applied, message: `ルールを反映しました（${applied.recomputedDays}日を再計算）` }
+      }
+    )
+  },
+
+  /** 個社MDを削除する（MANAGER以上） */
+  deleteKnowledgeDocument(id: string, hotelId: string): Promise<void> {
+    const params = new URLSearchParams({ hotelId })
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/knowledge/documents/${encodeURIComponent(id)}?${params.toString()}`, { method: "DELETE" }),
+      () => {
+        const idx = mockTenantDocuments.findIndex((d) => d.id === id)
+        if (idx < 0) throw new ApiClientError(404, "個社MDが見つかりません")
+        mockTenantDocuments.splice(idx, 1)
       }
     )
   },

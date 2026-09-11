@@ -355,10 +355,15 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
                   {!isUser && message.citations && message.citations.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 pt-0.5">
                       {message.citations.map((c) => (
-                        <Badge key={c.id} variant="outline" className="gap-1 text-[10px] font-normal max-w-full">
+                        <Badge
+                          key={c.id}
+                          variant={c.scope === "tenant" ? "secondary" : "outline"}
+                          className="gap-1 text-[10px] font-normal max-w-full"
+                          title={c.label ?? c.path}
+                        >
                           <BookOpen className="w-3 h-3 shrink-0" />
                           <span className="text-muted-foreground shrink-0">出典</span>
-                          <span className="truncate">{c.path}</span>
+                          <span className="truncate">{c.label ?? c.path}</span>
                         </Badge>
                       ))}
                     </div>
