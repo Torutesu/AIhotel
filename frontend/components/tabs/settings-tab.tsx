@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { useTheme } from "next-themes"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -182,7 +183,8 @@ export function SettingsTab() {
   }
 
   // 表示設定（バックエンド未対応のためlocalStorageのまま）
-  const [theme, setTheme] = useState<"light" | "dark" | "system">("system")
+  // テーマは next-themes が唯一の持ち主。ここでローカルstateに閉じ込めると切替が効かない
+  const { theme, setTheme } = useTheme()
   const [language, setLanguage] = useState("ja")
   const [dateFormat, setDateFormat] = useState("YYYY/MM/DD")
   const [currency, setCurrency] = useState("JPY")
@@ -582,7 +584,7 @@ export function SettingsTab() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="theme">テーマ</Label>
-              <Select value={theme} onValueChange={(value: "light" | "dark" | "system") => setTheme(value)}>
+              <Select value={theme ?? "light"} onValueChange={(value) => setTheme(value)}>
                 <SelectTrigger id="theme">
                   <SelectValue />
                 </SelectTrigger>

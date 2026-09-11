@@ -21,7 +21,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
       id: "1",
       role: "assistant",
       content:
-        "こんにちは！ホテレベのAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。",
+        "こんにちは！レベストのAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。",
       timestamp: new Date(),
     },
   ])

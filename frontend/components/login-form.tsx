@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { BrandMark } from "@/components/brand-logo"
 import { Button } from "@/components/ui/button"
 import { Loader2, AlertCircle } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
@@ -38,8 +39,8 @@ export function LoginForm() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <div className="mb-1 flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full bg-primary" aria-hidden />
-            <CardTitle className="text-2xl font-semibold tracking-tight">ホテレベ</CardTitle>
+            <BrandMark size="md" />
+            <CardTitle className="text-2xl font-semibold tracking-tight">レベスト</CardTitle>
           </div>
           <CardDescription>ホテル収益管理システムにログインしてください</CardDescription>
         </CardHeader>
