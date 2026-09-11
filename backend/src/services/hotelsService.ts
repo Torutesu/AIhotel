@@ -79,3 +79,17 @@ export async function deleteHotelService(id: string): Promise<void> {
     data: { isActive: false },
   })
 }
+
+/**
+ * ホテルが指定テナントに属するか判定する（テナント越えアクセスの検査用）
+ */
+export async function isHotelInTenantService(
+  hotelId: string,
+  tenantId: string
+): Promise<boolean> {
+  const hotel = await prisma.hotel.findFirst({
+    where: { id: hotelId, tenantId },
+    select: { id: true },
+  })
+  return hotel !== null
+}

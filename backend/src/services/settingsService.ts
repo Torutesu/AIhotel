@@ -54,11 +54,13 @@ export async function updatePriceRankService(
  * 料金ランク削除（論理削除）
  */
 export async function deletePriceRankService(id: string, hotelId: string) {
+  // hotelId 条件を含めることでテナント越え削除を防ぐ
   const result = await prisma.priceRank.updateMany({
     where: { id, hotelId },
     data: { isActive: false },
   })
   if (result.count === 0) throw new NotFoundError('料金ランク')
+  return prisma.priceRank.findUnique({ where: { id } })
 }
 
 /**

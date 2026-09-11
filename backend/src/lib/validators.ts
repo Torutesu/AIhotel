@@ -58,8 +58,8 @@ export const refreshTokenSchema = z.object({
 // Hotel Validators
 // ======================================
 
+// tenantId はリクエストから受け取らず、作成者のトークンから決定する
 export const createHotelSchema = z.object({
-  tenantId: entityIdSchema,
   name: z.string().min(1, 'ホテル名は必須です').max(200),
   address: z.string().max(500).optional(),
   phone: z.string().max(20).optional(),
@@ -67,7 +67,7 @@ export const createHotelSchema = z.object({
   totalRooms: z.number().int().min(1, '部屋数は1以上である必要があります'),
 })
 
-export const updateHotelSchema = createHotelSchema.omit({ tenantId: true }).partial()
+export const updateHotelSchema = createHotelSchema.partial()
 
 // ======================================
 // Room Type Validators

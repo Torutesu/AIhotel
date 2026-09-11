@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express'
 import type { UserRole } from '@prisma/client'
 import { verifyAccessToken, JWTPayload } from '../lib/auth.js'
 import { ApiError } from './errorHandler.js'
+import { isHotelInTenantService } from '../services/hotelsService.js'
 
 // Express Requestの拡張
 declare global {
@@ -97,27 +98,38 @@ export function requireRole(...allowedRoles: UserRole[]) {
  * authenticate の後に使用すること
  */
 export function requireHotelAccess(hotelIdExtractor: (req: Request) => string | undefined) {
-  return (req: Request, _res: Response, next: NextFunction) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) {
       return next(new ApiError(401, '認証が必要です'))
     }
-    
-    // ADMINは全てのホテルにアクセス可能
-    if (req.user.role === 'ADMIN') {
-      return next()
-    }
-    
+
     const requestedHotelId = hotelIdExtractor(req)
-    
-    if (!requestedHotelId) {
+
+    // 未検証のクエリ/ボディから抽出されうるため、文字列であることを確認する
+    if (!requestedHotelId || typeof requestedHotelId !== 'string') {
       return next(new ApiError(400, 'ホテルIDが必要です'))
     }
-    
-    if (req.user.hotelId !== requestedHotelId) {
+
+    // ADMIN は自テナント内の全ホテル、それ以外は自ホテルのみ
+    if (req.user.role !== 'ADMIN' && req.user.hotelId !== requestedHotelId) {
       return next(new ApiError(403, 'このホテルへのアクセス権限がありません'))
     }
-    
-    next()
+
+    try {
+      if (!req.user.tenantId) {
+        return next(new ApiError(403, 'このホテルへのアクセス権限がありません'))
+      }
+
+      const belongsToTenant = await isHotelInTenantService(requestedHotelId, req.user.tenantId)
+
+      if (!belongsToTenant) {
+        return next(new ApiError(403, 'このホテルへのアクセス権限がありません'))
+      }
+
+      next()
+    } catch (error) {
+      next(error)
+    }
   }
 }
 
