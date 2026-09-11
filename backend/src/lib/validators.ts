@@ -257,6 +257,15 @@ export const yearQuerySchema = z.object({
   year: z.coerce.number().int().min(2020).max(2100),
 })
 
+/**
+ * 対象年月を body で受け取る操作系（N-5: スナップショット取得・着地シミュレーション再計算）。
+ * クエリ版と違い型変換（coerce）は行わず、JSON の数値のみを受け付ける。
+ */
+export const monthTargetSchema = z.object({
+  hotelId: entityIdSchema,
+  year: z.number().int().min(2020).max(2100),
+  month: z.number().int().min(1).max(12),
+})
 
 export const kpiComparisonQuerySchema = monthQuerySchema.extend({
   baseDate: z.coerce.date().optional(),
@@ -368,3 +377,4 @@ export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
 export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
 export type UpdateUserInput = z.infer<typeof updateUserSchema>
 export type UpdateAlertStatusInput = z.infer<typeof updateAlertStatusSchema>
+export type MonthTargetInput = z.infer<typeof monthTargetSchema>

@@ -6,6 +6,7 @@ import {
   hotelIdQuerySchema,
   updateStrategySchema,
   recomputeForecastSchema,
+  monthTargetSchema,
 } from '../lib/validators.js'
 import {
   getCalendar,
@@ -13,6 +14,7 @@ import {
   updateStrategy,
   getSimulation,
   recomputeForecast,
+  recomputeSimulation,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -60,4 +62,13 @@ pricingRouter.post(
   requireHotelAccess((req) => req.body?.hotelId),
   validate(recomputeForecastSchema),
   recomputeForecast
+)
+
+// POST /api/v1/pricing/simulation/recompute — 着地シミュレーションの再計算は MANAGER 以上（N-5 / F-DP-04）
+pricingRouter.post(
+  '/simulation/recompute',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(monthTargetSchema),
+  recomputeSimulation
 )

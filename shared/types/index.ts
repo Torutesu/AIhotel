@@ -524,3 +524,56 @@ export interface UpdateAlertStatusRequest {
   hotelId: string
   status: Extract<AlertStatus, 'ACKNOWLEDGED' | 'RESOLVED'>
 }
+
+// ======================================
+// KPI Snapshot / Landing Simulation Types（N-5）
+// ======================================
+
+/** POST /dashboard/kpi/snapshot・POST /pricing/simulation/recompute のリクエストボディ */
+export interface MonthTargetRequest {
+  hotelId: string
+  year: number
+  month: number
+}
+
+/** 当日時点のKPIスナップショット（月初比較・日付比較の比較元 — F-DASH-04） */
+export interface KpiSnapshot {
+  id: string
+  tenantId: string
+  hotelId: string
+  /** スナップショット取得日（YYYY-MM-DD） */
+  snapshotDate: string
+  targetYear: number
+  targetMonth: number
+  revenue: number | null
+  soldRooms: number | null
+  adr: number | null
+  occupancy: number | null
+  revPar: number | null
+  guests: number | null
+  createdAt: Date
+}
+
+/** 月間着地シミュレーション（F-DP-04） */
+export interface MonthlyLandingSimulation {
+  id: string
+  tenantId: string
+  hotelId: string
+  year: number
+  month: number
+  projectedRevenue: number | null
+  projectedAdr: number | null
+  projectedOccupancy: number | null
+  projectedRevPar: number | null
+  projectedRooms: number | null
+  computedAt: Date
+}
+
+/** POST /pricing/simulation/recompute のレスポンス */
+export interface RecomputeSimulationResponse {
+  simulation: MonthlyLandingSimulation
+  /** 実績で積み上げた日数 */
+  actualDays: number
+  /** AI予測で積み上げた日数 */
+  predictedDays: number
+}

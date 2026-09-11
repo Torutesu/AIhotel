@@ -487,3 +487,53 @@ export async function updateAlertStatusService(
   if (!after) throw new NotFoundError('アラート')
   return { before, after }
 }
+
+/**
+ * KPI スナップショットの取得・保存（N-5 / F-DASH-04）。
+ *
+ * 集計は getDashboardKpiService をそのまま呼んで再利用する。
+ * ダッシュボードの表示値とスナップショットの値がずれないよう、
+ * ここで KPI の計算式を再実装しないこと。
+ *
+ * 同じ日に何度実行しても結果が1行にまとまるよう
+ * @@unique([hotelId, snapshotDate, targetYear, targetMonth]) に対して upsert する（冪等）。
+ */
+export async function createKpiSnapshotService(hotelId: string, year: number, month: number) {
+  const hotel = await prisma.hotel.findFirst({
+    where: { id: hotelId, isActive: true },
+    select: { tenantId: true },
+  })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  const { summary } = await getDashboardKpiService(hotelId, year, month)
+
+  const snapshotDate = todayJst()
+  const values = {
+    revenue: summary.roomRevenue,
+    soldRooms: summary.soldRooms,
+    adr: summary.adr,
+    occupancy: summary.occupancyRate,
+    revPar: summary.revPar,
+    guests: summary.guests,
+  }
+
+  return prisma.kpiSnapshot.upsert({
+    where: {
+      hotelId_snapshotDate_targetYear_targetMonth: {
+        hotelId,
+        snapshotDate,
+        targetYear: year,
+        targetMonth: month,
+      },
+    },
+    update: values,
+    create: {
+      hotelId,
+      tenantId: hotel.tenantId,
+      snapshotDate,
+      targetYear: year,
+      targetMonth: month,
+      ...values,
+    },
+  })
+}

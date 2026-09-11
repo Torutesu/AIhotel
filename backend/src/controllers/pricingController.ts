@@ -7,8 +7,10 @@ import {
   getStrategyService,
   updateStrategyService,
   getSimulationService,
+  recomputeSimulationService,
 } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
+import type { MonthTargetInput } from '../lib/validators.js'
 
 /**
  * 日別価格カレンダー
@@ -97,4 +99,35 @@ export const recomputeForecast = asyncHandler(async (req: Request, res: Response
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, result, 200, `需要予測を再計算しました（${result.count}件）`)
+})
+
+/**
+ * 月間着地シミュレーションの再計算（MANAGER 以上・監査対象 — N-5 / F-DP-04）
+ * POST /api/v1/pricing/simulation/recompute
+ * body: { hotelId, year, month }
+ *
+ * 実績（DailyData）＋ AI 予測（AiPriceRecommendation）から着地見込みを組み直す。
+ * 同一 (hotelId, year, month) に対して冪等。
+ */
+export const recomputeSimulation = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.body as MonthTargetInput
+  const result = await recomputeSimulationService(hotelId, year, month)
+
+  await writeAuditLog({
+    tenantId: result.simulation.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'MonthlyLandingSimulation',
+    entityId: result.simulation.id,
+    newValue: result.simulation,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+
+  sendSuccess(
+    res,
+    result,
+    200,
+    `着地シミュレーションを再計算しました（実績${result.actualDays}日＋予測${result.predictedDays}日）`
+  )
 })

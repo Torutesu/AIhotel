@@ -56,6 +56,23 @@ export async function findActiveHotelService(
 }
 
 /**
+ * バッチ処理用: 有効な全ホテルの最小情報を返す（N-5）。
+ *
+ * jobs/ からは prisma を直接 import できない規約のため、日次バッチはこの関数で
+ * 対象ホテルを列挙する。ユーザーのアクセス制御を経由しないので、
+ * リクエスト処理からは呼ばないこと（バッチ専用）。
+ */
+export async function listActiveHotelsForJobService(): Promise<
+  Array<{ id: string; name: string; tenantId: string }>
+> {
+  return prisma.hotel.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true, tenantId: true },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
+/**
  * ホテルを作成
  */
 export async function createHotelService(data: {

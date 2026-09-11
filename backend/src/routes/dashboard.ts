@@ -7,6 +7,7 @@ import {
   kpiComparisonQuerySchema,
   aiSummaryQuerySchema,
   updateAlertStatusSchema,
+  monthTargetSchema,
   idParamSchema,
 } from '../lib/validators.js'
 import {
@@ -15,6 +16,7 @@ import {
   getAlerts,
   getAiSummary,
   patchAlertStatus,
+  postKpiSnapshot,
 } from '../controllers/dashboardController.js'
 
 export const dashboardRouter: ExpressRouter = Router()
@@ -61,4 +63,13 @@ dashboardRouter.patch(
   validate(updateAlertStatusSchema),
   requireAlertStatusRole,
   patchAlertStatus
+)
+
+// POST /api/v1/dashboard/kpi/snapshot — 当日時点のKPIを保存（MANAGER 以上・監査対象 — N-5）
+// 月初比較・日付比較（F-DASH-04）の比較元になる。同日・同対象月に対して冪等
+dashboardRouter.post(
+  '/kpi/snapshot',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(monthTargetSchema),
+  postKpiSnapshot
 )
