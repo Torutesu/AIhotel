@@ -7,10 +7,10 @@ const __dirname = path.dirname(__filename)
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   env: {
-    // デモモードは lib/api.ts 側で「"false" のときだけ無効」と判定する。
-    // 未設定時に process.env.NEXT_PUBLIC_DEMO_MODE が undefined へインライン化されても
-    // 有効側に倒れるため、ここでは値をそのまま渡すだけにしている。
-    // バックエンドを接続したら、ホスティング側の環境変数に NEXT_PUBLIC_DEMO_MODE=false を設定して無効化する。
+    // デモモードは opt-in。lib/api.ts 側で「"true" のときだけ有効」と判定する。
+    // 未設定時は '' がインライン化されて無効になり、デモ分岐はツリーシェイクで成果物から消える
+    // （scripts/verify-demo-mode.mjs --expect-disabled で検証できる）。
+    // クライアントへのUI確認・デモ用ビルドでのみ NEXT_PUBLIC_DEMO_MODE=true を設定する。
     NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE ?? '',
   },
   images: {
