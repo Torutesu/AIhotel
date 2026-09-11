@@ -59,7 +59,7 @@ const registerEventInput = z.object({
   type: z.enum(['concert', 'sports', 'conference', 'festival', 'exhibition', 'construction', 'group', 'other']),
   startDate: isoDate,
   endDate: isoDate,
-  expectedImpact: z.enum(['high', 'medium', 'low']),
+  expectedImpact: z.enum(['high', 'medium', 'low', 'negative']),
   description: z.string().max(500).optional(),
 })
 const decisionInput = z.object({ date: isoDate, appliedRank: z.number().int().min(1).max(40), reason: z.string().max(300).optional() })
@@ -154,7 +154,7 @@ export const CHAT_TOOLS: ChatTool[] = [
   {
     name: 'register_event',
     description:
-      'イベントや外部要因（工事・団体・近隣催事など）を登録し、該当期間の需要予測を再計算する。需要を下げる要因は expectedImpact を low にし、description に「需要減」と書く。ユーザーが登録を明確に求めたときだけ使う',
+      'イベントや外部要因（工事・団体・近隣催事など）を登録し、該当期間の需要予測を再計算する。需要を下げる要因（工事・交通障害・団体キャンセルなど）は expectedImpact を negative にする。ユーザーが登録を明確に求めたときだけ使う',
     inputSchema: registerEventInput,
     write: true,
     async run(raw, ctx) {

@@ -7,6 +7,7 @@ export const FACTOR_DEFAULTS: Record<string, number> = {
   'event:high': 0.15,
   'event:medium': 0.08,
   'event:low': 0.03,
+  'event:negative': -0.08, // 需要を下げる要因（近隣工事・団体キャンセル・交通障害など）
 
   // ---- 祝日・連休（holidaySignal.ts）。土日のみの週末は base が吸収するため対象外
   'holiday:eve': 0.10, // 祝日を含む連休の前夜（当日は平日）
@@ -76,6 +77,7 @@ export const FACTOR_LABELS: Record<string, string> = {
   'event:high': 'イベント（影響 大）',
   'event:medium': 'イベント（影響 中）',
   'event:low': 'イベント（影響 小）',
+  'event:negative': '需要を下げる要因（工事・障害など）',
   'holiday:eve': '連休前夜',
   'holiday:within': '連休中',
   'holiday:within_long': '3連休以上の中日',
@@ -91,6 +93,7 @@ export const FACTOR_LABELS: Record<string, string> = {
   'weather:rain_lead4_7': '雨予報（4〜7日先）',
   'weekend:hotel': '週末（ホテル定義）',
   'comp:soldout_share': '競合の売止め（エリア逼迫）',
+  'comp:price_index': '競合との相対価格',
   'model:ridge': '学習モデル補正（ridge-v1）',
 }
 

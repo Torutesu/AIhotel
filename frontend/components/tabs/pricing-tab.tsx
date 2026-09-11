@@ -59,6 +59,8 @@ function impactBadgeClass(impact?: string | null): string {
       return "bg-warning text-white"
     case "low":
       return "bg-primary text-white"
+    case "negative":
+      return "bg-secondary text-secondary-foreground"
     default:
       return "bg-muted text-muted-foreground"
   }
@@ -72,6 +74,8 @@ function impactLabel(impact?: string | null): string {
       return "影響度:中"
     case "low":
       return "影響度:低"
+    case "negative":
+      return "需要減"
     default:
       return "影響度:不明"
   }
@@ -486,7 +490,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   const [newEventStart, setNewEventStart] = useState("")
   const [newEventEnd, setNewEventEnd] = useState("")
   // "auto" = 会場の収容人数と距離からバックエンドが推定（expectedImpact を送らない）
-  const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low" | "auto">("medium")
+  const [newEventImpact, setNewEventImpact] = useState<"high" | "medium" | "low" | "negative" | "auto">("medium")
   const [newEventLocation, setNewEventLocation] = useState("")
   const [newEventVenueId, setNewEventVenueId] = useState<string>("none")
   const [newEventAttendance, setNewEventAttendance] = useState("")
@@ -1847,7 +1851,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="new-event-impact">影響度</Label>
-                        <Select value={newEventImpact} onValueChange={(v: "high" | "medium" | "low" | "auto") => setNewEventImpact(v)}>
+                        <Select value={newEventImpact} onValueChange={(v: "high" | "medium" | "low" | "negative" | "auto") => setNewEventImpact(v)}>
                           <SelectTrigger id="new-event-impact" className="h-9 text-sm">
                             <SelectValue />
                           </SelectTrigger>
@@ -1856,6 +1860,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                             <SelectItem value="high">高</SelectItem>
                             <SelectItem value="medium">中</SelectItem>
                             <SelectItem value="low">低</SelectItem>
+                            <SelectItem value="negative">需要減（工事・障害など）</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>

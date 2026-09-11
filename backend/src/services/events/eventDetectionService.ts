@@ -93,7 +93,7 @@ export async function reviewEventCandidateService(
   id: string,
   hotelId: string,
   decision: 'approve' | 'reject',
-  overrides?: { name?: string; startDate?: Date; endDate?: Date; expectedImpact?: 'high' | 'medium' | 'low'; type?: string }
+  overrides?: { name?: string; startDate?: Date; endDate?: Date; expectedImpact?: 'high' | 'medium' | 'low' | 'negative'; type?: string }
 ) {
   const result = await prisma.event.updateMany({
     where: { id, hotelId, status: 'candidate' },

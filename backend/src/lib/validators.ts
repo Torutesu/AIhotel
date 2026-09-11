@@ -162,7 +162,7 @@ const eventBaseSchema = z.object({
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
   location: z.string().max(200).optional(),
-  expectedImpact: z.enum(['high', 'medium', 'low']).optional(),
+  expectedImpact: z.enum(['high', 'medium', 'low', 'negative']).optional(),
   description: z.string().max(2000).optional(),
   // 会場マスタ（docs/外部要因設計.md §3 #3）。会場があり expectedImpact が無ければ収容人数・距離から推定する
   venueId: entityIdSchema.nullable().optional(),
@@ -343,7 +343,7 @@ export const reviewEventCandidateSchema = z.object({
   type: z.string().min(1).max(50).optional(),
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
-  expectedImpact: z.enum(['high', 'medium', 'low']).optional(),
+  expectedImpact: z.enum(['high', 'medium', 'low', 'negative']).optional(),
 }).refine((data) => !data.startDate || !data.endDate || data.startDate <= data.endDate, {
   message: '開始日は終了日以前である必要があります',
 })
