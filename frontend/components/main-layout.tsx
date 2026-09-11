@@ -28,6 +28,7 @@ import { ChatInterface } from "@/components/chat-interface"
 import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
 import { LoginForm } from "@/components/login-form"
+import { BrandLogo, BrandMark } from "@/components/brand-logo"
 import type { Tab } from "@shared/types"
 
 const tabs = [
@@ -106,12 +107,10 @@ export function MainLayout() {
             collapsed ? "justify-center px-3" : "justify-between px-6",
           )}
         >
-          <div className={cn("flex min-w-0 items-center gap-2", collapsed && "md:hidden")}>
-            <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
-            <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
-              ホテレベ
-            </h1>
-          </div>
+          <BrandLogo size="sm" asHeading className={cn(collapsed && "md:hidden")} />
+
+          {/* 折りたたみ時はシンボルのみ（ワードマークは出さない） */}
+          {collapsed && <BrandMark size="sm" className="hidden md:block" />}
 
           {/* デスクトップ: 折りたたみ切り替え */}
           <Button
@@ -199,7 +198,7 @@ export function MainLayout() {
           </div>
 
           <div className={cn("pt-2 text-xs text-muted-foreground", collapsed && "md:hidden")}>
-            <p>© 2026 ホテレベ</p>
+            <p>© 2026 レベスト</p>
           </div>
         </div>
       </aside>
@@ -216,10 +215,7 @@ export function MainLayout() {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
-          <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
-            ホテレベ
-          </h1>
+          <BrandLogo size="sm" />
         </div>
 
         <DemoModeBanner />
