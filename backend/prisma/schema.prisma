@@ -362,6 +362,13 @@ model AiPriceRecommendation {
   @@unique([hotelId, date, roomTypeId])
   @@index([tenantId])
   @@index([hotelId, date])
+  // 注意: PostgreSQL では NULL 同士が等しいとみなされないため、上の @@unique だけでは
+  // roomTypeId IS NULL のホテル全体行の重複を防げない（同一日の推奨が複数行でき、
+  // 料金カレンダーに同じ日が二重表示される）。部分ユニーク索引
+  // AiPriceRecommendation_hotelId_date_null_roomtype_key を
+  // migrations/20260911041135_ai_recommendation_partial_unique で手書きして補っている。
+  // 部分索引（WHERE 句付き）は schema.prisma では表現できないため、
+  // このモデルを変更する際はその索引が残っているか必ず確認すること（C-4）。
 }
 
 // 需要予測レベル5段階（F-DP-05）
