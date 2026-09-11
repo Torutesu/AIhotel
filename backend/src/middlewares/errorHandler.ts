@@ -140,14 +140,12 @@ export function errorHandler(
 
   // Log the error
   if (!isOperational || statusCode >= 500) {
+    // 認証ヘッダ・パスワード・個人情報が残らないよう、安全なメタデータのみ記録する
     logger.error({
       err,
-      req: {
-        method: req.method,
-        url: req.url,
-        headers: req.headers,
-        body: req.body,
-      },
+      method: req.method,
+      path: req.path,
+      userId: req.user?.userId,
       statusCode,
       message,
     })
