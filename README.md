@@ -257,12 +257,11 @@ pnpm --filter backend db:studio       # Prisma Studio（DB GUI）起動
 ### テスト・CI
 
 - バックエンドは **Vitest** でユニットテストを実装（`backend/src/lib/auth.test.ts`、`backend/src/lib/validators.test.ts` 等）。`pnpm test` で実行。
-- **GitHub Actions**（`.github/workflows/ci.yml`）が `main` / `production-readiness` ブランチへのpush、および全PRに対して以下を必須ゲートとして実行します。
-  1. 依存関係インストール（`pnpm install --frozen-lockfile`）
-  2. Prisma Client生成（型チェックに必要）
-  3. 全ワークスペースの型チェック（`pnpm --filter './*' type-check`）
-  4. バックエンドのテスト（`pnpm --filter backend test`）
-  5. バックエンド・フロントエンドのビルド
+- **GitHub Actions**（`.github/workflows/ci.yml`）が `main` へのpushおよび全PRに対して以下を必須ゲートとして実行します。
+  - **verify**: 依存関係インストール（`--frozen-lockfile`）→ Prisma Client生成 → 全ワークスペースの型チェック → backend/frontend の lint → バックエンドのテスト → 両ビルド → デモモードが無効であることの検証
+  - **database**: PostgreSQL 16 サービス上で `prisma validate` → `migrate deploy` → スキーマドリフト検出（`migrate diff --exit-code`）→ seedを2回実行（冪等性）→ テスト
+  - **audit**: `pnpm audit --prod --audit-level=high`
+  - **docker**: backend / frontend の本番イメージビルド
 
 ### プロジェクト構造の詳細
 
@@ -527,8 +526,20 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 
 - `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）
 - `GET /api/v1/pricing/strategy` - 価格戦略の重み付け取得（`hotelId`）
-- `PUT /api/v1/pricing/strategy` - 価格戦略の重み付け更新（**MANAGER以上**）
+- `PUT /api/v1/pricing/strategy` - 価格戦略の重み付け更新（**MANAGER以上**。重みの合計は100%必須）
 - `GET /api/v1/pricing/simulation` - 月間着地シミュレーション取得（`hotelId`, `year`, `month`）
+- `POST /api/v1/pricing/recompute` - ルールベース需要予測の再計算（**MANAGER以上**）
+
+### Events（イベント・外部要因） (`backend/src/routes/events.ts`)
+
+- `GET /api/v1/events` - イベント一覧（`hotelId`, `startDate`, `endDate`）
+- `POST /api/v1/events` - イベント登録（OPERATORも可 — F-DP-07）
+- `PUT /api/v1/events/:id` - イベント更新（**MANAGER以上**）
+- `DELETE /api/v1/events/:id` - イベント削除（**MANAGER以上**）
+
+### Reports (`backend/src/routes/reports.ts`)
+
+- `GET /api/v1/reports/monthly` - 月次レポート出力（`hotelId`, `year`, `month`, `format=pdf|excel`）。PDFは日本語フォント同梱
 
 ### Daily（日別分析） (`backend/src/routes/daily.ts`)
 
@@ -546,7 +557,8 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `GET /api/v1/settings/price-ranks` - 料金ランク一覧取得（`hotelId`。最大40段階）
 - `POST /api/v1/settings/price-ranks` - 料金ランク作成（**MANAGER以上**）
 - `PUT /api/v1/settings/price-ranks/:id` - 料金ランク更新（**MANAGER以上**）
-- `DELETE /api/v1/settings/price-ranks/:id` - 料金ランク削除（**MANAGER以上**）
+- `DELETE /api/v1/settings/price-ranks/:id` - 料金ランク削除（**MANAGER以上**、論理削除）
+- `PUT /api/v1/settings/hotel/:id` - ホテル設定更新（週末定義等。**MANAGER以上**）
 
 ### Health check（認証不要・`/api/v1`配下ではない）
 
@@ -555,7 +567,10 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 
 ### 未実装（Phase 4以降）
 
-PMS/OTA連携（取込・書き戻し）、OTAスクレイピング、需要予測MLモデル、Claude APIによるAIコメント自動生成（現状は `ai_comments` テーブルへのシードデータ表示のみ）、バッチジョブ、レポートのPDF/Excel出力、口コミの自動収集は未実装です。DBスキーマ（`Campaign`, `ReviewScore`, `GroupBooking`, `AuditLog` 等）とAPIの器は用意済みで、Phase 4で順次接続します。
+PMS/OTA連携（取込・書き戻し）、OTAスクレイピング、需要予測MLモデル、Claude APIによるAIコメント自動生成（現状は `ai_comments` テーブルへのシードデータ表示のみ）、バッチジョブ（スケジューラ）、口コミの自動収集は未実装です。DBスキーマ（`Campaign`, `ReviewScore`, `GroupBooking`, `AuditLog` 等）とAPIの器は用意済みで、Phase 4で順次接続します。
+
+なお **レポートのPDF/Excel出力はバックエンド実装済み**で、フロントエンドからの接続が残っています。
+画面ごとの実装状況は `要件定義書.md` §6、未解消の所見と対応タスクは `docs/改善計画.md` を参照してください。
 
 ## トラブルシューティング
 
