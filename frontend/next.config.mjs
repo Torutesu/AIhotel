@@ -36,10 +36,15 @@ const nextConfig = {
     pagesBufferLength: 5,
   },
   async rewrites() {
+    // ブラウザは常に same-origin の /api/* を叩き（lib/api.ts）、ここでバックエンドへ中継する。
+    // 中継先はサーバー専用の BACKEND_URL を優先する（ブラウザへ露出しない）。
+    // NEXT_PUBLIC_BACKEND_URL は既存環境との後方互換のためのフォールバック（F-10）。
+    const backendUrl =
+      process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'
     return [
       {
         source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001'}/api/:path*`,
+        destination: `${backendUrl}/api/:path*`,
       },
     ]
   },

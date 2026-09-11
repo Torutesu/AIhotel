@@ -2,7 +2,9 @@
 
 // バックエンドAPIクライアント（C-6）
 // next.config.mjs の rewrites により /api/* はバックエンドへプロキシされる。
-// 直接バックエンドURLを叩く場合は NEXT_PUBLIC_BACKEND_URL を設定する。
+// ブラウザからは常に same-origin（相対パス）で呼ぶ（F-10）。バックエンドの CORS は
+// 許可オリジンを限定しているため、ブラウザが直接バックエンドを叩くと弾かれる。
+// プロキシ先はサーバー専用の BACKEND_URL（next.config.mjs）で指定する。
 
 import type { ApiResponse, User, UserRole, Hotel, Event as HotelEvent, PriceRank } from "@shared/types"
 
@@ -13,10 +15,8 @@ const ACCESS_TOKEN_KEY = "hrms.accessToken"
 const REFRESH_TOKEN_KEY = "hrms.refreshToken"
 const MOCK_USER_KEY = "hrms.mockUser"
 
-const BASE_URL =
-  typeof window !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL
-    ? process.env.NEXT_PUBLIC_BACKEND_URL
-    : ""
+/** 常に same-origin。rewrite（next.config.mjs）が /api/* をバックエンドへ中継する。 */
+const BASE_URL = ""
 
 export class ApiClientError extends Error {
   status: number
