@@ -2,7 +2,7 @@
 //
 // 優先順位: 個社の制約（ルール節） > 学習済み係数 > 汎用MDの既定。
 // 検索は個社＋汎用を合算し、個社のスコアを優先。出典には【個社】/【汎用】のラベルを付ける。
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma.js'
 import { BadRequestError, NotFoundError } from '../../middlewares/errorHandler.js'
 import { logger } from '../../utils/logger.js'
@@ -58,6 +58,8 @@ export async function searchAllKnowledge(scope: { tenantId: string; hotelId: str
 
 export interface ApplyRulesResult {
   hotelIds: string[]
+  /** テナント共通文書の適用時、ホテル専用の個社MD（ルール付き）があるため飛ばしたホテル */
+  skippedHotelIds: string[]
   strategyUpdates: Record<string, unknown>
   excludedCompetitors: string[]
   competitorsNotFound: string[]
@@ -76,10 +78,22 @@ function factorKeysForGroups(groups: string[]): string[] {
  * 対象: 文書に hotelId があればそのホテル、無ければテナントの全アクティブホテル
  */
 export async function applyHotelRulesService(tenantId: string, hotelId: string | null, rules: HotelRules): Promise<ApplyRulesResult> {
-  const hotels = await prisma.hotel.findMany({ where: hotelId ? { id: hotelId, tenantId } : { tenantId, isActive: true }, select: { id: true } })
+  let hotels = await prisma.hotel.findMany({ where: hotelId ? { id: hotelId, tenantId } : { tenantId, isActive: true }, select: { id: true } })
   if (hotels.length === 0) throw new NotFoundError('対象ホテル')
 
-  const result: ApplyRulesResult = { hotelIds: hotels.map((h) => h.id), strategyUpdates: {}, excludedCompetitors: [], competitorsNotFound: [], lockedFactorKeys: [], unlockedFactorKeys: [], recomputedDays: 0 }
+  // 優先順位: ホテル専用の個社MD > テナント共通の個社MD。共通文書の適用では、専用文書（ルール付き）を持つホテルを飛ばす
+  const skippedHotelIds: string[] = []
+  if (!hotelId) {
+    const withOwn = await prisma.knowledgeDocument.findMany({
+      where: { tenantId, isActive: true, hotelId: { in: hotels.map((h) => h.id) }, rules: { not: Prisma.DbNull } },
+      select: { hotelId: true },
+    })
+    const ownSet = new Set(withOwn.map((d) => d.hotelId!))
+    skippedHotelIds.push(...hotels.filter((h) => ownSet.has(h.id)).map((h) => h.id))
+    hotels = hotels.filter((h) => !ownSet.has(h.id))
+  }
+
+  const result: ApplyRulesResult = { hotelIds: hotels.map((h) => h.id), skippedHotelIds, strategyUpdates: {}, excludedCompetitors: [], competitorsNotFound: [], lockedFactorKeys: [], unlockedFactorKeys: [], recomputedDays: 0 }
   const lockKeys = factorKeysForGroups(rules.disabledFactorGroups)
 
   for (const hotel of hotels) {
