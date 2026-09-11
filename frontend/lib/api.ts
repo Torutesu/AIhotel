@@ -645,8 +645,9 @@ export interface CreatePriceRankInput {
   label: string
   price1P: number
   price2P: number
-  price3P?: number
-  price4P?: number
+  /** 未設定は null。省略（undefined）は更新時に「変更しない」を意味する（R-2） */
+  price3P?: number | null
+  price4P?: number | null
 }
 
 export interface UpdateHotelSettingsInput {
@@ -1393,7 +1394,7 @@ export const api = {
   updatePriceRank(
     id: string,
     hotelId: string,
-    data: Partial<{ label: string; price1P: number; price2P: number; price3P: number; price4P: number }>
+    data: Partial<Omit<CreatePriceRankInput, "hotelId" | "rank">>
   ): Promise<PriceRank> {
     return withDemoFallback(
       () =>

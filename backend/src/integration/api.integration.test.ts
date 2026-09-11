@@ -753,6 +753,43 @@ describeIntegration('API 統合テスト', () => {
     })
   })
 
+  describe('料金ランクの未設定価格（レビュー指摘 R-2）', () => {
+    it('3名・4名を null で保存でき、0 に化けない', async () => {
+      const created = await request(app)
+        .post('/api/v1/settings/price-ranks')
+        .set('Authorization', `Bearer ${tokens.manager}`)
+        .send({ hotelId: HOTEL_A, rank: 37, label: 'R37', price1P: 5000, price2P: 7000 })
+
+      expect(created.status).toBe(201)
+      expect(created.body.data.price3P).toBeNull()
+      expect(created.body.data.price4P).toBeNull()
+
+      // 値に触れずに label だけ更新しても null のまま
+      const renamed = await request(app)
+        .put(`/api/v1/settings/price-ranks/${created.body.data.id}?hotelId=${HOTEL_A}`)
+        .set('Authorization', `Bearer ${tokens.manager}`)
+        .send({ label: 'R37b' })
+
+      expect(renamed.status).toBe(200)
+      expect(renamed.body.data.price3P).toBeNull()
+
+      // 明示的に null を送ると設定済みの値をクリアできる
+      const set = await request(app)
+        .put(`/api/v1/settings/price-ranks/${created.body.data.id}?hotelId=${HOTEL_A}`)
+        .set('Authorization', `Bearer ${tokens.manager}`)
+        .send({ price3P: 9000 })
+      expect(set.body.data.price3P).toBe(9000)
+
+      const cleared = await request(app)
+        .put(`/api/v1/settings/price-ranks/${created.body.data.id}?hotelId=${HOTEL_A}`)
+        .set('Authorization', `Bearer ${tokens.manager}`)
+        .send({ price3P: null })
+
+      expect(cleared.status).toBe(200)
+      expect(cleared.body.data.price3P).toBeNull()
+    })
+  })
+
   describe('hotelId の型検証（レビュー指摘 R-1）', () => {
     it('hotelId を配列で渡すと 400（認可判定に配列が流れ込まない）', async () => {
       const res = await request(app)

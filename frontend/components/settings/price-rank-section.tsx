@@ -39,13 +39,17 @@ const priceField = (label: string) =>
     .int(`${label}は整数で入力してください`)
     .min(0, `${label}は0以上で入力してください`)
 
+/** 空欄を「未設定」(null) として扱う料金フィールド（R-2） */
+const optionalPriceField = (label: string) => priceField(label).nullable()
+
 const rankFormSchema = z
   .object({
     label: z.string().trim().min(1, "ラベルを入力してください").max(10, "ラベルは10文字以内で入力してください"),
     price1P: priceField("1名料金"),
     price2P: priceField("2名料金"),
-    price3P: priceField("3名料金"),
-    price4P: priceField("4名料金"),
+    // 3名・4名は「未設定」を許す。空欄は null（未設定）として保存する（R-2）
+    price3P: optionalPriceField("3名料金"),
+    price4P: optionalPriceField("4名料金"),
   })
   .superRefine((data, ctx) => {
     // 人数が増えるほど料金が下がる設定は入力ミスの可能性が高いため弾く
@@ -56,14 +60,14 @@ const rankFormSchema = z
         message: "2名料金は1名料金以上で入力してください",
       })
     }
-    if (data.price3P > 0 && data.price3P < data.price2P) {
+    if (data.price3P != null && data.price3P < data.price2P) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["price3P"],
         message: "3名料金は2名料金以上で入力してください",
       })
     }
-    if (data.price4P > 0 && data.price3P > 0 && data.price4P < data.price3P) {
+    if (data.price4P != null && data.price3P != null && data.price4P < data.price3P) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["price4P"],
@@ -74,11 +78,16 @@ const rankFormSchema = z
 
 type RankFormValues = z.infer<typeof rankFormSchema>
 
-const PRICE_FIELDS: Array<{ key: keyof RankFormValues & `price${string}`; label: string }> = [
+const PRICE_FIELDS: Array<{
+  key: keyof RankFormValues & `price${string}`
+  label: string
+  /** 空欄を「未設定」として保存できるか（3名・4名のみ） */
+  optional?: boolean
+}> = [
   { key: "price1P", label: "1名料金" },
   { key: "price2P", label: "2名料金" },
-  { key: "price3P", label: "3名料金" },
-  { key: "price4P", label: "4名料金" },
+  { key: "price3P", label: "3名料金", optional: true },
+  { key: "price4P", label: "4名料金", optional: true },
 ]
 
 export function PriceRankSection() {
@@ -131,8 +140,8 @@ export function PriceRankSection() {
       label: `R${String(nextRankNumber).padStart(2, "0")}`,
       price1P: 0,
       price2P: 0,
-      price3P: 0,
-      price4P: 0,
+      price3P: null,
+      price4P: null,
     })
     setTarget("create")
   }
@@ -142,8 +151,8 @@ export function PriceRankSection() {
       label: rank.label,
       price1P: rank.price1P,
       price2P: rank.price2P,
-      price3P: rank.price3P ?? 0,
-      price4P: rank.price4P ?? 0,
+      price3P: rank.price3P ?? null,
+      price4P: rank.price4P ?? null,
     })
     setTarget(rank)
   }
@@ -317,14 +326,22 @@ export function PriceRankSection() {
                       type="number"
                       min={0}
                       aria-invalid={errors[field.key] ? true : undefined}
-                      {...register(field.key, { valueAsNumber: true })}
+                      placeholder={field.optional ? "未設定" : undefined}
+                      {...register(
+                        field.key,
+                        field.optional
+                          ? // 空欄は NaN ではなく null にして「未設定」を保存できるようにする（R-2）
+                            { setValueAs: (v: string) => (v === "" ? null : Number(v)) }
+                          : { valueAsNumber: true }
+                      )}
                     />
                     <FormFieldError message={errors[field.key]?.message} />
                   </div>
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                人数別価格は 1名 ≤ 2名 ≤ 3名 ≤ 4名 になるように入力してください（0は未設定扱い）。
+                人数別価格は 1名 ≤ 2名 ≤ 3名 ≤ 4名 になるように入力してください。
+                3名・4名は空欄のままにすると「未設定」として保存されます。
               </p>
             </div>
             <div className="flex justify-end gap-2 border-t pt-2">

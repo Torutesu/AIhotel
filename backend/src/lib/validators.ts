@@ -71,8 +71,10 @@ export const createPriceRankSchema = z.object({
   label: z.string().min(1).max(10),
   price1P: z.number().int().min(0),
   price2P: z.number().int().min(0),
-  price3P: z.number().int().min(0).optional(),
-  price4P: z.number().int().min(0).optional(),
+  // 3名・4名料金は「未設定」を null で表現できるようにする。
+  // 省略（undefined）は変更なし、null は明示的なクリアを意味する（R-2）
+  price3P: z.number().int().min(0).nullable().optional(),
+  price4P: z.number().int().min(0).nullable().optional(),
 })
 
 export const updatePriceRankSchema = createPriceRankSchema.omit({ hotelId: true, rank: true }).partial()
