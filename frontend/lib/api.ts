@@ -1530,14 +1530,15 @@ export const api = {
     })
   },
 
-  // ---- ユーザー管理（X-3 / N-3） ----
+  // ---- ユーザー管理（X-3 / N-3 / #62） ----
+  // いずれも自テナント内に限定される（ADMIN も例外ではない）。テナントを越えられるのは運営のみ。
 
   /** 同一テナントのユーザー一覧（ADMIN / MANAGER のみ。OPERATOR は 403） */
   users(hotelId: string): Promise<User[]> {
     return rawRequest(`/api/v1/users?hotelId=${hotelId}`)
   },
 
-  /** ユーザーの名前・ロール・有効/無効の変更（ADMIN、または自テナント内の MANAGER） */
+  /** ユーザーの名前・ロール・有効/無効の変更（自テナント内の ADMIN / MANAGER。運営ロールの付与は運営のみ） */
   updateUser(id: string, input: UpdateUserRequest): Promise<User> {
     return rawRequest(`/api/v1/users/${id}`, {
       method: "PUT",
@@ -1545,7 +1546,7 @@ export const api = {
     })
   },
 
-  /** ユーザーの招待（ADMIN / MANAGER）。MANAGER は自テナントのホテル指定が必須 */
+  /** ユーザーの招待（ADMIN / MANAGER）。作成先テナントは常に呼び出し元のテナント。MANAGER はホテル指定が必須 */
   registerUser(input: RegisterUserRequest): Promise<User> {
     return rawRequest("/api/v1/auth/register", {
       method: "POST",
