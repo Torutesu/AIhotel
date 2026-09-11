@@ -3,6 +3,7 @@ import { NotFoundError } from '../../middlewares/errorHandler.js'
 import type { DemandLevel } from '@prisma/client'
 import type { DailyForecast, DemandForecaster } from './types.js'
 import { ruleBasedForecaster } from './ruleBasedForecaster.js'
+import { addUtcDays, dateOnly, todayJst } from '../../lib/date.js'
 
 // 需要予測の再計算・DB反映（F-DP-05）。
 // F-DP-03（AI予測値へのリセット）のバックエンドとしても機能する:
@@ -10,16 +11,6 @@ import { ruleBasedForecaster } from './ruleBasedForecaster.js'
 // 最新のルールベース予測で上書きされ、AI推奨値に戻せる。
 
 const DEFAULT_FORECAST_DAYS = 90
-
-function addUtcDays(date: Date, days: number): Date {
-  const d = new Date(date)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d
-}
-
-function dateOnly(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-}
 
 /**
  * ホテル全体（roomTypeId=null）の AiPriceRecommendation を1件アップサートする。
@@ -76,7 +67,7 @@ export async function recomputeForecastService(
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
-  const start = dateOnly(startDate ?? new Date())
+  const start = startDate ? dateOnly(startDate) : todayJst()
   const end = dateOnly(endDate ?? addUtcDays(start, DEFAULT_FORECAST_DAYS))
 
   const forecasts = await forecaster.forecast({ hotelId, startDate: start, endDate: end })

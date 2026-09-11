@@ -1,12 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
-
-function monthRange(year: number, month: number): { start: Date; end: Date } {
-  return {
-    start: new Date(Date.UTC(year, month - 1, 1)),
-    end: new Date(Date.UTC(year, month, 1)),
-  }
-}
+import { monthRange } from '../lib/date.js'
 
 /**
  * 日別価格カレンダー（F-DP-01）

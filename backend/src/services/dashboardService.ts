@@ -1,12 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
-
-function monthRange(year: number, month: number): { start: Date; end: Date } {
-  return {
-    start: new Date(Date.UTC(year, month - 1, 1)),
-    end: new Date(Date.UTC(year, month, 1)),
-  }
-}
+import { monthRange } from '../lib/date.js'
 
 /**
  * 年度の開始月（4月始まり）。

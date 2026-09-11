@@ -1,5 +1,6 @@
 import { PrismaClient, UserRole, DemandLevel, AlertSeverity } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { DEFAULT_WEEKEND_DAYS, addUtcDays, todayJst } from '../src/lib/date.js'
 
 const prisma = new PrismaClient()
 
@@ -18,15 +19,8 @@ const TENANT_CODE = 'demo-tenant'
 const HOTEL_ID = 'demo-hotel-001'
 const PRICE_RANK_COUNT = 40 // F-SET-02: 最大40段階
 
-function dateOnly(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
-}
-
-function addDays(d: Date, days: number): Date {
-  const r = new Date(d)
-  r.setUTCDate(r.getUTCDate() + days)
-  return r
-}
+// 日付ユーティリティは src/lib/date.ts に集約している（C-6）
+const addDays = addUtcDays
 
 async function main() {
   console.log('🌱 Seeding database...')
@@ -54,7 +48,7 @@ async function main() {
       phone: '03-1234-5678',
       email: 'info@demo-hotel.example.com',
       totalRooms: 200,
-      weekendDays: [5, 6], // 金・土
+      weekendDays: [...DEFAULT_WEEKEND_DAYS], // 金・土
     },
   })
   console.log(`✅ Hotel: ${hotel.name}`)
@@ -154,7 +148,7 @@ async function main() {
   console.log(`✅ Competitors: ${competitors.length}`)
 
   // 8. 日別データ: 過去90日実績 + 今後90日AI予測
-  const today = dateOnly(new Date())
+  const today = todayJst()
   const totalRooms = 200
 
   await prisma.dailyData.deleteMany({ where: { hotelId: hotel.id } })

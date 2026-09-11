@@ -4,6 +4,7 @@ import PDFDocument from 'pdfkit'
 import { prisma } from '../lib/prisma.js'
 import { storage } from '../lib/storage.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
+import { DEFAULT_WEEKEND_DAYS, monthRange } from '../lib/date.js'
 
 // 月次レポート生成（F-REP-01: Excel / F-REP-02: PDF）。
 // DailyData / MonthlyBudget / MonthlyLandingSimulation を集計し、
@@ -16,14 +17,6 @@ const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土']
 // assets/ が来るよう import.meta.url から解決する（rootDir=src, outDir=dist で
 // ディレクトリ構造が一致するため dev/prod どちらでも backend/assets を指す）
 const FONT_PATH = fileURLToPath(new URL('../../assets/fonts/NotoSansJP-Regular.ttf', import.meta.url))
-
-function monthRange(year: number, month: number): { start: Date; end: Date; daysInMonth: number } {
-  return {
-    start: new Date(Date.UTC(year, month - 1, 1)),
-    end: new Date(Date.UTC(year, month, 1)),
-    daysInMonth: new Date(Date.UTC(year, month, 0)).getUTCDate(),
-  }
-}
 
 function toDateKey(d: Date): string {
   return d.toISOString().slice(0, 10)
@@ -72,7 +65,9 @@ async function buildMonthlyReportData(hotelId: string, year: number, month: numb
   if (!hotel) throw new NotFoundError('ホテル')
 
   const { start, end, daysInMonth } = monthRange(year, month)
-  const weekendDays = Array.isArray(hotel.weekendDays) ? (hotel.weekendDays as number[]) : [5, 6]
+  const weekendDays = Array.isArray(hotel.weekendDays)
+    ? (hotel.weekendDays as number[])
+    : [...DEFAULT_WEEKEND_DAYS]
 
   const [dailyData, budget] = await Promise.all([
     prisma.dailyData.findMany({
