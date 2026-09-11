@@ -11,7 +11,6 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 export const metadata: Metadata = {
   title: "ホテレベ",
   description: "ホテレベ - AIホテル収益管理システム",
-  generator: "v0.app",
 }
 
 export default function RootLayout({

@@ -43,6 +43,18 @@ const tabs = [
 
 const SIDEBAR_COLLAPSED_KEY = "hrms.sidebarCollapsed"
 
+const APP_NAME = "ホテレベ"
+
+/** タブごとのブラウザタブ表示名（F-8） */
+const TAB_TITLES: Record<Tab, string> = {
+  dashboard: "ダッシュボード",
+  pricing: "ダイナミックプライシング",
+  analysis: "分析",
+  reports: "レポート",
+  "ai-summary": "AIまとめ",
+  settings: "設定",
+}
+
 export function MainLayout() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard")
   const [chatOpen, setChatOpen] = useState(false)
@@ -55,6 +67,11 @@ export function MainLayout() {
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const { user, loading, logout, restoreError, retryRestore } = useAuth()
+
+  // 表示中のタブをブラウザのタブ名に反映する（F-8）
+  useEffect(() => {
+    document.title = user ? `${TAB_TITLES[activeTab]} | ${APP_NAME}` : APP_NAME
+  }, [activeTab, user])
 
   // 折りたたみ状態を記憶する（デスクトップのみ意味を持つ）
   useEffect(() => {
