@@ -977,11 +977,11 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
             <div className="flex items-center gap-3 flex-wrap">
               {/* 開始月は上部の対象年月。ここでは表示月数を選ぶ（F-DASH-01） */}
               <div className="flex items-center gap-1.5">
-                <Label className="text-xs whitespace-nowrap">
+                <Label htmlFor="kpi-month-span" className="text-xs whitespace-nowrap">
                   {year}年{month}月から
                 </Label>
                 <Select value={monthSpan} onValueChange={setMonthSpan}>
-                  <SelectTrigger className="h-7 w-24 text-xs">
+                  <SelectTrigger id="kpi-month-span" className="h-7 w-24 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1152,9 +1152,11 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
                 </p>
               </div>
               <div className="flex items-center gap-1.5">
-                <Label className="text-xs whitespace-nowrap">比較時点</Label>
+                <Label htmlFor="inventory-snapshot" className="text-xs whitespace-nowrap">
+                  比較時点
+                </Label>
                 <Select value={snapshotPeriod} onValueChange={setSnapshotPeriod}>
-                  <SelectTrigger className="h-8 w-36 text-xs">
+                  <SelectTrigger id="inventory-snapshot" className="h-8 w-36 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

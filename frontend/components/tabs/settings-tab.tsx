@@ -171,8 +171,8 @@ export function SettingsTab() {
 
           <Separator />
 
-          <div className="space-y-3">
-            <Label>KPI進捗表に表示する指標</Label>
+          <fieldset className="space-y-3">
+            <legend className="text-sm font-medium leading-none">KPI進捗表に表示する指標</legend>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4">
               {DASHBOARD_KPI_ITEMS.map((item) => (
                 <div key={item.key} className="flex items-center gap-2">
@@ -213,7 +213,7 @@ export function SettingsTab() {
                 </Button>
               </div>
             </div>
-          </div>
+          </fieldset>
         </CardContent>
       </Card>
     </div>

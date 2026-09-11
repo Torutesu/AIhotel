@@ -211,7 +211,12 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
             placeholder="質問を入力してください..."
             className="flex-1"
           />
-          <Button onClick={handleSend} size="icon" disabled={!input.trim() || isTyping}>
+          <Button
+            onClick={handleSend}
+            size="icon"
+            disabled={!input.trim() || isTyping}
+            aria-label="メッセージを送信"
+          >
             <Send className="w-4 h-4" />
           </Button>
         </div>

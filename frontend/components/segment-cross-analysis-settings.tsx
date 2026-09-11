@@ -157,12 +157,12 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
-            <Label className="font-semibold w-24">分析キー</Label>
+            <span className="text-sm font-semibold w-24">分析キー</span>
             <Input value={settings.key} readOnly className="flex-1" />
           </div>
 
           <div className="flex items-center gap-4">
-            <Label className="font-semibold w-24">選択肢</Label>
+            <span className="text-sm font-semibold w-24">選択肢</span>
             <Select value={settings.selection} onValueChange={(value) => onChange({ ...settings, selection: value })}>
               <SelectTrigger className="flex-1">
                 <SelectValue />
@@ -176,7 +176,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           </div>
 
           <div className="space-y-2">
-            <Label className="font-semibold">表示項目</Label>
+            <span className="text-sm font-semibold">表示項目</span>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <div className="flex items-center gap-2">
                 <Checkbox
@@ -214,7 +214,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           </div>
 
           <div className="flex items-center gap-4 flex-wrap">
-            <Label className="font-semibold w-24">個人・団体・全体</Label>
+            <span className="text-sm font-semibold w-24">個人・団体・全体</span>
             <RadioGroup
               value={settings.individualGroupTotal}
               onValueChange={(value: "individual" | "group" | "total") =>
@@ -239,7 +239,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
 
           {showRoomTypeToggle && (
             <div className="flex items-center gap-4">
-              <Label className="font-semibold w-24">部屋タイプを加える</Label>
+              <span className="text-sm font-semibold w-24">部屋タイプを加える</span>
               <Switch
                 checked={settings.includeRoomType}
                 onCheckedChange={(checked) => onChange({ ...settings, includeRoomType: checked })}
@@ -303,7 +303,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <Label className="font-semibold">表示モード</Label>
+            <span className="text-sm font-semibold">表示モード</span>
             <RadioGroup
               value={displayMode}
               onValueChange={(value: DisplayMode) => setDisplayMode(value)}
@@ -322,7 +322,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
 
           {displayMode === "graph" && (
             <div className="flex items-center gap-4 flex-wrap">
-              <Label className="font-semibold">グラフ種類</Label>
+              <span className="text-sm font-semibold">グラフ種類</span>
               <RadioGroup
                 value={graphType}
                 onValueChange={(value: GraphType) => setGraphType(value)}
@@ -365,7 +365,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4 flex-wrap">
-            <Label className="font-semibold">表示方法</Label>
+            <span className="text-sm font-semibold">表示方法</span>
             <RadioGroup
               value={reservationTypeView}
               onValueChange={(value: "reservation" | "group") => setReservationTypeView(value)}
@@ -383,7 +383,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           </div>
 
           <div className="space-y-2">
-            <Label className="font-semibold">タイプ別予約タイプ</Label>
+            <span className="text-sm font-semibold">タイプ別予約タイプ</span>
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>

@@ -661,10 +661,20 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                                     ? (el) => el?.scrollIntoView({ block: "center" })
                                     : undefined
                                 }
-                                className={`border-b hover:bg-muted/50 cursor-pointer transition-colors ${
+                                // 行クリックはキーボードからも実行できるようにする（U-14）
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`${monthData.month}月${Number(dayNum)}日のAI分析を開く`}
+                                onClick={() => setSelectedRowForAnalysis({ monthIndex, day })}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault()
+                                    setSelectedRowForAnalysis({ monthIndex, day })
+                                  }
+                                }}
+                                className={`border-b hover:bg-muted/50 cursor-pointer transition-colors focus-visible:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                                   day.date === highlightedDate ? "bg-primary/10 ring-1 ring-primary/40" : ""
                                 }`}
-                                onClick={() => setSelectedRowForAnalysis({ monthIndex, day })}
                               >
                                 <td className="py-2 px-2 font-medium">
                                   {monthData.month}/{Number(dayNum)}
@@ -1295,13 +1305,27 @@ function PriceGrid({
               return (
                 <div
                   key={key}
+                  // 日セルはクリックで詳細を開くため、キーボードからも操作できるようにする（U-14）
+                  role={cell.isCurrentMonth && cell.data ? "button" : undefined}
+                  tabIndex={cell.isCurrentMonth && cell.data ? 0 : undefined}
+                  aria-label={
+                    cell.isCurrentMonth && cell.data
+                      ? `${month}月${cell.date}日の詳細を開く`
+                      : undefined
+                  }
                   onClick={() => cell.isCurrentMonth && cell.data && onSelectDay(cell.data)}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && cell.isCurrentMonth && cell.data) {
+                      e.preventDefault()
+                      onSelectDay(cell.data)
+                    }
+                  }}
                   className={`
                     min-h-[110px] p-2 text-xs relative
                     ${cell.isCurrentMonth ? "" : "opacity-30"}
                     ${isWeekendDow(cell.dayOfWeek) ? "bg-primary/5" : ""}
                     border-r border-b
-                    ${cell.isCurrentMonth && cell.data ? "cursor-pointer hover:bg-muted/50 transition-colors" : ""}
+                    ${cell.isCurrentMonth && cell.data ? "cursor-pointer hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" : ""}
                   `}
                 >
                   <div className="flex items-center justify-between mb-1">

@@ -633,8 +633,9 @@ export function DailyCompetitorSection() {
                 次週 →
               </Button>
             </div>
-            <div className="flex items-center gap-2">
-              <Label className="text-xs whitespace-nowrap">利用人数:</Label>
+            <fieldset className="flex items-center gap-2">
+              <legend className="sr-only">利用人数</legend>
+              <span className="text-xs whitespace-nowrap font-medium">利用人数:</span>
               <div className="flex items-center gap-3 flex-wrap">
                 {[1, 2, 3].map((occ) => (
                   <div key={occ} className="flex items-center gap-1.5">
@@ -679,9 +680,10 @@ export function DailyCompetitorSection() {
                   </Label>
                 </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Label className="text-xs whitespace-nowrap">比較ホテル:</Label>
+            </fieldset>
+            <fieldset className="flex items-center gap-2">
+              <legend className="sr-only">比較ホテル</legend>
+              <span className="text-xs whitespace-nowrap font-medium">比較ホテル:</span>
               <div className="flex items-center gap-3 flex-wrap">
                 {(competitorData?.competitors ?? []).map((c) => (
                   <div key={c.id} className="flex items-center gap-1.5">
@@ -709,7 +711,7 @@ export function DailyCompetitorSection() {
                   <span className="text-xs text-muted-foreground">登録された競合ホテルがありません</span>
                 )}
               </div>
-            </div>
+            </fieldset>
           </div>
         </div>
       </CardHeader>
