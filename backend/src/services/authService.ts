@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js'
 import {
   hashPassword,
-  verifyPassword,
+  verifyPasswordConstantWork,
   generateTokenPair,
   verifyRefreshToken,
   getRefreshTokenExpiry,
@@ -46,6 +46,13 @@ interface AuthResult {
 // ======================================
 
 /**
+ * ログイン失敗時に返す唯一のメッセージ（S-8）。
+ * 「メールアドレスが存在しない」「パスワードが違う」「アカウントが無効」を
+ * 区別できないようにするため、すべてこの文言・401 で返す。
+ */
+export const INVALID_CREDENTIALS_MESSAGE = 'メールアドレスまたはパスワードが正しくありません'
+
+/**
  * ログイン失敗を監査ログに残す（S-6）。
  * ブルートフォース検知のため、失敗理由は監査ログにのみ記録し、
  * 呼び出し元がクライアントへ返すメッセージには含めない。
@@ -76,27 +83,20 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     where: { email },
   })
 
-  if (!user) {
-    await recordLoginFailure({ email, reason: 'USER_NOT_FOUND' }, ctx)
-    throw new ApiError(401, 'メールアドレスまたはパスワードが正しくありません')
-  }
+  // ユーザーが存在しない場合もダミーハッシュと比較して同じ計算量を消費する（S-8）。
+  // 分岐より前に必ず 1 回 bcrypt を実行することで、応答時間からアカウントの有無を
+  // 推測できないようにする。
+  const isValidPassword = await verifyPasswordConstantWork(password, user?.password)
 
-  if (!user.isActive) {
+  // 「存在しない」「パスワード不一致」「無効化済み」を同一メッセージ・同一ステータスで返す（S-8）。
+  // アカウント列挙と、有効／無効の判別を防ぐ。失敗理由は監査ログにのみ残す。
+  if (!user || !isValidPassword || !user.isActive) {
+    const reason = !user ? 'USER_NOT_FOUND' : !isValidPassword ? 'BAD_PASSWORD' : 'INACTIVE'
     await recordLoginFailure(
-      { email, reason: 'INACTIVE', tenantId: user.tenantId, userId: user.id },
+      { email, reason, tenantId: user?.tenantId ?? null, userId: user?.id ?? null },
       ctx
     )
-    throw new ApiError(401, 'このアカウントは無効化されています')
-  }
-
-  const isValidPassword = await verifyPassword(password, user.password)
-
-  if (!isValidPassword) {
-    await recordLoginFailure(
-      { email, reason: 'BAD_PASSWORD', tenantId: user.tenantId, userId: user.id },
-      ctx
-    )
-    throw new ApiError(401, 'メールアドレスまたはパスワードが正しくありません')
+    throw new ApiError(401, INVALID_CREDENTIALS_MESSAGE)
   }
 
   const tokens = generateTokenPair(user)

@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken'
 import {
   hashPassword,
   verifyPassword,
+  verifyPasswordConstantWork,
   generateAccessToken,
   generateRefreshToken,
   verifyAccessToken,
@@ -105,6 +106,43 @@ describe('hashToken', () => {
   it('SHA-256の16進文字列（64文字）を返す', () => {
     const hashed = hashToken('token-a')
     expect(hashed).toMatch(/^[0-9a-f]{64}$/)
+  })
+})
+
+describe('verifyPasswordConstantWork (S-8 タイミングオラクル対策)', () => {
+  it('ハッシュが無い（ユーザー不在）場合は false を返す', async () => {
+    await expect(verifyPasswordConstantWork('SuperSecret1', null)).resolves.toBe(false)
+    await expect(verifyPasswordConstantWork('SuperSecret1', undefined)).resolves.toBe(false)
+  })
+
+  it('正しいパスワードとハッシュの組み合わせでは true を返す', async () => {
+    const hashed = await hashPassword('SuperSecret1')
+    await expect(verifyPasswordConstantWork('SuperSecret1', hashed)).resolves.toBe(true)
+  })
+
+  it('誤ったパスワードでは false を返す', async () => {
+    const hashed = await hashPassword('SuperSecret1')
+    await expect(verifyPasswordConstantWork('WrongPassword1', hashed)).resolves.toBe(false)
+  })
+
+  it('ユーザー不在でも bcrypt 比較を行うため、実在ユーザーと同程度の時間がかかる', async () => {
+    const hashed = await hashPassword('SuperSecret1')
+
+    // 初回呼び出しでダミーハッシュを生成させ、計測対象から外す
+    await verifyPasswordConstantWork('SuperSecret1', null)
+
+    const measure = async (hash: string | null) => {
+      const start = performance.now()
+      await verifyPasswordConstantWork('SuperSecret1', hash)
+      return performance.now() - start
+    }
+
+    const missing = await measure(null)
+    const existing = await measure(hashed)
+
+    // bcrypt(cost 12) の比較は数十〜数百 ms かかる。ユーザー不在側が「即座に返る」
+    // （＝比較をスキップしている）状態を検出したいので、下限で判定する
+    expect(missing).toBeGreaterThan(existing / 4)
   })
 })
 
