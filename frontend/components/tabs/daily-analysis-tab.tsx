@@ -10,8 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as DatePicker } from "@/components/ui/calendar"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CalendarIcon, TrendingUp, BarChart3, Settings, RefreshCw, AlertCircle } from "lucide-react"
-import { SegmentCrossAnalysisSettings } from "@/components/segment-cross-analysis-settings"
+import { CalendarIcon, TrendingUp, BarChart3, RefreshCw, AlertCircle } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts"
 import { AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -20,18 +19,33 @@ import { ja } from "date-fns/locale/ja"
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type BookingCurve, type CompetitorPrices } from "@/lib/api"
+import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
 function yen(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "-"
   return `¥${Math.round(value).toLocaleString()}`
 }
 
+/** 競合比較テーブルの 1 行（`<競合ID>_<人数>名` の動的キーに価格が入る） */
+interface CompetitorComparisonRow {
+  date: string
+  day: string
+  ourPrice: number | null
+  [key: string]: string | number | null
+}
+
+/** 今日の 0 時（ローカルタイム）を返す */
+function startOfToday(): Date {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate())
+}
+
 function occLabel(occ: number): string {
   return occ >= 4 ? "4名以上" : `${occ}名`
 }
 
-function avgOf(rows: Array<Record<string, any>>, key: string): number | null {
-  const vals = rows.map((r) => r[key]).filter((v): v is number => v != null)
+function avgOf(rows: Array<Record<string, unknown>>, key: string): number | null {
+  const vals = rows.map((r) => r[key]).filter((v): v is number => typeof v === "number")
   if (vals.length === 0) return null
   return vals.reduce((a, b) => a + b, 0) / vals.length
 }
@@ -222,15 +236,15 @@ export function DailyPerformanceSection({
 
   // サマリーカード（月間の平均値と最高・最低の日）
   const monthlySummary = useMemo(() => {
-    const pick = (compare: (a: DailyRow, b: DailyRow) => boolean, key: keyof DailyRow) =>
+    const pick = (compare: (a: DailyRow, b: DailyRow) => boolean) =>
       dailyRows.reduce((best, row) => (compare(row, best) ? row : best), dailyRows[0])
 
-    const highestAdr = pick((a, b) => a.adr > b.adr, "adr")
-    const lowestAdr = pick((a, b) => a.adr < b.adr, "adr")
-    const highestOcc = pick((a, b) => a.occ > b.occ, "occ")
-    const lowestOcc = pick((a, b) => a.occ < b.occ, "occ")
-    const highestRevpar = pick((a, b) => a.revpar > b.revpar, "revpar")
-    const lowestRevpar = pick((a, b) => a.revpar < b.revpar, "revpar")
+    const highestAdr = pick((a, b) => a.adr > b.adr)
+    const lowestAdr = pick((a, b) => a.adr < b.adr)
+    const highestOcc = pick((a, b) => a.occ > b.occ)
+    const lowestOcc = pick((a, b) => a.occ < b.occ)
+    const highestRevpar = pick((a, b) => a.revpar > b.revpar)
+    const lowestRevpar = pick((a, b) => a.revpar < b.revpar)
 
     return { highestAdr, lowestAdr, highestOcc, lowestOcc, highestRevpar, lowestRevpar }
   }, [dailyRows])
@@ -241,7 +255,7 @@ export function DailyPerformanceSection({
 
   // 日付が過去かどうかを判定する関数
   const isPastDate = (dateStr: string, monthStr: string) => {
-    const [month, day] = dateStr.split("/").map(Number)
+    const [, day] = dateStr.split("/").map(Number)
     const [year, monthNum] = monthStr.split("-").map(Number)
     const rowDate = new Date(year, monthNum - 1, day)
     const rowDateOnly = new Date(rowDate.getFullYear(), rowDate.getMonth(), rowDate.getDate())
@@ -566,9 +580,9 @@ export function BookingCurveSection({
 }: BookingCurveSectionProps = {}) {
   const { hotelId } = useAuth()
 
-  // 現在の日付を取得（実績/予測の境界判定用）
-  const today = new Date()
-  const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  // 現在の日付（実績/予測の境界判定用）。毎レンダーで作り直すと useMemo の依存が
+  // 常に変化してしまうため、マウント時に 1 度だけ確定させる。
+  const todayDateOnly = useMemo(() => startOfToday(), [])
 
   // ---- ブッキングカーブ（実データ: api.bookingCurve） ----
   const [internalStayDate, setInternalStayDate] = useState<Date | undefined>(() => {
@@ -618,8 +632,7 @@ export function BookingCurveSection({
     if (!selectedStayDate) return 0
     const diff = Math.ceil((selectedStayDate.getTime() - todayDateOnly.getTime()) / 86400000)
     return Math.max(0, diff)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStayDate])
+  }, [selectedStayDate, todayDateOnly])
 
   // X軸: daysBefore を右肩上がり（宿泊日に近づくほど右）に表示するため降順のまま reversed 指定。
   // 現在ADR・現在稼働率とそれぞれのAI予測（当日以降は破線）、前年実績・予算を表示する。
@@ -651,21 +664,25 @@ export function BookingCurveSection({
 
   const maxDaysBefore = bookingCurveData.length > 0 ? bookingCurveData[0].daysBefore : 90
 
-  const BookingCurveTooltip = ({ active, payload }: any) => {
+  const BookingCurveTooltip = ({ active, payload }: ChartTooltipProps) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
       return (
         <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">宿泊 {data.daysBefore}日前</p>
+          <p className="text-sm font-medium mb-2">宿泊 {data?.daysBefore}日前</p>
           <div className="space-y-1">
-            {payload.map((entry: any, index: number) => (
-              <p key={index} className="text-xs flex items-center gap-2">
-                <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
-                <span>
-                  {entry.name}: {entry.name.includes("ADR") ? yen(entry.value) : `${entry.value}%`}
-                </span>
-              </p>
-            ))}
+            {payload.map((entry: ChartTooltipEntry, index: number) => {
+              const name = String(entry.name ?? "")
+              const value = toNumber(entry.value)
+              return (
+                <p key={index} className="text-xs flex items-center gap-2">
+                  <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
+                  <span>
+                    {name}: {name.includes("ADR") ? yen(value) : `${value}%`}
+                  </span>
+                </p>
+              )
+            })}
           </div>
         </div>
       )
@@ -673,18 +690,18 @@ export function BookingCurveSection({
     return null
   }
 
-  const MonthlyCurveTooltip = ({ active, payload }: any) => {
+  const MonthlyCurveTooltip = ({ active, payload }: ChartTooltipProps) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload
       return (
         <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">宿泊 {data.monthsBefore}か月前</p>
+          <p className="text-sm font-medium mb-2">宿泊 {data?.monthsBefore}か月前</p>
           <div className="space-y-1">
-            {payload.map((entry: any, index: number) => (
+            {payload.map((entry: ChartTooltipEntry, index: number) => (
               <p key={index} className="text-xs flex items-center gap-2">
                 <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
                 <span>
-                  {entry.name}: {entry.value.toLocaleString()}室
+                  {entry.name}: {toNumber(entry.value).toLocaleString()}室
                 </span>
               </p>
             ))}
@@ -1011,7 +1028,7 @@ export function DailyCompetitorSection() {
     return dates.map((date) => {
       const d = new Date(date)
       const own = ownByDate.get(date)
-      const result: any = {
+      const result: CompetitorComparisonRow = {
         date: `${d.getMonth() + 1}/${d.getDate()}`,
         day: ["日", "月", "火", "水", "木", "金", "土"][d.getDay()],
         ourPrice: own?.price ?? null,

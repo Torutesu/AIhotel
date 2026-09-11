@@ -104,14 +104,16 @@ ${colorConfig
 
 const ChartTooltip = RechartsPrimitive.Tooltip
 
-type TooltipPayload = Array<{
+type TooltipPayloadItem = {
   name?: string
   value?: number | string
   dataKey?: string | number
   color?: string
-  payload?: any
-  [key: string]: any
-}> | undefined
+  payload?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+type TooltipPayload = Array<TooltipPayloadItem> | undefined
 
 type TooltipLabel = string | number | undefined
 
@@ -139,8 +141,14 @@ function ChartTooltipContent({
   indicator?: 'line' | 'dot' | 'dashed'
   nameKey?: string
   labelKey?: string
-  labelFormatter?: (value: any, payload: TooltipPayload) => React.ReactNode
-  formatter?: (value: any, name: any, item: any, index: number, payload: any) => React.ReactNode
+  labelFormatter?: (value: React.ReactNode, payload: TooltipPayload) => React.ReactNode
+  formatter?: (
+    value: TooltipPayloadItem['value'],
+    name: TooltipPayloadItem['name'],
+    item: TooltipPayloadItem,
+    index: number,
+    payload: TooltipPayloadItem['payload'],
+  ) => React.ReactNode
   color?: string
   labelClassName?: string
 }) {
@@ -197,10 +205,10 @@ function ChartTooltipContent({
     >
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">
-        {payload.map((item: any, index: number) => {
+        {payload.map((item: TooltipPayloadItem, index: number) => {
           const key = `${nameKey || item.name || item.dataKey || 'value'}`
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
-          const indicatorColor = color || item.payload.fill || item.color
+          const indicatorColor = color || (item.payload?.fill as string | undefined) || item.color
 
           return (
             <div
@@ -268,12 +276,14 @@ function ChartTooltipContent({
 
 const ChartLegend = RechartsPrimitive.Legend
 
-type LegendPayload = Array<{
+type LegendPayloadItem = {
   value?: string | number
   dataKey?: string | number
   color?: string
-  [key: string]: any
-}> | undefined
+  [key: string]: unknown
+}
+
+type LegendPayload = Array<LegendPayloadItem> | undefined
 
 function ChartLegendContent({
   className,
@@ -302,7 +312,7 @@ function ChartLegendContent({
         className,
       )}
     >
-      {payload.map((item: any) => {
+      {payload.map((item: LegendPayloadItem) => {
         const key = `${nameKey || item.dataKey || 'value'}`
         const itemConfig = getPayloadConfigFromPayload(config, item, key)
 

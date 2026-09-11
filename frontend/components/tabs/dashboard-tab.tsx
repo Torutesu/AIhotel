@@ -14,6 +14,7 @@ import { ja } from "date-fns/locale/ja"
 import { CalendarIcon, AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
 
 import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
+import { toNumber, type ChartTooltipProps } from "@/lib/chart-tooltip"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type DashboardKpi, type AlertItem, type AiSummary } from "@/lib/api"
 
@@ -148,7 +149,7 @@ function buildComparisonRows(summary: DashboardKpi["summary"], snapshot: KpiSnap
       label: "室料売上",
       current: formatYen(summary.roomRevenue),
       before: formatYen(snapshot.roomRevenue),
-      diffLabel: `${diff(summary.roomRevenue, snapshot.roomRevenue) >= 0 ? "+" : "-"}${formatYen(Math.abs(diff(summary.roomRevenue, snapshot.roomRevenue))).replace("¥", "¥")}`,
+      diffLabel: `${diff(summary.roomRevenue, snapshot.roomRevenue) >= 0 ? "+" : "-"}${formatYen(Math.abs(diff(summary.roomRevenue, snapshot.roomRevenue)))}`,
       diffRate: rate(summary.roomRevenue, snapshot.roomRevenue),
     },
     {
@@ -749,19 +750,19 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     })
   }, [totalRooms, snapshotPeriod])
 
-  const CustomTooltip = ({ active, payload }: any) => {
+  const CustomTooltip = ({ active, payload }: ChartTooltipProps) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">{payload[0].payload.date}</p>
+          <p className="text-sm font-medium mb-2">{payload[0].payload?.date}</p>
           <div className="space-y-1">
             <p className="text-xs flex items-center gap-2">
               <span className="w-3 h-0.5 bg-[color:var(--chart-1)]"></span>
-              <span>稼働率: {payload[0].value != null ? `${payload[0].value.toFixed(1)}%` : "-"}</span>
+              <span>稼働率: {payload[0].value != null ? `${toNumber(payload[0].value).toFixed(1)}%` : "-"}</span>
             </p>
             <p className="text-xs flex items-center gap-2">
               <span className="w-3 h-0.5 bg-[color:var(--chart-3)]"></span>
-              <span>ADR: {payload[1]?.value != null ? `¥${Math.round(payload[1].value).toLocaleString()}` : "-"}</span>
+              <span>ADR: {payload[1]?.value != null ? `¥${Math.round(toNumber(payload[1].value)).toLocaleString()}` : "-"}</span>
             </p>
           </div>
         </div>
@@ -918,7 +919,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
                               </button>
                             )}
                           </div>
-                          <p className={`text-sm ${style.text.replace("700", "800").replace("400", "300")}`}>
+                          <p className={`text-sm ${style.text}`}>
                             {alert.title}: {alert.message}
                           </p>
                         </div>

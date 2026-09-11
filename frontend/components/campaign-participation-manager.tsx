@@ -13,7 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
-import { CalendarIcon, Plus, Trash2, Download, Upload, Save, AlertTriangle, KeyRound } from "lucide-react"
+import { CalendarIcon, Plus, Trash2, Download, Save, AlertTriangle, KeyRound } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/confirm-dialog"

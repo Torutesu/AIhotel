@@ -16,7 +16,7 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-  webpack: (config, { isServer }) => {
+  webpack: (config) => {
     // コンパイルタイムアウトを延長
     config.watchOptions = {
       ...config.watchOptions,

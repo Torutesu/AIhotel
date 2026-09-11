@@ -24,6 +24,7 @@ import {
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type MonthlyTrend, type CompetitorAnalysis } from "@/lib/api"
 import type { AnalysisView } from "@/lib/alert-link"
+import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
@@ -38,6 +39,14 @@ const DEFAULT_TARGET_PERIOD = "2025-04"
 export interface AnalysisSectionProps {
   targetPeriod?: string
   onTargetPeriodChange?: (value: string) => void
+}
+
+/** フリー分析のサンプル行（軸1 × 軸2 の集計値） */
+interface FreeAnalysisRow {
+  axis1Label: string
+  axis1Value?: string
+  axis2Label?: string
+  value: number
 }
 
 function useTargetPeriod({ targetPeriod, onTargetPeriodChange }: AnalysisSectionProps) {
@@ -609,25 +618,28 @@ export function SegmentAnalysisSection(props: AnalysisSectionProps) {
   const periodData = useMemo(() => buildPeriodData(targetPeriod), [targetPeriod])
   const [segmentViewMode, setSegmentViewMode] = useState<"guest-count" | "segment">("guest-count")
 
-  const ComparisonTooltip = ({ active, payload }: any) => {
+  const ComparisonTooltip = ({ active, payload }: ChartTooltipProps) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">{payload[0].payload.month}</p>
+          <p className="text-sm font-medium mb-2">{payload[0].payload?.month}</p>
           <div className="space-y-1">
-            {payload.map((entry: any, index: number) => (
-              <p key={index} className="text-xs flex items-center gap-2">
-                <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
-                <span>
-                  {entry.name}:{" "}
-                  {entry.dataKey === "revenue" || entry.dataKey === "budget" || entry.dataKey === "lastYear"
-                    ? `¥${(entry.value / 1000000).toFixed(1)}M`
-                    : entry.dataKey === "adr"
-                      ? `¥${Math.round(entry.value).toLocaleString()}`
-                      : `${Math.round(entry.value)}%`}
-                </span>
-              </p>
-            ))}
+            {payload.map((entry: ChartTooltipEntry, index: number) => {
+              const value = toNumber(entry.value)
+              return (
+                <p key={index} className="text-xs flex items-center gap-2">
+                  <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
+                  <span>
+                    {entry.name}:{" "}
+                    {entry.dataKey === "revenue" || entry.dataKey === "budget" || entry.dataKey === "lastYear"
+                      ? `¥${(value / 1000000).toFixed(1)}M`
+                      : entry.dataKey === "adr"
+                        ? `¥${Math.round(value).toLocaleString()}`
+                        : `${Math.round(value)}%`}
+                  </span>
+                </p>
+              )
+            })}
           </div>
         </div>
       )
@@ -1138,20 +1150,21 @@ export function YearlyTrendSection(props: AnalysisSectionProps) {
     return { totalRevenue, achievementRate, bestAdrMonth, bestOccMonth }
   }, [monthlyTrend])
 
-  const MonthlyTrendTooltip = ({ active, payload }: any) => {
+  const MonthlyTrendTooltip = ({ active, payload }: ChartTooltipProps) => {
     if (active && payload && payload.length) {
       return (
         <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">{payload[0].payload.month}</p>
+          <p className="text-sm font-medium mb-2">{payload[0].payload?.month}</p>
           <div className="space-y-1">
-            {payload.map((entry: any, index: number) => {
+            {payload.map((entry: ChartTooltipEntry, index: number) => {
               if (entry.value == null) return null
+              const value = toNumber(entry.value)
               const isYen = entry.dataKey !== "occupancy"
               const formatted = isYen
                 ? entry.dataKey === "revenue" || entry.dataKey === "budget" || entry.dataKey === "lastYear"
-                  ? `¥${(entry.value / 1000000).toFixed(1)}M`
-                  : `¥${Math.round(entry.value).toLocaleString()}`
-                : `${entry.value}%`
+                  ? `¥${(value / 1000000).toFixed(1)}M`
+                  : `¥${Math.round(value).toLocaleString()}`
+                : `${value}%`
               return (
                 <p key={index} className="text-xs flex items-center gap-2">
                   <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
@@ -1415,7 +1428,7 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
     if (!freeAnalysisAxis1 || !freeAnalysisMetric) return []
 
     // サンプルデータ（実際の実装では、選択された軸と集計項目に基づいてAPIから取得）
-    const sampleData: any[] = []
+    const sampleData: FreeAnalysisRow[] = []
 
     // 各軸の値リストを定義
     const axis1Values: Record<string, string[]> = {
@@ -1497,9 +1510,9 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
     return sampleData
   }, [freeAnalysisAxis1, freeAnalysisAxis2, freeAnalysisMetric])
 
-  const FreeAnalysisTooltip = ({ active, payload }: any) => {
+  const FreeAnalysisTooltip = ({ active, payload }: ChartTooltipProps) => {
     if (active && payload && payload.length) {
-      const data = payload[0].payload
+      const data = payload[0].payload as FreeAnalysisRow | undefined
       const metricLabel =
         freeAnalysisMetric === "rooms" ? "販売室数" :
           freeAnalysisMetric === "occupancy" ? "稼働率" :
@@ -1510,24 +1523,27 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
 
       return (
         <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">{data.axis1Label}{data.axis2Label ? ` × ${data.axis2Label}` : ""}</p>
+          <p className="text-sm font-medium mb-2">{data?.axis1Label}{data?.axis2Label ? ` × ${data.axis2Label}` : ""}</p>
           <div className="space-y-1">
-            {payload.map((entry: any, index: number) => (
-              <p key={index} className="text-xs flex items-center gap-2">
-                <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
-                <span>
-                  {metricLabel}: {
-                    freeAnalysisMetric === "occupancy"
-                      ? `${entry.value}%`
-                      : freeAnalysisMetric === "adr" || freeAnalysisMetric === "revpar"
-                        ? `¥${entry.value.toLocaleString()}`
-                        : freeAnalysisMetric === "revenue"
-                          ? `¥${entry.value.toLocaleString()}`
-                          : `${entry.value}${freeAnalysisMetric === "rooms" ? "室" : ""}`
-                  }
-                </span>
-              </p>
-            ))}
+            {payload.map((entry: ChartTooltipEntry, index: number) => {
+              const value = toNumber(entry.value)
+              return (
+                <p key={index} className="text-xs flex items-center gap-2">
+                  <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
+                  <span>
+                    {metricLabel}: {
+                      freeAnalysisMetric === "occupancy"
+                        ? `${value}%`
+                        : freeAnalysisMetric === "adr" || freeAnalysisMetric === "revpar"
+                          ? `¥${value.toLocaleString()}`
+                          : freeAnalysisMetric === "revenue"
+                            ? `¥${value.toLocaleString()}`
+                            : `${value}${freeAnalysisMetric === "rooms" ? "室" : ""}`
+                    }
+                  </span>
+                </p>
+              )
+            })}
           </div>
         </div>
       )
@@ -1640,19 +1656,19 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
                                 freeAnalysisAxis1 === "segment" ? "顧客セグメント" :
                                   freeAnalysisAxis1 === "dayofweek" ? "曜日" : "日付"}
                         </th>
-                        {Array.from(new Set(freeAnalysisData.map((d: any) => d.axis2Label).filter((label: any) => label != null))).map((axis2Label: any, index: number) => (
+                        {Array.from(new Set(freeAnalysisData.map((d) => d.axis2Label).filter((label): label is string => label != null))).map((axis2Label, index) => (
                           <th key={`axis2-${axis2Label}-${index}`} className="text-right py-2 px-2 font-medium">{axis2Label}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {Array.from(new Set(freeAnalysisData.map((d: any) => d.axis1Label))).map((axis1Label: any) => {
-                        const rowData = freeAnalysisData.filter((d: any) => d.axis1Label === axis1Label)
+                      {Array.from(new Set(freeAnalysisData.map((d) => d.axis1Label))).map((axis1Label) => {
+                        const rowData = freeAnalysisData.filter((d) => d.axis1Label === axis1Label)
                         return (
                           <tr key={axis1Label} className="border-b hover:bg-muted/50">
                             <td className="py-2 px-2 font-medium">{axis1Label}</td>
-                            {Array.from(new Set(freeAnalysisData.map((d: any) => d.axis2Label).filter((label: any) => label != null))).map((axis2Label: any, cellIndex: number) => {
-                              const cellData = rowData.find((d: any) => d.axis2Label === axis2Label)
+                            {Array.from(new Set(freeAnalysisData.map((d) => d.axis2Label).filter((label): label is string => label != null))).map((axis2Label, cellIndex) => {
+                              const cellData = rowData.find((d) => d.axis2Label === axis2Label)
                               const value = cellData?.value || 0
                               return (
                                 <td key={`cell-${axis1Label}-${axis2Label}-${cellIndex}`} className="text-right py-2 px-2">
@@ -1737,7 +1753,7 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
                       </tr>
                     </thead>
                     <tbody>
-                      {freeAnalysisData.map((row: any, index: number) => (
+                      {freeAnalysisData.map((row, index) => (
                         <tr key={index} className="border-b hover:bg-muted/50">
                           <td className="py-2 px-2 font-medium">{row.axis1Label}</td>
                           <td className="text-right py-2 px-2">
@@ -1835,11 +1851,8 @@ export function AnalysisTab({ onNavigateToPricing, requestedView }: AnalysisTabP
             分析に戻る
           </Button>
         </div>
-        <SegmentCrossAnalysisSettings
-          onSave={(settings) => {
-            console.log("Settings saved:", settings)
-          }}
-        />
+        {/* onSave は省略可（保存 API は未接続。B-1 で追加予定） */}
+        <SegmentCrossAnalysisSettings />
       </div>
     )
   }
