@@ -108,6 +108,11 @@ export function KpiProgressSection({
     // 実績が1日も登録されていない月は、実績ゼロではなく「未登録」として扱う（U-11）
     const hasActuals = summary.actualDays > 0
     const actualOr = (value: string) => (hasActuals ? value : "未登録")
+    // 実績が無い月は比率も「0.0%」ではなく「-」にする（実績ゼロと誤解させない — U-11）
+    const ratioOr = (value: number | null | undefined) =>
+      hasActuals && value != null ? formatPercent(value) : "-"
+    const ratioNeg = (value: number | null | undefined) =>
+      hasActuals && value != null && value < 0.95
     // 年度累計軸では実績側も年度累計値を使う
     const isFiscal = comparisonAxis === "fiscalYear"
     const revenueActual = isFiscal
@@ -123,10 +128,10 @@ export function KpiProgressSection({
         key: "roomRevenue",
         label: "室料売上",
         actual: actualOr(formatYen(revenueActual)),
-        budgetRatio: axis?.budgetRevenueRatio != null ? formatPercent(axis.budgetRevenueRatio) : "-",
-        budgetNegative: axis?.budgetRevenueRatio != null && axis.budgetRevenueRatio < 0.95,
-        lastYearRatio: axis?.lastYearRevenueRatio != null ? formatPercent(axis.lastYearRevenueRatio) : "-",
-        lastYearNegative: axis?.lastYearRevenueRatio != null && axis.lastYearRevenueRatio < 0.95,
+        budgetRatio: ratioOr(axis?.budgetRevenueRatio),
+        budgetNegative: ratioNeg(axis?.budgetRevenueRatio),
+        lastYearRatio: ratioOr(axis?.lastYearRevenueRatio),
+        lastYearNegative: ratioNeg(axis?.lastYearRevenueRatio),
         aiPrediction: formatYen(simulation?.projectedRevenue),
         aiBudgetRatio: formatRatio(simulation?.projectedRevenue, comparison?.budgetRevenue),
         aiBudgetNegative: ratioNegative(simulation?.projectedRevenue, comparison?.budgetRevenue),
@@ -151,10 +156,10 @@ export function KpiProgressSection({
         key: "adr",
         label: "ADR",
         actual: actualOr(formatYen(adrActual)),
-        budgetRatio: axis?.budgetAdrRatio != null ? formatPercent(axis.budgetAdrRatio) : "-",
-        budgetNegative: axis?.budgetAdrRatio != null && axis.budgetAdrRatio < 0.95,
-        lastYearRatio: axis?.lastYearAdrRatio != null ? formatPercent(axis.lastYearAdrRatio) : "-",
-        lastYearNegative: axis?.lastYearAdrRatio != null && axis.lastYearAdrRatio < 0.95,
+        budgetRatio: ratioOr(axis?.budgetAdrRatio),
+        budgetNegative: ratioNeg(axis?.budgetAdrRatio),
+        lastYearRatio: ratioOr(axis?.lastYearAdrRatio),
+        lastYearNegative: ratioNeg(axis?.lastYearAdrRatio),
         aiPrediction: formatYen(simulation?.projectedAdr),
         aiBudgetRatio: formatRatio(simulation?.projectedAdr, comparison?.budgetAdr),
         aiBudgetNegative: ratioNegative(simulation?.projectedAdr, comparison?.budgetAdr),
@@ -165,11 +170,10 @@ export function KpiProgressSection({
         key: "occupancyRate",
         label: "稼働率",
         actual: actualOr(formatPercent(occupancyActual)),
-        budgetRatio: axis?.budgetOccupancyRatio != null ? formatPercent(axis.budgetOccupancyRatio) : "-",
-        budgetNegative: axis?.budgetOccupancyRatio != null && axis.budgetOccupancyRatio < 0.95,
-        lastYearRatio:
-          axis?.lastYearOccupancyRatio != null ? formatPercent(axis.lastYearOccupancyRatio) : "-",
-        lastYearNegative: axis?.lastYearOccupancyRatio != null && axis.lastYearOccupancyRatio < 0.95,
+        budgetRatio: ratioOr(axis?.budgetOccupancyRatio),
+        budgetNegative: ratioNeg(axis?.budgetOccupancyRatio),
+        lastYearRatio: ratioOr(axis?.lastYearOccupancyRatio),
+        lastYearNegative: ratioNeg(axis?.lastYearOccupancyRatio),
         aiPrediction: formatPercent(simulation?.projectedOccupancy),
         aiBudgetRatio: formatRatio(simulation?.projectedOccupancy, comparison?.budgetOccupancy),
         aiBudgetNegative: ratioNegative(simulation?.projectedOccupancy, comparison?.budgetOccupancy),
