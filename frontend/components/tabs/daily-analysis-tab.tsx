@@ -7,10 +7,9 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar as DatePicker } from "@/components/ui/calendar"
+import { DatePicker } from "@/components/date-picker"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CalendarIcon, BarChart3, RefreshCw, AlertCircle } from "lucide-react"
+import { BarChart3, RefreshCw, AlertCircle } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts"
 import { AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -19,7 +18,7 @@ import { ja } from "date-fns/locale/ja"
 
 import { SampleDataNotice } from "@/components/sample-data-notice"
 import { useAuth } from "@/components/auth-provider"
-import { DAY_NAMES, startOfToday } from "@/lib/date"
+import { DAY_NAMES, startOfToday, toDateStr } from "@/lib/date"
 import { useWeekend } from "@/hooks/use-weekend"
 import { api, ApiClientError, type BookingCurve, type CompetitorPrices } from "@/lib/api"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
@@ -333,17 +332,14 @@ export function BookingCurveSection({
                 </SelectContent>
               </Select>
             )}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs gap-2">
-                  <CalendarIcon className="w-3.5 h-3.5" />
-                  {selectedStayDate ? format(selectedStayDate, "yyyy/MM/dd") : "宿泊日を選択"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end">
-                <DatePicker mode="single" selected={selectedStayDate} onSelect={setSelectedStayDate} initialFocus />
-              </PopoverContent>
-            </Popover>
+            <DatePicker
+              id="booking-curve-stay-date"
+              value={selectedStayDate}
+              onChange={setSelectedStayDate}
+              placeholder="宿泊日を選択"
+              ariaLabel="ブッキングカーブの宿泊日"
+              align="end"
+            />
           </div>
         </div>
       </CardHeader>
@@ -625,12 +621,12 @@ export function DailyCompetitorSection() {
               <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => shiftWeek(-7)}>
                 ← 前週
               </Button>
-              <input
+              <DatePicker
                 id="competitor-week-start"
-                type="date"
-                value={weekStart}
-                onChange={(e) => e.target.value && setWeekStart(e.target.value)}
-                className="h-8 rounded-md border border-input bg-transparent px-2 text-xs"
+                value={new Date(weekStart)}
+                onChange={(date) => date && setWeekStart(toDateStr(date))}
+                placeholder="開始日を選択"
+                ariaLabel="競合価格比較の表示週の開始日"
               />
               <span className="text-xs text-muted-foreground whitespace-nowrap">から1週間</span>
               <Button variant="outline" size="sm" className="h-8 px-2 text-xs" onClick={() => shiftWeek(7)}>

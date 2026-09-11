@@ -31,6 +31,8 @@ import { usePeriod } from "@/components/app-state-provider"
 import { LabeledMonthPicker } from "@/components/month-picker"
 import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
+import { DatePicker } from "@/components/date-picker"
+import { Input } from "@/components/ui/input"
 import { DAY_NAMES, monthRange, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
 import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
@@ -862,12 +864,11 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                 <div className="space-y-4 py-2">
                   <div className="space-y-2">
                     <Label htmlFor="new-event-name">イベント名</Label>
-                    <input
+                    <Input
                       id="new-event-name"
                       value={newEventName}
                       onChange={(e) => setNewEventName(e.target.value)}
                       placeholder="例：○○フェスティバル"
-                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                     />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -903,33 +904,34 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="new-event-start">開始日</Label>
-                      <input
+                      <DatePicker
                         id="new-event-start"
-                        type="date"
-                        value={newEventStart}
-                        onChange={(e) => setNewEventStart(e.target.value)}
-                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                        className="h-9 w-full text-sm"
+                        value={newEventStart ? new Date(newEventStart) : undefined}
+                        onChange={(date) => setNewEventStart(date ? toDateStr(date) : "")}
+                        placeholder="開始日を選択"
+                        ariaLabel="イベント開始日"
                       />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="new-event-end">終了日</Label>
-                      <input
+                      <DatePicker
                         id="new-event-end"
-                        type="date"
-                        value={newEventEnd}
-                        onChange={(e) => setNewEventEnd(e.target.value)}
-                        className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
+                        className="h-9 w-full text-sm"
+                        value={newEventEnd ? new Date(newEventEnd) : undefined}
+                        onChange={(date) => setNewEventEnd(date ? toDateStr(date) : "")}
+                        placeholder="終了日を選択"
+                        ariaLabel="イベント終了日"
                       />
                     </div>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="new-event-location">開催場所（任意）</Label>
-                    <input
+                    <Input
                       id="new-event-location"
                       value={newEventLocation}
                       onChange={(e) => setNewEventLocation(e.target.value)}
                       placeholder="例：○○ホール"
-                      className="h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                     />
                   </div>
                 </div>

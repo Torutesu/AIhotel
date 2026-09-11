@@ -9,11 +9,8 @@ import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Input } from "@/components/ui/input"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Calendar } from "@/components/ui/calendar"
-import { format } from "date-fns"
-import { ja } from "date-fns/locale/ja"
-import { CalendarIcon, Save } from "lucide-react"
+import { DatePicker } from "@/components/date-picker"
+import { Save } from "lucide-react"
 import { toast } from "sonner"
 import type { AnalysisSettings, DisplayMode, GraphType, SegmentCrossAnalysisSettings } from "@shared/types"
 import { SampleDataNotice } from "@/components/sample-data-notice"
@@ -272,32 +269,28 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         <CardContent>
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
-              <Label className="font-semibold">FROM</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-[240px] justify-start text-left font-normal">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateFrom ? format(dateFrom, "yyyy年MM月dd日", { locale: ja }) : "日付を選択"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateFrom} onSelect={setDateFrom} initialFocus locale={ja} />
-                </PopoverContent>
-              </Popover>
+              <Label htmlFor="segment-date-from" className="font-semibold">
+                開始日
+              </Label>
+              <DatePicker
+                id="segment-date-from"
+                className="h-9 w-full justify-start text-sm font-normal sm:w-[240px]"
+                value={dateFrom}
+                onChange={setDateFrom}
+                ariaLabel="集計期間の開始日"
+              />
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <Label className="font-semibold">TO</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline" className="w-full sm:w-[240px] justify-start text-left font-normal">
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {dateTo ? format(dateTo, "yyyy年MM月dd日", { locale: ja }) : "日付を選択"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={dateTo} onSelect={setDateTo} initialFocus locale={ja} />
-                </PopoverContent>
-              </Popover>
+              <Label htmlFor="segment-date-to" className="font-semibold">
+                終了日
+              </Label>
+              <DatePicker
+                id="segment-date-to"
+                className="h-9 w-full justify-start text-sm font-normal sm:w-[240px]"
+                value={dateTo}
+                onChange={setDateTo}
+                ariaLabel="集計期間の終了日"
+              />
             </div>
           </div>
         </CardContent>
