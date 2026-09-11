@@ -3,6 +3,7 @@ import { authenticate, requireRole, requireHotelAccess } from '../middlewares/au
 import { validate } from '../middlewares/validate.js'
 import {
   hotelIdQuerySchema,
+  idParamSchema,
   createPriceRankSchema,
   updatePriceRankSchema,
   updateHotelSettingsSchema,
@@ -21,10 +22,11 @@ export const settingsRouter: ExpressRouter = Router()
 settingsRouter.use(authenticate)
 
 // GET /api/v1/settings/price-ranks?hotelId=
+// hotelId は requireHotelAccess の判定材料になるため、必ず検証を先に通す
 settingsRouter.get(
   '/price-ranks',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   getPriceRanks
 )
 
@@ -32,14 +34,16 @@ settingsRouter.get(
 settingsRouter.post(
   '/price-ranks',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.body?.hotelId),
   validate(createPriceRankSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
   createPriceRank
 )
 
 settingsRouter.put(
   '/price-ranks/:id',
   requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(updatePriceRankSchema),
   updatePriceRank
@@ -48,6 +52,8 @@ settingsRouter.put(
 settingsRouter.delete(
   '/price-ranks/:id',
   requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
   deletePriceRank
 )
@@ -56,6 +62,7 @@ settingsRouter.delete(
 settingsRouter.put(
   '/hotel/:id',
   requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
   requireHotelAccess((req) => req.params.id),
   validate(updateHotelSettingsSchema),
   updateHotelSettings

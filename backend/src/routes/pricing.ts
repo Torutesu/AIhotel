@@ -21,18 +21,19 @@ export const pricingRouter: ExpressRouter = Router()
 pricingRouter.use(authenticate)
 
 // GET /api/v1/pricing/calendar?hotelId=&year=&month=
+// hotelId は requireHotelAccess の判定材料になるため、検証を先に通す
 pricingRouter.get(
   '/calendar',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(monthQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   getCalendar
 )
 
 // GET /api/v1/pricing/strategy?hotelId=
 pricingRouter.get(
   '/strategy',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   getStrategy
 )
 
@@ -40,16 +41,16 @@ pricingRouter.get(
 pricingRouter.put(
   '/strategy',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.body?.hotelId),
   validate(updateStrategySchema),
+  requireHotelAccess((req) => req.body?.hotelId),
   updateStrategy
 )
 
 // GET /api/v1/pricing/simulation?hotelId=&year=&month=
 pricingRouter.get(
   '/simulation',
-  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   validate(monthQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
   getSimulation
 )
 
@@ -57,7 +58,7 @@ pricingRouter.get(
 pricingRouter.post(
   '/recompute',
   requireRole('ADMIN', 'MANAGER'),
-  requireHotelAccess((req) => req.body?.hotelId),
   validate(recomputeForecastSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
   recomputeForecast
 )

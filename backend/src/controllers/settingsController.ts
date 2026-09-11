@@ -65,8 +65,9 @@ export const updatePriceRank = asyncHandler(async (req: Request, res: Response) 
  */
 export const deletePriceRank = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId } = req.query as unknown as { hotelId: string }
-  await deletePriceRankService(req.params.id, hotelId)
+  const rank = await deletePriceRankService(req.params.id, hotelId)
   await writeAuditLog({
+    tenantId: rank?.tenantId,
     userId: req.user!.userId,
     action: 'DELETE',
     entity: 'PriceRank',

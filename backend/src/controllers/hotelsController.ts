@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { asyncHandler } from '../middlewares/errorHandler.js'
+import { asyncHandler, ForbiddenError } from '../middlewares/errorHandler.js'
 import { sendSuccess, sendCreated, sendDeleted } from '../utils/response.js'
 import {
   getHotelsService,
@@ -11,13 +11,11 @@ import {
 import { writeAuditLog } from '../services/auditService.js'
 
 /**
- * ホテル一覧取得。ADMIN は全件、それ以外は自テナントのみ（C-3）
+ * ホテル一覧取得。ロールによらず自テナントのホテルのみ（C-3）
  * GET /api/v1/hotels
  */
 export const getHotels = asyncHandler(async (req: Request, res: Response) => {
-  const user = req.user!
-  const tenantId = user.role === 'ADMIN' ? undefined : user.tenantId
-  const hotels = await getHotelsService(tenantId)
+  const hotels = await getHotelsService(req.user!.tenantId)
   sendSuccess(res, hotels)
 })
 
@@ -35,7 +33,12 @@ export const getHotelById = asyncHandler(async (req: Request, res: Response) => 
  * POST /api/v1/hotels
  */
 export const createHotel = asyncHandler(async (req: Request, res: Response) => {
-  const hotel = await createHotelService(req.body)
+  // tenantId はリクエストから受け取らず、作成者のテナントを使う
+  const tenantId = req.user!.tenantId
+  if (!tenantId) {
+    throw new ForbiddenError('テナントに所属していないユーザーはホテルを作成できません')
+  }
+  const hotel = await createHotelService({ ...req.body, tenantId })
   await writeAuditLog({
     tenantId: hotel.tenantId,
     userId: req.user!.userId,
