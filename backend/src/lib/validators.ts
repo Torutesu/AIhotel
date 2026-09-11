@@ -369,6 +369,31 @@ export const updateStrategySchema = z.object({
 })
 
 // ======================================
+// User Preference Validators（#51-2）
+// ======================================
+
+// フロントエンドの表示項目キーと一致させる（services/preferencesService.ts の DASHBOARD_KPI_KEYS）
+const dashboardKpiItemSchema = z.enum([
+  'roomRevenue',
+  'soldRooms',
+  'adr',
+  'occupancyRate',
+  'revPar',
+  'guests',
+  'dor',
+  'guestUnitPrice',
+])
+
+export const updatePreferencesSchema = z.object({
+  hotelId: entityIdSchema,
+  dashboard: z.object({
+    showTopSitesSection: z.boolean(),
+    // 全部外すと進捗表が空になるため最低1件必須
+    kpiItems: z.array(dashboardKpiItemSchema).min(1, '表示する指標を1つ以上選択してください'),
+  }),
+})
+
+// ======================================
 // Type Exports
 // ======================================
 
@@ -389,3 +414,4 @@ export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
 export type UpdateUserInput = z.infer<typeof updateUserSchema>
 export type UpdateAlertStatusInput = z.infer<typeof updateAlertStatusSchema>
 export type MonthTargetInput = z.infer<typeof monthTargetSchema>
+export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>
