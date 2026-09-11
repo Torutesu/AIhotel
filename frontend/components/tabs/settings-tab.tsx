@@ -18,7 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "sonner"
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
@@ -67,7 +67,6 @@ function parseWeekendDays(value: unknown): number[] {
 }
 
 export function SettingsTab() {
-  const { toast } = useToast()
   const { hotelId, user } = useAuth()
   const canManageHotel = user?.role === "ADMIN" || user?.role === "MANAGER"
 
@@ -167,15 +166,13 @@ export function SettingsTab() {
         price3P: editPrice3P,
         price4P: editPrice4P,
       })
-      toast({ title: "料金ランクを更新しました" })
+      toast.success("料金ランクを更新しました")
       setEditingRank(null)
       await loadPriceRanks()
     } catch (err) {
-      toast({
-        title: "料金ランクの更新に失敗しました",
-        description: err instanceof ApiClientError ? err.message : undefined,
-        variant: "destructive",
-      })
+      toast.error(
+        err instanceof ApiClientError ? err.message : "料金ランクの更新に失敗しました",
+      )
     } finally {
       setSavingRank(false)
     }
@@ -238,8 +235,7 @@ export function SettingsTab() {
     if (typeof window === "undefined" || !hotelId || dashboardKpiItems.length === 0) return
     localStorage.setItem(dashboardKpiItemsKey(hotelId), JSON.stringify(dashboardKpiItems))
     window.dispatchEvent(new Event("settingsUpdated"))
-    toast({
-      title: "KPI表示項目を保存しました",
+    toast.success("KPI表示項目を保存しました", {
       description: "ダッシュボードのKPI進捗表に反映されます。",
     })
   }
@@ -264,24 +260,16 @@ export function SettingsTab() {
           weekendDays,
         })
         setHotel(updated)
-        toast({
-          title: "設定を保存しました",
-          description: "変更が正常に保存されました。",
-        })
+        toast.success("設定を保存しました", { description: "変更が正常に保存されました。" })
       } catch (err) {
-        toast({
-          title: "ホテル設定の保存に失敗しました",
-          description: err instanceof ApiClientError ? err.message : undefined,
-          variant: "destructive",
-        })
+        toast.error(
+          err instanceof ApiClientError ? err.message : "ホテル設定の保存に失敗しました",
+        )
       } finally {
         setSavingHotel(false)
       }
     } else {
-      toast({
-        title: "設定を保存しました",
-        description: "変更が正常に保存されました。",
-      })
+      toast.success("設定を保存しました", { description: "変更が正常に保存されました。" })
     }
   }
 
@@ -310,8 +298,7 @@ export function SettingsTab() {
     setShowTopSitesSection(false)
     setDashboardKpiItems(ALL_DASHBOARD_KPI_KEYS)
 
-    toast({
-      title: "設定をリセットしました",
+    toast.success("設定をリセットしました", {
       description: "すべての設定がデフォルト値に戻りました。",
     })
   }
