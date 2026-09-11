@@ -78,7 +78,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
     }
 
     if (lowerQuery.includes("adr") || lowerQuery.includes("平均客室単価")) {
-      return "現在のADRは¥18,250です。前年同月比+3.2%と好調に推移しています。競合平均が¥17,800であることを考慮すると、さらに5-8%の値上げ余地があると分析しています。"
+      return "現在のADRは¥18,250です。前年同月比+3.2%と好調に推移しています。競合の価格水準（中央値）が¥17,800であることを考慮すると、さらに5-8%の値上げ余地があると分析しています。"
     }
 
     if (lowerQuery.includes("価格") || lowerQuery.includes("プライシング") || lowerQuery.includes("料金")) {

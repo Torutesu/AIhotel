@@ -954,7 +954,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm border-t pt-3">
                         <div>アラート：{day.demandLevel ?? "-"}（{demandDescription(day.demandLevel)}）</div>
                         <div>稼働率予測：{pct(day.predictedOccupancy)}</div>
-                        <div>競合平均価格：{yen(day.competitorAvgPrice)}</div>
+                        <div>競合価格水準（中央値）：{yen(day.competitorMedianPrice)}</div>
                         <div>AI予測ADR：{yen(day.predictedAdr)}</div>
                         {day.actualAdr != null && <div>実績ADR：{yen(day.actualAdr)}</div>}
                         {day.actualOccupancy != null && <div>実績稼働率：{pct(day.actualOccupancy)}</div>}
@@ -1060,13 +1060,14 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                   content: `アラートが「${day.demandLevel}」で、稼働率予測も${pct(day.predictedOccupancy)}と低水準です。料金ランクの引き下げや需要喚起策の検討を推奨します。`,
                 })
               }
-              if (day.competitorAvgPrice != null) {
-                const diff = (day.recommendedPrice ?? 0) - day.competitorAvgPrice
-                const diffPercent = day.competitorAvgPrice > 0 ? (diff / day.competitorAvgPrice) * 100 : 0
+              if (day.competitorMedianPrice != null) {
+                const median = day.competitorMedianPrice
+                const diff = (day.recommendedPrice ?? 0) - median
+                const diffPercent = median > 0 ? (diff / median) * 100 : 0
                 insights.push({
                   type: "chart-2",
                   title: "競合分析",
-                  content: `競合ホテルの平均価格は${yen(day.competitorAvgPrice)}で、推奨価格は${diff >= 0 ? "+" : ""}${diffPercent.toFixed(1)}%（${diff >= 0 ? "高め" : "低め"}）です。`,
+                  content: `競合ホテルの価格水準（中央値）は${yen(median)}で、推奨価格は${diff >= 0 ? "+" : ""}${diffPercent.toFixed(1)}%（${diff >= 0 ? "高め" : "低め"}）です。`,
                 })
               }
               if (day.actualAdr != null && day.actualOccupancy != null) {
@@ -1160,10 +1161,12 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
 
                       <Card>
                         <CardHeader className="pb-3">
-                          <CardTitle className="text-sm font-medium text-muted-foreground">競合平均価格</CardTitle>
+                          <CardTitle className="text-sm font-medium text-muted-foreground">
+                            競合価格水準（中央値）
+                          </CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-semibold">{yen(day.competitorAvgPrice)}</div>
+                          <div className="text-2xl font-semibold">{yen(day.competitorMedianPrice)}</div>
                         </CardContent>
                       </Card>
                     </div>

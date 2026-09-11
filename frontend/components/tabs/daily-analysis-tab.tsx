@@ -104,10 +104,10 @@ export { DailyPerformanceSection } from "@/components/analysis/daily-performance
 // ブッキングカーブ
 // ============================================================================
 
-// ブッキングカーブの表示区分（TOTAL / 部屋タイプ別 / 利用人数別）。
+// ブッキングカーブの表示区分（全体 / 部屋タイプ別 / 利用人数別）。
 // モックアップのため係数でスケールした系列を表示する
 const CURVE_SEGMENTS: Record<string, Array<{ value: string; label: string; occFactor: number; adrFactor: number }>> = {
-  total: [{ value: "total", label: "TOTAL", occFactor: 1, adrFactor: 1 }],
+  total: [{ value: "total", label: "全体", occFactor: 1, adrFactor: 1 }],
   roomType: [
     { value: "standard", label: "スタンダード", occFactor: 1.0, adrFactor: 1.0 },
     { value: "deluxe", label: "デラックス", occFactor: 0.94, adrFactor: 1.35 },
@@ -163,7 +163,7 @@ export function BookingCurveSection({
   const [bookingCurve, setBookingCurve] = useState<BookingCurve | null>(null)
   const [bookingCurveLoading, setBookingCurveLoading] = useState(false)
   const [bookingCurveError, setBookingCurveError] = useState<string | null>(null)
-  // 表示単位（日単位 / 月単位）と表示区分（TOTAL / 部屋タイプ別 / 利用人数別）
+  // 表示単位（日単位 / 月単位）と表示区分（全体 / 部屋タイプ別 / 利用人数別）
   const [curveUnit, setCurveUnit] = useState<"daily" | "monthly">("daily")
   const [curveSegmentType, setCurveSegmentType] = useState<"total" | "roomType" | "occupancy">("total")
   const [curveSegmentValue, setCurveSegmentValue] = useState("total")
@@ -313,7 +313,7 @@ export function BookingCurveSection({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="total">TOTAL</SelectItem>
+                <SelectItem value="total">全体</SelectItem>
                 <SelectItem value="roomType">部屋タイプ別</SelectItem>
                 <SelectItem value="occupancy">利用人数別</SelectItem>
               </SelectContent>
@@ -481,7 +481,7 @@ export function WeekdayPerformanceSection() {
                 <th className="text-left py-2 px-2 font-medium">区分</th>
                 <th className="text-right py-2 px-2 font-medium">平均稼働率</th>
                 <th className="text-right py-2 px-2 font-medium">平均ADR</th>
-                <th className="text-right py-2 px-2 font-medium">平均RevPAR</th>
+                <th className="text-right py-2 px-2 font-medium">平均REV-Per</th>
                 <th className="text-right py-2 px-2 font-medium">前年比</th>
               </tr>
             </thead>

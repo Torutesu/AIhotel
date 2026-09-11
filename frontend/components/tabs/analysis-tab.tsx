@@ -476,7 +476,7 @@ export function RoomTypeAnalysisSection(props: AnalysisSectionProps) {
             <div className="flex items-start gap-3">
               <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2 flex-shrink-0" />
               <p>
-                プレミアムスイートのRevPARが¥61,948と最も高く、収益性の高い客室タイプです。
+                プレミアムスイートのREV-Perが¥61,948と最も高く、収益性の高い客室タイプです。
               </p>
             </div>
           </div>
@@ -497,7 +497,7 @@ export function RoomTypeAnalysisSection(props: AnalysisSectionProps) {
                   <th className="text-right py-3 px-4 font-medium">販売室数</th>
                   <th className="text-right py-3 px-4 font-medium">稼働率</th>
                   <th className="text-right py-3 px-4 font-medium">ADR</th>
-                  <th className="text-right py-3 px-4 font-medium">RevPAR</th>
+                  <th className="text-right py-3 px-4 font-medium">REV-Per</th>
                   <th className="text-right py-3 px-4 font-medium">売上構成比</th>
                 </tr>
               </thead>
@@ -996,12 +996,18 @@ export function CompetitorAnalysisSection(props: AnalysisSectionProps) {
             </Card>
             <Card>
               <CardContent className="py-2.5 px-3">
-                <p className="text-xs font-medium text-muted-foreground mb-1">競合平均価格（全体）</p>
+                <p className="text-xs font-medium text-muted-foreground mb-1">競合価格水準（中央値・全社）</p>
                 <div className="text-lg font-semibold mb-0.5">
                   {(() => {
-                    const avgs = competitorAnalysis.competitors.map((c) => c.avgPrice).filter((v): v is number => v != null)
-                    if (avgs.length === 0) return "-"
-                    return `¥${Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length).toLocaleString()}`
+                    const medians = competitorAnalysis.competitors
+                      .map((c) => c.medianPrice)
+                      .filter((v): v is number => v != null)
+                      .sort((a, b) => a - b)
+                    if (medians.length === 0) return "-"
+                    const mid = Math.floor(medians.length / 2)
+                    const overall =
+                      medians.length % 2 === 0 ? (medians[mid - 1] + medians[mid]) / 2 : medians[mid]
+                    return `¥${Math.round(overall).toLocaleString()}`
                   })()}
                 </div>
               </CardContent>
@@ -1018,13 +1024,16 @@ export function CompetitorAnalysisSection(props: AnalysisSectionProps) {
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-medium">競合ホテル別平均価格</CardTitle>
-              <p className="text-xs text-muted-foreground mt-1">対象期間中の1名料金の平均値</p>
+              <CardTitle className="text-base font-medium">競合ホテル別の価格水準（中央値）</CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">対象期間中の1名料金の中央値</p>
             </CardHeader>
             <CardContent className="pt-0">
               <ResponsiveContainer width="100%" height={280}>
                 <BarChart
-                  data={competitorAnalysis.competitors.map((c) => ({ name: c.name, avgPrice: c.avgPrice ?? 0 }))}
+                  data={competitorAnalysis.competitors.map((c) => ({
+                    name: c.name,
+                    medianPrice: c.medianPrice ?? 0,
+                  }))}
                   margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
@@ -1042,14 +1051,14 @@ export function CompetitorAnalysisSection(props: AnalysisSectionProps) {
                         return (
                           <div className="bg-background border border-border rounded-lg shadow-lg p-3">
                             <p className="text-sm font-medium mb-2">{payload[0].payload.name}</p>
-                            <p className="text-xs">平均価格: ¥{value.toLocaleString()}</p>
+                            <p className="text-xs">価格水準（中央値）: ¥{value.toLocaleString()}</p>
                           </div>
                         )
                       }
                       return null
                     }}
                   />
-                  <Bar dataKey="avgPrice" fill="#2563eb" radius={[4, 4, 0, 0]} name="平均価格" />
+                  <Bar dataKey="medianPrice" fill="#2563eb" radius={[4, 4, 0, 0]} name="価格水準（中央値）" />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -1069,7 +1078,7 @@ export function CompetitorAnalysisSection(props: AnalysisSectionProps) {
                       <th className="text-right py-2 px-2 font-medium">サンプル数</th>
                       <th className="text-right py-2 px-2 font-medium">最低価格</th>
                       <th className="text-right py-2 px-2 font-medium">最高価格</th>
-                      <th className="text-right py-2 px-2 font-medium">平均価格</th>
+                      <th className="text-right py-2 px-2 font-medium">価格水準（中央値）</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1080,7 +1089,9 @@ export function CompetitorAnalysisSection(props: AnalysisSectionProps) {
                         <td className="text-right py-2 px-2">{c.sampleSize}件</td>
                         <td className="text-right py-2 px-2">{c.minPrice != null ? `¥${c.minPrice.toLocaleString()}` : "-"}</td>
                         <td className="text-right py-2 px-2">{c.maxPrice != null ? `¥${c.maxPrice.toLocaleString()}` : "-"}</td>
-                        <td className="text-right py-2 px-2 font-medium">{c.avgPrice != null ? `¥${c.avgPrice.toLocaleString()}` : "-"}</td>
+                        <td className="text-right py-2 px-2 font-medium">
+                          {c.medianPrice != null ? `¥${c.medianPrice.toLocaleString()}` : "-"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1352,7 +1363,7 @@ export function YearlyTrendSection(props: AnalysisSectionProps) {
 
             <Card>
               <CardHeader>
-                <CardTitle>RevPAR推移</CardTitle>
+                <CardTitle>REV-Per推移</CardTitle>
                 <p className="text-sm text-muted-foreground">客室あたり収益の推移</p>
               </CardHeader>
               <CardContent>
@@ -1373,7 +1384,7 @@ export function YearlyTrendSection(props: AnalysisSectionProps) {
                       stroke="var(--positive)"
                       strokeWidth={3}
                       dot={{ r: 4 }}
-                      name="RevPAR"
+                      name="REV-Per"
                       connectNulls={false}
                     />
                   </LineChart>
@@ -1529,7 +1540,7 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
         freeAnalysisMetric === "rooms" ? "販売室数" :
           freeAnalysisMetric === "occupancy" ? "稼働率" :
             freeAnalysisMetric === "adr" ? "ADR" :
-              freeAnalysisMetric === "revpar" ? "RevPAR" :
+              freeAnalysisMetric === "revpar" ? "REV-Per" :
                 freeAnalysisMetric === "revenue" ? "室料売上" :
                   freeAnalysisMetric === "bookings" ? "予約数" : "値"
 
@@ -1646,7 +1657,7 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
                   <SelectItem value="rooms">販売室数</SelectItem>
                   <SelectItem value="occupancy">稼働率</SelectItem>
                   <SelectItem value="adr">ADR</SelectItem>
-                  <SelectItem value="revpar">RevPAR</SelectItem>
+                  <SelectItem value="revpar">REV-Per</SelectItem>
                   <SelectItem value="revenue">室料売上</SelectItem>
                   <SelectItem value="bookings">予約数</SelectItem>
                 </SelectContent>
@@ -1725,7 +1736,7 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
                         label={{
                           value: freeAnalysisMetric === "occupancy" ? "稼働率 (%)" :
                             freeAnalysisMetric === "adr" ? "ADR (¥)" :
-                              freeAnalysisMetric === "revpar" ? "RevPAR (¥)" :
+                              freeAnalysisMetric === "revpar" ? "REV-Per (¥)" :
                                 freeAnalysisMetric === "revenue" ? "室料売上 (¥)" :
                                   freeAnalysisMetric === "rooms" ? "販売室数 (室)" : "予約数",
                           angle: -90,
@@ -1761,7 +1772,7 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
                           {freeAnalysisMetric === "rooms" ? "販売室数" :
                             freeAnalysisMetric === "occupancy" ? "稼働率" :
                               freeAnalysisMetric === "adr" ? "ADR" :
-                                freeAnalysisMetric === "revpar" ? "RevPAR" :
+                                freeAnalysisMetric === "revpar" ? "REV-Per" :
                                   freeAnalysisMetric === "revenue" ? "室料売上" :
                                     freeAnalysisMetric === "bookings" ? "予約数" : "値"}
                         </th>

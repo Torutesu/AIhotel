@@ -143,7 +143,7 @@ const externalFactorsData: Record<string, { name: string; icon: LucideIcon; colo
         note: "連休カレンダー良好。連泊・ファミリー需要が堅調",
         kpis: [
           { label: "稼働率予測", value: "93.8%", hint: "4/29〜5/5" },
-          { label: "RevPAR 予測伸び", value: "+17.2%", hint: "前年同週比" },
+          { label: "REV-Per 予測伸び", value: "+17.2%", hint: "前年同週比" },
         ],
       },
       {

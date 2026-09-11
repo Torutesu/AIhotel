@@ -473,6 +473,11 @@ export interface PricingCalendarDay {
   predictedAdr: number | null
   actualOccupancy: number | null
   actualAdr: number | null
+  /** 競合価格水準の代表値。1社の極端な価格に引きずられない中央値を使う（C-9） */
+  competitorMedianPrice: number | null
+  competitorMinPrice: number | null
+  competitorMaxPrice: number | null
+  /** @deprecated `competitorMedianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
   competitorAvgPrice: number | null
   confidence: number | null
 }
@@ -592,6 +597,9 @@ export interface CompetitorAnalysis {
     sampleSize: number
     minPrice: number | null
     maxPrice: number | null
+    /** 競合価格水準の代表値（中央値 — C-9） */
+    medianPrice: number | null
+    /** @deprecated `medianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
     avgPrice: number | null
   }>
 }
@@ -911,7 +919,7 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
     const price1P = mockRankToPrice1P(recommendedRank)
     const demandLevel: PricingCalendarDay["demandLevel"] =
       predictedOccupancy > 0.9 ? "A" : predictedOccupancy > 0.8 ? "B" : predictedOccupancy > 0.65 ? "C" : predictedOccupancy > 0.5 ? "D" : "E"
-    const competitorAvgPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
+    const competitorMedianPrice = Math.round((weekend ? 22000 : 15500) * boost * (0.95 + rng() * 0.15))
 
     calendar.push({
       date: toLocalDateStr(date),
@@ -926,12 +934,25 @@ function mockPricingCalendar(hotelId: string, year: number, month: number): Pric
       predictedAdr,
       actualOccupancy: isPast ? Number(Math.min(1, predictedOccupancy + (rng() - 0.5) * 0.1).toFixed(3)) : null,
       actualAdr: isPast ? Math.round(predictedAdr * (1 + (rng() - 0.5) * 0.06)) : null,
-      competitorAvgPrice,
+      competitorMedianPrice,
+      competitorMinPrice: Math.round(competitorMedianPrice * 0.88),
+      competitorMaxPrice: Math.round(competitorMedianPrice * 1.14),
+      competitorAvgPrice: competitorMedianPrice,
       confidence: Number((0.7 + rng() * 0.25).toFixed(2)),
     })
   }
 
   return { hotelId, year, month, calendar }
+}
+
+/** 中央値（デモデータ生成用） */
+function mockMedian(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid]
 }
 
 // 競合ホテル（seedと同等の3社構成）
@@ -1063,8 +1084,8 @@ function mockCompetitorAnalysis(
       sampleSize: values.length,
       minPrice: values.length > 0 ? Math.min(...values) : null,
       maxPrice: values.length > 0 ? Math.max(...values) : null,
-      avgPrice:
-        values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : null,
+      medianPrice: mockMedian(values),
+      avgPrice: mockMedian(values),
     }
   })
 

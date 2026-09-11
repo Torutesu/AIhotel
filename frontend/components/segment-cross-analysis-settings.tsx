@@ -92,14 +92,14 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
     // バリデーション
     if (!dateFrom || !dateTo) {
       toast.error("期間を設定してください", {
-        description: "FROMとTOの日付を選択してください。",
+        description: "開始日と終了日を選択してください。",
       })
       return
     }
 
     if (dateFrom > dateTo) {
       toast.error("期間の設定が不正です", {
-        description: "FROMの日付はTOの日付より前である必要があります。",
+        description: "開始日は終了日より前の日付にしてください。",
       })
       return
     }
@@ -157,7 +157,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4">
-            <Label className="font-semibold w-24">KEY</Label>
+            <Label className="font-semibold w-24">分析キー</Label>
             <Input value={settings.key} readOnly className="flex-1" />
           </div>
 
@@ -214,7 +214,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
           </div>
 
           <div className="flex items-center gap-4 flex-wrap">
-            <Label className="font-semibold w-24">個人・団体・TOTAL</Label>
+            <Label className="font-semibold w-24">個人・団体・全体</Label>
             <RadioGroup
               value={settings.individualGroupTotal}
               onValueChange={(value: "individual" | "group" | "total") =>
@@ -232,7 +232,7 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
               </div>
               <div className="flex items-center gap-2">
                 <RadioGroupItem value="total" id={`${title}-total`} />
-                <Label htmlFor={`${title}-total`} className="font-normal">TOTAL</Label>
+                <Label htmlFor={`${title}-total`} className="font-normal">全体</Label>
               </div>
             </RadioGroup>
           </div>
