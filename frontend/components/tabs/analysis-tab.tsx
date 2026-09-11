@@ -12,6 +12,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { CampaignParticipationManager } from "@/components/campaign-participation-manager"
+import { SampleDataNotice } from "@/components/sample-data-notice"
 import { SegmentCrossAnalysisSettings } from "@/components/segment-cross-analysis-settings"
 import {
   DailyAiInsightSection,
@@ -324,11 +325,14 @@ export function ChannelAnalysisSection(props: AnalysisSectionProps) {
 
   return (
     <div className="space-y-4">
+      <SampleDataNotice detail="PMS/OTA連携が未実装のため、チャネル別の数値はサンプルです。" />
       {/* AI解説を一番上に */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium flex items-center gap-2">
-            <span className="text-xl">🤖</span>
+            <span className="text-xl" aria-hidden>
+              🤖
+            </span>
             チャネル分析インサイト
           </CardTitle>
         </CardHeader>
@@ -442,11 +446,14 @@ export function RoomTypeAnalysisSection(props: AnalysisSectionProps) {
 
   return (
     <div className="space-y-4">
+      <SampleDataNotice detail="部屋タイプ別実績の集計APIが未実装のため、以下の数値はサンプルです。" />
       {/* AI解説を一番上に */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium flex items-center gap-2">
-            <span className="text-xl">🤖</span>
+            <span className="text-xl" aria-hidden>
+              🤖
+            </span>
             部屋タイプ分析インサイト
           </CardTitle>
         </CardHeader>
@@ -534,6 +541,7 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
 
   return (
     <div className="space-y-6">
+      <SampleDataNotice detail="予約期間（リードタイム）別の集計APIが未実装のため、以下の数値はサンプルです。" />
       <Card>
         <CardHeader>
           <CardTitle>予約期間別分析</CardTitle>
@@ -653,7 +661,9 @@ export function SegmentAnalysisSection(props: AnalysisSectionProps) {
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium flex items-center gap-2">
-            <span className="text-xl">🤖</span>
+            <span className="text-xl" aria-hidden>
+              🤖
+            </span>
             顧客セグメント分析インサイト
           </CardTitle>
         </CardHeader>
@@ -1553,11 +1563,14 @@ export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
 
   return (
     <div className="space-y-4">
+      <SampleDataNotice detail="フリー分析の集計APIが未実装のため、表示される値はサンプルです。" />
       {/* AI解説を一番上に */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium flex items-center gap-2">
-            <span className="text-xl">🤖</span>
+            <span className="text-xl" aria-hidden>
+              🤖
+            </span>
             フリー分析インサイト
           </CardTitle>
         </CardHeader>
@@ -1792,7 +1805,8 @@ export function OtaCampaignSection() {
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-medium">OTA販売促進参画データ管理</CardTitle>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 space-y-3">
+        <SampleDataNotice detail="OTA販売促進参画データの保存APIが未実装のため、入力内容は保存されません。" />
         <CampaignParticipationManager />
       </CardContent>
     </Card>

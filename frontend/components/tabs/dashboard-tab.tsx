@@ -13,6 +13,7 @@ import { AlertCircle, RefreshCw, Download, ImageDown } from "lucide-react"
 import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
 import { DAY_NAMES } from "@/lib/date"
 import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
+import { SampleDataNotice } from "@/components/sample-data-notice"
 import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipProps } from "@/lib/chart-tooltip"
 import { useAuth } from "@/components/auth-provider"
@@ -736,7 +737,9 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
         <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
           <CardHeader className="pb-1">
             <CardTitle className="text-base font-medium flex items-center gap-2">
-              <span className="text-xl">🤖</span>
+              <span className="text-xl" aria-hidden>
+                🤖
+              </span>
               AI解説
             </CardTitle>
           </CardHeader>
@@ -1198,7 +1201,8 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
               </div>
             </div>
           </CardHeader>
-          <CardContent className="pt-2">
+          <CardContent className="pt-2 space-y-2">
+            <SampleDataNotice detail="PMS連携と残室推移の記録が未実装のため、以下の残室数はサンプルです。" />
             <div className="overflow-x-auto overflow-y-auto max-h-[520px]">
               <table className="table-sticky-head w-full text-xs border-collapse">
                 <thead>
@@ -1254,8 +1258,8 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
                 </tbody>
               </table>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-2">
-              ※ 推移は比較時点からの残室数の増減です（マイナス＝予約が進んで残室が減少）。表示は今後14日分・数値はモックデータです
+            <p className="mt-2 text-[10px] text-muted-foreground">
+              ※ 推移は比較時点からの残室数の増減です（マイナス＝予約が進んで残室が減少）。表示は今後14日分です
             </p>
           </CardContent>
         </Card>

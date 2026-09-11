@@ -26,6 +26,7 @@ import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { SampleDataNotice } from "@/components/sample-data-notice"
 import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
 import { DAY_NAMES, monthRange, parseMonthStr, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
@@ -151,24 +152,6 @@ function specialDayNameOf(date: Date): string | null {
   if ((m === 12 && d >= 29) || (m === 1 && d <= 3)) return "年末年始"
   if ((m === 4 && d >= 29) || (m === 5 && d <= 5)) return "GW"
   return null
-}
-
-// 現在ADR・現在料金ランク（サイトコントローラー値のモック。日付から決定的に導出）
-function mockCurrentAdr(day: PricingCalendarDay): number | null {
-  if (day.predictedAdr == null) return null
-  const dayNum = Number(day.date.split("-")[2])
-  const factor = 0.94 + ((dayNum * 7) % 10) / 100
-  return Math.round((day.predictedAdr * factor) / 10) * 10
-}
-
-function mockCurrentRank(day: PricingCalendarDay): number | null {
-  if (day.recommendedRank == null) return null
-  const dayNum = Number(day.date.split("-")[2])
-  return Math.min(PRICE_RANK_COUNT, Math.max(1, day.recommendedRank + ((dayNum % 3) - 1)))
-}
-
-function rankLabelOf(rank: number): string {
-  return `R${String(rank).padStart(2, "0")}`
 }
 
 function avg(values: Array<number | null | undefined>): number | null {
@@ -520,11 +503,14 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
         <CardHeader className="pb-1">
           <CardTitle className="text-base font-medium flex items-center gap-2">
-            <span className="text-xl">🤖</span>
+            <span className="text-xl" aria-hidden>
+              🤖
+            </span>
             AI価格最適化の提案
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0">
+        <CardContent className="pt-0 space-y-2">
+          <SampleDataNotice detail="Claude APIによるAIコメント生成が未実装のため、以下は固定文のサンプルです。" />
           <div className="space-y-2 text-sm leading-relaxed">
             {AI_PRICING_PROPOSALS.map((proposal, index) => {
               const style = PROPOSAL_LEVEL_STYLE[proposal.level]
@@ -703,8 +689,8 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                             const holiday = holidayNameOf(dateObj)
                             const special = specialDayNameOf(dateObj)
                             const isActualDay = day.actualAdr != null
-                            const currentAdr = isActualDay ? day.actualAdr : mockCurrentAdr(day)
-                            const currentRank = mockCurrentRank(day)
+                            // 現在ADRは実績（actualAdr）のみ。未確定日はサイトコントローラー未連携のため「-」
+                            const currentAdr = day.actualAdr
                             const adrDiff = day.actualAdr != null && day.predictedAdr != null ? day.actualAdr - day.predictedAdr : null
                             const occDiff =
                               day.actualOccupancy != null && day.predictedOccupancy != null
@@ -751,14 +737,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                                 <td className="text-right py-2 px-2">{yen(currentAdr)}</td>
                                 <td className="text-right py-2 px-2 font-semibold">{yen(day.predictedAdr)}</td>
                                 <td className="text-right py-2 px-2">{pct(day.predictedOccupancy)}</td>
+                                {/* サイトコントローラー連携が未実装のため、現在ランクは取得元が無い（U-7） */}
                                 <td className="text-center py-2 px-2">
-                                  {currentRank != null ? (
-                                    <Badge variant="outline" className="text-xs font-bold px-2">
-                                      {rankLabelOf(currentRank)}
-                                    </Badge>
-                                  ) : (
-                                    <span className="text-muted-foreground text-xs">-</span>
-                                  )}
+                                  <span className="text-muted-foreground text-[10px]">未連携</span>
                                 </td>
                                 <td className="text-center py-2 px-2">
                                   {day.rankLabel ? (

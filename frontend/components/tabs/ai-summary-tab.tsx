@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
+import { SampleDataNotice } from "@/components/sample-data-notice"
 import { XAxis, YAxis, CartesianGrid, BarChart, Bar, ComposedChart, Line, ReferenceLine, ReferenceArea, Legend, Area } from "recharts"
 
 /** 本番想定のダミーKPI（デモ用） */
@@ -267,6 +268,8 @@ export function AISummaryTab() {
           外部要因に基づく先6ヶ月（2026年2月〜7月）のマーケット動向予測
         </p>
       </div>
+
+      <SampleDataNotice detail="外部要因データの取り込みとClaude APIによるAIコメント生成が未実装のため、このタブの数値・コメントはすべてサンプルです。" />
 
       {/* AI総合コメント */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">

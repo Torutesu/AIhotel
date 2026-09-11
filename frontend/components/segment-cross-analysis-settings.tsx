@@ -16,6 +16,7 @@ import { ja } from "date-fns/locale/ja"
 import { CalendarIcon, Save } from "lucide-react"
 import { toast } from "sonner"
 import type { AnalysisSettings, DisplayMode, GraphType, SegmentCrossAnalysisSettings } from "@shared/types"
+import { SampleDataNotice } from "@/components/sample-data-notice"
 
 interface SegmentCrossAnalysisSettingsProps {
   onSave?: (settings: SegmentCrossAnalysisSettings) => void
@@ -260,6 +261,8 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
         <h2 className="text-3xl font-semibold">セグメント別クロス分析</h2>
         <p className="text-muted-foreground mt-2">各種分析タイプの設定を行います</p>
       </div>
+
+      <SampleDataNotice detail="設定を保存するAPIが未実装のため、この画面の入力内容は保存されません。" />
 
       {/* 期間設定 */}
       <Card>

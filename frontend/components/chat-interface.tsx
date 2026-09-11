@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Send, X, Sparkles } from "lucide-react"
+import { SampleDataNotice } from "@/components/sample-data-notice"
 import { cn } from "@/lib/utils"
 import type { Message } from "@shared/types"
 
@@ -133,9 +134,13 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
             <p className="text-xs text-muted-foreground">収益管理をサポート</p>
           </div>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="w-5 h-5" />
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="AIアシスタントを閉じる">
+          <X className="w-5 h-5" aria-hidden />
         </Button>
+      </div>
+
+      <div className="border-b border-border p-3">
+        <SampleDataNotice detail="Claude API との接続が未実装のため、応答は定型のサンプルです。" />
       </div>
 
       {/* Messages */}

@@ -10,13 +10,14 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar as DatePicker } from "@/components/ui/calendar"
 import { Skeleton } from "@/components/ui/skeleton"
-import { CalendarIcon, TrendingUp, BarChart3, RefreshCw, AlertCircle } from "lucide-react"
+import { CalendarIcon, BarChart3, RefreshCw, AlertCircle } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine } from "recharts"
 import { AlertTriangle } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
 
+import { SampleDataNotice } from "@/components/sample-data-notice"
 import { useAuth } from "@/components/auth-provider"
 import { DAY_NAMES, startOfToday } from "@/lib/date"
 import { useWeekend } from "@/hooks/use-weekend"
@@ -59,14 +60,17 @@ export function DailyAiInsightSection() {
     <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-medium flex items-center gap-2">
-          <span className="text-xl">🤖</span>
+          <span className="text-xl" aria-hidden>
+            🤖
+          </span>
           分析インサイト
         </CardTitle>
         <p className="text-xs text-muted-foreground">
           月全体の傾向・需要・予算進捗・前年進捗に対するコメントです（個別日へのピンポイントの対応指示はダッシュボードのアラートをご確認ください）
         </p>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 space-y-2">
+        <SampleDataNotice detail="Claude APIによるAIコメント生成が未実装のため、以下は固定文のサンプルです。" />
         <div className="space-y-2 text-sm leading-relaxed">
           <div className="flex items-start gap-3">
             <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2 flex-shrink-0" />
@@ -92,451 +96,10 @@ export function DailyAiInsightSection() {
   )
 }
 
-// ============================================================================
-// 日別パフォーマンス（対象月セレクタ＋サマリー＋日別テーブル）
-// ============================================================================
-
-/** デモ用の客室数（実データ接続までの想定値） */
-const DEMO_TOTAL_ROOMS = 300
-
-interface DailyRow {
-  date: string
-  /** 曜日番号（0=日〜6=土）。週末判定に使う */
-  dow: number
-  day: string
-  rooms: number
-  occ: number
-  occAi: number
-  adr: number
-  adrAi: number
-  revpar: number
-  revparAi: number
-  revenue: number
-  revenueAi: number
-  yoy: number
-}
-
-/** 「4月5日（土）」形式に整形する */
-function formatRowDate(row: DailyRow | undefined): string {
-  if (!row) return "-"
-  const [month, day] = row.date.split("/")
-  return `${month}月${day}日（${row.day}）`
-}
-
-function seededRandom(seed: number): () => number {
-  let state = seed >>> 0
-  return () => {
-    state = (state * 1664525 + 1013904223) >>> 0
-    return state / 4294967296
-  }
-}
-
-/**
- * 対象月の日別実績を生成する。
- * 稼働率・ADR・RevPAR・室料売上が互いに整合するよう、販売室数とADRから逆算する。
- */
-function buildDailyRows(year: number, month: number, weekendDays: number[]): DailyRow[] {
-  const daysInMonth = new Date(year, month, 0).getDate()
-
-  return Array.from({ length: daysInMonth }, (_, i) => {
-    const day = i + 1
-    const date = new Date(year, month - 1, day)
-    const dow = date.getDay()
-    // 週末判定は Hotel.weekendDays に従う（ハードコード禁止 — U-6）
-    const isWeekend = weekendDays.includes(dow)
-    const rng = seededRandom(year * 10000 + month * 100 + day)
-
-    const occ = Math.min(1, Math.max(0.45, (isWeekend ? 0.95 : 0.72) + (rng() - 0.5) * 0.12))
-    const rooms = Math.round(DEMO_TOTAL_ROOMS * occ)
-    const adr = Math.round((isWeekend ? 24500 : 17000) * (0.97 + rng() * 0.08))
-    const revenue = rooms * adr
-    const revpar = Math.round(revenue / DEMO_TOTAL_ROOMS)
-
-    // AI推奨は実績よりわずかに強気の想定
-    const occAi = Math.min(1, occ * (1.01 + rng() * 0.02))
-    const adrAi = Math.round(adr * (1.01 + rng() * 0.02))
-    const roomsAi = Math.round(DEMO_TOTAL_ROOMS * occAi)
-    const revenueAi = roomsAi * adrAi
-
-    return {
-      date: `${month}/${day}`,
-      dow,
-      day: DAY_NAMES[dow],
-      rooms,
-      occ: Number((occ * 100).toFixed(1)),
-      occAi: Number((occAi * 100).toFixed(1)),
-      adr,
-      adrAi,
-      revpar,
-      revparAi: Math.round(revenueAi / DEMO_TOTAL_ROOMS),
-      revenue,
-      revenueAi,
-      yoy: Number(((rng() - 0.3) * 20).toFixed(1)),
-    }
-  })
-}
-
-interface DailyPerformanceSectionProps {
-  /** 対象月（"YYYY-MM"）。省略時は内部stateで管理する */
-  targetMonth?: string
-  onTargetMonthChange?: (value: string) => void
-  /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
-  onNavigateToPricing?: (date: Date) => void
-  /** 行クリックで宿泊日が選ばれたことを親に伝える（ブッキングカーブとの連動用） */
-  onSelectStayDate?: (date: Date) => void
-}
-
-/** 対象月セレクタ＋月間サマリーカード＋日別パフォーマンステーブル（対象月の状態を共有する） */
-export function DailyPerformanceSection({
-  targetMonth: targetMonthProp,
-  onTargetMonthChange,
-  onNavigateToPricing,
-  onSelectStayDate,
-}: DailyPerformanceSectionProps = {}) {
-  const { weekendDays, isWeekendDow } = useWeekend()
-  const [internalTargetMonth, setInternalTargetMonth] = useState("2025-04")
-  const targetMonth = targetMonthProp ?? internalTargetMonth
-  const handleTargetMonthChange = (value: string) => {
-    setInternalTargetMonth(value)
-    onTargetMonthChange?.(value)
-  }
-
-  // クリックされた行のハイライト用
-  const [selectedStayDate, setSelectedStayDate] = useState<Date | undefined>(() => {
-    const d = new Date()
-    d.setDate(d.getDate() + 7)
-    return d
-  })
-
-  const [targetYearNum, targetMonthNum] = useMemo(
-    () => targetMonth.split("-").map(Number),
-    [targetMonth]
-  )
-  const targetMonthLabel = `${targetYearNum}年${targetMonthNum}月`
-
-  // 日別実績（対象月から決定的に生成。実データ接続までのデモ値）
-  const dailyRows = useMemo(
-    () => buildDailyRows(targetYearNum, targetMonthNum, weekendDays),
-    [targetYearNum, targetMonthNum, weekendDays]
-  )
-
-  // 表下部の合計・平均（日別実績から算出するため、対象月を変えても整合する）
-  const dailyTotals = useMemo(() => {
-    const rooms = dailyRows.reduce((sum, r) => sum + r.rooms, 0)
-    const revenue = dailyRows.reduce((sum, r) => sum + r.revenue, 0)
-    const capacity = DEMO_TOTAL_ROOMS * dailyRows.length
-    return {
-      rooms,
-      revenue,
-      occupancy: capacity > 0 ? (rooms / capacity) * 100 : 0,
-      adr: rooms > 0 ? Math.round(revenue / rooms) : 0,
-      revpar: capacity > 0 ? Math.round(revenue / capacity) : 0,
-      yoy: dailyRows.reduce((sum, r) => sum + r.yoy, 0) / (dailyRows.length || 1),
-    }
-  }, [dailyRows])
-
-  // サマリーカード（月間の平均値と最高・最低の日）
-  const monthlySummary = useMemo(() => {
-    const pick = (compare: (a: DailyRow, b: DailyRow) => boolean) =>
-      dailyRows.reduce((best, row) => (compare(row, best) ? row : best), dailyRows[0])
-
-    const highestAdr = pick((a, b) => a.adr > b.adr)
-    const lowestAdr = pick((a, b) => a.adr < b.adr)
-    const highestOcc = pick((a, b) => a.occ > b.occ)
-    const lowestOcc = pick((a, b) => a.occ < b.occ)
-    const highestRevpar = pick((a, b) => a.revpar > b.revpar)
-    const lowestRevpar = pick((a, b) => a.revpar < b.revpar)
-
-    return { highestAdr, lowestAdr, highestOcc, lowestOcc, highestRevpar, lowestRevpar }
-  }, [dailyRows])
-
-  // 現在の日付を取得（過去/未来判定用）
-  const today = new Date()
-  const todayDateOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-
-  // 日付が過去かどうかを判定する関数
-  const isPastDate = (dateStr: string, monthStr: string) => {
-    const [, day] = dateStr.split("/").map(Number)
-    const [year, monthNum] = monthStr.split("-").map(Number)
-    const rowDate = new Date(year, monthNum - 1, day)
-    const rowDateOnly = new Date(rowDate.getFullYear(), rowDate.getMonth(), rowDate.getDate())
-    return rowDateOnly < todayDateOnly
-  }
-
-  return (
-    <>
-      {/* ControlsとSummaryを1つのCardに統合 */}
-      <Card>
-        <CardContent className="py-2.5 px-3">
-          {/* フィルターコントロール。対象月が外から制御されている場合は
-              画面上部のセレクタと重複するため、ここでは表示しない */}
-          <div className="flex items-center gap-3 flex-wrap mb-2.5">
-            {targetMonthProp === undefined && (
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="target-month-daily" className="text-xs whitespace-nowrap">対象月</Label>
-                <Select value={targetMonth} onValueChange={handleTargetMonthChange}>
-                  <SelectTrigger id="target-month-daily" className="h-8 w-32 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="2025-02">2025年2月</SelectItem>
-                    <SelectItem value="2025-03">2025年3月</SelectItem>
-                    <SelectItem value="2025-04">2025年4月</SelectItem>
-                    <SelectItem value="2025-05">2025年5月</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {targetMonthProp !== undefined && (
-              <h3 className="text-sm font-medium">{targetMonthLabel}のサマリー</h3>
-            )}
-            <p className="text-[10px] text-muted-foreground ml-auto">
-              ※ 実績値のみ（AI予測は含みません）
-            </p>
-          </div>
-
-          {/* サマリーカード（事実のみの9指標。最高〜年間10位以内の日にはバッジを表示） */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 border-t pt-2.5">
-            <div className="flex flex-col">
-              <p className="text-xs text-muted-foreground mb-0.5">月間ADR</p>
-              <div className="text-lg font-semibold mb-0.5">¥{dailyTotals.adr.toLocaleString()}</div>
-              <div className="flex flex-col gap-0.5 text-xs">
-                <span className="text-positive flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />対1か月前 +3.2%
-                </span>
-                <span className="text-positive">対予算 +1.8% / 対前年 +4.1%</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col">
-              <p className="text-xs text-muted-foreground mb-0.5">月間稼働率</p>
-              <div className="text-lg font-semibold mb-0.5">{dailyTotals.occupancy.toFixed(1)}%</div>
-              <div className="flex flex-col gap-0.5 text-xs">
-                <span className="text-positive flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />対予算 +2.4pt
-                </span>
-                <span className="text-positive">対前年 +1.9pt</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col">
-              <p className="text-xs text-muted-foreground mb-0.5">月間RevPAR</p>
-              <div className="text-lg font-semibold mb-0.5">¥{dailyTotals.revpar.toLocaleString()}</div>
-              <div className="flex flex-col gap-0.5 text-xs">
-                <span className="text-positive flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />対予算 +3.1%
-                </span>
-                <span className="text-positive">対前年 +6.2%</span>
-              </div>
-            </div>
-
-            <div className="flex flex-col border-t pt-2 mt-1">
-              <p className="text-xs text-muted-foreground mb-0.5">月間最高ADR日</p>
-              <div className="text-lg font-semibold mb-0.5">{`¥${monthlySummary.highestAdr.adr.toLocaleString()}`}</div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                {formatRowDate(monthlySummary.highestAdr)}
-                <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間3位</Badge>
-              </div>
-            </div>
-
-            <div className="flex flex-col border-t pt-2 mt-1">
-              <p className="text-xs text-muted-foreground mb-0.5">月間最高稼働率日</p>
-              <div className="text-lg font-semibold mb-0.5">{`${monthlySummary.highestOcc.occ.toFixed(1)}%`}</div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                {formatRowDate(monthlySummary.highestOcc)}
-                <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間1位</Badge>
-              </div>
-            </div>
-
-            <div className="flex flex-col border-t pt-2 mt-1">
-              <p className="text-xs text-muted-foreground mb-0.5">月間最高RevPAR日</p>
-              <div className="text-lg font-semibold mb-0.5">{`¥${monthlySummary.highestRevpar.revpar.toLocaleString()}`}</div>
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                {formatRowDate(monthlySummary.highestRevpar)}
-                <Badge className="bg-warning text-white text-[9px] px-1 py-0 h-4">年間2位</Badge>
-              </div>
-            </div>
-
-            <div className="flex flex-col border-t pt-2 mt-1">
-              <p className="text-xs text-muted-foreground mb-0.5">月間最低ADR日</p>
-              <div className="text-lg font-semibold mb-0.5">{`¥${monthlySummary.lowestAdr.adr.toLocaleString()}`}</div>
-              <p className="text-xs text-muted-foreground">{formatRowDate(monthlySummary.lowestAdr)}</p>
-            </div>
-
-            <div className="flex flex-col border-t pt-2 mt-1">
-              <p className="text-xs text-muted-foreground mb-0.5">月間最低稼働率日</p>
-              <div className="text-lg font-semibold mb-0.5">{`${monthlySummary.lowestOcc.occ.toFixed(1)}%`}</div>
-              <p className="text-xs text-muted-foreground">{formatRowDate(monthlySummary.lowestOcc)}</p>
-            </div>
-
-            <div className="flex flex-col border-t pt-2 mt-1">
-              <p className="text-xs text-muted-foreground mb-0.5">月間最低RevPAR日</p>
-              <div className="text-lg font-semibold mb-0.5">{`¥${monthlySummary.lowestRevpar.revpar.toLocaleString()}`}</div>
-              <p className="text-xs text-muted-foreground">{formatRowDate(monthlySummary.lowestRevpar)}</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Daily Performance Table */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium">日別パフォーマンス（{targetMonthLabel}）</CardTitle>
-          <p className="text-xs text-muted-foreground">行をクリックすると、その日のブッキングカーブを下部に表示します</p>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="overflow-x-auto overflow-y-auto max-h-[560px]">
-            <table className="table-sticky-head w-full text-xs">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 px-2 font-medium">日付</th>
-                  <th className="text-left py-2 px-2 font-medium">曜日</th>
-                  <th className="text-right py-2 px-2 font-medium">販売室数</th>
-                  <th className="text-right py-2 px-2 font-medium">稼働率</th>
-                  <th className="text-right py-2 px-2 font-medium">ADR</th>
-                  <th className="text-right py-2 px-2 font-medium">RevPAR</th>
-                  <th className="text-right py-2 px-2 font-medium">室料売上</th>
-                  <th className="text-center py-2 px-2 font-medium">前年比</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dailyRows.map((row) => {
-                  const isPast = isPastDate(row.date, targetMonth)
-                  const isSelectedForCurve =
-                    !!selectedStayDate && format(selectedStayDate, "M/d") === row.date
-                  return (
-                    <tr
-                      key={row.date}
-                      className={`border-b hover:bg-muted/50 cursor-pointer ${isPast ? "opacity-60" : ""}`}
-                      onClick={() => {
-                        const [monthNum, dayNum] = row.date.split("/").map(Number)
-                        const [yearNum] = targetMonth.split("-").map(Number)
-                        const stayDate = new Date(yearNum, monthNum - 1, dayNum)
-                        setSelectedStayDate(stayDate)
-                        onSelectStayDate?.(stayDate)
-                      }}
-                    >
-                      <td className={`py-2 px-2 font-medium ${isSelectedForCurve ? "bg-primary/10" : ""}`}>
-                        {/* 日付からダイナミックプライシングの同じ日へ遷移する（行クリックのカーブ表示とは別動作） */}
-                        <button
-                          type="button"
-                          className="text-primary underline-offset-2 hover:underline"
-                          title={`${row.date} のダイナミックプライシングを開く`}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            const [monthNum, dayNum] = row.date.split("/").map(Number)
-                            onNavigateToPricing?.(new Date(targetYearNum, monthNum - 1, dayNum))
-                          }}
-                        >
-                          {row.date}
-                        </button>
-                      </td>
-                      <td className="py-2 px-2">
-                        <Badge variant={isWeekendDow(row.dow) ? "default" : "outline"} className="text-xs">
-                          {row.day}
-                        </Badge>
-                      </td>
-                      <td className="text-right py-2 px-2">{row.rooms}室</td>
-                      <td className="text-right py-2 px-2">
-                        {isPast ? (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="text-[color:var(--muted-foreground)] text-[10px]">実績: {row.occ.toFixed(1)}%</span>
-                            <span className="text-[color:var(--muted-foreground)] text-[10px]">AI推奨: {row.occAi.toFixed(1)}%</span>
-                          </div>
-                        ) : (
-                          <span
-                            className={
-                              row.occAi >= 90
-                                ? "text-positive font-medium"
-                                : row.occAi < 70
-                                  ? "text-negative"
-                                  : ""
-                            }
-                          >
-                            {row.occAi.toFixed(1)}%
-                          </span>
-                        )}
-                      </td>
-                      <td className="text-right py-2 px-2">
-                        {isPast ? (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="text-[color:var(--muted-foreground)] text-[10px]">実績: ¥{row.adr.toLocaleString()}</span>
-                            <span className="text-[color:var(--muted-foreground)] text-[10px]">AI推奨: ¥{row.adrAi.toLocaleString()}</span>
-                          </div>
-                        ) : (
-                          <>¥{row.adrAi.toLocaleString()}</>
-                        )}
-                      </td>
-                      <td className="text-right py-2 px-2">
-                        {isPast ? (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="text-[color:var(--muted-foreground)] text-[10px]">実績: ¥{row.revpar.toLocaleString()}</span>
-                            <span className="text-[color:var(--muted-foreground)] text-[10px]">AI推奨: ¥{row.revparAi.toLocaleString()}</span>
-                          </div>
-                        ) : (
-                          <>¥{row.revparAi.toLocaleString()}</>
-                        )}
-                      </td>
-                      <td className="text-right py-2 px-2 font-medium">
-                        {isPast ? (
-                          <div className="flex flex-col items-end gap-0.5">
-                            <span className="text-[color:var(--muted-foreground)] text-[10px]">実績: ¥{row.revenue.toLocaleString()}</span>
-                            <span className="text-[color:var(--muted-foreground)] text-[10px]">AI推奨: ¥{row.revenueAi.toLocaleString()}</span>
-                          </div>
-                        ) : (
-                          <>¥{row.revenueAi.toLocaleString()}</>
-                        )}
-                      </td>
-                      <td className="text-center py-2 px-2">
-                        {isPast ? (
-                          <span className={row.yoy >= 0 ? "text-positive" : "text-negative"}>
-                            {row.yoy >= 0 ? "+" : ""}
-                            {row.yoy.toFixed(1)}%
-                          </span>
-                        ) : (
-                          <span className="text-[color:var(--muted-foreground)]">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot className="border-t-2">
-                <tr className="bg-muted/30">
-                  <td className="py-2 px-2 font-semibold" colSpan={2}>
-                    合計 / 平均
-                  </td>
-                  <td className="text-right py-2 px-2 font-semibold">
-                    {dailyTotals.rooms.toLocaleString()}室
-                  </td>
-                  <td className="text-right py-2 px-2 font-semibold">
-                    {dailyTotals.occupancy.toFixed(1)}%
-                  </td>
-                  <td className="text-right py-2 px-2 font-semibold">
-                    ¥{dailyTotals.adr.toLocaleString()}
-                  </td>
-                  <td className="text-right py-2 px-2 font-semibold">
-                    ¥{dailyTotals.revpar.toLocaleString()}
-                  </td>
-                  <td className="text-right py-2 px-2 font-semibold">
-                    ¥{dailyTotals.revenue.toLocaleString()}
-                  </td>
-                  <td
-                    className={`text-center py-2 px-2 font-semibold ${dailyTotals.yoy >= 0 ? "text-positive" : "text-negative"}`}
-                  >
-                    {dailyTotals.yoy >= 0 ? "+" : ""}
-                    {dailyTotals.yoy.toFixed(1)}%
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-    </>
-  )
-}
+// 日別パフォーマンス（対象月セレクタ＋サマリー＋日別テーブル）は
+// components/analysis/daily-performance-section.tsx へ移設し、実データ
+// （GET /dashboard/kpi の summary / dailyTrend）に接続した（U-7 / U-15）。
+export { DailyPerformanceSection } from "@/components/analysis/daily-performance-section"
 
 // ============================================================================
 // ブッキングカーブ
@@ -821,7 +384,7 @@ export function BookingCurveSection({
                 />
               </LineChart>
             </ResponsiveContainer>
-            <p className="text-[10px] text-muted-foreground">※ 月単位の系列は表示イメージ（モックデータ）です</p>
+            <SampleDataNotice detail="月単位のブッキングカーブは対応APIが未実装のため、表示イメージ（サンプル）です。" />
           </div>
         ) : bookingCurveLoading ? (
           <Skeleton className="h-[300px] w-full" />
@@ -886,9 +449,7 @@ export function BookingCurveSection({
                 <Line yAxisId="left" type="monotone" dataKey="budgetOcc" stroke="#16a34a" strokeWidth={1.5} strokeDasharray="8 4" dot={false} name="予算稼働率" />
               </LineChart>
             </ResponsiveContainer>
-            <p className="text-[10px] text-muted-foreground">
-              ※ ADR・前年・予算の系列は表示イメージ（モックデータ）です。表示区分（部屋タイプ別・利用人数別）の内訳は今後の定例で仕様を確定します
-            </p>
+            <SampleDataNotice detail="稼働率の実測カーブは実データですが、ADR・前年・予算の系列と表示区分（部屋タイプ別・利用人数別）の内訳は対応APIが未実装のためサンプルです。" />
           </div>
         ) : (
           <div className="text-center py-8 text-sm text-muted-foreground">
@@ -915,7 +476,8 @@ export function WeekdayPerformanceSection() {
           祝日・休前日は曜日と別区分で集計しています。GW・年末年始などの特日グループの集計区分は、マスタ設定でのグループ化に対応予定です
         </p>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="pt-0 space-y-2">
+        <SampleDataNotice detail="曜日別・祝日別の集計APIが未実装のため、以下の数値はサンプルです。" />
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
