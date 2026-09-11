@@ -19,7 +19,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   FRONTEND_URL: z.string().url().default('http://localhost:3000'),
 
-  // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許す
+  // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許すが、
+  // NODE_ENV=production では必須にする（下の superRefine — S-7）
   DATABASE_URL: z.string().min(1).optional(),
 
   JWT_SECRET: z
@@ -58,6 +59,17 @@ const envSchema = z.object({
   // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
   STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
 })
+  // 本番では DATABASE_URL 未設定のまま起動させない（S-7）。
+  // 開発・テストでは型チェックや単体テストのみを回す用途があるため任意のままにする。
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production' && !env.DATABASE_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DATABASE_URL'],
+        message: 'NODE_ENV=production では DATABASE_URL が必須です',
+      })
+    }
+  })
 
 function loadConfig() {
   const parsed = envSchema.safeParse(process.env)
