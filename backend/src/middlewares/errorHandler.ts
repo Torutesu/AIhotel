@@ -35,17 +35,8 @@ export class NotFoundError extends ApiError {
   }
 }
 
-export class UnauthorizedError extends ApiError {
-  constructor(message = '認証が必要です') {
-    super(401, message)
-  }
-}
-
-export class ForbiddenError extends ApiError {
-  constructor(message = 'この操作を行う権限がありません') {
-    super(403, message)
-  }
-}
+// 401 / 403 は authenticate・requireRole が ApiError を直接投げるため、
+// 専用クラス（UnauthorizedError / ForbiddenError）は使われておらず削除した（C-11）
 
 export class BadRequestError extends ApiError {
   constructor(message = '不正なリクエストです', errors?: Array<{ field: string; message: string }>) {
@@ -138,15 +129,20 @@ export function errorHandler(
   // req.headers / req.body をそのまま出力しない（Authorization・パスワード・リフレッシュトークンが
   // ログに残るため — S-2）。req は logger の serializer で安全なヘッダーのみに絞られ、
   // 万一含まれた場合も pino の redact でマスクされる
+  // requestId を付けてリクエストログと突き合わせられるようにする（C-8）
+  const requestId = req.id
+
   if (!isOperational || statusCode >= 500) {
     logger.error({
       err,
       req,
+      requestId,
       statusCode,
       message,
     }, message)
   } else {
     logger.warn({
+      requestId,
       statusCode,
       message,
       errors,

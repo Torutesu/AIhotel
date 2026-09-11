@@ -1,12 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
-
-function monthRange(year: number, month: number): { start: Date; end: Date } {
-  return {
-    start: new Date(Date.UTC(year, month - 1, 1)),
-    end: new Date(Date.UTC(year, month, 1)),
-  }
-}
+import { monthRange, todayJst } from '../lib/date.js'
 
 /**
  * 年度の開始月（4月始まり）。
@@ -104,6 +98,77 @@ export function fiscalYearStart(
   startMonth = FISCAL_YEAR_START_MONTH
 ): { year: number; month: number } {
   return { year: month >= startMonth ? year : year - 1, month: startMonth }
+}
+
+/** MonthlyBudget を年度累計ぶんだけ取り出す where 条件の形 */
+export interface FiscalBudgetWhere {
+  OR: Array<{ year: number; month: { gte?: number; lte?: number } }>
+}
+
+/**
+ * 年度累計（年度開始月〜表示中の月）の予算だけを取得する where 条件を組み立てる（C-1）。
+ *
+ * 年度開始年と表示年が同じ場合に `lte: month` の上限が無いと、例えば 2026年9月の表示で
+ * 4月〜12月の予算まで合計してしまい、年度累計予算が実態より大きく出る。
+ * 年度をまたぐ場合（1〜3月の表示）は「開始年の開始月以降」＋「表示年の当月以前」の2条件になる。
+ */
+export function buildFiscalBudgetWhere(
+  year: number,
+  month: number,
+  fiscalStart: { year: number; month: number }
+): FiscalBudgetWhere {
+  if (fiscalStart.year === year) {
+    return { OR: [{ year, month: { gte: fiscalStart.month, lte: month } }] }
+  }
+  return {
+    OR: [
+      { year: fiscalStart.year, month: { gte: fiscalStart.month } },
+      { year, month: { lte: month } },
+    ],
+  }
+}
+
+/**
+ * 指定年月の「経過日数」を暦日ベースで返す（C-1）。
+ *
+ * 実績行の件数を経過日数として使うと、未入力の日があるぶんだけ按分予算が小さくなり、
+ * 未来月は 0 件なので予算が丸ごと 0 になってしまう。カレンダー基準で数える:
+ *   - 過去月: その月の日数すべて
+ *   - 当月　: 月初から本日（JST）まで（本日を含む）
+ *   - 未来月: 0
+ *
+ * @param today テスト用に基準日を差し替えるための引数。既定は JST の今日。
+ */
+export function elapsedDaysInMonth(year: number, month: number, today: Date = todayJst()): number {
+  const { start, end, daysInMonth } = monthRange(year, month)
+  if (today >= end) return daysInMonth
+  if (today < start) return 0
+  return today.getUTCDate()
+}
+
+/**
+ * 年度開始月から表示中の月までの経過日数の合計（C-1）。
+ * 年度累計の按分予算・稼働率の分母に使う。
+ */
+export function elapsedDaysInFiscalPeriod(
+  fiscalStart: { year: number; month: number },
+  year: number,
+  month: number,
+  today: Date = todayJst()
+): number {
+  let total = 0
+  let y = fiscalStart.year
+  let m = fiscalStart.month
+  // 年度開始月から表示中の月まで1か月ずつ進める（最大12か月）
+  while (y < year || (y === year && m <= month)) {
+    total += elapsedDaysInMonth(y, m, today)
+    m += 1
+    if (m > 12) {
+      m = 1
+      y += 1
+    }
+  }
+  return total
 }
 
 /**
@@ -216,13 +281,8 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
         orderBy: { date: 'asc' },
       }),
       prisma.monthlyBudget.findMany({
-        where: {
-          hotelId,
-          OR: [
-            { year: fiscalStart.year, month: { gte: fiscalStart.month } },
-            ...(fiscalStart.year < year ? [{ year, month: { lte: month } }] : []),
-          ],
-        },
+        // 年度開始月〜当月の範囲に上下限を付ける（C-1）
+        where: { hotelId, ...buildFiscalBudgetWhere(year, month, fiscalStart) },
       }),
       prisma.dailyData.findMany({
         where: { hotelId, date: { gte: lastYearRange.start, lt: lastYearRange.end } },
@@ -234,8 +294,12 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
   const actualDays = dailyData.filter((d) => d.totalRevenue != null)
   const summary = computeSummary(actualDays, hotel.totalRooms)
 
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  const elapsedRatio = actualDays.length / daysInMonth
+  // 按分の分母・分子は暦日ベースにする（C-1）。
+  // 実績行の件数を使うと、未入力の日があるぶん按分予算が小さくなり、
+  // 実績が1件も無い未来月では予算が丸ごと 0 になってしまう。
+  const { daysInMonth } = monthRange(year, month)
+  const elapsedDays = elapsedDaysInMonth(year, month)
+  const elapsedRatio = elapsedDays / daysInMonth
 
   // 予算・前年比較（F-DASH-02）: 「本日まで」「累計進捗」「年度累計」の3軸
   const monthActual: ActualAggregate = {
@@ -272,7 +336,9 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
     // 年度累計: 年度開始月から当月実績までの累計どうしを比較
     const fiscalActualDays = fiscalDailyData.filter((d) => d.totalRevenue != null)
     const fiscalSummary = computeSummary(fiscalActualDays, hotel.totalRooms)
-    const fiscalTargets = aggregateBudgets(fiscalBudgets, hotel.totalRooms, fiscalActualDays.length)
+    // 予算稼働率の分母も暦日ベースの経過日数にする（C-1）
+    const fiscalElapsedDays = elapsedDaysInFiscalPeriod(fiscalStart, year, month)
+    const fiscalTargets = aggregateBudgets(fiscalBudgets, hotel.totalRooms, fiscalElapsedDays)
     const fiscalYear = buildComparisonAxis(
       {
         revenue: fiscalSummary.roomRevenue,

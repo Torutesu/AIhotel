@@ -19,45 +19,10 @@ export function sendSuccess<T>(
 }
 
 /**
- * ページネーション付き成功レスポンスを送信する
- */
-export function sendPaginatedSuccess<T>(
-  res: Response,
-  data: T[],
-  pagination: {
-    page: number
-    limit: number
-    total: number
-  },
-  statusCode = 200
-): void {
-  const totalPages = Math.ceil(pagination.total / pagination.limit)
-  
-  const response: ApiResponse<T[]> = {
-    success: true,
-    data,
-    meta: {
-      page: pagination.page,
-      limit: pagination.limit,
-      total: pagination.total,
-      totalPages,
-    },
-  }
-  res.status(statusCode).json(response)
-}
-
-/**
  * 作成成功レスポンスを送信する
  */
 export function sendCreated<T>(res: Response, data: T, message = '作成しました'): void {
   sendSuccess(res, data, 201, message)
-}
-
-/**
- * 更新成功レスポンスを送信する
- */
-export function sendUpdated<T>(res: Response, data: T, message = '更新しました'): void {
-  sendSuccess(res, data, 200, message)
 }
 
 /**
@@ -69,11 +34,4 @@ export function sendDeleted(res: Response, message = '削除しました'): void
     message,
   }
   res.status(200).json(response)
-}
-
-/**
- * No Content レスポンスを送信する
- */
-export function sendNoContent(res: Response): void {
-  res.status(204).send()
 }

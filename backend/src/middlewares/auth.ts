@@ -9,6 +9,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: JWTPayload
+      /** リクエスト相関 ID（utils/logger.ts の requestId ミドルウェアが採番 — C-8） */
+      id?: string
     }
   }
 }
@@ -43,35 +45,6 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
     } else {
       next(new ApiError(401, '認証に失敗しました'))
     }
-  }
-}
-
-/**
- * オプショナル認証ミドルウェア
- * トークンがあれば検証するが、なくてもエラーにしない
- */
-export function optionalAuth(req: Request, _res: Response, next: NextFunction) {
-  try {
-    const authHeader = req.headers.authorization
-    
-    if (!authHeader) {
-      return next()
-    }
-    
-    const parts = authHeader.split(' ')
-    
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      return next()
-    }
-    
-    const token = parts[1]
-    const payload = verifyAccessToken(token)
-    
-    req.user = payload
-    next()
-  } catch {
-    // エラーがあっても無視して続行
-    next()
   }
 }
 
@@ -140,26 +113,3 @@ export function requireHotelAccess(hotelIdExtractor: (req: Request) => string | 
   }
 }
 
-/**
- * 自分自身のリソースかどうかをチェックするミドルウェア
- */
-export function requireSelfOrAdmin(userIdExtractor: (req: Request) => string | undefined) {
-  return (req: Request, _res: Response, next: NextFunction) => {
-    if (!req.user) {
-      return next(new ApiError(401, '認証が必要です'))
-    }
-    
-    // ADMINは全てのユーザーにアクセス可能
-    if (req.user.role === 'ADMIN') {
-      return next()
-    }
-    
-    const requestedUserId = userIdExtractor(req)
-    
-    if (req.user.userId !== requestedUserId) {
-      return next(new ApiError(403, 'このリソースへのアクセス権限がありません'))
-    }
-    
-    next()
-  }
-}

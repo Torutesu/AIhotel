@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import jwt, { type SignOptions } from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
 import type { User, UserRole } from '@prisma/client'
@@ -64,11 +64,13 @@ function parseExpiresIn(expiresIn: string): number {
 // Password Utilities
 // ======================================
 
+const BCRYPT_COST = 12
+
 /**
  * パスワードをハッシュ化する
  */
 export async function hashPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, 12)
+  return bcrypt.hash(password, BCRYPT_COST)
 }
 
 /**
@@ -76,6 +78,32 @@ export async function hashPassword(password: string): Promise<string> {
  */
 export async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
   return bcrypt.compare(password, hashedPassword)
+}
+
+// ログイン失敗時のタイミングオラクル対策用ダミーハッシュ（S-8）。
+// 事前計算を防ぐためプロセス起動ごとにランダムな値から生成し、初回使用時にだけ計算する
+// （起動を bcrypt のコストぶん遅らせないため遅延生成）。
+let dummyPasswordHash: Promise<string> | null = null
+
+function getDummyPasswordHash(): Promise<string> {
+  dummyPasswordHash ??= bcrypt.hash(randomBytes(32).toString('hex'), BCRYPT_COST)
+  return dummyPasswordHash
+}
+
+/**
+ * パスワードを検証する。ハッシュが無い（＝該当ユーザーが存在しない）場合でも
+ * 同じコストのダミーハッシュと比較し、常に false を返す（S-8）。
+ *
+ * ユーザーの有無で bcrypt を実行するかどうかが変わると、応答時間の差から
+ * 登録済みメールアドレスを列挙できてしまうため、比較を必ず 1 回実行する。
+ */
+export async function verifyPasswordConstantWork(
+  password: string,
+  hashedPassword: string | null | undefined
+): Promise<boolean> {
+  const hash = hashedPassword ?? (await getDummyPasswordHash())
+  const matches = await bcrypt.compare(password, hash)
+  return hashedPassword ? matches : false
 }
 
 // ======================================

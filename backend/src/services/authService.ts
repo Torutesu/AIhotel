@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma.js'
 import {
   hashPassword,
-  verifyPassword,
+  verifyPasswordConstantWork,
   generateTokenPair,
   verifyRefreshToken,
   getRefreshTokenExpiry,
@@ -46,6 +46,34 @@ interface AuthResult {
 // ======================================
 
 /**
+ * ログイン失敗時に返す唯一のメッセージ（S-8）。
+ * 「メールアドレスが存在しない」「パスワードが違う」「アカウントが無効」を
+ * 区別できないようにするため、すべてこの文言・401 で返す。
+ */
+export const INVALID_CREDENTIALS_MESSAGE = 'メールアドレスまたはパスワードが正しくありません'
+
+/**
+ * ログイン失敗を監査ログに残す（S-6）。
+ * ブルートフォース検知のため、失敗理由は監査ログにのみ記録し、
+ * 呼び出し元がクライアントへ返すメッセージには含めない。
+ */
+async function recordLoginFailure(
+  detail: { email: string; reason: string; tenantId?: string | null; userId?: string | null },
+  ctx?: RequestContext
+): Promise<void> {
+  await writeAuditLog({
+    tenantId: detail.tenantId ?? null,
+    userId: detail.userId ?? null,
+    action: 'LOGIN_FAILED',
+    entity: 'User',
+    entityId: detail.userId ?? null,
+    newValue: { email: detail.email, reason: detail.reason },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
+  })
+}
+
+/**
  * ユーザーログイン
  */
 export async function loginService(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
@@ -55,21 +83,30 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     where: { email },
   })
 
-  if (!user) {
-    throw new ApiError(401, 'メールアドレスまたはパスワードが正しくありません')
-  }
+  // ユーザーが存在しない場合もダミーハッシュと比較して同じ計算量を消費する（S-8）。
+  // 分岐より前に必ず 1 回 bcrypt を実行することで、応答時間からアカウントの有無を
+  // 推測できないようにする。
+  const isValidPassword = await verifyPasswordConstantWork(password, user?.password)
 
-  if (!user.isActive) {
-    throw new ApiError(401, 'このアカウントは無効化されています')
-  }
-
-  const isValidPassword = await verifyPassword(password, user.password)
-
-  if (!isValidPassword) {
-    throw new ApiError(401, 'メールアドレスまたはパスワードが正しくありません')
+  // 「存在しない」「パスワード不一致」「無効化済み」を同一メッセージ・同一ステータスで返す（S-8）。
+  // アカウント列挙と、有効／無効の判別を防ぐ。失敗理由は監査ログにのみ残す。
+  if (!user || !isValidPassword || !user.isActive) {
+    const reason = !user ? 'USER_NOT_FOUND' : !isValidPassword ? 'BAD_PASSWORD' : 'INACTIVE'
+    await recordLoginFailure(
+      { email, reason, tenantId: user?.tenantId ?? null, userId: user?.id ?? null },
+      ctx
+    )
+    throw new ApiError(401, INVALID_CREDENTIALS_MESSAGE)
   }
 
   const tokens = generateTokenPair(user)
+
+  // 期限切れのリフレッシュトークンを掃除する（S-9）。
+  // ログアウトせずにセッションを切ると行が残り続けるため、ログインのたびに
+  // 当該ユーザーぶんの失効済みトークンを削除する（@@index([expiresAt]) を使用）。
+  await prisma.refreshToken.deleteMany({
+    where: { userId: user.id, expiresAt: { lt: new Date() } },
+  })
 
   // リフレッシュトークンはハッシュのみ保存する
   await prisma.refreshToken.create({
@@ -221,21 +258,50 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 /**
  * ログアウト
  */
-export async function logoutService(refreshToken: string, userId: string): Promise<void> {
+export async function logoutService(
+  refreshToken: string,
+  actor: { userId: string; tenantId: string | null },
+  ctx?: RequestContext
+): Promise<void> {
   await prisma.refreshToken.deleteMany({
     where: {
       tokenHash: hashToken(refreshToken),
-      userId,
+      userId: actor.userId,
     },
+  })
+
+  await writeAuditLog({
+    tenantId: actor.tenantId,
+    userId: actor.userId,
+    action: 'LOGOUT',
+    entity: 'User',
+    entityId: actor.userId,
+    newValue: { scope: 'current' },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
   })
 }
 
 /**
  * 全デバイスからログアウト
  */
-export async function logoutAllService(userId: string): Promise<void> {
+export async function logoutAllService(
+  actor: { userId: string; tenantId: string | null },
+  ctx?: RequestContext
+): Promise<void> {
   await prisma.refreshToken.deleteMany({
-    where: { userId },
+    where: { userId: actor.userId },
+  })
+
+  await writeAuditLog({
+    tenantId: actor.tenantId,
+    userId: actor.userId,
+    action: 'LOGOUT',
+    entity: 'User',
+    entityId: actor.userId,
+    newValue: { scope: 'all' },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
   })
 }
 

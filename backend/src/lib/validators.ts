@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { dateOnly, todayJst } from './date.js'
 
 // ======================================
 // Common Validators
@@ -12,18 +13,8 @@ export const entityIdSchema = z
   .max(64)
   .regex(/^[A-Za-z0-9_-]+$/, 'IDの形式が不正です')
 
-export const paginationSchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
-})
-
-export const dateRangeSchema = z.object({
-  startDate: z.coerce.date(),
-  endDate: z.coerce.date(),
-}).refine(data => data.startDate <= data.endDate, {
-  message: '開始日は終了日以前である必要があります',
-})
-
+// パスパラメータ :id の検証（C-11）。/:id を持つ全ルートに
+// validate(idParamSchema, 'params') を適用している
 export const idParamSchema = z.object({
   id: entityIdSchema,
 })
@@ -70,21 +61,6 @@ export const createHotelSchema = z.object({
 export const updateHotelSchema = createHotelSchema.omit({ tenantId: true }).partial()
 
 // ======================================
-// Room Type Validators
-// ======================================
-
-export const createRoomTypeSchema = z.object({
-  hotelId: entityIdSchema,
-  name: z.string().min(1).max(100),
-  code: z.string().min(1).max(50).regex(/^[A-Z0-9_]+$/, 'コードは大文字英数字とアンダースコアのみ使用可能です'),
-  capacity: z.number().int().min(1).max(10),
-  count: z.number().int().min(0),
-  sortOrder: z.number().int().default(0),
-})
-
-export const updateRoomTypeSchema = createRoomTypeSchema.omit({ hotelId: true }).partial()
-
-// ======================================
 // Price Rank Validators
 // ======================================
 
@@ -100,56 +76,6 @@ export const createPriceRankSchema = z.object({
 })
 
 export const updatePriceRankSchema = createPriceRankSchema.omit({ hotelId: true, rank: true }).partial()
-
-// ======================================
-// Daily Data Validators
-// ======================================
-
-export const createDailyDataSchema = z.object({
-  hotelId: entityIdSchema,
-  date: z.coerce.date(),
-  occupancy: z.number().min(0).max(1).optional(),
-  adr: z.number().min(0).optional(),
-  revPar: z.number().min(0).optional(),
-  totalRevenue: z.number().min(0).optional(),
-  soldRooms: z.number().int().min(0).optional(),
-  guests: z.number().int().min(0).optional(),
-  budgetOccupancy: z.number().min(0).max(1).optional(),
-  budgetAdr: z.number().min(0).optional(),
-  budgetRevenue: z.number().min(0).optional(),
-  isHoliday: z.boolean().default(false),
-  holidayName: z.string().max(100).optional(),
-  eventInfo: z.string().max(1000).optional(),
-  externalFactors: z.string().max(1000).optional(),
-  notes: z.string().max(2000).optional(),
-})
-
-export const updateDailyDataSchema = createDailyDataSchema.omit({ hotelId: true, date: true }).partial()
-
-export const bulkUpdateDailyDataSchema = z.object({
-  data: z.array(createDailyDataSchema).min(1).max(365),
-})
-
-// ======================================
-// Campaign Validators
-// ======================================
-
-const campaignBaseSchema = z.object({
-  hotelId: entityIdSchema,
-  name: z.string().min(1).max(200),
-  channel: z.string().min(1).max(100),
-  source: z.enum(['ota', 'manual']).default('manual'),
-  startDate: z.coerce.date(),
-  endDate: z.coerce.date(),
-  description: z.string().max(2000).optional(),
-  targetRooms: z.number().int().min(0).optional(),
-})
-
-export const createCampaignSchema = campaignBaseSchema.refine(data => data.startDate <= data.endDate, {
-  message: '開始日は終了日以前である必要があります',
-})
-
-export const updateCampaignSchema = campaignBaseSchema.omit({ hotelId: true }).partial()
 
 // ======================================
 // Event Validators
@@ -192,27 +118,22 @@ export const updateHotelSettingsSchema = z.object({
   phone: z.string().max(20).optional(),
   email: z.string().email().optional(),
   totalRooms: z.number().int().min(1, '部屋数は1以上である必要があります').optional(),
-  // 週末定義（チェックイン日基準の曜日番号、0=日曜〜6=土曜）。デフォルトは金・土 [5, 6]
-  weekendDays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  // 週末定義（チェックイン日基準の曜日番号、0=日曜〜6=土曜）。デフォルトは金・土 [5, 6]。
+  // 空配列を許すと「週末が存在しない」設定になり週末補正・レポートの週末判定が壊れ、
+  // 重複を許すと同じ曜日が二重に数えられるため、どちらも弾く（C-11）
+  weekendDays: z
+    .array(z.number().int().min(0).max(6))
+    .min(1, '週末は1曜日以上指定してください')
+    .max(7)
+    .refine((days) => new Set(days).size === days.length, {
+      message: '週末の曜日が重複しています',
+    })
+    .optional(),
 })
 
 // ======================================
 // Query Validators
 // ======================================
-
-export const dailyDataQuerySchema = z.object({
-  hotelId: entityIdSchema,
-  startDate: z.coerce.date().optional(),
-  endDate: z.coerce.date().optional(),
-  ...paginationSchema.shape,
-})
-
-export const pricingQuerySchema = z.object({
-  hotelId: entityIdSchema,
-  date: z.coerce.date().optional(),
-  month: z.coerce.number().int().min(1).max(12).optional(),
-  year: z.coerce.number().int().min(2020).max(2100).optional(),
-})
 
 export const hotelIdQuerySchema = z.object({
   hotelId: entityIdSchema,
@@ -275,14 +196,48 @@ export const monthlyReportQuerySchema = z.object({
 // Forecast Validators（F-DP-05 / F-DP-03）
 // ======================================
 
+// 再計算できる期間の上限（C-3）。1日1行を書き込むため、無制限だと
+// 1リクエストで何万行も生成でき DB とレスポンス時間を圧迫する。
+export const MAX_FORECAST_RANGE_DAYS = 366
+
 export const recomputeForecastSchema = z.object({
   hotelId: entityIdSchema,
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
-}).refine(
-  (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
-  { message: '開始日は終了日以前である必要があります' }
-)
+}).superRefine((data, ctx) => {
+  // 需要予測は未来の価格を決めるためのもの。過去日を指定すると確定済み実績の
+  // 期間の AI 推奨を書き換えてしまうため、開始日は本日（JST）以降に限る（C-3）
+  const start = data.startDate ? dateOnly(data.startDate) : todayJst()
+  if (data.startDate && start < todayJst()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['startDate'],
+      message: '開始日は本日以降の日付を指定してください',
+    })
+    return
+  }
+
+  if (!data.endDate) return
+  const end = dateOnly(data.endDate)
+
+  if (end < start) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endDate'],
+      message: '開始日は終了日以前である必要があります',
+    })
+    return
+  }
+
+  const days = Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1
+  if (days > MAX_FORECAST_RANGE_DAYS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['endDate'],
+      message: `再計算できる期間は最大${MAX_FORECAST_RANGE_DAYS}日です`,
+    })
+  }
+})
 
 // 重み付けは合計100%（F-DP-02）
 export const updateStrategySchema = z.object({
@@ -303,16 +258,8 @@ export type RegisterInput = z.infer<typeof registerSchema>
 export type CreateHotelInput = z.infer<typeof createHotelSchema>
 export type CreatePriceRankInput = z.infer<typeof createPriceRankSchema>
 export type UpdateHotelInput = z.infer<typeof updateHotelSchema>
-export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>
-export type UpdateRoomTypeInput = z.infer<typeof updateRoomTypeSchema>
-export type CreateDailyDataInput = z.infer<typeof createDailyDataSchema>
-export type UpdateDailyDataInput = z.infer<typeof updateDailyDataSchema>
-export type CreateCampaignInput = z.infer<typeof createCampaignSchema>
-export type UpdateCampaignInput = z.infer<typeof updateCampaignSchema>
 export type CreateEventInput = z.infer<typeof createEventSchema>
 export type UpdateEventInput = z.infer<typeof updateEventSchema>
 export type UpdateHotelSettingsInput = z.infer<typeof updateHotelSettingsSchema>
-export type PaginationInput = z.infer<typeof paginationSchema>
-export type DateRangeInput = z.infer<typeof dateRangeSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>

@@ -17,9 +17,21 @@ dotenv.config()
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  // CORS で許可するオリジン。カンマ区切りで複数指定できる（S-10）。
+  // Vercel の Preview URL など、本番以外のオリジンを追加で許可するために使う。
+  FRONTEND_URL: z
+    .string()
+    .default('http://localhost:3000')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    )
+    .pipe(z.array(z.string().url()).nonempty('FRONTEND_URL には少なくとも1つのURLが必要です')),
 
-  // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許す
+  // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許すが、
+  // NODE_ENV=production では必須にする（下の superRefine — S-7）
   DATABASE_URL: z.string().min(1).optional(),
 
   JWT_SECRET: z
@@ -58,6 +70,17 @@ const envSchema = z.object({
   // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
   STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
 })
+  // 本番では DATABASE_URL 未設定のまま起動させない（S-7）。
+  // 開発・テストでは型チェックや単体テストのみを回す用途があるため任意のままにする。
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV === 'production' && !env.DATABASE_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DATABASE_URL'],
+        message: 'NODE_ENV=production では DATABASE_URL が必須です',
+      })
+    }
+  })
 
 function loadConfig() {
   const parsed = envSchema.safeParse(process.env)

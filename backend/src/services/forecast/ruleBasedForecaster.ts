@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
 import type { DailyForecast, DemandForecaster, ForecastDemandLevel, ForecastInput } from './types.js'
+import { DEFAULT_WEEKEND_DAYS, addUtcDays } from '../../lib/date.js'
 
 // ルールベース需要予測（F-DP-05 の前段。将来 ML モデルに差し替え予定）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
@@ -184,12 +185,6 @@ export function computeDailyForecastCore(
   }
 }
 
-function addUtcDays(date: Date, days: number): Date {
-  const d = new Date(date)
-  d.setUTCDate(d.getUTCDate() + days)
-  return d
-}
-
 export const ruleBasedForecaster: DemandForecaster = {
   name: MODEL_VERSION,
 
@@ -198,7 +193,9 @@ export const ruleBasedForecaster: DemandForecaster = {
 
     const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
     if (!hotel) throw new NotFoundError('ホテル')
-    const weekendDays = Array.isArray(hotel.weekendDays) ? (hotel.weekendDays as number[]) : [5, 6]
+    const weekendDays = Array.isArray(hotel.weekendDays)
+      ? (hotel.weekendDays as number[])
+      : [...DEFAULT_WEEKEND_DAYS]
 
     // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得
     const historyWindowStart = addUtcDays(startDate, -400)
