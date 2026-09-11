@@ -215,6 +215,21 @@ export const updateUserSchema = z
   })
 
 // ======================================
+// Alert Validators（N-4）
+// ======================================
+
+/**
+ * アラートの状態遷移（N-4）。OPEN へ戻す操作は用意しない
+ * （検知は自動、解決は人手という運用のため、手動で未対応に戻す必要がない）。
+ */
+export const updateAlertStatusSchema = z.object({
+  hotelId: entityIdSchema,
+  status: z.enum(['ACKNOWLEDGED', 'RESOLVED'], {
+    errorMap: () => ({ message: 'ステータスは ACKNOWLEDGED または RESOLVED を指定してください' }),
+  }),
+})
+
+// ======================================
 // Query Validators
 // ======================================
 
@@ -352,3 +367,4 @@ export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>
 export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
 export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
 export type UpdateUserInput = z.infer<typeof updateUserSchema>
+export type UpdateAlertStatusInput = z.infer<typeof updateAlertStatusSchema>

@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js'
-import { NotFoundError } from '../middlewares/errorHandler.js'
+import { BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
 import { monthRange, todayJst } from '../lib/date.js'
 
 /**
@@ -450,4 +450,40 @@ export async function getAiSummaryService(hotelId: string, section = 'dashboard-
     where: { hotelId, section },
     orderBy: { generatedAt: 'desc' },
   })
+}
+
+/**
+ * アラートの状態遷移（N-4）。
+ *
+ * ACKNOWLEDGED = 担当者が気づいた（現場が付ける）
+ * RESOLVED     = 対処が終わった（resolvedAt を記録し、一覧から外れる）
+ *
+ * hotelId 条件を含む updateMany で件数0なら 404 とし、テナント越えの更新を防ぐ。
+ * 解決済みアラートを再度 ACKNOWLEDGED に戻す操作は履歴として意味がないため 400 にする。
+ */
+export async function updateAlertStatusService(
+  id: string,
+  hotelId: string,
+  status: 'ACKNOWLEDGED' | 'RESOLVED'
+) {
+  const before = await prisma.alert.findFirst({ where: { id, hotelId } })
+  if (!before) throw new NotFoundError('アラート')
+
+  if (before.status === 'RESOLVED' && status === 'ACKNOWLEDGED') {
+    throw new BadRequestError('解決済みのアラートを確認済みに戻すことはできません')
+  }
+
+  const result = await prisma.alert.updateMany({
+    where: { id, hotelId },
+    data: {
+      status,
+      // 解決日時は最初に解決したときだけ記録する（再解決で上書きしない）
+      resolvedAt: status === 'RESOLVED' ? (before.resolvedAt ?? new Date()) : null,
+    },
+  })
+  if (result.count === 0) throw new NotFoundError('アラート')
+
+  const after = await prisma.alert.findUnique({ where: { id } })
+  if (!after) throw new NotFoundError('アラート')
+  return { before, after }
 }

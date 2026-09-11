@@ -509,3 +509,18 @@ export interface RegisterUserRequest {
   role?: UserRole
   hotelId?: string
 }
+
+// ======================================
+// Alert Status Types（N-4）
+// ======================================
+
+export type AlertStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED'
+
+/**
+ * PATCH /dashboard/alerts/:id のリクエストボディ。
+ * ACKNOWLEDGED は OPERATOR も実行できるが、RESOLVED は MANAGER 以上に限る。
+ */
+export interface UpdateAlertStatusRequest {
+  hotelId: string
+  status: Extract<AlertStatus, 'ACKNOWLEDGED' | 'RESOLVED'>
+}
