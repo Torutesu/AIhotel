@@ -27,6 +27,12 @@ interface AccessTokenClaims extends JWTPayload {
 interface RefreshTokenClaims {
   userId: string
   type: 'refresh'
+  // トークンごとに一意な識別子。これが無いと、同じユーザーが同じ秒内に
+  // 2回トークンを発行した場合（連続ログイン・同時リフレッシュ）に payload も iat も
+  // 完全に一致し、まったく同じトークン文字列が生成される。
+  // DB は tokenHash が @unique なので 2本目の保存が一意制約違反になり、
+  // 回転そのものが失敗していた（#49-4）
+  jti: string
 }
 
 export interface TokenPair {
@@ -140,7 +146,11 @@ export function generateRefreshToken(userId: string): string {
     expiresIn: parseExpiresIn(JWT_REFRESH_EXPIRES_IN),
   }
 
-  const payload: RefreshTokenClaims = { userId, type: 'refresh' }
+  const payload: RefreshTokenClaims = {
+    userId,
+    type: 'refresh',
+    jti: randomBytes(16).toString('hex'),
+  }
   return jwt.sign(payload, JWT_SECRET, options)
 }
 

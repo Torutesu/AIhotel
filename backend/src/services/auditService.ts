@@ -4,7 +4,15 @@ import { logger } from '../utils/logger.js'
 export interface AuditLogEntry {
   tenantId?: string | null
   userId?: string | null
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'LOGIN_FAILED'
+  action:
+    | 'CREATE'
+    | 'UPDATE'
+    | 'DELETE'
+    | 'LOGIN'
+    | 'LOGOUT'
+    | 'LOGIN_FAILED'
+    // リフレッシュトークンの再利用検知（#49-4）。全トークン失効を伴う
+    | 'TOKEN_REUSE_DETECTED'
   entity: string
   entityId?: string | null
   oldValue?: unknown

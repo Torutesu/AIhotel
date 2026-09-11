@@ -77,18 +77,21 @@ model User {
 }
 
 model RefreshToken {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   tenantId  String?
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+  tenant    Tenant?   @relation(fields: [tenantId], references: [id])
   // 生トークンではなく SHA-256 ハッシュを保存する（DB漏洩時のセッション乗っ取り対策）
-  tokenHash String   @unique
+  tokenHash String    @unique
   userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
-  createdAt DateTime @default(now())
+  // 回転（リフレッシュ）で使用済みになった時刻。null なら未使用の有効なトークン。
+  // 行を消さずに失効させることで「一度使ったトークンの再提示」＝盗用を検知できる（#49-4）
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
   @@index([userId])
-  // ログイン時の期限切れトークン一括削除で使う（S-9）
+  // ログイン時・日次バッチの期限切れトークン一括削除で使う（S-9 / #49-4）
   @@index([expiresAt])
 }
 
@@ -362,10 +365,6 @@ model AiPriceRecommendation {
   confidence         Float? // 0-1
   modelVersion       String?
   computedAt         DateTime     @default(now())
-
-  @@unique([hotelId, date, roomTypeId])
-  @@index([tenantId])
-  @@index([hotelId, date])
   // 注意: PostgreSQL では NULL 同士が等しいとみなされないため、上の @@unique だけでは
   // roomTypeId IS NULL のホテル全体行の重複を防げない（同一日の推奨が複数行でき、
   // 料金カレンダーに同じ日が二重表示される）。部分ユニーク索引
@@ -373,6 +372,10 @@ model AiPriceRecommendation {
   // migrations/20260911041135_ai_recommendation_partial_unique で手書きして補っている。
   // 部分索引（WHERE 句付き）は schema.prisma では表現できないため、
   // このモデルを変更する際はその索引が残っているか必ず確認すること（C-4）。
+
+  @@unique([hotelId, date, roomTypeId])
+  @@index([tenantId])
+  @@index([hotelId, date])
 }
 
 // 需要予測レベル5段階（F-DP-05）

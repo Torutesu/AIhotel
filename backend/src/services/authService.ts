@@ -9,6 +9,7 @@ import {
 } from '../lib/auth.js'
 import { ApiError } from '../middlewares/errorHandler.js'
 import { writeAuditLog } from './auditService.js'
+import { logger } from '../utils/logger.js'
 import type { User, UserRole } from '@prisma/client'
 
 // ======================================
@@ -243,7 +244,20 @@ export async function registerService(
 }
 
 /**
- * トークンをリフレッシュ（ローテーション方式）
+ * 回転直後の再提示を「盗用」ではなく「正規利用者の競合」とみなす猶予時間（#49-4）。
+ * フロントエンドはリフレッシュを単一化しているため、これを超える再提示は通常発生しない。
+ */
+const REFRESH_REUSE_GRACE_MS = 10_000
+
+/**
+ * トークンをリフレッシュ（ローテーション方式 — #49-4）
+ *
+ * 回転済みのトークンは行を消さず `revokedAt` を立てて残す。こうすることで
+ * 「既に使われたトークンがもう一度提示された」＝盗まれて再生された可能性を検知でき、
+ * その場合は当該ユーザーの全リフレッシュトークンを失効させて全端末で再ログインを強制する。
+ *
+ * 失効と新規発行は1トランザクションで行う。分けて実行すると、削除と作成の間で
+ * 落ちた場合にセッションだけが消える（ユーザーが理由なくログアウトされる）。
  */
 export async function refreshTokenService(refreshToken: string): Promise<AuthResult> {
   verifyRefreshToken(refreshToken)
@@ -254,6 +268,34 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
   })
 
   if (!storedToken) {
+    throw new ApiError(401, '無効なリフレッシュトークンです')
+  }
+
+  // 再利用検知: 一度回転させたトークンの再提示。
+  //
+  // ただし回転直後（猶予時間内）の再提示は、複数タブが同時にリフレッシュした等の
+  // 正規利用者側の競合であることがほとんどなので、401 を返すだけに留める。
+  // ここで全端末を切ると、タブを2枚開いていただけでログアウトされてしまう。
+  // 猶予を過ぎてからの再提示は盗用として扱い、正規利用者ごとセッションを切る
+  // （どちらが提示したか区別できない以上、攻撃者だけを切ることはできない）。
+  if (storedToken.revokedAt) {
+    if (Date.now() - storedToken.revokedAt.getTime() <= REFRESH_REUSE_GRACE_MS) {
+      throw new ApiError(401, '無効なリフレッシュトークンです')
+    }
+
+    await prisma.refreshToken.deleteMany({ where: { userId: storedToken.userId } })
+    await writeAuditLog({
+      tenantId: storedToken.user.tenantId,
+      userId: storedToken.userId,
+      action: 'TOKEN_REUSE_DETECTED',
+      entity: 'RefreshToken',
+      entityId: storedToken.id,
+      newValue: { revokedAt: storedToken.revokedAt, scope: 'all' },
+    })
+    logger.warn(
+      { userId: storedToken.userId, tokenId: storedToken.id },
+      '失効済みリフレッシュトークンが再提示されたため、当該ユーザーの全トークンを失効させました'
+    )
     throw new ApiError(401, '無効なリフレッシュトークンです')
   }
 
@@ -268,20 +310,27 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
     throw new ApiError(401, 'このアカウントは無効化されています')
   }
 
-  // 使用済みトークンは失効させ、新しいペアを発行する
-  await prisma.refreshToken.delete({
-    where: { id: storedToken.id },
-  })
+  const tokens = await prisma.$transaction(async (tx) => {
+    // revokedAt: null を条件に含めることで、同時に届いた2本目のリフレッシュ要求は
+    // count 0 になり、トークンが二重に発行されない（更新は行ロックで直列化される）。
+    const revoked = await tx.refreshToken.updateMany({
+      where: { id: storedToken.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+    if (revoked.count === 0) {
+      throw new ApiError(401, '無効なリフレッシュトークンです')
+    }
 
-  const tokens = generateTokenPair(storedToken.user)
-
-  await prisma.refreshToken.create({
-    data: {
-      tokenHash: hashToken(tokens.refreshToken),
-      userId: storedToken.user.id,
-      tenantId: storedToken.user.tenantId,
-      expiresAt: getRefreshTokenExpiry(),
-    },
+    const pair = generateTokenPair(storedToken.user)
+    await tx.refreshToken.create({
+      data: {
+        tokenHash: hashToken(pair.refreshToken),
+        userId: storedToken.user.id,
+        tenantId: storedToken.user.tenantId,
+        expiresAt: getRefreshTokenExpiry(),
+      },
+    })
+    return pair
   })
 
   const { password: _, ...userWithoutPassword } = storedToken.user
@@ -360,4 +409,18 @@ export async function getMeService(userId: string): Promise<Omit<User, 'password
   const { password: _, ...userWithoutPassword } = user
 
   return userWithoutPassword
+}
+
+/**
+ * 期限切れリフレッシュトークンの一括削除（#49-4）。
+ *
+ * ログイン時の掃除（S-9）はログインしたユーザーぶんしか消さないため、
+ * 退職・長期未ログインのアカウントぶんが残り続ける。日次バッチから全体を掃除する。
+ * 失効済み（revokedAt あり）の行も expiresAt を過ぎれば再利用検知の役目を終えるので同時に消す。
+ */
+export async function purgeExpiredRefreshTokensService(): Promise<{ deleted: number }> {
+  const { count } = await prisma.refreshToken.deleteMany({
+    where: { expiresAt: { lt: new Date() } },
+  })
+  return { deleted: count }
 }

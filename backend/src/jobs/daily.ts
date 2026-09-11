@@ -5,6 +5,7 @@ import { disconnectDatabase } from '../services/healthService.js'
 import { createKpiSnapshotService } from '../services/dashboardService.js'
 import { recomputeSimulationService } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
+import { purgeExpiredRefreshTokensService } from '../services/authService.js'
 
 // 日次バッチ（N-5）。開発時は `pnpm --filter backend job:daily`、
 // 本番コンテナ（devDependencies を含まない）では `node dist/jobs/daily.js` で実行する。
@@ -14,6 +15,7 @@ import { recomputeForecastService } from '../services/forecast/forecastService.j
 //   1. 需要予測の再計算（AiPriceRecommendation）
 //   2. 月間着地シミュレーションの再計算（MonthlyLandingSimulation）
 //   3. 当日時点の KPI スナップショット（KpiSnapshot — 月初比較・日付比較の比較元）
+// 最後にテナント横断の後始末として、期限切れリフレッシュトークンを削除する（#49-4）。
 //
 // 順序に意味がある: 着地シミュレーションは AI 予測を使うため、予測を先に更新する。
 // いずれも冪等なので、同じ日に複数回実行しても行は増えない。
@@ -69,6 +71,15 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
     }
   }
 
+  // 期限切れリフレッシュトークンの掃除（#49-4）。ホテル単位の処理とは独立しているため、
+  // 個々のホテルが失敗しても必ず実行する。ここでの失敗はバッチ全体を落とさない。
+  let purgedRefreshTokens = 0
+  try {
+    purgedRefreshTokens = (await purgeExpiredRefreshTokensService()).deleted
+  } catch (error) {
+    logger.error({ err: error }, '期限切れリフレッシュトークンの削除に失敗しました')
+  }
+
   const failed = results.filter((r) => r.error).length
   const succeeded = results.length - failed
 
@@ -77,6 +88,7 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
       succeeded,
       failed,
       durationMs: Date.now() - startedAt,
+      purgedRefreshTokens,
       failures: results.filter((r) => r.error).map((r) => ({ hotelId: r.hotelId, error: r.error })),
     },
     `日次バッチが完了しました（成功 ${succeeded} / 失敗 ${failed}）`
