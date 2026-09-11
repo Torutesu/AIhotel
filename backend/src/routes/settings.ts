@@ -3,6 +3,7 @@ import { authenticate, requireRole, requireHotelAccess } from '../middlewares/au
 import { validate } from '../middlewares/validate.js'
 import {
   hotelIdQuerySchema,
+  idParamSchema,
   createPriceRankSchema,
   updatePriceRankSchema,
   updateHotelSettingsSchema,
@@ -41,6 +42,8 @@ settingsRouter.put(
   '/price-ranks/:id',
   requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
   validate(updatePriceRankSchema),
   updatePriceRank
 )
@@ -49,6 +52,8 @@ settingsRouter.delete(
   '/price-ranks/:id',
   requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
   deletePriceRank
 )
 
@@ -57,6 +62,7 @@ settingsRouter.put(
   '/hotel/:id',
   requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.params.id),
+  validate(idParamSchema, 'params'),
   validate(updateHotelSettingsSchema),
   updateHotelSettings
 )

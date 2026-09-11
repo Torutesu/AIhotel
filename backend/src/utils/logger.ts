@@ -160,6 +160,24 @@ export const logger = {
   },
 }
 
+// ミドルウェアが必要とする最小限の構造だけを型で表す（C-11）。
+// express の型に依存しないことで、ロガーを他の実行環境へ持ち出しやすくしている。
+interface LoggableRequest {
+  id?: string
+  method?: string
+  url?: string
+  originalUrl?: string
+  ip?: string
+  headers: Record<string, string | string[] | undefined>
+  socket?: { remoteAddress?: string }
+}
+
+interface LoggableResponse {
+  statusCode: number
+  setHeader(name: string, value: string): void
+  on(event: 'finish', listener: () => void): void
+}
+
 // リクエスト相関 ID のヘッダー名（C-8）
 export const REQUEST_ID_HEADER = 'x-request-id'
 
@@ -176,7 +194,7 @@ const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]+$/
  * リクエストログ・エラーログの両方に含める。
  */
 export function requestId() {
-  return (req: any, res: any, next: () => void) => {
+  return (req: LoggableRequest, res: LoggableResponse, next: () => void) => {
     const incoming = req.headers?.[REQUEST_ID_HEADER]
     const candidate = Array.isArray(incoming) ? incoming[0] : incoming
     const id =
@@ -195,7 +213,7 @@ export function requestId() {
 
 // HTTPリクエストログ用ミドルウェア
 export function requestLogger() {
-  return (req: any, res: any, next: () => void) => {
+  return (req: LoggableRequest, res: LoggableResponse, next: () => void) => {
     const startTime = Date.now()
 
     // レスポンス完了時にログ出力

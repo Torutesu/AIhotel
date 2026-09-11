@@ -4,6 +4,7 @@ import { validate } from '../middlewares/validate.js'
 import {
   eventsQuerySchema,
   hotelIdQuerySchema,
+  idParamSchema,
   createEventSchema,
   updateEventSchema,
 } from '../lib/validators.js'
@@ -35,6 +36,7 @@ eventsRouter.put(
   '/:id',
   requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
   validate(updateEventSchema),
   updateEvent
@@ -45,6 +47,7 @@ eventsRouter.delete(
   '/:id',
   requireRole('ADMIN', 'MANAGER'),
   requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(idParamSchema, 'params'),
   validate(hotelIdQuerySchema, 'query'),
   deleteEvent
 )

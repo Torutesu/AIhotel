@@ -5,6 +5,8 @@ import {
   createPriceRankSchema,
   updateStrategySchema,
   recomputeForecastSchema,
+  updateHotelSettingsSchema,
+  idParamSchema,
   MAX_FORECAST_RANGE_DAYS,
 } from './validators.js'
 import { addUtcDays, todayJst } from './date.js'
@@ -176,5 +178,54 @@ describe('recomputeForecastSchema (C-3)', () => {
   it('開始日を省略して終了日だけ指定した場合は今日起点で期間を判定する', () => {
     const tooFar = addUtcDays(todayJst(), MAX_FORECAST_RANGE_DAYS)
     expect(recomputeForecastSchema.safeParse({ hotelId, endDate: iso(tooFar) }).success).toBe(false)
+  })
+})
+
+describe('updateHotelSettingsSchema の weekendDays (C-11)', () => {
+  it('既定の金・土 [5, 6] を受け入れる', () => {
+    expect(updateHotelSettingsSchema.safeParse({ weekendDays: [5, 6] }).success).toBe(true)
+  })
+
+  it('省略できる（週末定義を変えない更新）', () => {
+    expect(updateHotelSettingsSchema.safeParse({ name: 'ホテル名' }).success).toBe(true)
+  })
+
+  it('空配列は拒否する（週末が存在しない設定を作らせない）', () => {
+    const result = updateHotelSettingsSchema.safeParse({ weekendDays: [] })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.errors[0].message).toContain('1曜日以上')
+    }
+  })
+
+  it('重複した曜日は拒否する', () => {
+    const result = updateHotelSettingsSchema.safeParse({ weekendDays: [5, 5, 6] })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.errors[0].message).toContain('重複')
+    }
+  })
+
+  it('範囲外の曜日番号は拒否する', () => {
+    expect(updateHotelSettingsSchema.safeParse({ weekendDays: [7] }).success).toBe(false)
+    expect(updateHotelSettingsSchema.safeParse({ weekendDays: [-1] }).success).toBe(false)
+  })
+
+  it('全7曜日の指定は受け入れる（毎日が週末という運用を許す）', () => {
+    expect(updateHotelSettingsSchema.safeParse({ weekendDays: [0, 1, 2, 3, 4, 5, 6] }).success).toBe(
+      true
+    )
+  })
+})
+
+describe('idParamSchema (C-11)', () => {
+  it('通常の ID を受け入れる', () => {
+    expect(idParamSchema.safeParse({ id: 'demo-hotel-001' }).success).toBe(true)
+  })
+
+  it('空文字・不正な文字を含む ID を拒否する', () => {
+    expect(idParamSchema.safeParse({ id: '' }).success).toBe(false)
+    expect(idParamSchema.safeParse({ id: '../etc/passwd' }).success).toBe(false)
+    expect(idParamSchema.safeParse({ id: 'a'.repeat(65) }).success).toBe(false)
   })
 })
