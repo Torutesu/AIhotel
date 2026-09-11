@@ -17,7 +17,18 @@ dotenv.config()
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
-  FRONTEND_URL: z.string().url().default('http://localhost:3000'),
+  // CORS で許可するオリジン。カンマ区切りで複数指定できる（S-10）。
+  // Vercel の Preview URL など、本番以外のオリジンを追加で許可するために使う。
+  FRONTEND_URL: z
+    .string()
+    .default('http://localhost:3000')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    )
+    .pipe(z.array(z.string().url()).nonempty('FRONTEND_URL には少なくとも1つのURLが必要です')),
 
   // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許すが、
   // NODE_ENV=production では必須にする（下の superRefine — S-7）
