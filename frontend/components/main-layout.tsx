@@ -29,6 +29,7 @@ import { ChatInterface } from "@/components/chat-interface"
 import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
 import { LoginForm } from "@/components/login-form"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import type { Tab } from "@shared/types"
 import type { AlertLinkTarget, AnalysisView } from "@/lib/alert-link"
 
@@ -51,6 +52,8 @@ export function MainLayout() {
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
   // アラートから分析タブへ遷移する際に開くサブビュー
   const [analysisView, setAnalysisView] = useState<AnalysisView | null>(null)
+  // ログアウト確認ダイアログ（F-5）
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const { user, loading, logout, restoreError, retryRestore } = useAuth()
 
   // 折りたたみ状態を記憶する（デスクトップのみ意味を持つ）
@@ -216,8 +219,9 @@ export function MainLayout() {
               variant="ghost"
               size="icon"
               className="h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent"
-              onClick={() => logout()}
+              onClick={() => setLogoutConfirmOpen(true)}
               title="ログアウト"
+              aria-label="ログアウト"
             >
               <LogOut className="h-4 w-4" />
             </Button>
@@ -281,6 +285,19 @@ export function MainLayout() {
 
       {/* Chat Interface */}
       <ChatInterface isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+
+      {/* ログアウトの確認（F-5） */}
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        onOpenChange={setLogoutConfirmOpen}
+        title="ログアウトしますか？"
+        description="保存していない入力内容は失われます。"
+        confirmLabel="ログアウト"
+        onConfirm={() => {
+          setLogoutConfirmOpen(false)
+          void logout()
+        }}
+      />
     </div>
   )
 }

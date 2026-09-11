@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
 import { toast } from "sonner"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
@@ -273,6 +274,9 @@ export function SettingsTab() {
     }
   }
 
+  // 設定リセットの確認ダイアログ（F-5）
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
+
   const handleReset = () => {
     if (hotel) {
       setHotelName(hotel.name)
@@ -305,13 +309,26 @@ export function SettingsTab() {
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
+      {/* 設定リセットの確認（F-5） */}
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        onOpenChange={setResetConfirmOpen}
+        title="設定をリセットしますか？"
+        description="入力中の内容を破棄し、すべての設定を初期値に戻します。この操作は取り消せません。"
+        confirmLabel="リセットする"
+        onConfirm={() => {
+          setResetConfirmOpen(false)
+          handleReset()
+        }}
+      />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-heading font-medium tracking-tight">設定</h1>
           <p className="text-sm text-muted-foreground mt-1">システムの各種設定を管理できます</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleReset}>
+          <Button variant="outline" onClick={() => setResetConfirmOpen(true)}>
             リセット
           </Button>
           <Button onClick={handleSave} disabled={savingHotel}>

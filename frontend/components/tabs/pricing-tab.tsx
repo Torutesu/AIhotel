@@ -25,6 +25,7 @@ import { Tooltip as UITooltip, TooltipContent, TooltipProvider, TooltipTrigger }
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 
 const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "concert", label: "コンサート" },
@@ -291,6 +292,8 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   const [isEventDialogOpen, setIsEventDialogOpen] = useState(false)
   const [savingEvent, setSavingEvent] = useState(false)
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null)
+  // 削除確認ダイアログの対象イベント（F-5）
+  const [eventPendingDelete, setEventPendingDelete] = useState<HotelEvent | null>(null)
   const [newEventName, setNewEventName] = useState("")
   const [newEventType, setNewEventType] = useState("concert")
   const [newEventStart, setNewEventStart] = useState("")
@@ -1005,8 +1008,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => handleDeleteEvent(ev.id)}
+                    onClick={() => setEventPendingDelete(ev)}
                     disabled={deletingEventId === ev.id}
+                    aria-label={`イベント「${ev.name}」を削除`}
                   >
                     {deletingEventId === ev.id ? (
                       <Loader2 className="w-4 h-4 animate-spin" />
@@ -1020,6 +1024,26 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
           )}
         </CardContent>
       </Card>
+
+      {/* イベント削除の確認（F-5） */}
+      <ConfirmDialog
+        open={eventPendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setEventPendingDelete(null)
+        }}
+        title="イベントを削除しますか？"
+        description={
+          eventPendingDelete
+            ? `「${eventPendingDelete.name}」を削除します。この操作は取り消せません。`
+            : undefined
+        }
+        confirmLabel="削除する"
+        onConfirm={() => {
+          const target = eventPendingDelete
+          setEventPendingDelete(null)
+          if (target) void handleDeleteEvent(target.id)
+        }}
+      />
 
       {/* Date Details Dialog */}
       <Dialog
