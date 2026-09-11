@@ -550,21 +550,15 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
   const kpiRows = useMemo(() => {
     if (!kpi) return []
     const { summary, comparison, simulation } = kpi
-    // 年度累計軸では実績側も年度累計値を使う
+    // 年度累計軸では全指標を年度累計実績で揃える（当月値と混在させない）
     const isFiscal = comparisonAxis === "fiscalYear"
-    const revenueActual = isFiscal
-      ? (comparison?.actualSummary.fiscalRevenue ?? summary.roomRevenue)
-      : summary.roomRevenue
-    const adrActual = isFiscal ? (comparison?.actualSummary.fiscalAdr ?? summary.adr) : summary.adr
-    const occupancyActual = isFiscal
-      ? (comparison?.actualSummary.fiscalOccupancy ?? summary.occupancyRate)
-      : summary.occupancyRate
+    const actual = (isFiscal ? comparison?.fiscalSummary : null) ?? summary
 
     return [
       {
         key: "roomRevenue",
         label: "室料売上",
-        actual: formatYen(revenueActual),
+        actual: formatYen(actual.roomRevenue),
         budgetRatio: axis?.budgetRevenueRatio != null ? formatPercent(axis.budgetRevenueRatio) : "-",
         budgetNegative: axis?.budgetRevenueRatio != null && axis.budgetRevenueRatio < 0.95,
         lastYearRatio: axis?.lastYearRevenueRatio != null ? formatPercent(axis.lastYearRevenueRatio) : "-",
@@ -578,7 +572,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       {
         key: "soldRooms",
         label: "販売室数",
-        actual: `${summary.soldRooms.toLocaleString()}室`,
+        actual: `${actual.soldRooms.toLocaleString()}室`,
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -592,7 +586,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       {
         key: "adr",
         label: "ADR",
-        actual: formatYen(adrActual),
+        actual: formatYen(actual.adr),
         budgetRatio: axis?.budgetAdrRatio != null ? formatPercent(axis.budgetAdrRatio) : "-",
         budgetNegative: axis?.budgetAdrRatio != null && axis.budgetAdrRatio < 0.95,
         lastYearRatio: axis?.lastYearAdrRatio != null ? formatPercent(axis.lastYearAdrRatio) : "-",
@@ -606,7 +600,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       {
         key: "occupancyRate",
         label: "稼働率",
-        actual: formatPercent(occupancyActual),
+        actual: formatPercent(actual.occupancyRate),
         budgetRatio: axis?.budgetOccupancyRatio != null ? formatPercent(axis.budgetOccupancyRatio) : "-",
         budgetNegative: axis?.budgetOccupancyRatio != null && axis.budgetOccupancyRatio < 0.95,
         lastYearRatio:
@@ -621,7 +615,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       {
         key: "revPar",
         label: "REV-Per",
-        actual: formatYen(summary.revPar),
+        actual: formatYen(actual.revPar),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -635,7 +629,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       {
         key: "guests",
         label: "宿泊人数",
-        actual: `${summary.guests.toLocaleString()}人`,
+        actual: `${actual.guests.toLocaleString()}人`,
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -649,7 +643,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       {
         key: "dor",
         label: "DOR",
-        actual: `${summary.dor.toFixed(2)}人`,
+        actual: `${actual.dor.toFixed(2)}人`,
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -663,7 +657,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
       {
         key: "guestUnitPrice",
         label: "客単価",
-        actual: formatYen(summary.guestUnitPrice),
+        actual: formatYen(actual.guestUnitPrice),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -1306,7 +1300,7 @@ export function DashboardTab({ onTabChange }: DashboardTabProps) {
               <p className="text-xs text-muted-foreground">
                 {kpi
                   ? comparisonAxis === "fiscalYear" && kpi.comparison
-                    ? `${kpi.comparison.actualSummary.fiscalActualDays}日分の実績を集計（年度累計）`
+                    ? `${kpi.comparison.fiscalSummary.actualDays}日分の実績を集計（年度累計）`
                     : `${kpi.summary.actualDays}日分の実績を集計`
                   : ""}
               </p>
