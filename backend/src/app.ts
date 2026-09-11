@@ -25,6 +25,7 @@ import { notFoundHandler } from './middlewares/notFoundHandler.js'
 // Import utilities
 import { requestId, requestLogger } from './utils/logger.js'
 import { verifyAccessToken } from './lib/auth.js'
+import { checkDatabaseConnection } from './services/healthService.js'
 
 // Express アプリの組み立てのみを行う（C-10）。
 // listen とグレースフルシャットダウンは server.ts が担当する。
@@ -111,31 +112,33 @@ app.use(requestLogger())
 // Health Check Endpoints
 // ======================================
 
-app.get('/health', (_req, res) => {
-  res.json({
-    success: true,
+/**
+ * ヘルスチェック（C-7）。DB へ `SELECT 1` を投げ、到達できなければ 503 を返す。
+ * ロードバランサ・コンテナオーケストレータはこれを見て流入を止められる。
+ * レートリミットの対象外（HEALTH_CHECK_PATHS）。
+ */
+const healthHandler = async (_req: express.Request, res: express.Response) => {
+  const databaseHealthy = await checkDatabaseConnection()
+  const status = databaseHealthy ? 'ok' : 'degraded'
+
+  res.status(databaseHealthy ? 200 : 503).json({
+    success: databaseHealthy,
+    ...(databaseHealthy ? {} : { error: 'データベースに接続できません' }),
     data: {
-      status: 'ok',
+      status,
       timestamp: new Date().toISOString(),
       environment: NODE_ENV,
       version: config.appVersion,
-    },
-  })
-})
-
-app.get('/api/health', (_req, res) => {
-  res.json({
-    success: true,
-    data: {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
       services: {
         api: 'healthy',
-        // database: 'healthy', // TODO: Add DB health check
+        database: databaseHealthy ? 'healthy' : 'unhealthy',
       },
     },
   })
-})
+}
+
+app.get('/health', healthHandler)
+app.get('/api/health', healthHandler)
 
 // ======================================
 // API Routes
