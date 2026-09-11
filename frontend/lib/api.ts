@@ -581,7 +581,18 @@ export interface CompetitorPrices {
   hotelId: string
   startDate: string
   endDate: string
-  ownPrices: Array<{ date: string; price: number | null; isActual: boolean }>
+  /**
+   * 自館の日別価格。`price` は人数非依存の代表値（実績日はADR、未来日はAI推奨価格）、
+   * `price1P`〜`price3P` は利用人数別の価格（#57）。値が無い人数は null。
+   */
+  ownPrices: Array<{
+    date: string
+    price: number | null
+    isActual: boolean
+    price1P: number | null
+    price2P: number | null
+    price3P: number | null
+  }>
   competitors: Array<{
     id: string
     name: string
@@ -1049,10 +1060,15 @@ function mockCompetitorPrices(hotelId: string, startDate: string, endDate: strin
 
   const ownPrices = dates.map((date) => {
     const rng = createSeededRandom(date.getTime() / 86400000)
+    const price1P = basePrice(date, rng)
     return {
       date: toLocalDateStr(date),
-      price: basePrice(date, rng),
+      price: price1P,
       isActual: date <= today,
+      // 利用人数別の自館価格（料金ランク相当。1名を基準に2名・3名を積み上げる）
+      price1P,
+      price2P: Math.round(price1P * 1.4),
+      price3P: Math.round(price1P * 1.8),
     }
   })
 
