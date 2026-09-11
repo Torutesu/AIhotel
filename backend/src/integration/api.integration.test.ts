@@ -31,10 +31,18 @@ const TENANT_B = `${PREFIX}-tenant-b`
 const HOTEL_A = `${PREFIX}-hotel-a`
 const HOTEL_B = `${PREFIX}-hotel-b`
 const ALERT_ID = `${PREFIX}-alert-a`
+/** テナントB側の料金ランク（テナントAのADMINが触れないことの検証用 — #62） */
+const PRICE_RANK_B = `${PREFIX}-rank-b`
 const PASSWORD = 'Test1234'
 
 const EMAILS = {
+  /**
+   * テナントA のテナント管理者（#62 以降 ADMIN はテナント内最上位であり
+   * テナント横断はできない）。hotelId は持たずテナントA の全ホテルを見る
+   */
   admin: `${PREFIX}-admin@example.com`,
+  /** 運営（PLATFORM_ADMIN）。tenantId / hotelId を持たない唯一のテナント横断ロール（#62） */
+  platformAdmin: `${PREFIX}-platform-admin@example.com`,
   manager: `${PREFIX}-manager@example.com`,
   operator: `${PREFIX}-operator@example.com`,
   /** hotelId を持たないテナント統括マネージャー（N-6） */
@@ -52,6 +60,7 @@ describeIntegration('API 統合テスト', () => {
   let refreshTokenOfManager = ''
   let managerUserId = ''
   let operatorUserId = ''
+  let adminUserId = ''
 
   async function login(email: string) {
     const res = await request(app)
@@ -108,8 +117,16 @@ describeIntegration('API 統合テスト', () => {
 
     await prisma.user.createMany({
       data: [
-        // ADMIN はテナント横断のため tenantId / hotelId を持たない
-        { email: EMAILS.admin, password, name: '統合テスト管理者', role: 'ADMIN' },
+        // 運営（PLATFORM_ADMIN）だけがテナント横断のため tenantId / hotelId を持たない（#62）
+        { email: EMAILS.platformAdmin, password, name: '統合テスト運営', role: 'PLATFORM_ADMIN' },
+        // ADMIN はテナントA のテナント管理者。hotelId は持たずテナントA 内の全ホテルを見る
+        {
+          email: EMAILS.admin,
+          password,
+          name: '統合テストテナント管理者',
+          role: 'ADMIN',
+          tenantId: TENANT_A,
+        },
         {
           email: EMAILS.manager,
           password,
@@ -142,6 +159,19 @@ describeIntegration('API 統合テスト', () => {
           hotelId: HOTEL_B,
         },
       ],
+    })
+
+    // テナントB 側の料金ランク（テナントA の ADMIN が更新・削除できないことの検証用 — #62）
+    await prisma.priceRank.create({
+      data: {
+        id: PRICE_RANK_B,
+        tenantId: TENANT_B,
+        hotelId: HOTEL_B,
+        rank: 1,
+        label: 'B01',
+        price1P: 10_000,
+        price2P: 14_000,
+      },
     })
 
     await prisma.alert.create({
@@ -195,6 +225,10 @@ describeIntegration('API 統合テスト', () => {
 
     const admin = await login(EMAILS.admin)
     tokens.admin = admin.tokens.accessToken
+    adminUserId = admin.user.id
+
+    const platformAdmin = await login(EMAILS.platformAdmin)
+    tokens.platformAdmin = platformAdmin.tokens.accessToken
 
     const manager = await login(EMAILS.manager)
     tokens.manager = manager.tokens.accessToken
@@ -311,6 +345,372 @@ describeIntegration('API 統合テスト', () => {
 
       expect(res.status).toBe(403)
       expect(res.body.success).toBe(false)
+    })
+  })
+
+  // ======================================
+  // #62 運営（PLATFORM_ADMIN）とテナント管理者（ADMIN）の境界
+  //
+  // ADMIN はテナント内最上位だが、テナント境界は MANAGER / OPERATOR と完全に同じ。
+  // テナントを越えられるのは運営（PLATFORM_ADMIN）だけ。
+  // ======================================
+
+  describe('テナント境界: ADMIN と運営（#62）', () => {
+    describe('テナントA の ADMIN は他テナントに一切アクセスできない', () => {
+      it('GET /hotels/:id（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .get(`/api/v1/hotels/${HOTEL_B}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+
+        expect(res.status).toBe(403)
+        expect(res.body.success).toBe(false)
+      })
+
+      it('GET /dashboard/kpi（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .get(`/api/v1/dashboard/kpi?hotelId=${HOTEL_B}&year=2030&month=1`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+
+        expect(res.status).toBe(403)
+      })
+
+      it('POST /settings/price-ranks（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .post('/api/v1/settings/price-ranks')
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ hotelId: HOTEL_B, rank: 30, label: 'X30', price1P: 1000, price2P: 2000 })
+
+        expect(res.status).toBe(403)
+        // 実際に書き込まれていないこと
+        const leaked = await prisma.priceRank.findFirst({
+          where: { hotelId: HOTEL_B, rank: 30 },
+        })
+        expect(leaked).toBeNull()
+      })
+
+      it('PUT /settings/price-ranks/:id（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .put(`/api/v1/settings/price-ranks/${PRICE_RANK_B}?hotelId=${HOTEL_B}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ label: '乗っ取り' })
+
+        expect(res.status).toBe(403)
+        const row = await prisma.priceRank.findUnique({ where: { id: PRICE_RANK_B } })
+        expect(row?.label).toBe('B01')
+      })
+
+      it('DELETE /settings/price-ranks/:id（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .delete(`/api/v1/settings/price-ranks/${PRICE_RANK_B}?hotelId=${HOTEL_B}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+
+        expect(res.status).toBe(403)
+        const row = await prisma.priceRank.findUnique({ where: { id: PRICE_RANK_B } })
+        expect(row).not.toBeNull()
+      })
+
+      it('PUT /settings/hotel/:id（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .put(`/api/v1/settings/hotel/${HOTEL_B}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ name: '乗っ取りホテル' })
+
+        expect(res.status).toBe(403)
+        const hotel = await prisma.hotel.findUnique({ where: { id: HOTEL_B } })
+        expect(hotel?.name).toBe('統合テストホテルB')
+      })
+
+      it('PUT /hotels/:id（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .put(`/api/v1/hotels/${HOTEL_B}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ name: '乗っ取りホテル' })
+
+        expect(res.status).toBe(403)
+      })
+
+      it('DELETE /hotels/:id（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .delete(`/api/v1/hotels/${HOTEL_B}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+
+        expect(res.status).toBe(403)
+        const hotel = await prisma.hotel.findUnique({ where: { id: HOTEL_B } })
+        expect(hotel?.isActive).toBe(true)
+      })
+
+      // #52: 他テナントのホテルIDを送っても「見つからない」と同じ 400 にする
+      it('POST /auth/register（他テナントのホテル）は 400 で、ユーザーは作られない', async () => {
+        const email = `${PREFIX}-admin-cross@example.com`
+        const res = await request(app)
+          .post('/api/v1/auth/register')
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({
+            email,
+            password: 'Created1234',
+            name: 'ADMINテナント越え',
+            role: 'OPERATOR',
+            hotelId: HOTEL_B,
+          })
+
+        expect(res.status).toBe(400)
+        expect(res.body.error).toContain('指定されたホテルが見つかりません')
+        expect(await prisma.user.findUnique({ where: { email } })).toBeNull()
+      })
+
+      it('PUT /users/:id（他テナントのユーザー）は 404（存在を漏らさない）', async () => {
+        const other = await prisma.user.findUnique({
+          where: { email: EMAILS.otherTenantManager },
+        })
+        const res = await request(app)
+          .put(`/api/v1/users/${other!.id}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ name: '乗っ取り' })
+
+        expect(res.status).toBe(404)
+        const after = await prisma.user.findUnique({ where: { id: other!.id } })
+        expect(after?.name).toBe('別テナントマネージャー')
+      })
+
+      it('GET /users（他テナントのホテル）は 403', async () => {
+        const res = await request(app)
+          .get(`/api/v1/users?hotelId=${HOTEL_B}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+
+        expect(res.status).toBe(403)
+      })
+
+      it('GET /hotels は自テナントのホテルだけを返す', async () => {
+        const res = await request(app)
+          .get('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.admin}`)
+
+        expect(res.status).toBe(200)
+        const ids = (res.body.data as Array<{ id: string }>).map((h) => h.id)
+        expect(ids).toContain(HOTEL_A)
+        expect(ids).not.toContain(HOTEL_B)
+      })
+    })
+
+    describe('ADMIN は自テナント内では最上位として操作できる', () => {
+      it('自テナントのホテルの設定を変更できる', async () => {
+        const res = await request(app)
+          .put(`/api/v1/settings/hotel/${HOTEL_A}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ name: '統合テストホテルA' })
+
+        expect(res.status).toBe(200)
+        expect(res.body.data.name).toBe('統合テストホテルA')
+      })
+
+      it('POST /hotels は tenantId を送らなくても自テナントに作られる', async () => {
+        const res = await request(app)
+          .post('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ name: `${PREFIX}-admin作成ホテル`, totalRooms: 30 })
+
+        expect(res.status).toBe(201)
+        expect(res.body.data.tenantId).toBe(TENANT_A)
+      })
+
+      it('POST /hotels で他テナントを指定すると 403（テナント指定は運営のみ）', async () => {
+        const res = await request(app)
+          .post('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ tenantId: TENANT_B, name: `${PREFIX}-越境ホテル`, totalRooms: 10 })
+
+        expect(res.status).toBe(403)
+        const leaked = await prisma.hotel.findFirst({
+          where: { tenantId: TENANT_B, name: `${PREFIX}-越境ホテル` },
+        })
+        expect(leaked).toBeNull()
+      })
+
+      it('自テナントを明示的に指定しても 403（tenantId を送れるのは運営だけ）', async () => {
+        const res = await request(app)
+          .post('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ tenantId: TENANT_A, name: `${PREFIX}-自テナント明示`, totalRooms: 10 })
+
+        expect(res.status).toBe(403)
+      })
+    })
+
+    describe('運営ロールの付与はテナント側からできない', () => {
+      it('ADMIN は PLATFORM_ADMIN ユーザーを作成できない（403）', async () => {
+        const email = `${PREFIX}-admin-makes-platform@example.com`
+        const res = await request(app)
+          .post('/api/v1/auth/register')
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({
+            email,
+            password: 'Created1234',
+            name: '運営を名乗る',
+            role: 'PLATFORM_ADMIN',
+            hotelId: HOTEL_A,
+          })
+
+        expect(res.status).toBe(403)
+        expect(await prisma.user.findUnique({ where: { email } })).toBeNull()
+      })
+
+      it('ADMIN は既存ユーザーを PLATFORM_ADMIN に昇格できない（403）', async () => {
+        const res = await request(app)
+          .put(`/api/v1/users/${operatorUserId}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ role: 'PLATFORM_ADMIN' })
+
+        expect(res.status).toBe(403)
+        const after = await prisma.user.findUnique({ where: { id: operatorUserId } })
+        expect(after?.role).not.toBe('PLATFORM_ADMIN')
+      })
+
+      it('MANAGER も PLATFORM_ADMIN に昇格できない（403）', async () => {
+        const res = await request(app)
+          .put(`/api/v1/users/${operatorUserId}`)
+          .set('Authorization', `Bearer ${tokens.manager}`)
+          .send({ role: 'PLATFORM_ADMIN' })
+
+        expect(res.status).toBe(403)
+      })
+    })
+
+    describe('運営（PLATFORM_ADMIN）はテナントを越えられる', () => {
+      it('GET /hotels は全テナントのホテルを返す', async () => {
+        const res = await request(app)
+          .get('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+
+        expect(res.status).toBe(200)
+        const ids = (res.body.data as Array<{ id: string }>).map((h) => h.id)
+        expect(ids).toContain(HOTEL_A)
+        expect(ids).toContain(HOTEL_B)
+      })
+
+      it('ADMIN が読めない他テナントのホテルを参照できる', async () => {
+        const res = await request(app)
+          .get(`/api/v1/hotels/${HOTEL_B}`)
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+
+        expect(res.status).toBe(200)
+        expect(res.body.data.id).toBe(HOTEL_B)
+      })
+
+      it('両テナントの KPI を参照できる', async () => {
+        for (const hotelId of [HOTEL_A, HOTEL_B]) {
+          const res = await request(app)
+            .get(`/api/v1/dashboard/kpi?hotelId=${hotelId}&year=2030&month=1`)
+            .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+
+          expect(res.status, `hotelId=${hotelId}`).toBe(200)
+          expect(res.body.data.hotelId).toBe(hotelId)
+        }
+      })
+
+      it('存在しないホテルは 404（バイパスしても存在確認は行う）', async () => {
+        const res = await request(app)
+          .get(`/api/v1/hotels/${PREFIX}-no-such-hotel`)
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+
+        expect(res.status).toBe(404)
+      })
+
+      it('tenantId を指定して任意のテナントにホテルを作成できる', async () => {
+        const res = await request(app)
+          .post('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+          .send({ tenantId: TENANT_B, name: `${PREFIX}-運営作成ホテル`, totalRooms: 20 })
+
+        expect(res.status).toBe(201)
+        expect(res.body.data.tenantId).toBe(TENANT_B)
+      })
+
+      it('tenantId を省略すると 400（運営は自分のテナントを持たない）', async () => {
+        const res = await request(app)
+          .post('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+          .send({ name: `${PREFIX}-テナント未指定`, totalRooms: 20 })
+
+        expect(res.status).toBe(400)
+      })
+
+      it('PLATFORM_ADMIN ユーザーを作成できる', async () => {
+        const email = `${PREFIX}-platform-created@example.com`
+        const res = await request(app)
+          .post('/api/v1/auth/register')
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+          .send({ email, password: 'Created1234', name: '新しい運営', role: 'PLATFORM_ADMIN' })
+
+        expect(res.status).toBe(201)
+        expect(res.body.data.role).toBe('PLATFORM_ADMIN')
+        expect(res.body.data.tenantId).toBeNull()
+      })
+
+      it('ADMIN ユーザーのロールを変更できる（テナント条件なしで到達できる）', async () => {
+        const other = await prisma.user.findUnique({
+          where: { email: EMAILS.otherTenantManager },
+        })
+        const res = await request(app)
+          .put(`/api/v1/users/${other!.id}`)
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+          .send({ name: '別テナントマネージャー（運営が改名）' })
+
+        expect(res.status).toBe(200)
+
+        // 後続テストのために名前を戻す
+        await prisma.user.update({
+          where: { id: other!.id },
+          data: { name: '別テナントマネージャー' },
+        })
+      })
+    })
+
+    describe('既存のロールマトリクスは維持される', () => {
+      it('OPERATOR は料金ランクを作成できない（403）', async () => {
+        const res = await request(app)
+          .post('/api/v1/settings/price-ranks')
+          .set('Authorization', `Bearer ${tokens.operator}`)
+          .send({ hotelId: HOTEL_A, rank: 38, label: 'R38', price1P: 1000, price2P: 2000 })
+
+        expect(res.status).toBe(403)
+      })
+
+      it('OPERATOR はホテルを作成できない（403）', async () => {
+        const res = await request(app)
+          .post('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.operator}`)
+          .send({ name: `${PREFIX}-operator作成`, totalRooms: 10 })
+
+        expect(res.status).toBe(403)
+      })
+
+      it('MANAGER は自テナント内なら料金ランクを作成できる（201）', async () => {
+        const res = await request(app)
+          .post('/api/v1/settings/price-ranks')
+          .set('Authorization', `Bearer ${tokens.manager}`)
+          .send({ hotelId: HOTEL_A, rank: 36, label: 'R36', price1P: 1000, price2P: 2000 })
+
+        expect(res.status).toBe(201)
+      })
+
+      it('MANAGER はホテルを作成できない（403・ADMIN 以上のみ）', async () => {
+        const res = await request(app)
+          .post('/api/v1/hotels')
+          .set('Authorization', `Bearer ${tokens.manager}`)
+          .send({ name: `${PREFIX}-manager作成`, totalRooms: 10 })
+
+        expect(res.status).toBe(403)
+      })
+
+      it('自分自身のロールは ADMIN でも変更できない（400）', async () => {
+        const res = await request(app)
+          .put(`/api/v1/users/${adminUserId}`)
+          .set('Authorization', `Bearer ${tokens.admin}`)
+          .send({ role: 'OPERATOR' })
+
+        expect(res.status).toBe(400)
+        expect(res.body.error).toContain('自分自身')
+      })
     })
   })
 
@@ -563,7 +963,9 @@ describeIntegration('API 統合テスト', () => {
       expect(res.body.data.password).toBeUndefined()
     })
 
-    it('MANAGER は他テナントのホテルにユーザーを登録できない（403）', async () => {
+    // #52: 他テナントのホテルIDを送っても「見つからない」と同じ 400 にして、
+    // そのホテルが存在するかどうかを判別できないようにする
+    it('MANAGER は他テナントのホテルにユーザーを登録できない（400・存在を漏らさない）', async () => {
       const res = await request(app)
         .post('/api/v1/auth/register')
         .set('Authorization', `Bearer ${tokens.manager}`)
@@ -575,7 +977,13 @@ describeIntegration('API 統合テスト', () => {
           hotelId: HOTEL_B,
         })
 
-      expect(res.status).toBe(403)
+      expect(res.status).toBe(400)
+      expect(res.body.error).toContain('指定されたホテルが見つかりません')
+      // ユーザーが作られていないこと（テナントB に紛れ込まない）
+      const leaked = await prisma.user.findUnique({
+        where: { email: `${PREFIX}-cross@example.com` },
+      })
+      expect(leaked).toBeNull()
     })
 
     it('OPERATOR はユーザー登録できない（403）', async () => {
