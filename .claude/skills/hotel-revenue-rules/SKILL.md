@@ -33,6 +33,7 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 
 - `JWT_SECRET` は必須・32文字以上。フォールバック値を書かない（未設定なら起動時に throw）。
 - リフレッシュトークンはDBに **SHA-256ハッシュのみ** 保存（`hashToken()`）。生トークンを保存しない。
+- アクセストークンは payload に `type: 'access'` を持ち、`verifyAccessToken` がこれを検証する。新しいトークン種別を足す場合も必ず `type` で区別する。
 - `/auth/register` はADMIN専用。ユーザーの tenantId はリクエストから受け取らず hotelId の所属テナントから導出する。
 
 ## ドメイン仕様の確定値
@@ -50,10 +51,15 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 
 ## 未実装領域（Phase 4 — 器だけ存在）
 
-PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成、バッチジョブ、PDF/Excel出力は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータで動く。これらを「実装済み」と記述・報告しない。
+PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成、バッチジョブ（スケジューラ）は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータで動く。これらを「実装済み」と記述・報告しない。
+
+PDF/Excel出力は**バックエンド実装済み**（`GET /reports/monthly?format=pdf|excel`）。フロントエンド未接続なだけなので「未実装」と書かない。
+
+フロントエンドの画面には実APIに未接続のサンプル表示が残っている（分析タブの大半・レポート・AIまとめ）。
+状況は `要件定義書.md` §6 と `docs/改善計画.md` を正とし、サンプル表示のセクションはUI上でその旨を明示する。
 
 ## コミット・検証
 
 - コミットは修正単位で分け、件名末尾に対応する指摘ID（`(C-2, C-3)` / `(W-4)` / `(Task-3)` 形式）を含める。
-- コミット前チェック: `pnpm --filter './*' type-check` → `pnpm --filter backend test` → 必要に応じ `pnpm --filter backend build` / `pnpm --filter frontend build`。backend の type-check には事前に `pnpm --filter backend db:generate` が必要。
+- コミット前チェック: `pnpm --filter './*' type-check` → `pnpm --filter './*' lint` → `pnpm --filter backend test` → 必要に応じ `pnpm --filter backend build` / `pnpm --filter frontend build`。backend の type-check には事前に `pnpm --filter backend db:generate` が必要。
 - デモ環境: シードは冪等（何度実行してもよい）。アカウントは admin/manager/operator@demo-hotel.example.com、パスワード `Admin1234`。
