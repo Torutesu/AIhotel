@@ -521,6 +521,8 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `GET /api/v1/dashboard/kpi/comparison` - 月初/日付比較（`hotelId`, `year`, `month`, `baseDate`）
 - `GET /api/v1/dashboard/alerts` - アラート一覧（`hotelId`）
 - `GET /api/v1/dashboard/ai-summary` - AIサマリー取得（`hotelId`, `section`）
+- `PATCH /api/v1/dashboard/alerts/:id` - アラートの状態遷移（ACKNOWLEDGEDはOPERATORも可、RESOLVEDは**MANAGER以上**）
+- `POST /api/v1/dashboard/kpi/snapshot` - 当日時点のKPIスナップショット生成（**MANAGER以上**。月初比較の元データ）
 
 ### Pricing (`backend/src/routes/pricing.ts`)
 
@@ -529,6 +531,7 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `PUT /api/v1/pricing/strategy` - 価格戦略の重み付け更新（**MANAGER以上**。重みの合計は100%必須）
 - `GET /api/v1/pricing/simulation` - 月間着地シミュレーション取得（`hotelId`, `year`, `month`）
 - `POST /api/v1/pricing/recompute` - ルールベース需要予測の再計算（**MANAGER以上**）
+- `POST /api/v1/pricing/simulation/recompute` - 月間着地シミュレーションの再計算（**MANAGER以上**）
 
 ### Events（イベント・外部要因） (`backend/src/routes/events.ts`)
 
@@ -552,6 +555,11 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `GET /api/v1/analysis/competitor` - 競合分析取得（`hotelId`, `startDate`, `endDate`）
 - `GET /api/v1/analysis/reviews` - 口コミ評価点取得（`hotelId`。現状はシードデータ、収集バッチは未実装）
 
+### Users (`backend/src/routes/users.ts`)
+
+- `GET /api/v1/users` - 自テナントのユーザー一覧（**ADMIN / MANAGER**）
+- `PUT /api/v1/users/:id` - ユーザーの氏名・ロール・有効/無効を更新（**ADMIN / 自テナントのMANAGER**。自分自身の無効化・ロール変更は不可）
+
 ### Settings (`backend/src/routes/settings.ts`)
 
 - `GET /api/v1/settings/price-ranks` - 料金ランク一覧取得（`hotelId`。最大40段階）
@@ -559,11 +567,22 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `PUT /api/v1/settings/price-ranks/:id` - 料金ランク更新（**MANAGER以上**）
 - `DELETE /api/v1/settings/price-ranks/:id` - 料金ランク削除（**MANAGER以上**、論理削除）
 - `PUT /api/v1/settings/hotel/:id` - ホテル設定更新（週末定義等。**MANAGER以上**）
+- `GET /api/v1/settings/budgets` - 月次予算の取得（`hotelId`, `year`。12か月分を返す）
+- `PUT /api/v1/settings/budgets` - 月次予算の年単位一括更新（**MANAGER以上**）
+- `GET /api/v1/settings/competitors` - 競合ホテル一覧（`hotelId`）
+- `POST /api/v1/settings/competitors` - 競合ホテル登録（**MANAGER以上**、1ホテルあたり最大5件）
+- `PUT /api/v1/settings/competitors/:id` - 競合ホテル更新（**MANAGER以上**）
+- `DELETE /api/v1/settings/competitors/:id` - 競合ホテル削除（**MANAGER以上**、論理削除）
+
+### バッチ（スケジューラから実行）
+
+- `pnpm --filter backend job:daily`（本番は `node dist/jobs/daily.js`）— 有効な全ホテルに対して
+  需要予測の再計算・着地シミュレーション更新・KPIスナップショット取得を実行する。cron / Cloud Scheduler から1日1回呼ぶ想定
 
 ### Health check（認証不要・`/api/v1`配下ではない）
 
-- `GET /health` - プロセスの死活監視
-- `GET /api/health` - APIの死活監視
+- `GET /health` - 死活監視（DB疎通を含む。DB断時は503）
+- `GET /api/health` - 同上（別名。レート制限の対象外）
 
 ### 未実装（Phase 4以降）
 
