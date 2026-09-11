@@ -26,6 +26,7 @@ import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PricingCalendarDay, type CreateEventInput } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
 import { DAY_NAMES, toDateStr, monthLabel as monthLabelOf } from "@/lib/date"
 import { useWeekend } from "@/hooks/use-weekend"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
@@ -504,6 +505,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
           </div>
         </CardContent>
       </Card>
+
+      {/* 価格戦略の重み付け（U-1 — GET/PUT /pricing/strategy） */}
+      <StrategyWeightsCard />
 
       {/* 価格設定パラメータとサマリーを1つのCardに統合 */}
       <Card>
