@@ -53,11 +53,11 @@ export function clearTokens() {
 }
 
 // ---- デモモード（バックエンド未接続時のダミーデータ表示） ----
-// NEXT_PUBLIC_DEMO_MODE=true のときのみ有効（next.config.mjs で既定値を設定）。
-// バックエンドが応答する限り常に実APIを使用し、接続できない場合に限りダミーデータへ
+// ビルド時に NEXT_PUBLIC_DEMO_MODE=true が明示された場合のみ有効（opt-in。既定は無効）。
+// 有効時もバックエンドが応答する限り常に実APIを使用し、接続できない場合に限りダミーデータへ
 // フォールバックする。フォールバックが起きた場合は画面上部にデモ表示バナーを出すため、
 // 「モックへのサイレントフォールバック禁止」の規約には抵触しない。
-// 本番でバックエンドを接続したら NEXT_PUBLIC_DEMO_MODE=false を設定すること。
+// 本番ビルドではこの変数を設定しないこと（デモ分岐はツリーシェイクで成果物から消える）。
 
 const MOCK_PASSWORD = "Admin1234"
 const MOCK_HOTEL_ID = "demo-hotel-001"
@@ -83,13 +83,19 @@ const MOCK_HOTEL: Hotel = {
   updatedAt: new Date(),
 }
 
-function isDemoModeEnabled(): boolean {
-  // 明示的に "false" が設定されたときだけ無効化する。
-  // ホスティング側の環境変数が未設定・値の誤り（例: "ture"）でもデモ表示が維持されるよう、
-  // 「既定で有効・明示的に無効化」の向きにしている。
-  // なおフォールバックの発動条件はバックエンドに到達できない場合のみで、
-  // 実APIが応答する限り常に実データを優先する。
-  return process.env.NEXT_PUBLIC_DEMO_MODE !== "false"
+/**
+ * デモモードが有効か（ビルド時に NEXT_PUBLIC_DEMO_MODE=true が明示されたときのみ true）。
+ * 未設定・値の誤り（例: "ture"）は無効側に倒す（opt-in）。本番ビルドで誤ってデモ認証情報や
+ * ダミーデータが表示されないようにするため、「既定で無効・明示的に有効化」の向きにしている。
+ * なおフォールバックの発動条件はバックエンドに到達できない場合のみで、
+ * 実APIが応答する限り常に実データを優先する。
+ */
+export function isDemoModeEnabled(): boolean {
+  // 注意: 他モジュールからこの関数を呼ぶ分岐はミニファイアで畳み込まれず、無効ビルドでも
+  // 分岐内のコードが成果物に残る（実行はされない）。成果物から確実に除去したい JSX 等では
+  // `process.env.NEXT_PUBLIC_DEMO_MODE === "true"` をそのモジュール内で直接評価すること
+  // （login-form.tsx 参照。verify-demo-mode.mjs で検証している）。
+  return process.env.NEXT_PUBLIC_DEMO_MODE === "true"
 }
 
 // ---- デモデータ表示状態（バナー通知用） ----
@@ -979,7 +985,11 @@ export const api = {
   me(): Promise<User & { hotel?: Hotel | null }> {
     if (isDemoModeEnabled()) {
       const mockUser = getMockUser()
-      if (mockUser) return Promise.resolve({ ...mockUser, hotel: MOCK_HOTEL })
+      if (mockUser) {
+        // リロード後にデモユーザーを復元した場合もデモ表示バナーを出す
+        markDemoDataInUse()
+        return Promise.resolve({ ...mockUser, hotel: MOCK_HOTEL })
+      }
     }
     return rawRequest("/api/v1/auth/me")
   },
