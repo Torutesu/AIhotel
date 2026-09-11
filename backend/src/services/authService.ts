@@ -142,15 +142,19 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 }
 
 /**
- * ユーザー登録（ADMIN、および自テナント内の MANAGER — N-3）
+ * ユーザー登録（運営 / ADMIN、および自テナント内の MANAGER — N-3 / #52 / #62）
  *
  * テナント分離のため公開登録は提供しない。作成されるユーザーの tenantId は
- * 常に hotelId の所属テナントから導出し、リクエスト側で任意指定させない。
+ * リクエスト側で任意指定させず、テナント側のロール（ADMIN / MANAGER）が作る場合は
+ * **作成者自身のテナント**を使う。hotelId から導出すると、他テナントのホテルIDを
+ * 送るだけで他テナントにユーザーを作れてしまうため（#52）。
+ * 運営（PLATFORM_ADMIN）は自分のテナントを持たないので、従来どおり hotelId の
+ * 所属テナントから導出する。
  *
- * MANAGER による登録の制約（権限昇格・テナント越えの防止）:
- * - hotelId 必須（テナントを導出できないユーザーを作らせない）
- * - そのホテルが自分と同じテナントであること
- * - ADMIN ロールは付与できない
+ * ロール別の制約（権限昇格・テナント越えの防止）:
+ * - PLATFORM_ADMIN（運営）: テナント横断可。PLATFORM_ADMIN を作れる唯一のロール
+ * - ADMIN（テナント管理者）: 自テナント内のみ。ADMIN / MANAGER / OPERATOR を作れる
+ * - MANAGER: 自テナント内のみ。hotelId 必須で、ADMIN / PLATFORM_ADMIN は付与できない
  */
 export async function registerService(
   input: RegisterInput,
@@ -158,7 +162,13 @@ export async function registerService(
   ctx?: RequestContext
 ): Promise<Omit<User, 'password'>> {
   const { email, password, name, role, hotelId } = input
-  const isTenantManager = createdBy.role !== 'ADMIN'
+  const isPlatformAdmin = createdBy.role === 'PLATFORM_ADMIN'
+  const isTenantManager = createdBy.role === 'MANAGER'
+
+  // 運営ロールを作れるのは運営だけ（テナント側から運営権限が生えないようにする — #62）
+  if (role === 'PLATFORM_ADMIN' && !isPlatformAdmin) {
+    throw new ApiError(403, '運営（PLATFORM_ADMIN）ロールを付与できるのは運営のみです')
+  }
 
   if (isTenantManager) {
     if (!hotelId) {
@@ -169,6 +179,11 @@ export async function registerService(
     }
   }
 
+  // テナント側のロールは自分のテナントに属していなければユーザーを作れない
+  if (!isPlatformAdmin && !createdBy.tenantId) {
+    throw new ApiError(403, 'テナントに所属していないため、ユーザーを作成できません')
+  }
+
   const existingUser = await prisma.user.findUnique({
     where: { email },
   })
@@ -177,11 +192,18 @@ export async function registerService(
     throw new ApiError(409, 'このメールアドレスは既に登録されています')
   }
 
-  let tenantId: string | null = null
+  let tenantId: string | null = isPlatformAdmin ? null : createdBy.tenantId
 
   if (hotelId) {
+    // テナント側のロールでは、自テナントのホテルに限定して検索する。
+    // 他テナントのホテルIDを送られても「見つからない」と同じ 400 になり、
+    // そのホテルが存在するかどうかは判別できない（#52）
     const hotel = await prisma.hotel.findFirst({
-      where: { id: hotelId, isActive: true },
+      where: {
+        id: hotelId,
+        isActive: true,
+        ...(!isPlatformAdmin && { tenantId: createdBy.tenantId as string }),
+      },
     })
 
     if (!hotel) {
@@ -189,11 +211,6 @@ export async function registerService(
     }
 
     tenantId = hotel.tenantId
-  }
-
-  // 自テナント外のホテルにユーザーを作らせない（ADMIN のみテナント横断可）
-  if (isTenantManager && tenantId !== createdBy.tenantId) {
-    throw new ApiError(403, 'このホテルへのアクセス権限がありません')
   }
 
   const hashedPassword = await hashPassword(password)

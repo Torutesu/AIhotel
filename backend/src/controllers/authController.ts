@@ -29,7 +29,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 })
 
 /**
- * ユーザー登録（ADMIN、および自テナント内の MANAGER — N-3）
+ * ユーザー登録（運営 / ADMIN、および自テナント内の MANAGER — N-3 / #62）
  * POST /api/v1/auth/register
  */
 export const register = asyncHandler(async (req: Request, res: Response) => {
