@@ -18,7 +18,7 @@
 # ---------------------------------------
 # Stage 1: install workspace dependencies
 # ---------------------------------------
-FROM node:20-slim AS deps
+FROM node:26-slim AS deps
 RUN corepack enable
 WORKDIR /app
 
@@ -50,7 +50,7 @@ RUN pnpm --filter frontend build
 # ---------------------------------------
 # Stage 3: runtime image
 # ---------------------------------------
-FROM node:20-slim AS runtime
+FROM node:26-slim AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
