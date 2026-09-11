@@ -13,6 +13,14 @@ import type {
   HotelDto as Hotel,
   Event as HotelEvent,
   PriceRank,
+  BudgetYear,
+  UpsertBudgetsRequest,
+  CompetitorSetting,
+  CompetitorOtaUrls,
+  RegisterUserRequest,
+  UpdateUserRequest,
+  UpdateAlertStatusRequest,
+  ReviewScore,
 } from "@shared/types"
 import { parseWeekendDays } from "@/lib/date"
 import { createSeededRandom } from "@/lib/format"
@@ -20,6 +28,18 @@ import { createSeededRandom } from "@/lib/format"
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
 export type { Hotel, PriceRank }
 export type { Event as HotelEvent } from "@shared/types"
+// Wave C の画面が使う型（X-1〜X-7）。backend の契約は shared/types が唯一の出所
+export type {
+  BudgetYear,
+  MonthlyBudget,
+  UpsertBudgetsRequest,
+  CompetitorSetting,
+  CompetitorOtaUrls,
+  RegisterUserRequest,
+  UpdateUserRequest,
+  ReviewScore,
+  AlertStatus,
+} from "@shared/types"
 
 const ACCESS_TOKEN_KEY = "hrms.accessToken"
 const REFRESH_TOKEN_KEY = "hrms.refreshToken"
@@ -637,6 +657,18 @@ export interface UpdateHotelSettingsInput {
   totalRooms?: number
   weekendDays?: number[]
 }
+
+/** POST /api/v1/settings/competitors のリクエスト（最大5件 — F-SET-03 / X-2） */
+export interface CreateCompetitorInput {
+  hotelId: string
+  name: string
+  address?: string | null
+  category?: string | null
+  otaUrls?: CompetitorOtaUrls | null
+}
+
+/** PUT /api/v1/settings/competitors/:id のリクエスト（hotelId はクエリで渡す） */
+export type UpdateCompetitorInput = Partial<Omit<CreateCompetitorInput, "hotelId">>
 
 // ---- Dev-only demo data (ダッシュボード/ダイナミックプライシング画面用) ----
 // バックエンドの seed データと近い分布になるよう簡易な季節・曜日変動を再現しているだけの
@@ -1447,5 +1479,117 @@ export const api = {
         mockEvents = getMockEvents(hotelId).filter((e) => e.id !== id)
       }
     )
+  },
+
+  // ---- 月次予算（X-1 / N-1 / F-SET-04） ----
+
+  /** 年単位の月次予算。未登録の月も budget: null で必ず12件返る */
+  budgets(hotelId: string, year: number): Promise<BudgetYear> {
+    return rawRequest(`/api/v1/settings/budgets?hotelId=${hotelId}&year=${year}`)
+  },
+
+  /**
+   * 月次予算の一括保存（MANAGER以上）。送った月だけが upsert される。
+   * 稼働率は 0〜1 の比率で送ること（UI 側のパーセント入力は呼び出し元で変換する）。
+   */
+  saveBudgets(input: UpsertBudgetsRequest): Promise<BudgetYear> {
+    return rawRequest("/api/v1/settings/budgets", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  // ---- 競合ホテル（X-2 / N-2 / F-SET-03） ----
+
+  /** 競合ホテル一覧（有効なもののみ。最大5件） */
+  competitorSettings(hotelId: string): Promise<CompetitorSetting[]> {
+    return rawRequest(`/api/v1/settings/competitors?hotelId=${hotelId}`)
+  },
+
+  /** 競合ホテルの追加（MANAGER以上）。6件目は 400 になる */
+  createCompetitor(input: CreateCompetitorInput): Promise<CompetitorSetting> {
+    return rawRequest("/api/v1/settings/competitors", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 競合ホテルの更新（MANAGER以上） */
+  updateCompetitor(
+    id: string,
+    hotelId: string,
+    input: UpdateCompetitorInput
+  ): Promise<CompetitorSetting> {
+    return rawRequest(`/api/v1/settings/competitors/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 競合ホテルの削除（MANAGER以上・論理削除） */
+  deleteCompetitor(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/settings/competitors/${id}?hotelId=${hotelId}`, {
+      method: "DELETE",
+    })
+  },
+
+  // ---- ユーザー管理（X-3 / N-3） ----
+
+  /** 同一テナントのユーザー一覧（ADMIN / MANAGER のみ。OPERATOR は 403） */
+  users(hotelId: string): Promise<User[]> {
+    return rawRequest(`/api/v1/users?hotelId=${hotelId}`)
+  },
+
+  /** ユーザーの名前・ロール・有効/無効の変更（ADMIN、または自テナント内の MANAGER） */
+  updateUser(id: string, input: UpdateUserRequest): Promise<User> {
+    return rawRequest(`/api/v1/users/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** ユーザーの招待（ADMIN / MANAGER）。MANAGER は自テナントのホテル指定が必須 */
+  registerUser(input: RegisterUserRequest): Promise<User> {
+    return rawRequest("/api/v1/auth/register", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  // ---- アラート操作（X-4 / N-4） ----
+
+  /**
+   * アラートの状態遷移。ACKNOWLEDGED は全ロール、RESOLVED は MANAGER 以上。
+   * RESOLVED から ACKNOWLEDGED へ戻す操作はバックエンドが 400 で拒否する。
+   */
+  updateAlertStatus(
+    id: string,
+    hotelId: string,
+    status: UpdateAlertStatusRequest["status"]
+  ): Promise<AlertItem> {
+    return rawRequest(`/api/v1/dashboard/alerts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ hotelId, status }),
+    })
+  },
+
+  // ---- 口コミ評価点（X-6 / N-7 / F-ANA-04） ----
+
+  /** OTA別の口コミ評価点（取得日の降順・最大50件） */
+  reviewScores(hotelId: string): Promise<ReviewScore[]> {
+    return rawRequest(`/api/v1/analysis/reviews?hotelId=${hotelId}`)
+  },
+
+  // ---- KPIスナップショット取得（X-7 / N-5） ----
+
+  /**
+   * 当日時点のKPIスナップショットを保存する（MANAGER以上）。
+   * 通常は日次バッチが実行する処理で、同じ日・同じ対象月に対して冪等。
+   */
+  createKpiSnapshot(hotelId: string, year: number, month: number): Promise<KpiSnapshot> {
+    return rawRequest("/api/v1/dashboard/kpi/snapshot", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, year, month }),
+    })
   },
 }
