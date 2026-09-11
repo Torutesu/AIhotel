@@ -192,11 +192,16 @@ pnpm --filter backend db:seed
 
 シード投入後、以下のアカウントでログインできます（パスワードは全アカウント共通）。
 
-| ロール | メールアドレス | パスワード |
-| --- | --- | --- |
-| ADMIN | admin@demo-hotel.example.com | Admin1234 |
-| MANAGER | manager@demo-hotel.example.com | Admin1234 |
-| OPERATOR | operator@demo-hotel.example.com | Admin1234 |
+| ロール | 表示名 | メールアドレス | パスワード |
+| --- | --- | --- | --- |
+| PLATFORM_ADMIN | 運営 | platform@example.com | Admin1234 |
+| ADMIN | 管理者 | admin@demo-hotel.example.com | Admin1234 |
+| MANAGER | マネージャー | manager@demo-hotel.example.com | Admin1234 |
+| OPERATOR | オペレーター | operator@demo-hotel.example.com | Admin1234 |
+
+**運営（PLATFORM_ADMIN）はサービス提供側のアカウント**で、`tenantId` を持たず唯一テナントを越えられます
+（テナント作成・ホテルの払い出し・緊急サポート用）。顧客には渡しません。
+**ADMIN はテナント管理者**であり、自テナント内では最上位ですが他テナントのデータには一切アクセスできません（#62）。
 
 ### 5. 開発サーバーの起動
 
@@ -502,18 +507,18 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 
 - `POST /api/v1/auth/login` - ログイン（JWTアクセストークン・リフレッシュトークン発行。専用のレート制限あり）
 - `POST /api/v1/auth/refresh` - リフレッシュトークンによるアクセストークン再発行（ローテーション）
-- `POST /api/v1/auth/register` - ユーザー登録（**ADMIN専用**）
+- `POST /api/v1/auth/register` - ユーザー登録（**ADMIN / MANAGER**。作成先テナントは常に作成者のテナント。運営ロールを付与できるのは運営のみ）
 - `POST /api/v1/auth/logout` - ログアウト（該当リフレッシュトークンを無効化）
 - `POST /api/v1/auth/logout-all` - 全セッションログアウト
 - `GET /api/v1/auth/me` - ログイン中ユーザー情報取得
 
 ### Hotels (`backend/src/routes/hotels.ts`)
 
-- `GET /api/v1/hotels` - ホテル一覧取得（ADMINは全件、それ以外は自テナントのみ）
-- `GET /api/v1/hotels/:id` - ホテル詳細取得（自ホテル or ADMINのみ）
-- `POST /api/v1/hotels` - ホテル作成（ADMIN専用）
-- `PUT /api/v1/hotels/:id` - ホテル更新（ADMIN専用）
-- `DELETE /api/v1/hotels/:id` - ホテル削除（ADMIN専用）
+- `GET /api/v1/hotels` - ホテル一覧取得（**運営は全件**、ADMIN を含むそれ以外は自テナントのみ）
+- `GET /api/v1/hotels/:id` - ホテル詳細取得（自テナントのホテル or 運営のみ）
+- `POST /api/v1/hotels` - ホテル作成（**ADMIN以上**。テナントは作成者のトークンから導出。`tenantId` を指定できるのは運営のみ）
+- `PUT /api/v1/hotels/:id` - ホテル更新（**ADMIN以上**。自テナントのホテルのみ）
+- `DELETE /api/v1/hotels/:id` - ホテル削除（**ADMIN以上**。自テナントのホテルのみ）
 
 ### Dashboard (`backend/src/routes/dashboard.ts`)
 
@@ -557,8 +562,8 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 
 ### Users (`backend/src/routes/users.ts`)
 
-- `GET /api/v1/users` - 自テナントのユーザー一覧（**ADMIN / MANAGER**）
-- `PUT /api/v1/users/:id` - ユーザーの氏名・ロール・有効/無効を更新（**ADMIN / 自テナントのMANAGER**。自分自身の無効化・ロール変更は不可）
+- `GET /api/v1/users` - 自テナントのユーザー一覧（**ADMIN / MANAGER**。運営以外はテナントを越えられない）
+- `PUT /api/v1/users/:id` - ユーザーの氏名・ロール・有効/無効を更新（**自テナントのADMIN / MANAGER**。運営ロールの付与は運営のみ。自分自身の無効化・ロール変更は不可）
 
 ### Settings (`backend/src/routes/settings.ts`)
 

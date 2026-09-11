@@ -23,7 +23,8 @@ pnpm --filter backend test
 pnpm --filter backend build && pnpm --filter frontend build
 ```
 
-デモログイン: `admin@demo-hotel.example.com` / `Admin1234`（MANAGER/OPERATORは manager@/operator@）。seedアカウントは本番環境に投入しない
+デモログイン: `admin@demo-hotel.example.com` / `Admin1234`（MANAGER/OPERATORは manager@/operator@）。
+運営（PLATFORM_ADMIN）は `platform@example.com` / `Admin1234`。seedアカウントは本番環境に投入しない
 
 デモモード（バックエンド未接続時にサンプルデータを表示する機構）は **opt-in**。`NEXT_PUBLIC_DEMO_MODE=true` のときだけ有効で、
 未設定なら常に実APIを使い、失敗時はエラー＋再試行を表示する。実運用環境では設定しない
@@ -33,6 +34,9 @@ pnpm --filter backend build && pnpm --filter frontend build
 **セキュリティ・テナント分離**（マルチテナントSaaS。違反は本番事故になる）:
 - 新しいAPIルートには `authenticate` を必ず適用。公開可は `/auth/login`・`/auth/refresh`・ヘルスチェックのみ
 - hotelId を受けるルートには `requireHotelAccess(...)`、変更系には `requireRole('ADMIN','MANAGER')` ＋ `writeAuditLog()`
+- **ADMIN を含め、テナントを越えたアクセスは `PLATFORM_ADMIN`（運営）以外に許さない**（#62）。
+  ロールで早期 return してテナント判定を飛ばしてよいのは `PLATFORM_ADMIN` だけ。`role === 'ADMIN'` を
+  「全テナント可」の意味で書かない（サービス層のクエリも同様に `tenantId` で絞る）
 - 入力は必ず `backend/src/lib/validators.ts` の zod スキーマ＋ `validate()` で検証。生の `req.body`/`req.query` 参照禁止
 - 新しいPrismaモデルには `tenantId` ＋ tenantリレーション＋ `@@index([tenantId])` を必ず付与。クエリは hotelId/tenantId で絞る
 - シークレットのフォールバック値をコードに書かない（JWT_SECRETは32文字以上必須・未設定なら起動時throw）
@@ -47,7 +51,10 @@ pnpm --filter backend build && pnpm --filter frontend build
 
 **ドメイン確定値**（再議論・変更しない）:
 - バックエンドは Express+TypeScript+Prisma（FastAPIへ移行しない）。クラウド固有SDKを追加しない
-- ロールは ADMIN / MANAGER / OPERATOR の3種
+- ロールは PLATFORM_ADMIN / ADMIN / MANAGER / OPERATOR の4種。日本語表示名は 運営 / 管理者 / マネージャー / オペレーター
+  （表示名の唯一の出所は `shared/types/index.ts` の `ROLE_LABELS`）
+  - `PLATFORM_ADMIN`（運営）= サービス提供側。`tenantId` は null。テナントを越えられる唯一のロールで、顧客には渡さない
+  - `ADMIN`（管理者）= テナント管理者。自テナント内で最上位だが、他テナントのデータには一切アクセスできない
 - 料金ランクは最大40段階、需要レベルはA〜E、週末=金・土（`Hotel.weekendDays` を参照しハードコードしない）
 - 価格戦略の重み（稼働率/ADR/競合）は合計100%必須
 
