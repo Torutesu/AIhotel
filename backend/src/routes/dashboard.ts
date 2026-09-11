@@ -1,17 +1,19 @@
 import { Router, type Router as ExpressRouter } from 'express'
-import { authenticate, requireHotelAccess } from '../middlewares/auth.js'
+import { authenticate, requireHotelAccess, requireRole } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
 import {
   alertsQuerySchema,
   monthQuerySchema,
   kpiComparisonQuerySchema,
   aiSummaryQuerySchema,
+  generateAiSummarySchema,
 } from '../lib/validators.js'
 import {
   getKpi,
   getKpiComparison,
   getAlerts,
   getAiSummary,
+  generateAiSummary,
 } from '../controllers/dashboardController.js'
 
 export const dashboardRouter: ExpressRouter = Router()
@@ -32,3 +34,12 @@ dashboardRouter.get('/alerts', validate(alertsQuerySchema, 'query'), getAlerts)
 
 // GET /api/v1/dashboard/ai-summary?hotelId=&section=
 dashboardRouter.get('/ai-summary', validate(aiSummaryQuerySchema, 'query'), getAiSummary)
+
+// POST /api/v1/dashboard/ai-summary/generate — LLM で AIまとめを生成。MANAGER 以上
+dashboardRouter.post(
+  '/ai-summary/generate',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(generateAiSummarySchema),
+  generateAiSummary
+)

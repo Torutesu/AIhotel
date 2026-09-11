@@ -18,6 +18,7 @@ import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
 import { reportsRouter } from './routes/reports.js'
 import { knowledgeRouter } from './routes/knowledge.js'
+import { chatRouter } from './routes/chat.js'
 import { integrationsRouter } from './routes/integrations.js'
 
 // Import middlewares
@@ -124,6 +125,7 @@ app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/reports', reportsRouter)
 app.use('/api/v1/knowledge', knowledgeRouter)
+app.use('/api/v1/chat', chatRouter)
 app.use('/api/v1/integrations', integrationsRouter)
 
 // ======================================

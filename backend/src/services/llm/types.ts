@@ -24,10 +24,50 @@ export interface StructuredResponse<T> {
   usage: { inputTokens: number | null; outputTokens: number | null }
 }
 
+// ---- ツール呼び出し（会話フィードバック用）。両プロバイダで同じ定義を使う
+export interface ToolDefinition {
+  /** 英数字と _ のみ */
+  name: string
+  description: string
+  /** 入力スキーマ（zod v4 の object）。JSON Schema に変換して渡す */
+  inputSchema: z.ZodObject
+}
+
+export interface ChatTurnMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ToolCallRecord {
+  name: string
+  input: unknown
+  output: unknown
+  ok: boolean
+}
+
+export interface ToolsRequest {
+  system: string
+  messages: ChatTurnMessage[]
+  tools: ToolDefinition[]
+  /** ツール実行。例外は捕捉して { ok:false, error } としてモデルに返す */
+  execute: (name: string, input: unknown) => Promise<unknown>
+  maxTurns: number
+  maxOutputTokens: number
+}
+
+export interface ToolsResponse {
+  text: string
+  toolCalls: ToolCallRecord[]
+  provider: LlmProviderName
+  model: string
+  usage: { inputTokens: number | null; outputTokens: number | null }
+}
+
 export interface LlmProvider {
   readonly name: LlmProviderName
   readonly model: string
   generateStructured<T extends z.ZodType>(req: StructuredRequest<T>): Promise<StructuredResponse<z.infer<T>>>
+  generateWithTools(req: ToolsRequest): Promise<ToolsResponse>
 }
 
 /** UI に返す既知モデルの候補。自由入力も許すため、ここに無いモデルIDも設定可能 */

@@ -412,6 +412,21 @@ export const knowledgeSearchSchema = z.object({
   k: z.coerce.number().int().min(1).max(20).optional(),
 })
 
+export const chatMessageSchema = z.object({
+  hotelId: entityIdSchema,
+  conversationId: entityIdSchema.optional(),
+  content: z.string().min(1).max(4000),
+  llmProvider: z.enum(['anthropic', 'openai']).optional(),
+  llmModel: z.string().min(1).max(100).optional(),
+})
+
+export const generateAiSummarySchema = z.object({
+  hotelId: entityIdSchema,
+  section: z.string().min(1).max(50).optional(),
+  llmProvider: z.enum(['anthropic', 'openai']).optional(),
+  llmModel: z.string().min(1).max(100).optional(),
+})
+
 export const dailyJobSchema = z.object({
   hotelId: entityIdSchema.optional(),
 })
