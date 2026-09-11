@@ -18,7 +18,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "sonner"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
@@ -67,7 +68,6 @@ function parseWeekendDays(value: unknown): number[] {
 }
 
 export function SettingsTab() {
-  const { toast } = useToast()
   const { hotelId, user } = useAuth()
   const canManageHotel = user?.role === "ADMIN" || user?.role === "MANAGER"
 
@@ -167,15 +167,13 @@ export function SettingsTab() {
         price3P: editPrice3P,
         price4P: editPrice4P,
       })
-      toast({ title: "料金ランクを更新しました" })
+      toast.success("料金ランクを更新しました")
       setEditingRank(null)
       await loadPriceRanks()
     } catch (err) {
-      toast({
-        title: "料金ランクの更新に失敗しました",
-        description: err instanceof ApiClientError ? err.message : undefined,
-        variant: "destructive",
-      })
+      toast.error(
+        err instanceof ApiClientError ? err.message : "料金ランクの更新に失敗しました",
+      )
     } finally {
       setSavingRank(false)
     }
@@ -238,8 +236,7 @@ export function SettingsTab() {
     if (typeof window === "undefined" || !hotelId || dashboardKpiItems.length === 0) return
     localStorage.setItem(dashboardKpiItemsKey(hotelId), JSON.stringify(dashboardKpiItems))
     window.dispatchEvent(new Event("settingsUpdated"))
-    toast({
-      title: "KPI表示項目を保存しました",
+    toast.success("KPI表示項目を保存しました", {
       description: "ダッシュボードのKPI進捗表に反映されます。",
     })
   }
@@ -264,26 +261,21 @@ export function SettingsTab() {
           weekendDays,
         })
         setHotel(updated)
-        toast({
-          title: "設定を保存しました",
-          description: "変更が正常に保存されました。",
-        })
+        toast.success("設定を保存しました", { description: "変更が正常に保存されました。" })
       } catch (err) {
-        toast({
-          title: "ホテル設定の保存に失敗しました",
-          description: err instanceof ApiClientError ? err.message : undefined,
-          variant: "destructive",
-        })
+        toast.error(
+          err instanceof ApiClientError ? err.message : "ホテル設定の保存に失敗しました",
+        )
       } finally {
         setSavingHotel(false)
       }
     } else {
-      toast({
-        title: "設定を保存しました",
-        description: "変更が正常に保存されました。",
-      })
+      toast.success("設定を保存しました", { description: "変更が正常に保存されました。" })
     }
   }
+
+  // 設定リセットの確認ダイアログ（F-5）
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
 
   const handleReset = () => {
     if (hotel) {
@@ -310,21 +302,33 @@ export function SettingsTab() {
     setShowTopSitesSection(false)
     setDashboardKpiItems(ALL_DASHBOARD_KPI_KEYS)
 
-    toast({
-      title: "設定をリセットしました",
+    toast.success("設定をリセットしました", {
       description: "すべての設定がデフォルト値に戻りました。",
     })
   }
 
   return (
     <div className="p-6 space-y-6 max-w-4xl mx-auto">
+      {/* 設定リセットの確認（F-5） */}
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        onOpenChange={setResetConfirmOpen}
+        title="設定をリセットしますか？"
+        description="入力中の内容を破棄し、すべての設定を初期値に戻します。この操作は取り消せません。"
+        confirmLabel="リセットする"
+        onConfirm={() => {
+          setResetConfirmOpen(false)
+          handleReset()
+        }}
+      />
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-heading font-medium tracking-tight">設定</h1>
           <p className="text-sm text-muted-foreground mt-1">システムの各種設定を管理できます</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleReset}>
+          <Button variant="outline" onClick={() => setResetConfirmOpen(true)}>
             リセット
           </Button>
           <Button onClick={handleSave} disabled={savingHotel}>

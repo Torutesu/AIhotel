@@ -103,7 +103,8 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
     return "ご質問ありがとうございます。ダッシュボード、価格設定、日別分析、各種分析、レポートなど、システムの各機能についてサポートいたします。具体的にどのような情報をお探しですか？"
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  // onKeyPress は非推奨（React 17+ / DOM 仕様）のため onKeyDown を使う
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -201,7 +202,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             placeholder="質問を入力してください..."
             className="flex-1"
           />

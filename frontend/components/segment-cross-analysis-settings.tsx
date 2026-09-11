@@ -80,7 +80,8 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
   })
 
   const [reservationTypeView, setReservationTypeView] = useState<"reservation" | "group">("reservation")
-  const [typeGroupingData, setTypeGroupingData] = useState([
+  // 表示専用（編集UIは未実装のため setter は持たない）
+  const [typeGroupingData] = useState([
     { actualType: "Bタイプ", groupResult: "シングル47室 → ダブル25室、ツイン18室、トリプル3室、その他1室" },
     { actualType: "Cタイプ", groupResult: "ダブル30室 → ダブル28室、その他2室" },
     { actualType: "Dタイプ", groupResult: "ツイン20室 → ツイン18室、ダブル2室" },

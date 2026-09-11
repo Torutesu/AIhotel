@@ -2,7 +2,9 @@
 
 // バックエンドAPIクライアント（C-6）
 // next.config.mjs の rewrites により /api/* はバックエンドへプロキシされる。
-// 直接バックエンドURLを叩く場合は NEXT_PUBLIC_BACKEND_URL を設定する。
+// ブラウザからは常に same-origin（相対パス）で呼ぶ（F-10）。バックエンドの CORS は
+// 許可オリジンを限定しているため、ブラウザが直接バックエンドを叩くと弾かれる。
+// プロキシ先はサーバー専用の BACKEND_URL（next.config.mjs）で指定する。
 
 import type { ApiResponse, User, UserRole, Hotel, Event as HotelEvent, PriceRank } from "@shared/types"
 
@@ -13,10 +15,8 @@ const ACCESS_TOKEN_KEY = "hrms.accessToken"
 const REFRESH_TOKEN_KEY = "hrms.refreshToken"
 const MOCK_USER_KEY = "hrms.mockUser"
 
-const BASE_URL =
-  typeof window !== "undefined" && process.env.NEXT_PUBLIC_BACKEND_URL
-    ? process.env.NEXT_PUBLIC_BACKEND_URL
-    : ""
+/** 常に same-origin。rewrite（next.config.mjs）が /api/* をバックエンドへ中継する。 */
+const BASE_URL = ""
 
 export class ApiClientError extends Error {
   status: number
@@ -194,7 +194,9 @@ async function rawRequest<T>(
     throw new ApiClientError(0, "バックエンドに接続できません", true)
   }
 
-  if (res.status === 401 && retryOn401 && getRefreshToken()) {
+  // ログイン自体の 401（認証情報の誤り）はリフレッシュ対象外
+  if (res.status === 401 && retryOn401 && !path.startsWith("/api/v1/auth/login")) {
+    // 並列に 401 を受けても tryRefresh() は single-flight なので実際の更新は 1 回だけ
     const refreshed = await tryRefresh()
     if (refreshed) {
       return rawRequest<T>(path, options, false)
@@ -215,9 +217,28 @@ async function rawRequest<T>(
   return body.data as T
 }
 
-async function tryRefresh(): Promise<boolean> {
-  const refreshToken = getRefreshToken()
-  if (!refreshToken) return false
+/**
+ * 認証が完全に失効したことをアプリ全体に通知する（F-2）。
+ * AuthProvider がこのイベントを購読してユーザーを破棄し、ログイン画面に戻す。
+ */
+export const AUTH_EXPIRED_EVENT = "auth:expired"
+
+function notifyAuthExpired() {
+  clearTokens()
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+  }
+}
+
+/**
+ * 実行中のリフレッシュ処理（single-flight 用）。
+ * 並列リクエストが同時に 401 を受けても、リフレッシュは 1 回だけ実行し全員でその結果を共有する。
+ * 各々がリフレッシュを投げるとトークンローテーションで後続が無効トークンを掴み、
+ * 結果として全員ログアウトになってしまうため（F-2）。
+ */
+let refreshInFlight: Promise<boolean> | null = null
+
+async function performRefresh(refreshToken: string): Promise<boolean> {
   try {
     const res = await fetch(`${BASE_URL}/api/v1/auth/refresh`, {
       method: "POST",
@@ -229,11 +250,27 @@ async function tryRefresh(): Promise<boolean> {
       storeTokens(body.data.tokens.accessToken, body.data.tokens.refreshToken)
       return true
     }
+    // サーバーがリフレッシュを拒否した（期限切れ・失効済み）→ 認証終了
+    notifyAuthExpired()
+    return false
   } catch {
-    // fall through
+    // ネットワーク到達不可。トークンは失効していない可能性が高いので破棄しない。
+    return false
   }
-  clearTokens()
-  return false
+}
+
+async function tryRefresh(): Promise<boolean> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) {
+    notifyAuthExpired()
+    return false
+  }
+  if (!refreshInFlight) {
+    refreshInFlight = performRefresh(refreshToken).finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
 }
 
 // ---- Response types (backend契約) ----

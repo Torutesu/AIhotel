@@ -15,6 +15,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  AlertCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -28,7 +29,9 @@ import { ChatInterface } from "@/components/chat-interface"
 import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
 import { LoginForm } from "@/components/login-form"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import type { Tab } from "@shared/types"
+import type { AlertLinkTarget, AnalysisView } from "@/lib/alert-link"
 
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
@@ -40,6 +43,18 @@ const tabs = [
 
 const SIDEBAR_COLLAPSED_KEY = "hrms.sidebarCollapsed"
 
+const APP_NAME = "ホテレベ"
+
+/** タブごとのブラウザタブ表示名（F-8） */
+const TAB_TITLES: Record<Tab, string> = {
+  dashboard: "ダッシュボード",
+  pricing: "ダイナミックプライシング",
+  analysis: "分析",
+  reports: "レポート",
+  "ai-summary": "AIまとめ",
+  settings: "設定",
+}
+
 export function MainLayout() {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard")
   const [chatOpen, setChatOpen] = useState(false)
@@ -47,7 +62,16 @@ export function MainLayout() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   // 分析タブの日付からダイナミックプライシングへ遷移する際の対象日
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
-  const { user, loading, logout } = useAuth()
+  // アラートから分析タブへ遷移する際に開くサブビュー
+  const [analysisView, setAnalysisView] = useState<AnalysisView | null>(null)
+  // ログアウト確認ダイアログ（F-5）
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const { user, loading, logout, restoreError, retryRestore } = useAuth()
+
+  // 表示中のタブをブラウザのタブ名に反映する（F-8）
+  useEffect(() => {
+    document.title = user ? `${TAB_TITLES[activeTab]} | ${APP_NAME}` : APP_NAME
+  }, [activeTab, user])
 
   // 折りたたみ状態を記憶する（デスクトップのみ意味を持つ）
   useEffect(() => {
@@ -68,10 +92,31 @@ export function MainLayout() {
     setMobileNavOpen(false)
   }
 
+  // アラートの linkTab は Tab と 1:1 ではないため変換表で解決する（F-4）
+  const handleAlertNavigate = (target: AlertLinkTarget) => {
+    setAnalysisView(target.analysisView ?? null)
+    selectTab(target.tab)
+  }
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  // セッション確認が「未ログイン」以外の理由（429/503/ネットワーク断など）で失敗した場合は
+  // トークンを保持したまま再試行を促す（F-2）
+  if (!user && restoreError) {
+    return (
+      <div className="flex h-screen flex-col items-center justify-center gap-4 bg-background px-6 text-center">
+        <AlertCircle className="h-8 w-8 text-destructive" aria-hidden />
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-foreground">セッションを確認できませんでした</p>
+          <p className="text-sm text-muted-foreground">{restoreError}</p>
+        </div>
+        <Button onClick={retryRestore}>再試行</Button>
       </div>
     )
   }
@@ -191,8 +236,9 @@ export function MainLayout() {
               variant="ghost"
               size="icon"
               className="h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent"
-              onClick={() => logout()}
+              onClick={() => setLogoutConfirmOpen(true)}
               title="ログアウト"
+              aria-label="ログアウト"
             >
               <LogOut className="h-4 w-4" />
             </Button>
@@ -226,12 +272,13 @@ export function MainLayout() {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-auto">
-          {activeTab === "dashboard" && <DashboardTab onTabChange={setActiveTab} />}
+          {activeTab === "dashboard" && <DashboardTab onAlertNavigate={handleAlertNavigate} />}
           {activeTab === "pricing" && (
             <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
           )}
           {activeTab === "analysis" && (
             <AnalysisTab
+              requestedView={analysisView}
               onNavigateToPricing={(date) => {
                 setPricingFocusDate(date)
                 selectTab("pricing")
@@ -255,6 +302,19 @@ export function MainLayout() {
 
       {/* Chat Interface */}
       <ChatInterface isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+
+      {/* ログアウトの確認（F-5） */}
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        onOpenChange={setLogoutConfirmOpen}
+        title="ログアウトしますか？"
+        description="保存していない入力内容は失われます。"
+        confirmLabel="ログアウト"
+        onConfirm={() => {
+          setLogoutConfirmOpen(false)
+          void logout()
+        }}
+      />
     </div>
   )
 }
