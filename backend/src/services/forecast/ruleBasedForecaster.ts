@@ -196,7 +196,7 @@ export const ruleBasedForecaster: DemandForecaster = {
   async forecast(input: ForecastInput): Promise<DailyForecast[]> {
     const { hotelId, startDate, endDate } = input
 
-    const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+    const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
     if (!hotel) throw new NotFoundError('ホテル')
     const weekendDays = Array.isArray(hotel.weekendDays) ? (hotel.weekendDays as number[]) : [5, 6]
 

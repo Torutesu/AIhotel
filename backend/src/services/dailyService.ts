@@ -6,7 +6,7 @@ import { NotFoundError } from '../middlewares/errorHandler.js'
  * X軸 = 宿泊日までの残日数（降順で右肩上がりになる）
  */
 export async function getBookingCurveService(hotelId: string, stayDate: Date) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const points = await prisma.bookingCurveData.findMany({

@@ -27,18 +27,32 @@ export async function getHotelsService(scope: {
 }
 
 /**
- * IDでホテルを取得
+ * IDでホテルを取得（論理削除済みは 404）
  */
 export async function getHotelByIdService(id: string): Promise<Hotel> {
-  const hotel = await prisma.hotel.findUnique({
-    where: { id },
+  const hotel = await prisma.hotel.findFirst({
+    where: { id, isActive: true },
   })
-  
+
   if (!hotel) {
     throw new NotFoundError('ホテル')
   }
-  
+
   return hotel
+}
+
+/**
+ * アクセス制御用の軽量ルックアップ（S-5）。
+ * 有効な（isActive=true の）ホテルの id / tenantId のみを返し、論理削除済み・存在しない場合は null。
+ * middlewares/ からは prisma を直接 import できないため、requireHotelAccess はこの関数を使う
+ */
+export async function findActiveHotelService(
+  id: string
+): Promise<{ id: string; tenantId: string } | null> {
+  return prisma.hotel.findFirst({
+    where: { id, isActive: true },
+    select: { id: true, tenantId: true },
+  })
 }
 
 /**

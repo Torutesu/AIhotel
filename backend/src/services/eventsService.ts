@@ -20,7 +20,7 @@ export async function getEventsService(hotelId: string, startDate?: Date, endDat
  * イベント登録（オペレーターも登録可 — F-DP-07）
  */
 export async function createEventService(input: CreateEventInput, createdByUserId: string) {
-  const hotel = await prisma.hotel.findUnique({ where: { id: input.hotelId } })
+  const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   return prisma.event.create({
