@@ -384,21 +384,24 @@ export interface ComparisonAxis {
   lastYearOccupancyRatio: number | null
 }
 
+/** KPI進捗表に出す実績サマリー（F-DASH-01 の8指標＋集計日数） */
+export interface ActualSummary {
+  roomRevenue: number
+  soldRooms: number
+  adr: number
+  occupancyRate: number
+  revPar: number
+  guests: number
+  dor: number
+  guestUnitPrice: number
+  actualDays: number
+}
+
 export interface DashboardKpi {
   hotelId: string
   year: number
   month: number
-  summary: {
-    roomRevenue: number
-    soldRooms: number
-    adr: number
-    occupancyRate: number
-    revPar: number
-    guests: number
-    dor: number
-    guestUnitPrice: number
-    actualDays: number
-  }
+  summary: ActualSummary
   comparison: {
     budgetRevenue: number | null
     budgetRevenueToDate: number | null
@@ -416,11 +419,15 @@ export interface DashboardKpi {
     /** 年度累計（年度開始月から当月までの累計どうしの比較） */
     fiscalYear: ComparisonAxis
     fiscalYearLabel: string
+    /**
+     * 比較軸ごとの実績サマリー（#54）。
+     * 年度累計軸でも8指標すべてが年度累計の値で揃うため、
+     * 画面側で月次実績にフォールバックしてはならない。
+     */
     actualSummary: {
-      fiscalRevenue: number
-      fiscalAdr: number
-      fiscalOccupancy: number
-      fiscalActualDays: number
+      toDate: ActualSummary
+      cumulative: ActualSummary
+      fiscalYear: ActualSummary
     }
   } | null
   dailyTrend: Array<{
@@ -574,7 +581,18 @@ export interface CompetitorPrices {
   hotelId: string
   startDate: string
   endDate: string
-  ownPrices: Array<{ date: string; price: number | null; isActual: boolean }>
+  /**
+   * 自館の日別価格。`price` は人数非依存の代表値（実績日はADR、未来日はAI推奨価格）、
+   * `price1P`〜`price3P` は利用人数別の価格（#57）。値が無い人数は null。
+   */
+  ownPrices: Array<{
+    date: string
+    price: number | null
+    isActual: boolean
+    price1P: number | null
+    price2P: number | null
+    price3P: number | null
+  }>
   competitors: Array<{
     id: string
     name: string
@@ -783,22 +801,27 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
   const fiscalRevenue = Math.round(totalRevenue * elapsedFiscalMonths * 0.98)
   const fiscalBudgetRevenue = Math.round((budgetRevenueToDate ?? 0) * elapsedFiscalMonths)
   const fiscalLastYearRevenue = Math.round(fiscalBudgetRevenue * 0.95)
+  const fiscalSoldRooms = soldRoomsSum * elapsedFiscalMonths
+  const fiscalGuests = guestsSum * elapsedFiscalMonths
+  const fiscalAdr = fiscalSoldRooms > 0 ? Math.round(fiscalRevenue / fiscalSoldRooms) : 0
+
+  const monthSummary: ActualSummary = {
+    roomRevenue: Math.round(totalRevenue),
+    soldRooms: soldRoomsSum,
+    adr,
+    occupancyRate: Number(occupancyRate.toFixed(3)),
+    revPar: Math.round(revPar),
+    guests: guestsSum,
+    dor,
+    guestUnitPrice,
+    actualDays,
+  }
 
   return {
     hotelId,
     year,
     month,
-    summary: {
-      roomRevenue: Math.round(totalRevenue),
-      soldRooms: soldRoomsSum,
-      adr,
-      occupancyRate: Number(occupancyRate.toFixed(3)),
-      revPar: Math.round(revPar),
-      guests: guestsSum,
-      dor,
-      guestUnitPrice,
-      actualDays,
-    },
+    summary: monthSummary,
     comparison:
       actualDays > 0 && budgetRevenueToDate
         ? {
@@ -823,15 +846,24 @@ function mockDashboardKpi(hotelId: string, year: number, month: number): Dashboa
               fiscalBudgetRevenue,
               fiscalLastYearRevenue,
               fiscalRevenue,
-              adr,
+              fiscalAdr,
               occupancyRate
             ),
             fiscalYearLabel: `${fiscalStartYear}年度（4月〜${month}月）`,
             actualSummary: {
-              fiscalRevenue,
-              fiscalAdr: adr,
-              fiscalOccupancy: Number(occupancyRate.toFixed(3)),
-              fiscalActualDays: actualDays * elapsedFiscalMonths,
+              toDate: monthSummary,
+              cumulative: monthSummary,
+              fiscalYear: {
+                roomRevenue: fiscalRevenue,
+                soldRooms: fiscalSoldRooms,
+                adr: fiscalAdr,
+                occupancyRate: Number(occupancyRate.toFixed(3)),
+                revPar: Math.round(revPar),
+                guests: fiscalGuests,
+                dor: fiscalSoldRooms > 0 ? Number((fiscalGuests / fiscalSoldRooms).toFixed(2)) : 0,
+                guestUnitPrice: fiscalGuests > 0 ? Math.round(fiscalRevenue / fiscalGuests) : 0,
+                actualDays: actualDays * elapsedFiscalMonths,
+              },
             },
           }
         : null,
@@ -1028,10 +1060,15 @@ function mockCompetitorPrices(hotelId: string, startDate: string, endDate: strin
 
   const ownPrices = dates.map((date) => {
     const rng = createSeededRandom(date.getTime() / 86400000)
+    const price1P = basePrice(date, rng)
     return {
       date: toLocalDateStr(date),
-      price: basePrice(date, rng),
+      price: price1P,
       isActual: date <= today,
+      // 利用人数別の自館価格（料金ランク相当。1名を基準に2名・3名を積み上げる）
+      price1P,
+      price2P: Math.round(price1P * 1.4),
+      price3P: Math.round(price1P * 1.8),
     }
   })
 

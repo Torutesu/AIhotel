@@ -19,20 +19,37 @@ import { useAuth } from "@/components/auth-provider"
 import { useWeekend } from "@/hooks/use-weekend"
 import { api, ApiClientError, type CompetitorPrices } from "@/lib/api"
 import { DAY_NAMES, toDateStr } from "@/lib/date"
-import { formatYen as yen } from "@/lib/format"
+import { formatPt, formatSignedYen, formatYen as yen } from "@/lib/format"
 
-/** 競合比較テーブルの 1 行（`<競合ID>_<人数>名` の動的キーに価格が入る） */
+/**
+ * 競合比較テーブルの 1 行。
+ * 自館価格は `own_<人数>名`、競合価格は `<競合ID>_<人数>名` の動的キーに入る（#57）。
+ */
 interface CompetitorComparisonRow {
   date: string
   /** 曜日番号（0=日〜6=土）。週末判定に使う */
   dow: number
   day: string
-  ourPrice: number | null
   [key: string]: string | number | null
 }
 
 function occLabel(occ: number): string {
   return occ >= 4 ? "4名以上" : `${occ}名`
+}
+
+/** 自館価格の行キー（利用人数別 — #57） */
+function ownKey(occ: number): string {
+  return `own_${occ}名`
+}
+
+/**
+ * 価格差の向きは全画面で「自館 − 競合」に統一する（#57）。
+ * ＋＝自館のほうが高い／−＝自館のほうが安い。
+ * 符号を必ず表示し、色だけに依存させない（色覚特性への配慮）。
+ */
+function diffToneClass(diff: number | null): string {
+  if (diff == null) return ""
+  return diff >= 0 ? "text-positive" : "text-negative"
 }
 
 function avgOf(rows: Array<Record<string, unknown>>, key: string): number | null {
@@ -92,10 +109,11 @@ export function DailyCompetitorSection() {
     [competitorData, selectedCompetitorIds]
   )
 
+  // 自館・競合ともに同じ人数区分のキーを引く（4名以上は3名料金で代用する）
   const priceKeyFor = (occ: number): "price1P" | "price2P" | "price3P" =>
     occ === 1 ? "price1P" : occ === 2 ? "price2P" : "price3P"
 
-  // 各日付に対して、当ホテル価格・選択された競合の人数別価格をまとめたデータ（1週間分）
+  // 各日付に対して、当ホテル・選択された競合の人数別価格をまとめたデータ（1週間分）
   const competitorComparisonData = useMemo(() => {
     if (!competitorData) return []
     const ownByDate = new Map(competitorData.ownPrices.map((p) => [p.date, p]))
@@ -113,7 +131,10 @@ export function DailyCompetitorSection() {
         date: `${d.getMonth() + 1}/${d.getDate()}`,
         dow: d.getDay(),
         day: DAY_NAMES[d.getDay()],
-        ourPrice: own?.price ?? null,
+      }
+      // 自館価格も利用人数別に持つ（ADR で全人数を同じ値にしない — #57）
+      for (const occ of selectedOccupancies) {
+        result[ownKey(occ)] = own ? own[priceKeyFor(occ)] : null
       }
       for (const comp of compByDate) {
         const priceRow = comp.byDate.get(date)
@@ -265,7 +286,8 @@ export function DailyCompetitorSection() {
                 {/* 週平均サマリーカード（人数別） */}
                 <div className="flex gap-3 flex-wrap">
                   {selectedOccupancies.map((occ) => {
-                    const ourAvg = avgOf(competitorComparisonData, "ourPrice")
+                    // 自館価格も利用人数別に平均する（全人数で同じ値にしない — #57）
+                    const ourAvg = avgOf(competitorComparisonData, ownKey(occ))
                     const compAvg = avgOf(competitorComparisonData, `${comp.id}_${occ}名`)
                     const diff = ourAvg != null && compAvg != null ? ourAvg - compAvg : null
                     const diffPercent = diff != null && compAvg ? (diff / compAvg) * 100 : null
@@ -277,13 +299,9 @@ export function DailyCompetitorSection() {
                           <div className="text-lg font-semibold mb-0.5">
                             {yen(ourAvg)} / {yen(compAvg)}
                           </div>
-                          {diff != null && diffPercent != null ? (
-                            <div
-                              className={`text-sm font-medium ${diff >= 0 ? "text-positive" : "text-negative"}`}
-                            >
-                              {diff >= 0 ? "+" : ""}
-                              {yen(Math.abs(diff))} ({diff >= 0 ? "+" : ""}
-                              {diffPercent.toFixed(1)}%)
+                          {diff != null ? (
+                            <div className={`text-sm font-medium ${diffToneClass(diff)}`}>
+                              {formatSignedYen(diff)}（{formatPt(diffPercent)}）
                             </div>
                           ) : (
                             <div className="text-sm text-muted-foreground">-</div>
@@ -303,6 +321,10 @@ export function DailyCompetitorSection() {
                       <p className="text-xs text-muted-foreground">
                         {weekStart} 〜 {weekEnd} の当ホテルと{comp.name}の比較
                       </p>
+                      {/* 符号の意味を明示する（色だけで方向を判断させない — #57） */}
+                      <p className="text-xs text-muted-foreground">
+                        価格差・差額率は「当ホテル − {comp.name}」。＋は当ホテルのほうが高く、−は当ホテルのほうが安いことを表します。
+                      </p>
                     </CardHeader>
                     <CardContent className="pt-0">
                       <div className="overflow-x-auto">
@@ -319,8 +341,9 @@ export function DailyCompetitorSection() {
                           </thead>
                           <tbody>
                             {competitorComparisonData.map((row) => {
+                              const ourPrice = row[ownKey(occ)] as number | null
                               const compPrice = row[`${comp.id}_${occ}名`] as number | null
-                              const diff = row.ourPrice != null && compPrice != null ? row.ourPrice - compPrice : null
+                              const diff = ourPrice != null && compPrice != null ? ourPrice - compPrice : null
                               const diffPercent = diff != null && compPrice ? (diff / compPrice) * 100 : null
                               return (
                                 <tr key={`${comp.id}-${occ}-${row.date}`} className="border-b hover:bg-muted/50">
@@ -333,29 +356,14 @@ export function DailyCompetitorSection() {
                                       {row.day}
                                     </Badge>
                                   </td>
-                                  <td className="text-right py-2 px-2 font-medium">{yen(row.ourPrice)}</td>
+                                  <td className="text-right py-2 px-2 font-medium">{yen(ourPrice)}</td>
                                   <td className="text-right py-2 px-2">{yen(compPrice)}</td>
-                                  <td
-                                    className={`text-right py-2 px-2 font-medium ${
-                                      diff != null && diff >= 0
-                                        ? "text-positive"
-                                        : diff != null
-                                          ? "text-negative"
-                                          : ""
-                                    }`}
-                                  >
-                                    {diff != null ? `${diff >= 0 ? "+" : ""}${yen(Math.abs(diff))}` : "-"}
+                                  {/* 符号付きで表示し、色だけに方向の判断を委ねない（#57） */}
+                                  <td className={`text-right py-2 px-2 font-medium ${diffToneClass(diff)}`}>
+                                    {formatSignedYen(diff)}
                                   </td>
-                                  <td
-                                    className={`text-right py-2 px-2 ${
-                                      diffPercent != null && diffPercent >= 0
-                                        ? "text-positive"
-                                        : diffPercent != null
-                                          ? "text-negative"
-                                          : ""
-                                    }`}
-                                  >
-                                    {diffPercent != null ? `${diffPercent >= 0 ? "+" : ""}${diffPercent.toFixed(1)}%` : "-"}
+                                  <td className={`text-right py-2 px-2 ${diffToneClass(diff)}`}>
+                                    {formatPt(diffPercent)}
                                   </td>
                                 </tr>
                               )

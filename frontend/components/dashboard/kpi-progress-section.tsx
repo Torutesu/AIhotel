@@ -32,6 +32,9 @@ const MONTH_SPAN_OPTIONS = [
   { value: "12", label: "12か月" },
 ]
 
+// 値そのものが提供されないことを示す表示（0 や月次値で埋めない — #54）
+const EM_DASH = "—"
+
 // KPI進捗の比較軸（F-DASH-02）
 type ComparisonAxisKey = "toDate" | "cumulative" | "fiscalYear"
 
@@ -101,33 +104,35 @@ export function KpiProgressSection({
     return kpi.comparison[comparisonAxis] ?? null
   }, [kpi, comparisonAxis])
 
+  // 選択中の軸の集計日数（年度累計なら年度開始月からの実績日数）
+  const axisActualDays = useMemo(
+    () => kpi?.comparison?.actualSummary?.[comparisonAxis]?.actualDays ?? null,
+    [kpi, comparisonAxis]
+  )
+
   // KPI進捗テーブル用の行（実データのみ。バックエンドが提供しない比較値は「-」表示）
   const kpiRows = useMemo(() => {
     if (!kpi) return []
-    const { summary, comparison, simulation } = kpi
-    // 実績が1日も登録されていない月は、実績ゼロではなく「未登録」として扱う（U-11）
-    const hasActuals = summary.actualDays > 0
-    const actualOr = (value: string) => (hasActuals ? value : "未登録")
-    // 実績が無い月は比率も「0.0%」ではなく「-」にする（実績ゼロと誤解させない — U-11）
+    const { comparison, simulation } = kpi
+    // 選択中の比較軸に対応する実績サマリー（#54）。
+    // 年度累計軸で当月実績へフォールバックすると「年度売上 ÷ 販売室数」が
+    // 表示中のADRと合わなくなるため、軸の実績が取得できないときは「—」にする。
+    const actual = comparison?.actualSummary?.[comparisonAxis] ?? null
+    // 実績が1日も登録されていない期間は、実績ゼロではなく「未登録」として扱う（U-11）
+    const hasActuals = (actual?.actualDays ?? 0) > 0
+    const actualOr = (value: (s: NonNullable<typeof actual>) => string) =>
+      actual == null ? EM_DASH : hasActuals ? value(actual) : "未登録"
+    // 実績が無い期間は比率も「0.0%」ではなく「-」にする（実績ゼロと誤解させない — U-11）
     const ratioOr = (value: number | null | undefined) =>
       hasActuals && value != null ? formatPercent(value) : "-"
     const ratioNeg = (value: number | null | undefined) =>
       hasActuals && value != null && value < 0.95
-    // 年度累計軸では実績側も年度累計値を使う
-    const isFiscal = comparisonAxis === "fiscalYear"
-    const revenueActual = isFiscal
-      ? (comparison?.actualSummary.fiscalRevenue ?? summary.roomRevenue)
-      : summary.roomRevenue
-    const adrActual = isFiscal ? (comparison?.actualSummary.fiscalAdr ?? summary.adr) : summary.adr
-    const occupancyActual = isFiscal
-      ? (comparison?.actualSummary.fiscalOccupancy ?? summary.occupancyRate)
-      : summary.occupancyRate
 
     return [
       {
         key: "roomRevenue",
         label: "室料売上",
-        actual: actualOr(formatYen(revenueActual)),
+        actual: actualOr((a) => formatYen(a.roomRevenue)),
         budgetRatio: ratioOr(axis?.budgetRevenueRatio),
         budgetNegative: ratioNeg(axis?.budgetRevenueRatio),
         lastYearRatio: ratioOr(axis?.lastYearRevenueRatio),
@@ -141,7 +146,7 @@ export function KpiProgressSection({
       {
         key: "soldRooms",
         label: "販売室数",
-        actual: actualOr(`${summary.soldRooms.toLocaleString()}室`),
+        actual: actualOr((a) => `${a.soldRooms.toLocaleString()}室`),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -155,7 +160,7 @@ export function KpiProgressSection({
       {
         key: "adr",
         label: "ADR",
-        actual: actualOr(formatYen(adrActual)),
+        actual: actualOr((a) => formatYen(a.adr)),
         budgetRatio: ratioOr(axis?.budgetAdrRatio),
         budgetNegative: ratioNeg(axis?.budgetAdrRatio),
         lastYearRatio: ratioOr(axis?.lastYearAdrRatio),
@@ -169,7 +174,7 @@ export function KpiProgressSection({
       {
         key: "occupancyRate",
         label: "稼働率",
-        actual: actualOr(formatPercent(occupancyActual)),
+        actual: actualOr((a) => formatPercent(a.occupancyRate)),
         budgetRatio: ratioOr(axis?.budgetOccupancyRatio),
         budgetNegative: ratioNeg(axis?.budgetOccupancyRatio),
         lastYearRatio: ratioOr(axis?.lastYearOccupancyRatio),
@@ -183,7 +188,7 @@ export function KpiProgressSection({
       {
         key: "revPar",
         label: "REV-Per",
-        actual: actualOr(formatYen(summary.revPar)),
+        actual: actualOr((a) => formatYen(a.revPar)),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -197,7 +202,7 @@ export function KpiProgressSection({
       {
         key: "guests",
         label: "宿泊人数",
-        actual: actualOr(`${summary.guests.toLocaleString()}人`),
+        actual: actualOr((a) => `${a.guests.toLocaleString()}人`),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -211,7 +216,7 @@ export function KpiProgressSection({
       {
         key: "dor",
         label: "DOR",
-        actual: actualOr(`${summary.dor.toFixed(2)}人`),
+        actual: actualOr((a) => `${a.dor.toFixed(2)}人`),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -225,7 +230,7 @@ export function KpiProgressSection({
       {
         key: "guestUnitPrice",
         label: "客単価",
-        actual: actualOr(formatYen(summary.guestUnitPrice)),
+        actual: actualOr((a) => formatYen(a.guestUnitPrice)),
         budgetRatio: "-",
         budgetNegative: false,
         lastYearRatio: "-",
@@ -317,13 +322,11 @@ export function KpiProgressSection({
             </Select>
           </div>
           <p className="text-xs text-muted-foreground">
-            {kpi
-              ? comparisonAxis === "fiscalYear" && kpi.comparison
-                ? `${kpi.comparison.actualSummary.fiscalActualDays}日分の実績を集計（年度累計）`
-                : kpi.summary.actualDays > 0
-                  ? `${kpi.summary.actualDays}日分の実績を集計`
-                  : "この月の実績は未登録です（0は実績ゼロではありません）"
-              : ""}
+            {axisActualDays == null
+              ? ""
+              : axisActualDays > 0
+                ? `${axisActualDays}日分の実績を集計${comparisonAxis === "fiscalYear" ? "（年度累計）" : ""}`
+                : "この期間の実績は未登録です（0は実績ゼロではありません）"}
           </p>
         </div>
       </div>

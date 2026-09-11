@@ -292,3 +292,69 @@ describe('elapsedDaysInFiscalPeriod (C-1)', () => {
     expect(elapsedDaysInFiscalPeriod({ year: 2025, month: 4 }, 2026, 2, t)).toBe(316)
   })
 })
+
+describe('年度累計の実績サマリー (#54)', () => {
+  // 年度開始月（4月）〜表示月（6月）の3か月ぶんの実績。
+  // 実績行は 2 日ぶんしか無いが、期間日数は暦日ベースで数える（C-1 と同じ期間定義）
+  const fiscalDays: ActualDayRecord[] = [
+    { totalRevenue: 3_000_000, soldRooms: 150, guests: 240 },
+    { totalRevenue: 2_000_000, soldRooms: 100, guests: 150 },
+  ]
+
+  it('年度累計でも8指標すべてを返す（販売室数・REV-Per・宿泊人数が欠けない）', () => {
+    const summary = computeSummary(fiscalDays, 200, 91)
+    expect(summary).toMatchObject({
+      roomRevenue: 5_000_000,
+      soldRooms: 250,
+      guests: 390,
+      actualDays: 2,
+    })
+    // 月次実績で穴埋めしていた3指標が年度累計の値で埋まっていること
+    expect(summary.soldRooms).toBeGreaterThan(0)
+    expect(summary.revPar).toBeGreaterThan(0)
+    expect(summary.guests).toBeGreaterThan(0)
+  })
+
+  it('年度売上 ÷ 販売室数 が表示中のADRと一致する（#54 の再現条件）', () => {
+    const summary = computeSummary(fiscalDays, 200, 91)
+    expect(summary.adr).toBe(20_000) // 5,000,000 / 250室
+    expect(Math.round(summary.roomRevenue / summary.soldRooms)).toBe(summary.adr)
+  })
+
+  it('稼働率・REV-Per の分母に暦日ベースの期間日数を使う（予算側と揃える）', () => {
+    // 200室 × 91日 = 18,200室ナイト
+    const summary = computeSummary(fiscalDays, 200, 91)
+    expect(summary.occupancyRate).toBe(0.014) // 250 / 18,200
+    expect(summary.revPar).toBe(275) // 5,000,000 / 18,200
+  })
+
+  it('期間日数を省略すると実績行の件数が分母になる（月次の既定動作は変えない）', () => {
+    const summary = computeSummary(fiscalDays, 200)
+    expect(summary.occupancyRate).toBe(0.625) // 250 / (200室 × 2日)
+    expect(summary.revPar).toBe(12_500) // 5,000,000 / 400
+  })
+
+  it('DOR・客単価は期間日数に依存しない（室数・人数ベースの指標）', () => {
+    const withPeriod = computeSummary(fiscalDays, 200, 91)
+    const withoutPeriod = computeSummary(fiscalDays, 200)
+    expect(withPeriod.dor).toBe(withoutPeriod.dor)
+    expect(withPeriod.guestUnitPrice).toBe(withoutPeriod.guestUnitPrice)
+    expect(withPeriod.dor).toBe(1.56) // 390人 / 250室
+    expect(withPeriod.guestUnitPrice).toBe(12_821) // 5,000,000 / 390人
+  })
+
+  it('年度累計の集計期間は elapsedDaysInFiscalPeriod と一致する', () => {
+    const today = new Date(Date.UTC(2026, 5, 30)) // 2026-06-30
+    const periodDays = elapsedDaysInFiscalPeriod({ year: 2026, month: 4 }, 2026, 6, today)
+    expect(periodDays).toBe(91) // 4月30 + 5月31 + 6月30
+    const summary = computeSummary(fiscalDays, 200, periodDays)
+    expect(summary.occupancyRate).toBe(0.014)
+  })
+
+  it('期間日数が0でもゼロ除算しない', () => {
+    const summary = computeSummary(fiscalDays, 200, 0)
+    expect(summary.occupancyRate).toBe(0)
+    expect(summary.revPar).toBe(0)
+    expect(summary.soldRooms).toBe(250)
+  })
+})

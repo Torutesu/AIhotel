@@ -35,6 +35,22 @@ describe('loginSchema', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  it('メールアドレスを小文字へ正規化する（#44）', () => {
+    // 大文字混じりでも既存ユーザー（小文字保存）を findUnique で引けるようにする
+    const result = loginSchema.safeParse({
+      email: 'Admin@Demo-Hotel.Example.COM',
+      password: 'Admin1234',
+    })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.email).toBe('admin@demo-hotel.example.com')
+  })
+
+  it('前後の空白を取り除いてから正規化する（#44）', () => {
+    const result = loginSchema.safeParse({ email: '  USER@Example.com  ', password: 'x' })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.email).toBe('user@example.com')
+  })
 })
 
 describe('registerSchema', () => {
@@ -67,6 +83,20 @@ describe('registerSchema', () => {
   it('名前が空の場合は拒否する', () => {
     const result = registerSchema.safeParse({ ...valid, name: '' })
     expect(result.success).toBe(false)
+  })
+
+  it('メールアドレスを小文字へ正規化する（#44）', () => {
+    // 正規化しないと User@x と user@x が別ユーザーとして登録できてしまう
+    const result = registerSchema.safeParse({ ...valid, email: 'User@Example.COM' })
+    expect(result.success).toBe(true)
+    expect(result.success && result.data.email).toBe('user@example.com')
+  })
+
+  it('大小文字違いの登録は同じ正規化結果になる（重複検知が効く — #44）', () => {
+    const upper = registerSchema.safeParse({ ...valid, email: 'USER@EXAMPLE.COM' })
+    const lower = registerSchema.safeParse({ ...valid, email: 'user@example.com' })
+    expect(upper.success && lower.success).toBe(true)
+    expect(upper.success && upper.data.email).toBe(lower.success ? lower.data.email : '')
   })
 })
 

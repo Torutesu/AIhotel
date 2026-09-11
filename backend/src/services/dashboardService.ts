@@ -210,15 +210,35 @@ export function aggregateBudgets(
   }
 }
 
+/** KPI進捗表に出す実績サマリー（F-DASH-01 の8指標＋集計日数） */
+export interface ActualSummary {
+  roomRevenue: number
+  soldRooms: number
+  adr: number
+  occupancyRate: number
+  revPar: number
+  guests: number
+  dor: number
+  guestUnitPrice: number
+  actualDays: number
+}
+
 /**
  * 実績KPIの集計（F-DASH-01）。
  * DOR = 宿泊人数 / 販売室数（1室あたり平均利用人数。要件定義書「14. 用語集」準拠）
+ *
+ * @param periodDays 稼働率・REV-Per の分母に使う期間日数。既定は実績行の件数。
+ *   年度累計軸では予算側と分母を揃えるため暦日ベースの経過日数を渡す（C-1 / #54）。
  */
-export function computeSummary(actualDays: ActualDayRecord[], totalRooms: number) {
+export function computeSummary(
+  actualDays: ActualDayRecord[],
+  totalRooms: number,
+  periodDays: number = actualDays.length
+): ActualSummary {
   const totalRevenue = actualDays.reduce((sum, d) => sum + (d.totalRevenue ?? 0), 0)
   const soldRooms = actualDays.reduce((sum, d) => sum + (d.soldRooms ?? 0), 0)
   const guests = actualDays.reduce((sum, d) => sum + (d.guests ?? 0), 0)
-  const roomNights = totalRooms * actualDays.length
+  const roomNights = totalRooms * periodDays
   const adr = soldRooms > 0 ? totalRevenue / soldRooms : 0
   const occupancyRate = roomNights > 0 ? soldRooms / roomNights : 0
   const revPar = roomNights > 0 ? totalRevenue / roomNights : 0
@@ -335,9 +355,10 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
 
     // 年度累計: 年度開始月から当月実績までの累計どうしを比較
     const fiscalActualDays = fiscalDailyData.filter((d) => d.totalRevenue != null)
-    const fiscalSummary = computeSummary(fiscalActualDays, hotel.totalRooms)
-    // 予算稼働率の分母も暦日ベースの経過日数にする（C-1）
+    // 実績・予算の双方で稼働率／REV-Per の分母を暦日ベースの経過日数に揃える（C-1 / #54）。
+    // 実績行の件数を分母にすると、未入力日があるぶん年度累計の稼働率だけが高く出てしまう。
     const fiscalElapsedDays = elapsedDaysInFiscalPeriod(fiscalStart, year, month)
+    const fiscalSummary = computeSummary(fiscalActualDays, hotel.totalRooms, fiscalElapsedDays)
     const fiscalTargets = aggregateBudgets(fiscalBudgets, hotel.totalRooms, fiscalElapsedDays)
     const fiscalYear = buildComparisonAxis(
       {
@@ -365,11 +386,14 @@ export async function getDashboardKpiService(hotelId: string, year: number, mont
       cumulative,
       fiscalYear,
       fiscalYearLabel: `${fiscalStart.year}年度（${fiscalStart.month}月〜${month}月）`,
+      // 比較軸ごとの実績サマリー（#54）。
+      // 軸を切り替えたときにフロントエンドが月次実績で穴埋めしないよう、
+      // 年度累計軸にも8指標すべてを揃えた実績を返す。
+      // 「本日まで」「累計進捗」はどちらも当月実績が比較対象なので同じサマリーを返す。
       actualSummary: {
-        fiscalRevenue: fiscalSummary.roomRevenue,
-        fiscalAdr: fiscalSummary.adr,
-        fiscalOccupancy: fiscalSummary.occupancyRate,
-        fiscalActualDays: fiscalSummary.actualDays,
+        toDate: summary,
+        cumulative: summary,
+        fiscalYear: fiscalSummary,
       },
     }
   })()
