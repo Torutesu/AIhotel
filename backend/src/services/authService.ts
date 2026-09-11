@@ -101,6 +101,13 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 
   const tokens = generateTokenPair(user)
 
+  // 期限切れのリフレッシュトークンを掃除する（S-9）。
+  // ログアウトせずにセッションを切ると行が残り続けるため、ログインのたびに
+  // 当該ユーザーぶんの失効済みトークンを削除する（@@index([expiresAt]) を使用）。
+  await prisma.refreshToken.deleteMany({
+    where: { userId: user.id, expiresAt: { lt: new Date() } },
+  })
+
   // リフレッシュトークンはハッシュのみ保存する
   await prisma.refreshToken.create({
     data: {

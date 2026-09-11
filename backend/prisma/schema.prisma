@@ -87,6 +87,8 @@ model RefreshToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+  // ログイン時の期限切れトークン一括削除で使う（S-9）
+  @@index([expiresAt])
 }
 
 // 要件定義書 §4 のロール定義に対応:
