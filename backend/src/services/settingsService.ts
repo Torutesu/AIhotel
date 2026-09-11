@@ -1,5 +1,5 @@
 import { prisma } from '../lib/prisma.js'
-import { NotFoundError, BadRequestError } from '../middlewares/errorHandler.js'
+import { NotFoundError, BadRequestError, ConflictError } from '../middlewares/errorHandler.js'
 import type { CreatePriceRankInput, UpdateHotelSettingsInput } from '../lib/validators.js'
 
 const MAX_PRICE_RANKS = 40 // F-SET-02
@@ -15,7 +15,11 @@ export async function getPriceRanksService(hotelId: string) {
 }
 
 /**
- * 料金ランク作成
+ * 料金ランク作成。
+ *
+ * 削除は論理削除（isActive=false）だが @@unique([hotelId, rank]) は残るため、
+ * 同じランク番号で作り直すと一意制約違反（409）になっていた。
+ * 非アクティブ行が残っている場合は新規作成ではなくその行を復活させる（C-5）。
  */
 export async function createPriceRankService(input: CreatePriceRankInput) {
   const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
@@ -26,6 +30,21 @@ export async function createPriceRankService(input: CreatePriceRankInput) {
   })
   if (count >= MAX_PRICE_RANKS) {
     throw new BadRequestError(`料金ランクは最大${MAX_PRICE_RANKS}段階までです`)
+  }
+
+  const existing = await prisma.priceRank.findUnique({
+    where: { hotelId_rank: { hotelId: input.hotelId, rank: input.rank } },
+  })
+
+  if (existing) {
+    // 有効な行が既にある場合だけ重複エラー。論理削除済みなら入力値で上書きして復活させる
+    if (existing.isActive) {
+      throw new ConflictError(`ランク${input.rank}は既に登録されています`)
+    }
+    return prisma.priceRank.update({
+      where: { id: existing.id },
+      data: { ...input, tenantId: hotel.tenantId, isActive: true },
+    })
   }
 
   return prisma.priceRank.create({
