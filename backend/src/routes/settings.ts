@@ -3,10 +3,12 @@ import { authenticate, requireRole, requireHotelAccess } from '../middlewares/au
 import { validate } from '../middlewares/validate.js'
 import {
   hotelIdQuerySchema,
+  yearQuerySchema,
   idParamSchema,
   createPriceRankSchema,
   updatePriceRankSchema,
   updateHotelSettingsSchema,
+  upsertBudgetsSchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
@@ -14,6 +16,8 @@ import {
   updatePriceRank,
   deletePriceRank,
   updateHotelSettings,
+  getBudgets,
+  putBudgets,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -65,4 +69,26 @@ settingsRouter.put(
   validate(idParamSchema, 'params'),
   validate(updateHotelSettingsSchema),
   updateHotelSettings
+)
+
+// ======================================
+// 月次予算（N-1 / F-SET-04）
+// ======================================
+
+// GET /api/v1/settings/budgets?hotelId=&year=
+// 1〜12月ぶんを必ず返す（未登録の月は budget: null）
+settingsRouter.get(
+  '/budgets',
+  requireHotelAccess((req) => req.query.hotelId as string | undefined),
+  validate(yearQuerySchema, 'query'),
+  getBudgets
+)
+
+// PUT /api/v1/settings/budgets — 年単位の一括更新は MANAGER 以上
+settingsRouter.put(
+  '/budgets',
+  requireRole('ADMIN', 'MANAGER'),
+  requireHotelAccess((req) => req.body?.hotelId),
+  validate(upsertBudgetsSchema),
+  putBudgets
 )

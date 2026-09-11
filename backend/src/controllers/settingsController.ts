@@ -8,7 +8,10 @@ import {
   updatePriceRankService,
   deletePriceRankService,
   updateHotelSettingsService,
+  getMonthlyBudgetsService,
+  upsertMonthlyBudgetsService,
 } from '../services/settingsService.js'
+import type { UpsertBudgetsInput } from '../lib/validators.js'
 
 /**
  * 料金ランク一覧
@@ -98,4 +101,36 @@ export const updateHotelSettings = asyncHandler(async (req: Request, res: Respon
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, after, 200, 'ホテル設定を更新しました')
+})
+
+/**
+ * 月次予算の取得（N-1 / F-SET-04）
+ * GET /api/v1/settings/budgets?hotelId=&year=
+ * 1〜12月ぶんを必ず返す（未登録の月は budget: null）
+ */
+export const getBudgets = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year } = req.query as unknown as { hotelId: string; year: number }
+  const result = await getMonthlyBudgetsService(hotelId, year)
+  sendSuccess(res, result)
+})
+
+/**
+ * 月次予算の年単位一括更新（MANAGER 以上・監査対象 — N-1 / F-SET-04）
+ * PUT /api/v1/settings/budgets
+ */
+export const putBudgets = asyncHandler(async (req: Request, res: Response) => {
+  const input = req.body as UpsertBudgetsInput
+  const { tenantId, before, after } = await upsertMonthlyBudgetsService(input)
+  await writeAuditLog({
+    tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'MonthlyBudget',
+    entityId: `${input.hotelId}:${input.year}`,
+    oldValue: before,
+    newValue: after,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, after, 200, '予算を更新しました')
 })

@@ -132,6 +132,46 @@ export const updateHotelSettingsSchema = z.object({
 })
 
 // ======================================
+// Budget Validators（N-1 / F-SET-04）
+// ======================================
+
+/** 予算・前年実績の金額系。null を明示できるようにして「未設定に戻す」操作を表現する */
+const budgetAmount = z.number().min(0).nullable().optional()
+const budgetCount = z.number().int().min(0).nullable().optional()
+/** 稼働率は 0〜1 の比率で保存する（実績側の occupancyRate と同じスケール） */
+const budgetRate = z.number().min(0).max(1, '稼働率は0〜1の比率で指定してください').nullable().optional()
+
+export const budgetMonthSchema = z.object({
+  month: z.number().int().min(1).max(12),
+  budgetRevenue: budgetAmount,
+  budgetRooms: budgetCount,
+  budgetAdr: budgetAmount,
+  budgetOccupancy: budgetRate,
+  budgetGuests: budgetCount,
+  lastYearRevenue: budgetAmount,
+  lastYearRooms: budgetCount,
+  lastYearAdr: budgetAmount,
+  lastYearOccupancy: budgetRate,
+  lastYearGuests: budgetCount,
+})
+
+/**
+ * 年単位の予算一括更新（N-1）。
+ * 12 か月すべてを送る必要はなく、送られた月だけを upsert する。
+ * 同じ月を二重に含めると後勝ちになり結果が不定になるため重複は 400 で弾く。
+ */
+export const upsertBudgetsSchema = z
+  .object({
+    hotelId: entityIdSchema,
+    year: z.number().int().min(2020).max(2100),
+    months: z.array(budgetMonthSchema).min(1, '1か月以上指定してください').max(12),
+  })
+  .refine((data) => new Set(data.months.map((m) => m.month)).size === data.months.length, {
+    path: ['months'],
+    message: '同じ月が重複しています',
+  })
+
+// ======================================
 // Query Validators
 // ======================================
 
@@ -158,6 +198,7 @@ export const yearQuerySchema = z.object({
   hotelId: entityIdSchema,
   year: z.coerce.number().int().min(2020).max(2100),
 })
+
 
 export const kpiComparisonQuerySchema = monthQuerySchema.extend({
   baseDate: z.coerce.date().optional(),
@@ -263,3 +304,5 @@ export type UpdateEventInput = z.infer<typeof updateEventSchema>
 export type UpdateHotelSettingsInput = z.infer<typeof updateHotelSettingsSchema>
 export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
+export type BudgetMonthInput = z.infer<typeof budgetMonthSchema>
+export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>

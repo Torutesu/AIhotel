@@ -1,6 +1,12 @@
+import type { MonthlyBudget } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
+import { monthRange } from '../lib/date.js'
 import { NotFoundError, BadRequestError, ConflictError } from '../middlewares/errorHandler.js'
-import type { CreatePriceRankInput, UpdateHotelSettingsInput } from '../lib/validators.js'
+import type {
+  CreatePriceRankInput,
+  UpdateHotelSettingsInput,
+  UpsertBudgetsInput,
+} from '../lib/validators.js'
 
 const MAX_PRICE_RANKS = 40 // F-SET-02
 
@@ -107,4 +113,120 @@ export async function updateHotelSettingsService(id: string, data: UpdateHotelSe
   })
 
   return { before, after }
+}
+
+// ======================================
+// 月次予算（N-1 / F-SET-04）
+// ======================================
+
+const MONTHS_IN_YEAR = 12
+
+/** 年間予算の1か月ぶん。行が無い月は budget=null で返す（フロントで「未登録」を区別するため） */
+export interface BudgetYearMonth {
+  month: number
+  budget: MonthlyBudget | null
+}
+
+/**
+ * 指定年の月次予算を1〜12月ぶん返す（N-1）。
+ * 未登録の月も必ず要素として含め、budget を null にする。
+ */
+export async function getMonthlyBudgetsService(
+  hotelId: string,
+  year: number
+): Promise<{ hotelId: string; year: number; months: BudgetYearMonth[] }> {
+  const rows = await prisma.monthlyBudget.findMany({
+    where: { hotelId, year },
+    orderBy: { month: 'asc' },
+  })
+  const byMonth = new Map(rows.map((r) => [r.month, r]))
+
+  return {
+    hotelId,
+    year,
+    months: Array.from({ length: MONTHS_IN_YEAR }, (_, i) => ({
+      month: i + 1,
+      budget: byMonth.get(i + 1) ?? null,
+    })),
+  }
+}
+
+/**
+ * 予算室数を補完する（N-1）。
+ *
+ * ダッシュボードの年度累計比較（dashboardService.aggregateBudgets）は budgetRooms を
+ * 使って予算ADR・予算稼働率を再計算する。UI は売上・ADR・稼働率しか入力しないため、
+ * 室数が未指定なら「客室数 × 予算稼働率 × 月日数」で導出しておかないと
+ * 年度累計の比較対象が null になってしまう。
+ */
+export function deriveBudgetRooms(
+  input: { budgetRooms?: number | null; budgetOccupancy?: number | null },
+  totalRooms: number,
+  daysInMonth: number
+): number | null {
+  if (input.budgetRooms != null) return input.budgetRooms
+  if (input.budgetOccupancy == null) return null
+  return Math.round(totalRooms * input.budgetOccupancy * daysInMonth)
+}
+
+/** 前年実績側の室数も同じ考え方で補完する */
+export function deriveLastYearRooms(
+  input: { lastYearRooms?: number | null; lastYearOccupancy?: number | null },
+  totalRooms: number,
+  daysInMonth: number
+): number | null {
+  if (input.lastYearRooms != null) return input.lastYearRooms
+  if (input.lastYearOccupancy == null) return null
+  return Math.round(totalRooms * input.lastYearOccupancy * daysInMonth)
+}
+
+/**
+ * 年単位の月次予算を一括 upsert する（N-1）。
+ *
+ * 監査ログ用に更新前の全12か月ぶんを before として返す。
+ * 送られなかった月は削除せずそのまま残す（部分更新を許す）。
+ */
+export async function upsertMonthlyBudgetsService(input: UpsertBudgetsInput) {
+  const hotel = await prisma.hotel.findFirst({
+    where: { id: input.hotelId, isActive: true },
+  })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  const before = await getMonthlyBudgetsService(input.hotelId, input.year)
+
+  const operations = input.months.map((m) => {
+    const { daysInMonth } = monthRange(input.year, m.month)
+    const values = {
+      budgetRevenue: m.budgetRevenue ?? null,
+      budgetAdr: m.budgetAdr ?? null,
+      budgetOccupancy: m.budgetOccupancy ?? null,
+      budgetGuests: m.budgetGuests ?? null,
+      budgetRooms: deriveBudgetRooms(m, hotel.totalRooms, daysInMonth),
+      lastYearRevenue: m.lastYearRevenue ?? null,
+      lastYearAdr: m.lastYearAdr ?? null,
+      lastYearOccupancy: m.lastYearOccupancy ?? null,
+      lastYearGuests: m.lastYearGuests ?? null,
+      lastYearRooms: deriveLastYearRooms(m, hotel.totalRooms, daysInMonth),
+    }
+
+    return prisma.monthlyBudget.upsert({
+      where: {
+        hotelId_year_month: { hotelId: input.hotelId, year: input.year, month: m.month },
+      },
+      update: values,
+      create: {
+        hotelId: input.hotelId,
+        tenantId: hotel.tenantId,
+        year: input.year,
+        month: m.month,
+        ...values,
+      },
+    })
+  })
+
+  // 12件までの upsert を1トランザクションにまとめる（部分適用を防ぐ）
+  await prisma.$transaction(operations)
+
+  const after = await getMonthlyBudgetsService(input.hotelId, input.year)
+  return { tenantId: hotel.tenantId, before, after }
 }

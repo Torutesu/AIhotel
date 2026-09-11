@@ -401,3 +401,57 @@ export interface MonthlyForecast {
   access: number
   label: string
 }
+
+// ======================================
+// Monthly Budget Types（N-1 / F-SET-04）
+// ======================================
+
+/** 月次予算。稼働率は 0〜1 の比率（実績側の occupancyRate と同じスケール） */
+export interface MonthlyBudget {
+  id: string
+  tenantId: string
+  hotelId: string
+  year: number
+  month: number
+  budgetRevenue: number | null
+  budgetRooms: number | null
+  budgetAdr: number | null
+  budgetOccupancy: number | null
+  budgetGuests: number | null
+  lastYearRevenue: number | null
+  lastYearRooms: number | null
+  lastYearAdr: number | null
+  lastYearOccupancy: number | null
+  lastYearGuests: number | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+/** GET/PUT /settings/budgets のレスポンス。未登録の月も budget: null で必ず含まれる */
+export interface BudgetYear {
+  hotelId: string
+  year: number
+  months: Array<{
+    month: number
+    budget: MonthlyBudget | null
+  }>
+}
+
+/** PUT /settings/budgets のリクエストボディ。送った月だけが upsert される */
+export interface UpsertBudgetsRequest {
+  hotelId: string
+  year: number
+  months: Array<{
+    month: number
+    budgetRevenue?: number | null
+    budgetRooms?: number | null
+    budgetAdr?: number | null
+    budgetOccupancy?: number | null
+    budgetGuests?: number | null
+    lastYearRevenue?: number | null
+    lastYearRooms?: number | null
+    lastYearAdr?: number | null
+    lastYearOccupancy?: number | null
+    lastYearGuests?: number | null
+  }>
+}
