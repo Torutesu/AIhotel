@@ -5,22 +5,22 @@ on:
   push:
     branches:
       - main
-      - production-readiness
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: 1
 
 jobs:
-  build-and-test:
-    name: Type-check, test, and build
+  verify:
+    name: Type-check, lint, test, build
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
@@ -37,15 +37,120 @@ jobs:
       - name: Lint backend (architecture boundary rules)
         run: pnpm --filter backend lint
 
-      - name: Run backend tests
+      - name: Lint frontend
+        run: pnpm --filter frontend lint
+
+      - name: Unit tests (backend)
         run: pnpm --filter backend test
 
       - name: Build backend
         run: pnpm --filter backend build
 
-      - name: Build frontend
+      - name: Build frontend (demo mode must be off in the default build)
         run: pnpm --filter frontend build
         env:
-          # NEXT_PUBLIC_BACKEND_URL は任意。未設定時はビルド時のデフォルト
-          # (http://localhost:3001) が使われ、実際の値は実行時に上書きされる。
-          NEXT_PUBLIC_BACKEND_URL: ${{ vars.NEXT_PUBLIC_BACKEND_URL }}
+          NEXT_PUBLIC_DEMO_MODE: ''
+
+      - name: Verify demo mode is disabled in the build output
+        run: node scripts/verify-demo-mode.mjs --expect-disabled
+        working-directory: frontend
+
+  database:
+    name: Migrations, schema drift, seed
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: hotel_revenue_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/hotel_revenue_ci?schema=public
+      SHADOW_DATABASE_URL: postgresql://postgres:password@localhost:5432/hotel_revenue_shadow?schema=public
+      JWT_SECRET: ci-only-jwt-secret-value-not-used-in-production-0000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate schema
+        run: npx prisma validate
+        working-directory: backend
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+        working-directory: backend
+
+      - name: Fail if schema.prisma has drifted from committed migrations
+        run: |
+          psql "postgresql://postgres:password@localhost:5432/postgres" -c 'CREATE DATABASE hotel_revenue_shadow;'
+          npx prisma migrate diff \
+            --from-migrations prisma/migrations \
+            --to-schema-datamodel prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code
+        working-directory: backend
+
+      - name: Generate Prisma client
+        run: pnpm --filter backend db:generate
+
+      - name: Seed twice (idempotency)
+        run: |
+          pnpm --filter backend db:seed
+          pnpm --filter backend db:seed
+
+      - name: Backend tests against PostgreSQL (unit + integration)
+        run: pnpm --filter backend test
+
+  audit:
+    name: Dependency audit (high / critical)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: pnpm audit (production dependencies)
+        run: pnpm audit --prod --audit-level=high
+
+  docker:
+    name: Docker images build
+    runs-on: ubuntu-latest
+    needs: verify
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/backend.Dockerfile
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/frontend.Dockerfile
+          push: false
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
