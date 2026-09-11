@@ -108,7 +108,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
  * ユーザー登録（ADMIN専用）
  *
  * テナント分離のため公開登録は提供しない。作成されるユーザーの tenantId は
- * hotelId の所属テナントから導出し、リクエスト側で任意指定させない。
+ * 作成者のテナントを引き継ぎ、hotelId も同一テナントのホテルに限定する。
  */
 export async function registerService(
   input: RegisterInput,
@@ -125,18 +125,21 @@ export async function registerService(
     throw new ApiError(409, 'このメールアドレスは既に登録されています')
   }
 
-  let tenantId: string | null = null
+  if (!createdBy.tenantId) {
+    throw new ApiError(403, 'テナントに所属していないユーザーは登録操作を実行できません')
+  }
+
+  const tenantId: string = createdBy.tenantId
 
   if (hotelId) {
     const hotel = await prisma.hotel.findUnique({
       where: { id: hotelId },
     })
 
-    if (!hotel) {
+    // 他テナントのホテルは存在を秘匿し、同じエラーを返す
+    if (!hotel || hotel.tenantId !== tenantId) {
       throw new ApiError(400, '指定されたホテルが見つかりません')
     }
-
-    tenantId = hotel.tenantId
   }
 
   const hashedPassword = await hashPassword(password)
