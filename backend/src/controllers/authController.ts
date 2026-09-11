@@ -55,8 +55,8 @@ export const refresh = asyncHandler(async (req: Request, res: Response) => {
  */
 export const logout = asyncHandler(async (req: Request, res: Response) => {
   const { refreshToken } = req.body
-  const userId = req.user!.userId
-  await logoutService(refreshToken, userId)
+  const user = req.user!
+  await logoutService(refreshToken, { userId: user.userId, tenantId: user.tenantId }, requestContext(req))
   sendSuccess(res, null, 200, 'ログアウトしました')
 })
 
@@ -65,8 +65,8 @@ export const logout = asyncHandler(async (req: Request, res: Response) => {
  * POST /api/v1/auth/logout-all
  */
 export const logoutAll = asyncHandler(async (req: Request, res: Response) => {
-  const userId = req.user!.userId
-  await logoutAllService(userId)
+  const user = req.user!
+  await logoutAllService({ userId: user.userId, tenantId: user.tenantId }, requestContext(req))
   sendSuccess(res, null, 200, '全デバイスからログアウトしました')
 })
 

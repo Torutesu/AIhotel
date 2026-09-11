@@ -46,6 +46,27 @@ interface AuthResult {
 // ======================================
 
 /**
+ * ログイン失敗を監査ログに残す（S-6）。
+ * ブルートフォース検知のため、失敗理由は監査ログにのみ記録し、
+ * 呼び出し元がクライアントへ返すメッセージには含めない。
+ */
+async function recordLoginFailure(
+  detail: { email: string; reason: string; tenantId?: string | null; userId?: string | null },
+  ctx?: RequestContext
+): Promise<void> {
+  await writeAuditLog({
+    tenantId: detail.tenantId ?? null,
+    userId: detail.userId ?? null,
+    action: 'LOGIN_FAILED',
+    entity: 'User',
+    entityId: detail.userId ?? null,
+    newValue: { email: detail.email, reason: detail.reason },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
+  })
+}
+
+/**
  * ユーザーログイン
  */
 export async function loginService(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
@@ -56,16 +77,25 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
   })
 
   if (!user) {
+    await recordLoginFailure({ email, reason: 'USER_NOT_FOUND' }, ctx)
     throw new ApiError(401, 'メールアドレスまたはパスワードが正しくありません')
   }
 
   if (!user.isActive) {
+    await recordLoginFailure(
+      { email, reason: 'INACTIVE', tenantId: user.tenantId, userId: user.id },
+      ctx
+    )
     throw new ApiError(401, 'このアカウントは無効化されています')
   }
 
   const isValidPassword = await verifyPassword(password, user.password)
 
   if (!isValidPassword) {
+    await recordLoginFailure(
+      { email, reason: 'BAD_PASSWORD', tenantId: user.tenantId, userId: user.id },
+      ctx
+    )
     throw new ApiError(401, 'メールアドレスまたはパスワードが正しくありません')
   }
 
@@ -221,21 +251,50 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 /**
  * ログアウト
  */
-export async function logoutService(refreshToken: string, userId: string): Promise<void> {
+export async function logoutService(
+  refreshToken: string,
+  actor: { userId: string; tenantId: string | null },
+  ctx?: RequestContext
+): Promise<void> {
   await prisma.refreshToken.deleteMany({
     where: {
       tokenHash: hashToken(refreshToken),
-      userId,
+      userId: actor.userId,
     },
+  })
+
+  await writeAuditLog({
+    tenantId: actor.tenantId,
+    userId: actor.userId,
+    action: 'LOGOUT',
+    entity: 'User',
+    entityId: actor.userId,
+    newValue: { scope: 'current' },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
   })
 }
 
 /**
  * 全デバイスからログアウト
  */
-export async function logoutAllService(userId: string): Promise<void> {
+export async function logoutAllService(
+  actor: { userId: string; tenantId: string | null },
+  ctx?: RequestContext
+): Promise<void> {
   await prisma.refreshToken.deleteMany({
-    where: { userId },
+    where: { userId: actor.userId },
+  })
+
+  await writeAuditLog({
+    tenantId: actor.tenantId,
+    userId: actor.userId,
+    action: 'LOGOUT',
+    entity: 'User',
+    entityId: actor.userId,
+    newValue: { scope: 'all' },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
   })
 }
 

@@ -41,35 +41,51 @@ export async function updatePriceRankService(
   hotelId: string,
   data: Partial<Omit<CreatePriceRankInput, 'hotelId' | 'rank'>>
 ) {
-  // hotelId 条件を含めることでテナント越え更新を防ぐ
+  // hotelId 条件を含めることでテナント越えの参照・更新を防ぐ
+  // 監査ログの oldValue 用に更新前の行を取得しておく（S-6）
+  const before = await prisma.priceRank.findFirst({ where: { id, hotelId } })
+  if (!before) throw new NotFoundError('料金ランク')
+
   const result = await prisma.priceRank.updateMany({
     where: { id, hotelId },
     data,
   })
   if (result.count === 0) throw new NotFoundError('料金ランク')
-  return prisma.priceRank.findUnique({ where: { id } })
+
+  const after = await prisma.priceRank.findUnique({ where: { id } })
+  if (!after) throw new NotFoundError('料金ランク')
+  return { before, after }
 }
 
 /**
  * 料金ランク削除（論理削除）
+ *
+ * 監査ログに tenantId と oldValue を残すため、削除前の行を返す（S-6）。
  */
 export async function deletePriceRankService(id: string, hotelId: string) {
+  const before = await prisma.priceRank.findFirst({ where: { id, hotelId } })
+  if (!before) throw new NotFoundError('料金ランク')
+
   const result = await prisma.priceRank.updateMany({
     where: { id, hotelId },
     data: { isActive: false },
   })
   if (result.count === 0) throw new NotFoundError('料金ランク')
+
+  return before
 }
 
 /**
  * ホテル設定更新（名称・住所・連絡先・部屋数・週末定義 — F-SET-01）
  */
 export async function updateHotelSettingsService(id: string, data: UpdateHotelSettingsInput) {
-  const hotel = await prisma.hotel.findFirst({ where: { id, isActive: true } })
-  if (!hotel) throw new NotFoundError('ホテル')
+  const before = await prisma.hotel.findFirst({ where: { id, isActive: true } })
+  if (!before) throw new NotFoundError('ホテル')
 
-  return prisma.hotel.update({
+  const after = await prisma.hotel.update({
     where: { id },
     data,
   })
+
+  return { before, after }
 }

@@ -4,7 +4,7 @@ import { logger } from '../utils/logger.js'
 export interface AuditLogEntry {
   tenantId?: string | null
   userId?: string | null
-  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT'
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'LOGIN' | 'LOGOUT' | 'LOGIN_FAILED'
   entity: string
   entityId?: string | null
   oldValue?: unknown
@@ -33,6 +33,19 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
       },
     })
   } catch (error) {
-    logger.error({ err: error, entry: { action: entry.action, entity: entry.entity } }, '監査ログの書き込みに失敗しました')
+    // 監査ログの失敗で本処理を失敗させないが、握り潰さず必ず warn として残す（S-6）
+    logger.warn(
+      {
+        err: error,
+        entry: {
+          action: entry.action,
+          entity: entry.entity,
+          entityId: entry.entityId ?? null,
+          tenantId: entry.tenantId ?? null,
+          userId: entry.userId ?? null,
+        },
+      },
+      '監査ログの書き込みに失敗しました'
+    )
   }
 }

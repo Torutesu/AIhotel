@@ -45,18 +45,19 @@ export const createPriceRank = asyncHandler(async (req: Request, res: Response) 
  */
 export const updatePriceRank = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId } = req.query as unknown as { hotelId: string }
-  const rank = await updatePriceRankService(req.params.id, hotelId, req.body)
+  const { before, after } = await updatePriceRankService(req.params.id, hotelId, req.body)
   await writeAuditLog({
-    tenantId: rank?.tenantId,
+    tenantId: before.tenantId,
     userId: req.user!.userId,
     action: 'UPDATE',
     entity: 'PriceRank',
     entityId: req.params.id,
+    oldValue: before,
     newValue: req.body,
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   })
-  sendSuccess(res, rank, 200, '料金ランクを更新しました')
+  sendSuccess(res, after, 200, '料金ランクを更新しました')
 })
 
 /**
@@ -65,12 +66,14 @@ export const updatePriceRank = asyncHandler(async (req: Request, res: Response) 
  */
 export const deletePriceRank = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId } = req.query as unknown as { hotelId: string }
-  await deletePriceRankService(req.params.id, hotelId)
+  const deleted = await deletePriceRankService(req.params.id, hotelId)
   await writeAuditLog({
+    tenantId: deleted.tenantId,
     userId: req.user!.userId,
     action: 'DELETE',
     entity: 'PriceRank',
     entityId: req.params.id,
+    oldValue: deleted,
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   })
@@ -82,16 +85,17 @@ export const deletePriceRank = asyncHandler(async (req: Request, res: Response) 
  * PUT /api/v1/settings/hotel/:id
  */
 export const updateHotelSettings = asyncHandler(async (req: Request, res: Response) => {
-  const hotel = await updateHotelSettingsService(req.params.id, req.body)
+  const { before, after } = await updateHotelSettingsService(req.params.id, req.body)
   await writeAuditLog({
-    tenantId: hotel.tenantId,
+    tenantId: before.tenantId,
     userId: req.user!.userId,
     action: 'UPDATE',
     entity: 'Hotel',
-    entityId: hotel.id,
+    entityId: after.id,
+    oldValue: before,
     newValue: req.body,
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   })
-  sendSuccess(res, hotel, 200, 'ホテル設定を更新しました')
+  sendSuccess(res, after, 200, 'ホテル設定を更新しました')
 })
