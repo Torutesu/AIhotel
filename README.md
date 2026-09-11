@@ -446,12 +446,13 @@ docker build -f docker/frontend.Dockerfile -t hotel-revenue-frontend .
    - **Framework Preset**: Next.js（自動検出されるはず）
    - **Build Command**: `pnpm --filter frontend build` または空欄（自動検出）
    - **Output Directory**: `.next` または空欄（自動検出）
-   - **Install Command**: `pnpm install --no-frozen-lockfile` または空欄
+   - **Install Command**: `pnpm install --frozen-lockfile` または空欄
 
 3. **環境変数の設定**
    - Vercel ダッシュボードで環境変数を設定：
      ```
-     NEXT_PUBLIC_BACKEND_URL=<your-backend-url>
+     BACKEND_URL=<your-backend-url>        # /api/* の rewrite 先（サーバー側のみ）
+     NEXT_PUBLIC_DEMO_MODE=true           # クライアント向けデモ環境のときだけ。実運用では設定しない
      ```
 
 4. **デプロイ**
@@ -467,15 +468,16 @@ docker build -f docker/frontend.Dockerfile -t hotel-revenue-frontend .
 
 ```json
 {
-  "buildCommand": "pnpm --filter frontend build",
-  "installCommand": "pnpm install --no-frozen-lockfile",
-  "outputDirectory": "frontend/.next"
+  "buildCommand": "cd .. && pnpm --filter frontend build",
+  "installCommand": "cd .. && pnpm install --frozen-lockfile",
+  "outputDirectory": ".next"
 }
 ```
 
+Root Directory を `frontend` にしているため、コマンドは `cd ..` でリポジトリルートに戻ってから pnpm workspace として実行します。
+
 **重要**: Vercel のダッシュボードで **Root Directory** を `frontend` に設定する必要があります。`vercel.json` だけでは Root Directory を設定できません（Vercel の制限）。
 
-詳細は `VERCEL_SETUP.md` を参照してください。
 
 ### Backend（コンテナ、クラウド非依存）
 
@@ -610,13 +612,12 @@ PORT=3002  # デフォルトは 3001
 1. Vercel ダッシュボードで Root Directory を `frontend` に設定
 2. プロジェクトを再デプロイ
 
-詳細は `VERCEL_SETUP.md` を参照してください。
 
 #### エラー: "Cannot install with frozen-lockfile"
 
 **原因**: ロックファイルが古い
 
-**解決策**: `installCommand` に `--no-frozen-lockfile` を追加（既に設定済み）
+**解決策**: ロックファイルと `package.json` がずれています。ローカルで `pnpm install` を実行して `pnpm-lock.yaml` をコミットしてください（`--no-frozen-lockfile` で回避しない）。
 
 #### エラー: "pnpm: command not found"
 
@@ -672,10 +673,10 @@ Private
 
 ## サポート
 
-問題が発生した場合は、以下のドキュメントを参照してください：
+問題が発生した場合は、本 README の「セットアップ」「トラブルシューティング」節と以下を参照してください：
 
-- `SETUP.md` - セットアップガイド
-- `TROUBLESHOOTING.md` - トラブルシューティングガイド
-- `VERCEL_SETUP.md` - Vercel デプロイ設定ガイド
+- `要件定義書.md` - 機能要件と実装状況
+- `docs/改善計画.md` - 総点検の所見に基づく改善タスク一覧
+- `AGENTS.md` - 開発ルール（コーディングエージェント向け）
 
 または、プロジェクトの Issue を作成してください。

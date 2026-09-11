@@ -121,3 +121,5 @@ temp/
 # Local development
 .local/
 .localhost/
+# Claude Code のエージェント用 worktree
+.claude/worktrees/
