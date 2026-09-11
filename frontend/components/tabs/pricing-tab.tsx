@@ -282,6 +282,8 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   const [eventsLoading, setEventsLoading] = useState(true)
   const [eventsError, setEventsError] = useState<string | null>(null)
   const [isEventDialogOpen, setIsEventDialogOpen] = useState(false)
+  // 編集中のイベント（null なら新規登録 — U-3）
+  const [editingEvent, setEditingEvent] = useState<HotelEvent | null>(null)
   const [savingEvent, setSavingEvent] = useState(false)
   const [deletingEventId, setDeletingEventId] = useState<string | null>(null)
   // 削除確認ダイアログの対象イベント（F-5）
@@ -346,6 +348,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   }, [loadEvents])
 
   const resetNewEventForm = useCallback(() => {
+    setEditingEvent(null)
     setNewEventName("")
     setNewEventType("concert")
     setNewEventStart("")
@@ -354,7 +357,20 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     setNewEventLocation("")
   }, [])
 
-  const handleCreateEvent = useCallback(async () => {
+  /** 既存イベントを登録ダイアログに読み込んで編集モードで開く（U-3） */
+  const openEditEvent = useCallback((ev: HotelEvent) => {
+    setEditingEvent(ev)
+    setNewEventName(ev.name)
+    setNewEventType(ev.type)
+    setNewEventStart(toDateStr(new Date(ev.startDate)))
+    setNewEventEnd(toDateStr(new Date(ev.endDate)))
+    setNewEventImpact((ev.expectedImpact as "high" | "medium" | "low") ?? "medium")
+    setNewEventLocation(ev.location ?? "")
+    setIsEventDialogOpen(true)
+  }, [])
+
+  /** 新規登録（POST /events）と編集（PUT /events/:id）を同じフォームで処理する（U-3） */
+  const handleSubmitEvent = useCallback(async () => {
     if (!hotelId) return
     if (!newEventName.trim() || !newEventType || !newEventStart || !newEventEnd) {
       toast.error("イベント名・種別・期間を入力してください")
@@ -373,19 +389,42 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         startDate: newEventStart,
         endDate: newEventEnd,
         expectedImpact: newEventImpact,
-        ...(newEventLocation.trim() && { location: newEventLocation.trim() }),
+        location: newEventLocation.trim() || undefined,
       }
-      await api.createEvent(payload)
-      toast.success("イベントを登録しました")
+      if (editingEvent) {
+        const { hotelId: _hotelId, ...updateInput } = payload
+        await api.updateEvent(editingEvent.id, hotelId, updateInput)
+        toast.success("イベントを更新しました")
+      } else {
+        await api.createEvent(payload)
+        toast.success("イベントを登録しました")
+      }
       setIsEventDialogOpen(false)
       resetNewEventForm()
       await loadEvents()
     } catch (err) {
-      toast.error(err instanceof ApiClientError ? err.message : "イベントの登録に失敗しました")
+      toast.error(
+        err instanceof ApiClientError
+          ? err.message
+          : editingEvent
+            ? "イベントの更新に失敗しました"
+            : "イベントの登録に失敗しました"
+      )
     } finally {
       setSavingEvent(false)
     }
-  }, [hotelId, newEventName, newEventType, newEventStart, newEventEnd, newEventImpact, newEventLocation, resetNewEventForm, loadEvents])
+  }, [
+    hotelId,
+    editingEvent,
+    newEventName,
+    newEventType,
+    newEventStart,
+    newEventEnd,
+    newEventImpact,
+    newEventLocation,
+    resetNewEventForm,
+    loadEvents,
+  ])
 
   const handleDeleteEvent = useCallback(
     async (id: string) => {
@@ -835,16 +874,20 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
               }}
             >
               <DialogTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs gap-2">
-                  <Plus className="w-3.5 h-3.5" />
+                <Button variant="outline" size="sm" className="h-8 text-xs gap-2" onClick={resetNewEventForm}>
+                  <Plus className="w-3.5 h-3.5" aria-hidden />
                   イベントを追加
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
-                  <DialogTitle className="text-lg font-semibold">イベント登録</DialogTitle>
+                  <DialogTitle className="text-lg font-semibold">
+                    {editingEvent ? "イベント編集" : "イベント登録"}
+                  </DialogTitle>
                   <DialogDescription className="text-sm">
-                    近隣で開催されるイベント情報を登録します。
+                    {editingEvent
+                      ? "登録済みのイベント情報を編集します。"
+                      : "近隣で開催されるイベント情報を登録します。"}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-2">
@@ -925,9 +968,13 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                   <Button variant="outline" size="sm" onClick={() => setIsEventDialogOpen(false)}>
                     キャンセル
                   </Button>
-                  <Button size="sm" className="gap-2" disabled={savingEvent} onClick={handleCreateEvent}>
-                    {savingEvent ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    登録
+                  <Button size="sm" className="gap-2" disabled={savingEvent} onClick={handleSubmitEvent}>
+                    {savingEvent ? (
+                      <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                    ) : (
+                      <Save className="w-4 h-4" aria-hidden />
+                    )}
+                    {editingEvent ? "更新" : "登録"}
                   </Button>
                 </div>
               </DialogContent>
@@ -968,19 +1015,29 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                       {ev.location ? ` ・ ${ev.location}` : ""}
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEventPendingDelete(ev)}
-                    disabled={deletingEventId === ev.id}
-                    aria-label={`イベント「${ev.name}」を削除`}
-                  >
-                    {deletingEventId === ev.id ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-4 h-4 text-muted-foreground" />
-                    )}
-                  </Button>
+                  <div className="flex flex-shrink-0 items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openEditEvent(ev)}
+                      aria-label={`イベント「${ev.name}」を編集`}
+                    >
+                      <Edit2 className="w-4 h-4 text-muted-foreground" aria-hidden />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEventPendingDelete(ev)}
+                      disabled={deletingEventId === ev.id}
+                      aria-label={`イベント「${ev.name}」を削除`}
+                    >
+                      {deletingEventId === ev.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                      ) : (
+                        <Trash2 className="w-4 h-4 text-muted-foreground" aria-hidden />
+                      )}
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

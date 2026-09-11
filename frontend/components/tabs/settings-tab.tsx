@@ -17,12 +17,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { AlertCircle, Edit2, Loader2, RefreshCw, Save } from "lucide-react"
+import { AlertCircle, Edit2, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError, type Hotel, type PriceRank } from "@/lib/api"
+
+/** 料金ランクの上限（F-SET-02。バリデータ・seed と揃える） */
+const MAX_PRICE_RANKS = 40
 import { DAY_NAMES as WEEKDAY_LABELS, DEFAULT_WEEKEND_DAYS, parseWeekendDays } from "@/lib/date"
 
 // ダッシュボードKPI進捗表に表示する指標（施設ごとに選択可能。F-DASH-01）
@@ -135,6 +138,71 @@ export function SettingsTab() {
   useEffect(() => {
     loadPriceRanks()
   }, [loadPriceRanks])
+
+  // 料金ランクの追加・削除（U-3 — POST / DELETE /settings/price-ranks）
+  const [isAddRankOpen, setIsAddRankOpen] = useState(false)
+  const [newRankLabel, setNewRankLabel] = useState("")
+  const [newRankPrice1P, setNewRankPrice1P] = useState(0)
+  const [newRankPrice2P, setNewRankPrice2P] = useState(0)
+  const [newRankPrice3P, setNewRankPrice3P] = useState(0)
+  const [newRankPrice4P, setNewRankPrice4P] = useState(0)
+  const [creatingRank, setCreatingRank] = useState(false)
+  const [rankPendingDelete, setRankPendingDelete] = useState<PriceRank | null>(null)
+  const [deletingRankId, setDeletingRankId] = useState<string | null>(null)
+
+  /** 次に採番するランク番号（既存の最大＋1）。40段階を超えたら追加できない */
+  const nextRankNumber = priceRanks.reduce((max, r) => Math.max(max, r.rank), 0) + 1
+  const canAddRank = canManageHotel && nextRankNumber <= MAX_PRICE_RANKS
+
+  const openAddRank = () => {
+    setNewRankLabel(`R${String(nextRankNumber).padStart(2, "0")}`)
+    setNewRankPrice1P(0)
+    setNewRankPrice2P(0)
+    setNewRankPrice3P(0)
+    setNewRankPrice4P(0)
+    setIsAddRankOpen(true)
+  }
+
+  const handleCreateRank = async () => {
+    if (!hotelId) return
+    if (nextRankNumber > MAX_PRICE_RANKS) {
+      toast.error(`料金ランクは最大${MAX_PRICE_RANKS}段階です`)
+      return
+    }
+    setCreatingRank(true)
+    try {
+      await api.createPriceRank({
+        hotelId,
+        rank: nextRankNumber,
+        label: newRankLabel.trim() || `R${String(nextRankNumber).padStart(2, "0")}`,
+        price1P: newRankPrice1P,
+        price2P: newRankPrice2P,
+        price3P: newRankPrice3P,
+        price4P: newRankPrice4P,
+      })
+      toast.success("料金ランクを追加しました")
+      setIsAddRankOpen(false)
+      await loadPriceRanks()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "料金ランクの追加に失敗しました")
+    } finally {
+      setCreatingRank(false)
+    }
+  }
+
+  const handleDeleteRank = async (rank: PriceRank) => {
+    if (!hotelId) return
+    setDeletingRankId(rank.id)
+    try {
+      await api.deletePriceRank(rank.id, hotelId)
+      toast.success("料金ランクを削除しました")
+      await loadPriceRanks()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "料金ランクの削除に失敗しました")
+    } finally {
+      setDeletingRankId(null)
+    }
+  }
 
   const openEditRank = (rank: PriceRank) => {
     setEditingRank(rank)
@@ -442,11 +510,28 @@ export function SettingsTab() {
       {/* 料金ランク設定 */}
       <Card>
         <CardHeader>
-          <CardTitle>料金ランク設定</CardTitle>
-          <CardDescription>
-            最大40段階の料金ランクを表示します
-            {!canManageHotel && "（編集にはMANAGER以上の権限が必要です）"}
-          </CardDescription>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <CardTitle>料金ランク設定</CardTitle>
+              <CardDescription>
+                最大{MAX_PRICE_RANKS}段階の料金ランクを管理します（現在 {priceRanks.length} 段階）
+                {!canManageHotel && "（編集にはMANAGER以上の権限が必要です）"}
+              </CardDescription>
+            </div>
+            {canManageHotel && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2"
+                onClick={openAddRank}
+                disabled={!canAddRank || priceRanksLoading}
+                title={canAddRank ? undefined : `料金ランクは最大${MAX_PRICE_RANKS}段階です`}
+              >
+                <Plus className="w-4 h-4" aria-hidden />
+                ランクを追加
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {priceRanksLoading ? (
@@ -486,14 +571,30 @@ export function SettingsTab() {
                       <td className="text-right py-2 px-3">{rank.price3P != null ? `¥${rank.price3P.toLocaleString()}` : "-"}</td>
                       <td className="text-right py-2 px-3">{rank.price4P != null ? `¥${rank.price4P.toLocaleString()}` : "-"}</td>
                       <td className="text-center py-2 px-3">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={!canManageHotel}
-                          onClick={() => openEditRank(rank)}
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </Button>
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={!canManageHotel}
+                            onClick={() => openEditRank(rank)}
+                            aria-label={`料金ランク ${rank.label} を編集`}
+                          >
+                            <Edit2 className="w-4 h-4" aria-hidden />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={!canManageHotel || deletingRankId === rank.id}
+                            onClick={() => setRankPendingDelete(rank)}
+                            aria-label={`料金ランク ${rank.label} を削除`}
+                          >
+                            {deletingRankId === rank.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                            ) : (
+                              <Trash2 className="w-4 h-4 text-muted-foreground" aria-hidden />
+                            )}
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -566,6 +667,104 @@ export function SettingsTab() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 料金ランク追加ダイアログ（U-3） */}
+      <Dialog open={isAddRankOpen} onOpenChange={setIsAddRankOpen}>
+        <DialogContent className="sm:max-w-[450px]">
+          <DialogHeader>
+            <DialogTitle>料金ランク追加（R{String(nextRankNumber).padStart(2, "0")}）</DialogTitle>
+            <DialogDescription>
+              ランク番号は既存の最大値＋1で自動採番されます（最大{MAX_PRICE_RANKS}段階）
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="new-rank-label">ラベル</Label>
+              <Input
+                id="new-rank-label"
+                value={newRankLabel}
+                onChange={(e) => setNewRankLabel(e.target.value)}
+                maxLength={10}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-rank-1p">1名料金</Label>
+                <Input
+                  id="new-rank-1p"
+                  type="number"
+                  min={0}
+                  value={newRankPrice1P}
+                  onChange={(e) => setNewRankPrice1P(Number.parseInt(e.target.value) || 0)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-rank-2p">2名料金</Label>
+                <Input
+                  id="new-rank-2p"
+                  type="number"
+                  min={0}
+                  value={newRankPrice2P}
+                  onChange={(e) => setNewRankPrice2P(Number.parseInt(e.target.value) || 0)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-rank-3p">3名料金</Label>
+                <Input
+                  id="new-rank-3p"
+                  type="number"
+                  min={0}
+                  value={newRankPrice3P}
+                  onChange={(e) => setNewRankPrice3P(Number.parseInt(e.target.value) || 0)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="new-rank-4p">4名料金</Label>
+                <Input
+                  id="new-rank-4p"
+                  type="number"
+                  min={0}
+                  value={newRankPrice4P}
+                  onChange={(e) => setNewRankPrice4P(Number.parseInt(e.target.value) || 0)}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t">
+            <Button variant="outline" size="sm" onClick={() => setIsAddRankOpen(false)}>
+              キャンセル
+            </Button>
+            <Button size="sm" className="gap-2" disabled={creatingRank} onClick={handleCreateRank}>
+              {creatingRank ? (
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+              ) : (
+                <Save className="w-4 h-4" aria-hidden />
+              )}
+              追加
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 料金ランク削除の確認（F-5 / U-3） */}
+      <ConfirmDialog
+        open={rankPendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setRankPendingDelete(null)
+        }}
+        title="料金ランクを削除しますか？"
+        description={
+          rankPendingDelete
+            ? `R${String(rankPendingDelete.rank).padStart(2, "0")}「${rankPendingDelete.label}」を削除します。この操作は取り消せません。`
+            : undefined
+        }
+        confirmLabel="削除する"
+        onConfirm={() => {
+          const target = rankPendingDelete
+          setRankPendingDelete(null)
+          if (target) void handleDeleteRank(target)
+        }}
+      />
 
       {/* 表示設定 */}
       <Card>

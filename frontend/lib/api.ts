@@ -532,6 +532,17 @@ export interface CreateEventInput {
 
 export type UpdateEventInput = Partial<Omit<CreateEventInput, "hotelId">>
 
+/** POST /api/v1/settings/price-ranks のリクエスト（rank は 1〜40 — F-SET-02） */
+export interface CreatePriceRankInput {
+  hotelId: string
+  rank: number
+  label: string
+  price1P: number
+  price2P: number
+  price3P?: number
+  price4P?: number
+}
+
 export interface UpdateHotelSettingsInput {
   name?: string
   address?: string
@@ -1208,6 +1219,21 @@ export const api = {
       () => rawRequest(`/api/v1/settings/price-ranks?hotelId=${hotelId}`),
       () => getMockPriceRanks(hotelId)
     )
+  },
+
+  /** 料金ランクの追加（MANAGER以上。最大40段階 — F-SET-02） */
+  createPriceRank(input: CreatePriceRankInput): Promise<PriceRank> {
+    return rawRequest("/api/v1/settings/price-ranks", {
+      method: "POST",
+      body: JSON.stringify(input),
+    })
+  },
+
+  /** 料金ランクの削除（MANAGER以上 — F-SET-02） */
+  deletePriceRank(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/settings/price-ranks/${id}?hotelId=${hotelId}`, {
+      method: "DELETE",
+    })
   },
 
   updatePriceRank(
