@@ -1,0 +1,16 @@
+{
+  "_comment": "予約明細CSVの列マッピング例。現地でCSVの実際の列名が分かったら値を書き換える（キーの意味は lib/reservationImport.ts を参照）",
+  "checkInDate": "宿泊日",
+  "nights": "泊数",
+  "rooms": "室数",
+  "guests": "人数",
+  "revenue": "宿泊料金",
+  "revenueScope": "per-stay",
+  "bookedAt": "予約受付日",
+  "cancelledAt": "取消日",
+  "status": "ステータス",
+  "cancelStatusValues": ["取消", "キャンセル"],
+  "channel": "販売先",
+  "channelAliases": { "じゃらんnet": "じゃらん", "楽天トラベル": "楽天トラベル" },
+  "roomTypeCode": "室タイプコード"
+}
