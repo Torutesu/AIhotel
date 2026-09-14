@@ -6,6 +6,7 @@ import { createKpiSnapshotService } from '../services/dashboardService.js'
 import { recomputeSimulationService } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
 import { purgeExpiredRefreshTokensService } from '../services/authService.js'
+import { checkImportFreshnessService } from '../services/importService.js'
 
 // 日次バッチ（N-5）。開発時は `pnpm --filter backend job:daily`、
 // 本番コンテナ（devDependencies を含まない）では `node dist/jobs/daily.js` で実行する。
@@ -15,6 +16,7 @@ import { purgeExpiredRefreshTokensService } from '../services/authService.js'
 //   1. 需要予測の再計算（AiPriceRecommendation）
 //   2. 月間着地シミュレーションの再計算（MonthlyLandingSimulation）
 //   3. 当日時点の KPI スナップショット（KpiSnapshot — 月初比較・日付比較の比較元）
+//   4. 取込の鮮度チェック（前日分が入っているか・取込が止まっていないか → アラート）
 // 最後にテナント横断の後始末として、期限切れリフレッシュトークンを削除する（#49-4）。
 //
 // 順序に意味がある: 着地シミュレーションは AI 予測を使うため、予測を先に更新する。
@@ -29,6 +31,7 @@ interface HotelJobResult {
   hotelName: string
   forecastCount?: number
   simulationActualDays?: number
+  importStatus?: string
   error?: string
 }
 
@@ -48,12 +51,15 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
       const forecast = await recomputeForecastService(hotel.id)
       const simulation = await recomputeSimulationService(hotel.id, year, month)
       await createKpiSnapshotService(hotel.id, year, month)
+      // 取込が止まっていれば誰も気づかないまま数字が古くなるため、毎日確認してアラートにする（#6）
+      const importFreshness = await checkImportFreshnessService(hotel.id)
 
       results.push({
         hotelId: hotel.id,
         hotelName: hotel.name,
         forecastCount: forecast.count,
         simulationActualDays: simulation.actualDays,
+        importStatus: importFreshness.status,
       })
       logger.info(
         {
@@ -61,6 +67,7 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
           forecastCount: forecast.count,
           simulationActualDays: simulation.actualDays,
           simulationPredictedDays: simulation.predictedDays,
+          importStatus: importFreshness.status,
         },
         `${hotel.name}: 予測・着地・スナップショットを更新しました`
       )
