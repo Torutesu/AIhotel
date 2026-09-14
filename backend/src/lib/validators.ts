@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { reservationMappingSchema } from './reservationImport.js'
 import { dateOnly, todayJst } from './date.js'
 
 // ======================================
@@ -398,6 +399,73 @@ export const updatePreferencesSchema = z.object({
 // ======================================
 // Type Exports
 // ======================================
+// Data Import Validators（#6 / #18 — 予約明細CSVの取込）
+// ======================================
+
+/** 取得元の識別子。端末側の設定ミスで別ホテルの設定を引かないよう文字種を絞る */
+const importSourceSchema = z
+  .string()
+  .min(1)
+  .max(40)
+  .regex(/^[a-z0-9-]+$/, '取得元は英小文字・数字・ハイフンで指定してください')
+
+const importEncodingSchema = z.enum(['cp932', 'utf8'])
+const importDelimiterSchema = z.enum([',', 'tab'])
+
+/**
+ * 列マッピングの保存（PUT /import/mapping）。
+ * mapping の中身は lib/reservationImport.ts の reservationMappingSchema で検証する
+ * （列名の対応表そのものはドメインロジック側の定義を単一の出所にする）。
+ */
+export const upsertImportMappingSchema = z.object({
+  hotelId: entityIdSchema,
+  source: importSourceSchema,
+  encoding: importEncodingSchema.default('cp932'),
+  delimiter: importDelimiterSchema.default(','),
+  mapping: reservationMappingSchema,
+})
+
+/** 列マッピングの取得（GET /import/mapping?hotelId=&source=） */
+export const importMappingQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  source: importSourceSchema.optional(),
+})
+
+/**
+ * CSV取込（POST /import/reservations?hotelId=...）。
+ * 本文はCSVそのもの（text/csv）なので、パラメータはクエリで受け取る。
+ * クエリは常に文字列で届くため、数値・真偽値は coerce する。
+ */
+export const importReservationsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  source: importSourceSchema.default('tl-lincoln'),
+  /** CSVを出力した日。これより未来のブッキングカーブ点は作らない */
+  asOf: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'asOf は YYYY-MM-DD で指定してください')
+    .optional(),
+  maxDaysBefore: z.coerce.number().int().min(1).max(365).default(120),
+  /** 送信元のファイル名（履歴に残すだけ。パス区切りは受け取らない） */
+  fileName: z
+    .string()
+    .max(260)
+    .regex(/^[^/\\]+$/, 'ファイル名にパス区切りは含められません')
+    .optional(),
+  /** true のとき集計だけ行い書き込まない（端末側の疎通確認に使う） */
+  dryRun: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
+})
+
+/** 取込履歴の一覧（GET /import/runs?hotelId=&limit=） */
+export const importRunsQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  source: importSourceSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+})
+
+// ======================================
 
 export type LoginInput = z.infer<typeof loginSchema>
 export type RegisterInput = z.infer<typeof registerSchema>
@@ -417,3 +485,7 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>
 export type UpdateAlertStatusInput = z.infer<typeof updateAlertStatusSchema>
 export type MonthTargetInput = z.infer<typeof monthTargetSchema>
 export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>
+export type UpsertImportMappingInput = z.infer<typeof upsertImportMappingSchema>
+export type ImportMappingQueryInput = z.infer<typeof importMappingQuerySchema>
+export type ImportReservationsQueryInput = z.infer<typeof importReservationsQuerySchema>
+export type ImportRunsQueryInput = z.infer<typeof importRunsQuerySchema>

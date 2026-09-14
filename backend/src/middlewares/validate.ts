@@ -1,16 +1,21 @@
 import type { Request, Response, NextFunction } from 'express'
-import { ZodSchema, ZodError } from 'zod'
+import { ZodError, type ZodType, type ZodTypeDef } from 'zod'
 import { ApiError } from './errorHandler.js'
 
 type ValidateTarget = 'body' | 'query' | 'params'
 
 /**
  * Zodスキーマを使用してリクエストを検証するミドルウェア
+ *
+ * 入力型（TInput）と出力型（TOutput）を分けているのは、`.default()` や `.transform()` を
+ * 持つスキーマでは両者が一致しないため（例: クエリの `dryRun=true` という文字列を boolean にする）。
+ * 既定では TInput = TOutput なので、変換のないスキーマは今までどおり書ける。
+ *
  * @param schema - Zodスキーマ
  * @param target - 検証対象（body, query, params）
  */
-export function validate<T>(
-  schema: ZodSchema<T>,
+export function validate<TOutput, TInput = TOutput>(
+  schema: ZodType<TOutput, ZodTypeDef, TInput>,
   target: ValidateTarget = 'body'
 ) {
   return async (req: Request, _res: Response, next: NextFunction) => {

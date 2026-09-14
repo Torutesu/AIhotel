@@ -47,6 +47,8 @@ model Tenant {
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
   userPreferences          UserPreference[]
+  importMappings           ImportMapping[]
+  importRuns               ImportRun[]
 }
 
 // ======================================
@@ -168,6 +170,8 @@ model Hotel {
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
   userPreferences          UserPreference[]
+  importMappings           ImportMapping[]
+  importRuns               ImportRun[]
 
   @@index([tenantId])
 }
@@ -687,4 +691,66 @@ model AuditLog {
   @@index([userId])
   @@index([entity, entityId])
   @@index([createdAt])
+}
+
+// ======================================
+// Data Import（PMS/サイトコントローラーからのCSV取込 — #6, #18）
+// ======================================
+
+// 予約明細CSVの列マッピング。取得元（TL-リンカーン / PMS 等）ごとに1件持つ。
+// 無人運用では端末がファイルを送るだけにしたいので、列の対応はサーバ側に置く。
+model ImportMapping {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId         String
+  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  /// 取得元の識別子（例: tl-lincoln, nehops）
+  source          String
+  /// 文字コード（cp932 / utf8）
+  encoding        String   @default("cp932")
+  /// 区切り文字（"," または "\t"）
+  delimiter       String   @default(",")
+  /// 列名 → 意味 の対応（lib/reservationImport.ts の reservationMappingSchema）
+  mapping         Json
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([hotelId, source])
+  @@index([tenantId])
+}
+
+// 取込の実行履歴。無人運用では「いつ・何件入ったか」と欠損の検知が運用の要になる。
+model ImportRun {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId       String
+  hotel         Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  source        String
+  fileName      String?
+  /// SHA-256。同じファイルの再送を検知するために保持する
+  fileHash      String
+  fileBytes     Int
+  /// success / failed
+  status        String
+  /// dry-run（書き込まずに集計だけ）だったか
+  dryRun        Boolean   @default(false)
+  rowCount      Int       @default(0)
+  dailyRows     Int       @default(0)
+  roomTypeRows  Int       @default(0)
+  channelRows   Int       @default(0)
+  curveRows     Int       @default(0)
+  skippedRows   Int       @default(0)
+  cancelledRows Int       @default(0)
+  stayDateFrom  DateTime? @db.Date
+  stayDateTo    DateTime? @db.Date
+  errorMessage  String?
+  userId        String?
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  @@index([tenantId])
+  @@index([hotelId, source, startedAt])
 }
