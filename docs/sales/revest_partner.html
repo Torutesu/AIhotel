@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="ja"><head><meta charset="utf-8">
+<title>レベスト 営業資料｜販売代理店・パートナー向け</title>
+<!-- consulting-pptx-skill（github.com/carnot-tech/consulting-pptx-skill）の基本パーツ集を土台に作成。
+     規約: references/slide-rules.md ／ 検査: python3 scripts/check_deck.py <file> → FAIL 0 -->
+<style>
+/* ── デザイントークン（Bレーン pipeline/html-css/consulting-slide-system.css の既定 warm スキンと同一。A/B で既定の色・書体を揃える） ── */
+:root{
+  --page-bg:#f2f2f0; --slide-bg:#ffffff;
+  --ink:#050505;
+  --navy:#071b2c;
+  --accent:#1e5f8c;
+  --cyan:#79c8dc;
+  --muted:#666b70;
+  --rule:#b9bec3;
+  --hairline:#d9dcdf;
+  --soft:#e7f4f8;
+  --rose:#d94c68;
+  --font-sans:"Helvetica Neue",Arial,Helvetica,"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,sans-serif;
+  --font-serif:"Hiragino Mincho ProN","Yu Mincho","Songti SC",Georgia,"Times New Roman",serif;
+}
+
+@page{size:338.67mm 190.5mm;margin:0}
+html,body{margin:0;background:var(--page-bg);font-family:var(--font-sans);color:var(--navy)}
+.s{width:338.67mm;height:190.5mm;background:var(--slide-bg);position:relative;margin:8mm auto;box-sizing:border-box;padding:9mm 16mm 0 16mm;overflow:hidden;page-break-after:always;display:flex;flex-direction:column;align-items:stretch}
+.bar{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1.5px solid var(--navy);padding-bottom:2.2mm;margin-top:3mm;flex:0 0 auto}
+.logo{font-family:var(--font-serif);font-weight:600;font-size:18pt;color:var(--navy)}
+.date{font-size:7.5pt;letter-spacing:.15em;color:var(--muted)}
+h1{margin:4.5mm 0 0 0;font-family:var(--font-serif);font-size:22pt;line-height:1.3;color:var(--navy);font-weight:600;flex:0 0 auto} /* 2行まで可（意味の切れ目で <br>。slide-rules §2.1） */
+.c{margin-top:6mm;flex:1;min-height:0;display:flex;flex-direction:column;gap:5mm;margin-bottom:19mm}
+.c>.grid{flex:1;grid-auto-rows:1fr;min-height:0}
+.c>.grid.fix{flex:0 0 auto}
+.foot{position:absolute;left:16mm;right:16mm;bottom:5mm;padding-top:2.5mm;border-top:1px solid var(--rule);display:flex;justify-content:space-between;font-size:7.5pt;color:var(--muted)}
+.foot b{color:var(--navy);font-size:8.5pt}
+.src{font-size:7.5pt;color:var(--muted);flex:0 0 auto}
+.grid{display:grid;gap:4mm}
+.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:var(--soft);border:0;display:flex;flex-direction:column;box-sizing:border-box}
+.hd{display:flex;align-items:baseline;gap:2.5mm;padding:3.5mm 4mm 2.5mm 4mm;border-bottom:1px solid var(--hairline)}
+.no{font-size:14pt;font-weight:700;color:var(--accent);line-height:1}
+.h{font-size:11pt;font-weight:700;color:var(--navy);line-height:1.3}
+.bd{padding:3.5mm 4.5mm;font-size:10pt;line-height:1.7;color:var(--ink);flex:1}
+.ref{font-size:8pt;color:var(--accent);font-weight:700;margin-left:auto;white-space:nowrap}
+.rows .r>div:last-child{display:flex;justify-content:space-between;align-items:baseline;gap:4mm} /* 「→ P.n」を右端に */
+.rows .r{display:grid;grid-template-columns:44mm 1fr;gap:6mm;padding:4mm 0;border-top:1px solid var(--rule);font-size:10.5pt;line-height:1.6}
+.rows .r:first-child{border-top:0}
+.rows .l{font-family:var(--font-serif);font-weight:700;font-size:11.5pt;color:var(--accent)}
+.c>.rows{flex:1;display:flex;flex-direction:column}
+.c>.rows .r{flex:1;align-items:center}
+.stat{background:var(--navy);color:#fff;padding:4mm 5mm}
+.stat.l{background:var(--soft);color:var(--navy)}
+.stat .lb{font-size:7.5pt;letter-spacing:.1em;font-weight:700;color:var(--cyan)}
+.stat.l .lb{color:var(--muted)}
+.stat .v{font-size:22pt;font-weight:700;margin:1mm 0}
+.stat .cp{font-size:7.5pt;color:var(--cyan);line-height:1.6}
+.stat.l .cp{color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:10pt;flex:0 0 auto}
+th{background:none;text-align:left;padding:2.5mm;font-size:11.5pt;font-weight:700;color:var(--navy);border-bottom:1.8px solid var(--navy)}
+td{padding:4.5mm 2.5mm;border-bottom:1px solid var(--rule);vertical-align:middle;line-height:1.65;color:var(--ink)}
+td.b{font-weight:700;color:var(--navy)}
+tr:last-child td{border-bottom:0}
+td.ax{font-size:11pt;font-weight:700;color:var(--accent);font-family:var(--font-serif);border-right:1.8px solid var(--navy)}
+th.ax{border-right:1.8px solid var(--navy)}
+.c>table{flex:1 1 0;height:0}
+/* 列の内容が同種（時点・案など）なら等幅にする。最後の列だけに余白を吸わせて右側を空けない（§4.12） */
+table.eq{table-layout:fixed}
+/* 表を縦に伸ばすと余剰高さが見出し行にも配分され見出しが沈む（slide-rules §4.21） */
+.c>table tr:first-child,.side .sb table tr:first-child{height:1px}
+.side .sb table{flex:1 1 0;height:0}
+.chev{display:flex;gap:0;flex:0 0 auto}
+.chev .cv{flex:1;position:relative;background:var(--soft);border:0;padding:5mm 4mm 5mm 9mm;clip-path:polygon(0 0,calc(100% - 6mm) 0,100% 50%,calc(100% - 6mm) 100%,0 100%,6mm 50%);display:flex;flex-direction:column}
+.chev .cv:first-child{clip-path:polygon(0 0,calc(100% - 6mm) 0,100% 50%,calc(100% - 6mm) 100%,0 100%);padding-left:5mm}
+.chev .n{font-size:12pt;font-weight:700;color:var(--accent)}
+.chev .t{font-size:10.5pt;font-weight:700;margin:1mm 0 1.5mm 0;color:var(--navy)}
+.chev .x{font-size:9pt;line-height:1.55;color:var(--ink)}
+/* 2カラムは版面いっぱいに引き伸ばさない。表は自然な高さのまま、見出し＋表のブロックごと縦中央に置く（間延び防止。§5.13 は 55% を目安に、足りなければ行を足す） */
+.two{display:grid;grid-template-columns:1.5fr auto 1fr;gap:6mm;flex:0 1 auto;min-height:0;align-items:stretch}
+.c:has(>.two){justify-content:center}
+.two>div:first-child,.two>div:last-child{display:flex;flex-direction:column;min-height:0}
+.two>div:first-child table{flex:0 1 auto}
+.two>div>ul{flex:1;display:flex;flex-direction:column;justify-content:center} /* 左右どちらのブレットも縦中央（§4.5 下端揃え） */
+/* カラム見出し（.colh）と軸タイトル（.axh）は同じ高さ・同じ余白にして左右で罫線が揃うようにする（§4.21） */
+.two .colh,.axh{font-family:var(--font-serif);font-size:11.5pt;font-weight:700;color:var(--navy);border-bottom:1.8px solid var(--navy);height:7mm;box-sizing:content-box;padding:0 0 1.5mm 0;margin:0 0 3.5mm 0;flex:0 0 auto;display:flex;justify-content:space-between;align-items:flex-end}
+.two .colh{color:var(--accent)}
+.two ul{margin:0;padding-left:4.5mm;font-size:10pt;line-height:1.8;color:var(--ink)}
+.two li{margin-bottom:2.5mm}
+.tri{align-self:center;width:0;height:0;border-top:5mm solid transparent;border-bottom:5mm solid transparent;border-left:6mm solid var(--cyan)}
+.cover .big{font-family:var(--font-serif);font-size:34pt;font-weight:700;color:var(--navy);margin-top:38mm;line-height:1.25}
+.cover .sub{font-family:var(--font-serif);font-size:15pt;font-weight:700;color:var(--accent);margin-top:3mm}
+.cover .rule{width:32mm;height:1mm;background:var(--accent);margin:8mm 0 4mm 0}
+.chap .cno{font-family:var(--font-serif);font-size:15pt;font-weight:700;color:var(--accent);margin-top:55mm;letter-spacing:.2em}
+.chap .cbig{font-family:var(--font-serif);font-size:30pt;font-weight:700;color:var(--navy);margin-top:4mm}
+.toc{margin-top:4mm}
+.toc .ti{display:grid;grid-template-columns:14mm 1fr 14mm;gap:4mm;padding:3.6mm 0;border-bottom:1px solid var(--rule);font-size:11.5pt;align-items:baseline}
+.toc .ti .tn{font-family:var(--font-serif);font-weight:700;color:var(--accent)}
+.toc .ti .tp{text-align:right;color:var(--muted);font-size:9pt}
+.legend{display:flex;gap:6mm;justify-content:flex-end;font-size:8pt;color:var(--ink);flex:0 0 auto}
+.legend span{display:flex;align-items:center;gap:1.5mm}
+.legend i{width:4mm;height:4mm;display:inline-block}
+.legend .li-a{background:var(--soft)}
+.legend .li-b{background:var(--navy)}
+.legend.left{justify-content:flex-start} /* チャート直下に左寄せで置くとき */
+@media print{html,body{background:#fff}.s{margin:0!important;transform:none!important}.fitwrap{width:auto!important;height:auto!important;margin:0!important}}
+/* ── 追加パーツ用 ── */
+.axh .u{font-family:var(--font-sans);font-size:8.5pt;font-weight:400;color:var(--muted)}
+.note{font-size:8pt;letter-spacing:.08em;font-weight:700;color:var(--accent);border-bottom:1px solid var(--cyan);align-self:flex-start;padding-bottom:.8mm;flex:0 0 auto}
+/* 左サイドの主張パネル */
+.side{display:grid;grid-template-columns:62mm 1fr;gap:0;flex:1;min-height:0}
+.side .sp{background:var(--navy);color:#fff;padding:6mm 6mm;display:flex;flex-direction:column}
+.side .sp .cn{font-family:var(--font-serif);font-size:26pt;font-weight:700;color:var(--cyan);line-height:1}
+.side .sp .ct{font-size:9.5pt;font-weight:700;letter-spacing:.08em;color:var(--cyan);margin-top:1.5mm}
+.side .sp .cm{font-family:var(--font-serif);font-size:14pt;font-weight:700;line-height:1.55;margin-top:auto}
+.side .sb{padding:0 0 0 8mm;display:flex;flex-direction:column;min-height:0}
+/* レバー矢印表 */
+.lev{width:100%;border-collapse:collapse;font-size:10pt}
+.lev th{font-size:11.5pt}
+.lev td{padding:3mm 2.5mm}
+.lev .ar{height:5.5mm;display:flex;align-items:center;color:#fff;font-size:9pt;font-weight:700;padding-left:3mm;clip-path:polygon(0 0,calc(100% - 4mm) 0,100% 50%,calc(100% - 4mm) 100%,0 100%)}
+.lev .up{background:var(--accent)}.lev .dn{background:var(--rule);color:var(--navy)}
+/* 状態ヒートマップ */
+.hm{width:100%;border-collapse:collapse;font-size:9.5pt}
+.hm th{font-size:10.5pt;padding:2mm}
+.hm td{padding:2.2mm 2.5mm;border-bottom:1px solid var(--hairline)}
+.hm .cell{display:block;height:8mm}
+/* 4=大きく改善 3=改善 0=横ばい 2=悪化（悪化だけ意味のある赤。§5.8） */
+.hm .v4{background:var(--navy)}.hm .v3{background:var(--accent)}.hm .v2{background:var(--rose)}.hm .v1{background:var(--soft)}.hm .v0{background:var(--hairline)}
+/* ハーベイボール */
+.hb{width:4.6mm;height:4.6mm;display:inline-block;border:1px solid var(--navy);border-radius:50%;position:relative;vertical-align:-.7mm}
+.hb i{position:absolute;inset:0;background:var(--navy);border-radius:50%}
+.hb.q1 i{clip-path:polygon(50% 50%,50% 0,100% 0,100% 50%)}
+.hb.q2 i{clip-path:polygon(50% 0,100% 0,100% 100%,50% 100%)}
+.hb.q3 i{clip-path:polygon(50% 0,100% 0,100% 100%,0 100%,0 50%)}
+.hb.q4 i{clip-path:none}
+.hb.q0 i{display:none}
+/* ドットマトリクス */
+.dots{display:grid;grid-template-columns:repeat(10,1fr);gap:1.2mm;width:36mm}
+.dots i{width:3mm;height:3mm;background:var(--hairline);display:block}
+.dots i.on{background:var(--accent)}
+.dotcol{display:flex;flex-direction:column;align-items:center;gap:2.5mm}
+.dotcol .dv{font-size:15pt;font-weight:700;color:var(--navy)}
+.dotcol .dl{font-size:9pt;color:var(--ink);text-align:center;line-height:1.5}
+/* 柱＋土台 */
+.pil{display:grid;gap:4mm;flex:0 0 auto}
+.pil .p{background:var(--soft);padding:5mm 4.5mm;display:flex;flex-direction:column;gap:2mm}
+.pil .p .pt{font-size:11pt;font-weight:700;color:var(--navy);line-height:1.4}
+.pil .p .px{font-size:9pt;color:var(--ink);line-height:1.6}
+.base{background:var(--navy);color:#fff;padding:3.5mm 5mm;font-size:10pt;margin-top:4mm;display:flex;gap:3mm;align-items:baseline}
+.base b{font-size:10.5pt;color:var(--cyan)}
+/* ニュース根拠グリッド */
+.clip{background:var(--soft);padding:4.5mm 5mm;display:flex;flex-direction:column;gap:2mm}
+.clip .cd{font-size:8pt;color:var(--muted);font-style:italic}
+.clip .ch{font-family:var(--font-serif);font-size:11pt;font-weight:700;color:var(--navy);line-height:1.45}
+.clip .cx{font-size:8.5pt;color:var(--ink);line-height:1.6}
+.clip .cg{align-self:flex-start;background:var(--navy);color:#fff;font-size:7.5pt;font-weight:700;padding:1mm 2.5mm;letter-spacing:.06em}
+/* 対向シェブロン */
+.opp{display:grid;grid-template-columns:1fr 46mm 1fr;gap:6mm;flex:1;min-height:0;align-items:stretch}
+.opp .ol{display:flex;flex-direction:column}
+.opp .ol .oi{flex:1;display:flex;align-items:center;font-size:10pt;line-height:1.55;color:var(--navy);border-bottom:1px solid var(--rule);padding:2mm 0}
+.opp .ol .oi:last-child{border-bottom:0}
+.opp .oc{display:flex;flex-direction:column;gap:3mm;justify-content:center}
+.opp .oc .ob{background:var(--navy);color:#fff;text-align:center;font-family:var(--font-serif);font-size:14pt;font-weight:700;padding:9mm 3mm;clip-path:polygon(0 0,100% 0,100% 78%,50% 100%,0 78%)}
+.opp .oc .ob.alt{background:var(--accent)}
+
+/* 縦の余白つぶし（slide-rules §4.5 下端揃え・§4.12 不自然な下部余白の禁止） */
+.grid>div{display:flex;flex-direction:column;min-height:0}
+.grid>div>.rows{flex:1;display:flex;flex-direction:column}
+.grid>div>.rows .r{flex:1;align-items:center}
+.two>div>table{flex:0 1 auto;height:auto}
+.two>div>table tr:first-child{height:1px}
+.pil .p{justify-content:center}
+
+/* セパレーター（章扉＝アジェンダ再掲・現在地だけ強調）。think-cell のアジェンダ機能に相当。
+   目次と同じ並び・同じ文言を使い、章が変わるたびに現在地だけを入れ替えて再掲する。 */
+.agd{display:flex;flex-direction:column;flex:1;min-height:0;justify-content:center}
+.agd .ai{display:grid;grid-template-columns:14mm 1fr 16mm;gap:5mm;align-items:baseline;padding:4.6mm 0;border-bottom:1px solid var(--hairline);color:#b3a798}
+.agd .ai:last-child{border-bottom:0}
+.agd .an{font-family:var(--font-serif);font-weight:700;font-size:14pt}
+.agd .at{font-family:var(--font-serif);font-weight:700;font-size:15pt}
+.agd .ap{font-size:9pt;text-align:right}
+.agd .ai.on{color:var(--navy)}
+.agd .ai.on .an{color:var(--accent);font-size:19pt}
+.agd .ai.on .at{font-size:21pt}
+.agd .ai.on .ap{color:var(--muted)}
+
+/* 表の詳細セル（理由・前提・読み取り）はブレット2〜3行で書く（slide-rules §6） */
+td ul.cb{margin:0;padding-left:4mm;line-height:1.6}
+td ul.cb li{margin:0 0 1mm 0}
+/* ハーベイボール列は見出しも玉も水平中央 */
+th.hbc,td.hbc{text-align:center}
+
+
+/* ── 規約 §6 に合わせた文字サイズの引き上げ（パーツ集の既定を上書き） ── */
+table{font-size:11.5pt}
+th{font-size:13.5pt}
+th.ax{font-size:13.5pt}
+td.ax{font-size:15.5pt}
+td{padding:3.4mm 2.5mm}
+.rows .r{font-size:11.5pt}
+.rows .l{font-size:15.5pt}
+.two ul{font-size:11pt}
+.card .bd{font-size:11pt}
+.lev{font-size:11.5pt}
+.lev th{font-size:13.5pt}
+.hm{font-size:11.5pt}
+.hm th{font-size:13.5pt}
+.chev .x{font-size:9.5pt}
+
+/* 凡例のハーベイボールが表中の玉と同じ形になるようにする（.legend i の 4mm 指定に潰されるのを防ぐ） */
+.legend .hb{width:4.6mm;height:4.6mm}
+.legend .hb i{position:absolute;inset:0;width:auto;height:auto}
+.pil .p .px{font-size:9.5pt}
+
+/* ── 出典行は左下の定位置に置く（規約 §4.47）。版面の中央寄せと取り合いにならないよう絶対配置にする ── */
+.c > .src{position:absolute;left:16mm;right:16mm;bottom:15mm}
+
+/* ── 並列カードは見出しの上端をそろえる（規約 §4.15） ── */
+.pil .p{justify-content:flex-start}
+
+/* ── 主張パネルは番号を置かないので、ラベルと主張を縦中央に寄せる ── */
+.side .sp{justify-content:center}
+.side .sp .cm{margin-top:4mm}
+
+/* ── 章（論点）タグチップ。規約 §4.33：全区分を常設し、該当だけ濃色反転させる ── */
+.kick{display:flex;gap:1.6mm;align-items:center}
+.kick span{font-size:7.5pt;letter-spacing:.06em;color:var(--muted);padding:1.1mm 2.4mm;background:var(--soft);border-radius:0}
+.kick span.on{background:var(--navy);color:#fff;font-weight:700}
+
+/* ── 重み配分の100ドット盤。3系列を1枚の盤に塗り分け、合計100%であることを図で示す ── */
+.dots100{display:grid;grid-template-columns:repeat(10,1fr);gap:1.6mm;width:72mm;align-self:center}
+.dots100 i{width:100%;aspect-ratio:1;display:block}
+.dots100 i.w1{background:var(--navy)}
+.dots100 i.w2{background:var(--accent)}
+.dots100 i.w3{background:var(--cyan)}
+.legend.wt{justify-content:flex-start;gap:7mm;margin-bottom:5mm}
+.legend.wt i.w1{background:var(--navy)}
+.legend.wt i.w2{background:var(--accent)}
+.legend.wt i.w3{background:var(--cyan)}
+
+/* ── 折れ線チャート（パーツ集に無いので自作。規約 §5.11：推移はグラフで描く） ── */
+.chart{flex:1;min-height:0;width:100%}
+.chart text{font-family:var(--font-sans);fill:var(--muted)}
+.chart .lbl{font-size:13px}
+.chart .vl{font-size:13px;fill:var(--navy);font-weight:700}
+
+</style></head><body>
+<main class="deck">
+<section class="s cover">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">販売代理店・パートナー向け　2026年9月</div></div>
+
+  <div class="big">勘に頼っていた客室料金の判断を、<br>数字で決める仕組みとして売る</div>
+  <div class="rule"></div>
+  <div class="sub">レベスト｜ホテル収益管理システム</div>
+  <div class="foot"><b>レベスト</b><span></span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">何を売るか</div></div>
+
+  <h1>レベストが扱うのは、実績の可視化・価格の決定・需要の把握・月次の報告</h1>
+  <div class="c" style="justify-content:center">
+    <div class="pil grid g4 fix">
+      <div class="p"><span class="pt">実績の可視化</span><span class="px">室料売上・販売室数・ADR（平均客室単価）・稼働率・REV-Per（販売可能客室1室あたりの収益。RevPARと同じ指標）などを月別に並べ、予算比と前年比を同じ画面で確認できる</span></div>
+      <div class="p"><span class="pt">価格の決定</span><span class="px">稼働率・ADR・競合追従度の重みを画面で調整でき、日別の推奨単価と料金ランクをカレンダーに出す</span></div>
+      <div class="p"><span class="pt">需要の把握</span><span class="px">宿泊日までの予約の積み上がりを見て、競合の価格を利用人数別に比べる</span></div>
+      <div class="p"><span class="pt">月次の報告</span><span class="px">対象月を選んで月次レポートを生成し、PDFとExcelで出力する</span></div>
+    </div>
+    <div class="base"><b>データの分離</b><span>契約企業ごとにデータを分け、他社のデータは参照できない</span></div>
+    <div class="base" style="margin-top:2.5mm"><b>変更の記録</b><span>価格戦略・料金ランク・予算の変更を、誰がいつ変えたかの記録として残す</span></div>
+    <div class="src">出典：レベスト機能仕様（2026年9月時点）</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>1</span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">何を売るか</div></div>
+
+  <h1>画面は、設定から日々の確認・価格決定・報告までの順に並ぶ</h1>
+  <div class="c">
+    <table class="eq">
+      <tr><th class="ax" style="width:40mm">使う順</th><th style="width:44mm">画面</th><th>主な機能</th></tr>
+      <tr><td class="ax">導入時に整える</td><td class="b">設定</td><td>料金ランク・競合・月次予算・週末の扱いを登録し、ユーザーを追加する</td></tr>
+      <tr><td class="ax">毎朝見る</td><td class="b">ダッシュボード</td><td>月別のKPI進捗と、重要度の高いアラートを見る</td></tr>
+      <tr><td class="ax">価格を決める</td><td class="b">プライシング</td><td>日別の推奨単価・料金ランク・イベントを確かめ、重み付けを調整する</td></tr>
+      <tr><td class="ax">需要を読む</td><td class="b">日別分析</td><td>宿泊日までの予約の積み上がりを見て、競合の価格を利用人数別に比べる</td></tr>
+      <tr><td class="ax">傾向を振り返る</td><td class="b">期間分析</td><td>年間の月次推移と、競合との価格差を見る</td></tr>
+      <tr><td class="ax">月末に締める</td><td class="b">レポート</td><td>対象月の月次レポートをPDFとExcelで出力する</td></tr>
+    </table>
+    <div class="src">出典：レベスト機能仕様（2026年9月時点）</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>2</span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">顧客のなかでの使われ方</div></div>
+
+  <h1>権限は運営・管理者・マネージャー・オペレーターに分かれ、<br>契約企業を越えられるのは運営だけ</h1>
+  <div class="c">
+    <div class="legend"><span><span class="hb q4"><i></i></span>できる</span><span><span class="hb q2"><i></i></span>一部できる（対象が限られる）</span><span><span class="hb q0"><i></i></span>できない</span></div>
+    <table>
+      <tr><th class="ax" style="width:42mm">ロール</th><th class="hbc" style="width:26mm">実績の閲覧</th><th class="hbc" style="width:26mm">設定の変更</th><th class="hbc" style="width:30mm">ユーザー管理</th><th class="hbc" style="width:32mm">他社のデータ</th><th>誰が持つか</th></tr>
+      <tr><td class="ax">運営</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td>レベストを提供する当社が持つ。顧客にもパートナーにも渡さない</td></tr>
+      <tr><td class="ax">管理者</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>契約企業の情報システム担当や経営企画が持つ</td></tr>
+      <tr><td class="ax">マネージャー</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q2"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>支配人やレベニュー担当が持つ。管理者の権限は付与できない</td></tr>
+      <tr><td class="ax">オペレーター</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q2"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>フロント担当が持つ。設定のうち変えられるのはイベントだけで、価格の設定には触れない</td></tr>
+    </table>
+    <div class="src">出典：レベスト機能仕様（2026年9月時点）</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>3</span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">顧客のなかでの使われ方</div></div>
+
+  <h1>契約企業が増えても、基盤は1つのまま受け入れられる</h1>
+  <div class="c">
+    <div class="two">
+      <div>
+        <div class="colh">基盤の仕組み</div>
+        <table>
+          <tr><td class="ax" style="width:38mm">データの分離</td><td>すべてのデータに契約企業の識別子を持たせ、データを取り出すたびに絞り込む</td></tr>
+          <tr><td class="ax">認証の照合</td><td>ログインで発行するトークンに所属を埋め込み、要求のたびに照合する</td></tr>
+          <tr><td class="ax">権限の制限</td><td>契約企業を越えられる権限は、当社の運営ロールだけが持つ</td></tr>
+          <tr><td class="ax">変更の記録</td><td>設定を誰がいつ変えたかを、契約企業ごとの記録として残す</td></tr>
+        </table>
+      </div>
+      <div class="tri"></div>
+      <div>
+        <div class="colh">契約企業が増えたときに起きること</div>
+        <ul>
+          <li>当社は、契約企業ごとに別のシステムを用意せず、同じ基盤に追加する</li>
+          <li>契約企業の管理者は、施設とユーザーを自分で追加する</li>
+          <li>当社は、機能の追加を全契約企業に同じ時期に届ける</li>
+          <li>契約企業は、設定を誰がいつ変えたかを自社の記録として確かめられる</li>
+        </ul>
+      </div>
+    </div>
+    <div class="src">出典：レベスト機能仕様（2026年9月時点）</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>4</span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">構築と運用</div></div>
+
+  <h1>技術構成はクラウド事業者に依存せず、AWSとGCPのどちらにも置ける</h1>
+  <div class="c">
+    <table class="eq">
+      <tr><th class="ax" style="width:44mm">層</th><th>採用している技術</th><th>そう決めた理由</th></tr>
+      <tr><td class="ax">画面</td><td>Next.js（App Router）</td><td>配信先を選ばず、社内サーバーでもクラウドでも同じものを出せる</td></tr>
+      <tr><td class="ax">サーバー</td><td>Express と TypeScript、Prisma</td><td>Dockerコンテナで動くため、設置先を選ばない</td></tr>
+      <tr><td class="ax">データベース</td><td>PostgreSQL 16</td><td>マネージドサービスでも自前構築でも、接続先を差し替えるだけで動く</td></tr>
+      <tr><td class="ax">設定の管理</td><td>環境変数を1か所に集約</td><td>クラウド固有の部品を製品に持ち込まないため、移設の影響がここだけに収まる</td></tr>
+    </table>
+    <div class="src">出典：レベスト機能仕様（2026年9月時点）</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>5</span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">構築と運用</div></div>
+
+  <h1>製品に取り込むのは、型チェックからDockerビルドまでを通過した変更だけ</h1>
+  <div class="c" style="justify-content:center">
+    <div class="chev">
+      <div class="cv"><span class="n">1</span><span class="t">型とコード規約</span><span class="x">画面側とサーバー側の両方で、型チェックとコード規約の検査を通す</span></div>
+      <div class="cv"><span class="n">2</span><span class="t">テスト</span><span class="x">単体テストに加え、実際のデータベースをつないだ統合テストを走らせる</span></div>
+      <div class="cv"><span class="n">3</span><span class="t">データベースの整合</span><span class="x">データベースの定義と更新手順がずれていないかを検査し、初期データを何度投入しても同じ状態になることを確かめる</span></div>
+      <div class="cv"><span class="n">4</span><span class="t">ビルドと監査</span><span class="x">両方のビルドと依存関係の脆弱性監査、本番用Dockerイメージの構築まで通す</span></div>
+    </div>
+    <div class="src">出典：4段はすべて必須で、1つでも失敗した変更は製品に反映しない　／　レベストの継続的インテグレーション設定（2026年9月時点）</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>6</span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">商談での進め方</div></div>
+
+  <h1>商談で答えてよい内容と、当社に回す論点をあらかじめ分けておく</h1>
+  <div class="c">
+    <table class="eq">
+      <tr><th class="ax" style="width:44mm">よく聞かれる論点</th><th>その場で答えてよい内容</th><th>当社に回すべき場面</th></tr>
+      <tr><td class="ax">始めるのに要るデータ</td>
+        <td>日別の販売室数と室料売上、月次の予算がそろえば取り込みを始められる</td>
+        <td>提供形式が特殊で、取り込みに変換が要りそうなとき</td></tr>
+      <tr><td class="ax">データの置き場所</td>
+        <td>AWSとGCPのどちらでも構築でき、接続先は設定で差し替える</td>
+        <td>顧客が置き場所や国内保管を指定するとき</td></tr>
+      <tr><td class="ax">他社データの分離</td>
+        <td>契約企業を越えられるのは当社の運営ロールだけで、顧客の管理者も越えられない</td>
+        <td>顧客の情報システム部門が監査資料を求めるとき</td></tr>
+      <tr><td class="ax">費用と契約の形</td>
+        <td>見積もりは個別に当社が出す旨のみ伝える</td>
+        <td>金額・契約条件に触れるときは必ず当社に回す</td></tr>
+    </table>
+    <div class="src">出典：レベスト機能仕様（2026年9月時点）</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>7</span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">商談での進め方</div></div>
+
+  <h1>パートナーが担うのは顧客の開拓から一次窓口までで、<br>構築と保守は当社が担う</h1>
+  <div class="c">
+    <table class="eq">
+      <tr><th class="ax" style="width:44mm">局面</th><th>パートナーが担うこと</th><th>当社が担うこと</th></tr>
+      <tr><td class="ax">顧客の開拓</td>
+        <td>顧客を開拓し、業務課題を聞き取る</td>
+        <td>想定問答と資料を提供し、初回は商談に同席する</td></tr>
+      <tr><td class="ax">提案</td>
+        <td>本資料をもとに機能と提供範囲を説明する</td>
+        <td>デモ環境を用意し、個別の確認事項に回答する</td></tr>
+      <tr><td class="ax">見積もりと契約</td>
+        <td>対象施設と試験運用の期間を顧客と詰める</td>
+        <td>見積もりを作り、契約条件を提示する</td></tr>
+      <tr><td class="ax">導入作業</td>
+        <td>顧客との日程を調整する</td>
+        <td>環境を用意し、受け取った実績データを取り込む</td></tr>
+      <tr><td class="ax">運用開始後</td>
+        <td>問い合わせを一次で受ける</td>
+        <td>障害と機能追加に対応し、変更内容を共有する</td></tr>
+    </table>
+    <div class="src">出典：レベスト機能仕様（2026年9月時点）</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>8</span></div>
+</section>
+<section class="s">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">次に決めること</div></div>
+
+  <h1>対象とする顧客層と初回の共同提案先を、はじめに決める</h1>
+  <div class="c">
+    <table class="eq">
+      <tr><th class="ax" style="width:46mm">決めること</th><th>論点</th><th>当社の考え</th></tr>
+      <tr><td class="ax">対象とする顧客層</td>
+        <td>単独の施設を狙うか、複数施設を持つ運営会社を狙うか</td>
+        <td>施設ごとの設定を持ったまま横断で集計できるため、複数施設のほうが向く</td></tr>
+      <tr><td class="ax">初回の共同提案先</td>
+        <td>どの顧客に、いつ、どちらが主体で提案するか</td>
+        <td>初回は当社が同席し、想定問答を実際の商談で補う</td></tr>
+      <tr><td class="ax">提案時の資料</td>
+        <td>経営層向けと実務者向けのどちらを先に出すか</td>
+        <td>初回は経営層向けを使い、二回目以降に実務者向けを使う</td></tr>
+      <tr><td class="ax">検証環境</td>
+        <td>デモに使う環境を、パートナー側に常設するかどうか</td>
+        <td>サンプルデータを入れた環境を用意し、画面を触りながら説明できる形にする</td></tr>
+    </table>
+    <div class="src">出典：レベスト機能仕様（2026年9月時点）。当社の考えは提案であり、実測値にもとづくものではない</div>
+  </div>
+  <div class="foot"><b>レベスト</b><span>9</span></div>
+</section>
+<section class="s cover">
+  <div class="bar"><div class="logo">レベスト</div><div class="date">　</div></div>
+
+  <div class="big" style="margin-top:60mm;font-size:22pt">レベスト</div>
+  <div class="sub">ホテル収益管理システム</div>
+  <div class="src" style="position:absolute;left:16mm;bottom:14mm">本資料は consulting-pptx-skill（github.com/carnot-tech/consulting-pptx-skill）で作成</div>
+  <div class="foot"><b>レベスト</b><span></span></div>
+</section>
+</main>
+</body></html>
