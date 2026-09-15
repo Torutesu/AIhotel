@@ -1,0 +1,55 @@
+# AIhotel backend on Fly.io — the permanent home for `docker/backend.Dockerfile`.
+#
+# Why Fly (docs/deploy-runbook.md §1 has the full decision record): the image is already
+# cloud-agnostic (DATABASE_URL only, no cloud SDK — AGENTS.md), the owner already operates a Fly
+# app for another product, the Tokyo region (nrt) is available, and the whole stack (one machine +
+# one small Postgres) costs less than a single RDS/Cloud SQL instance. Moving to ECS/Cloud Run
+# later is a matter of pointing the same image at a different DATABASE_URL.
+#
+# Nothing secret lives here. DATABASE_URL, JWT_SECRET and FRONTEND_URL are Fly secrets
+# (`fly secrets set`, runbook §3). This file is committed and public.
+
+app = "aihotel-api"
+primary_region = "nrt"
+
+[build]
+  dockerfile = "docker/backend.Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3001"
+  LOG_FORMAT = "json"
+  # Behind Fly's edge proxy: one hop, so req.ip comes from X-Forwarded-For (backend/.env.example).
+  TRUST_PROXY = "1"
+  # One machine (see [http_service] below), so the entrypoint may run `prisma migrate deploy`
+  # before starting. With more than one machine, move migrations to a separate step and unset
+  # this (docker/backend-entrypoint.sh).
+  MIGRATE_ON_START = "true"
+  # Report cache only (lib/storage.ts). No volume: a redeploy clears it and the next request
+  # regenerates the PDF/Excel. Attach a volume before making this durable data.
+  STORAGE_DRIVER = "local"
+  STORAGE_LOCAL_DIR = "storage"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  # Always on: the hotel-side sender and the Vercel proxy must not pay a cold start, and a stopped
+  # machine would turn the first request of the day into a 502 on the dashboard.
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+  # `/health` runs `SELECT 1` and answers 503 when the DB is unreachable (C-7), so this check
+  # covers the database path as well, not just the process.
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  # 1 GB: Prisma's engine plus pdfkit/exceljs report generation. 512 MB is enough for the API
+  # alone but a monthly PDF for a large hotel can push past it.
+  memory = "1gb"

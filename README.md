@@ -485,7 +485,11 @@ Root Directory を `frontend` にしているため、コマンドは `cd ..` �
 
 ### Backend（コンテナ、クラウド非依存）
 
-Backend は `docker/backend.Dockerfile` のイメージを **AWS ECS Fargate** または **GCP Cloud Run** のどちらにもデプロイできます。DBは **AWS RDS** または **GCP Cloud SQL** 等のマネージドPostgreSQLを `DATABASE_URL` で指定するだけで切り替え可能です。
+**常設先は Fly.io（東京 `nrt`）。手順・判断記録・運用は [`docs/deploy-runbook.md`](docs/deploy-runbook.md)。**
+リポジトリ直下の `fly.toml` がアプリ定義、`.github/workflows/deploy-backend.yml` が `main` への push で自動デプロイ、
+`.github/workflows/daily-job.yml` が日次バッチ（03:00 JST）を担う。
+
+Backend は `docker/backend.Dockerfile` のイメージを **AWS ECS Fargate** または **GCP Cloud Run** にもデプロイできます。DBは **AWS RDS** または **GCP Cloud SQL** 等のマネージドPostgreSQLを `DATABASE_URL` で指定するだけで切り替え可能です。
 
 環境変数の設定例：
 

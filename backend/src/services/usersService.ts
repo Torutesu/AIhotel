@@ -1,7 +1,8 @@
 import type { User, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { ApiError, BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
-import type { UpdateUserInput } from '../lib/validators.js'
+import { registerSchema, type UpdateUserInput } from '../lib/validators.js'
+import { hashPassword } from '../lib/auth.js'
 
 // ユーザー管理（N-3 / #62）。
 //
@@ -32,6 +33,64 @@ function stripPassword(user: User): SafeUser {
  * テナント横断ユーザー（N-6）も一覧に含まれる。
  * ホテルへのアクセス権はルータの requireHotelAccess が検証済み。
  */
+/** `bootstrapPlatformAdminService` の入力。パスワード規則は registerSchema と同じ */
+export interface BootstrapPlatformAdminInput {
+  email: string
+  password: string
+  name: string
+}
+
+export type BootstrapPlatformAdminResult =
+  | { created: true; user: SafeUser }
+  /** 既に運営が存在する（このメールとは限らない）。何も変更しない */
+  | { created: false; existingPlatformAdmins: number }
+
+/**
+ * 本番の最初の運営（PLATFORM_ADMIN）を作る（docs/deploy-runbook.md §3-4）。
+ *
+ * `POST /auth/register` は認証必須で、運営ロールを付与できるのも運営だけ（#62）なので、
+ * 空のデータベースには「最初の運営」を作る経路が無い。seed はデモアカウントを既知の
+ * パスワードで作るため本番に投入できない（AGENTS.md）。この関数はその 1 回だけを担う。
+ *
+ * 冪等: 運営が 1 人でも存在すれば何もしない（`created: false`）。既存の運営のパスワードを
+ * この経路で上書きすることはできない — それは通常のユーザー管理で行う。
+ */
+export async function bootstrapPlatformAdminService(
+  input: BootstrapPlatformAdminInput
+): Promise<BootstrapPlatformAdminResult> {
+  const parsed = registerSchema
+    .pick({ email: true, password: true, name: true })
+    .safeParse(input)
+  if (!parsed.success) {
+    const details = parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', ')
+    throw new ApiError(400, `運営アカウントの入力が不正です: ${details}`)
+  }
+  const { email, password, name } = parsed.data
+
+  const existingPlatformAdmins = await prisma.user.count({
+    where: { role: 'PLATFORM_ADMIN' },
+  })
+  if (existingPlatformAdmins > 0) {
+    return { created: false, existingPlatformAdmins }
+  }
+  if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) {
+    throw new ApiError(409, 'このメールアドレスは既に登録されています')
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      email,
+      password: await hashPassword(password),
+      name,
+      role: 'PLATFORM_ADMIN',
+      tenantId: null,
+      hotelId: null,
+      isActive: true,
+    },
+  })
+  return { created: true, user: stripPassword(user) }
+}
+
 export async function listUsersService(hotelId: string): Promise<SafeUser[]> {
   const hotel = await prisma.hotel.findFirst({
     where: { id: hotelId, isActive: true },
