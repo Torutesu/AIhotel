@@ -16,12 +16,19 @@
     -KitPath C:\hotel-import\tl-kit -Endpoint https://api.example.com `
     -Email import@example.com -HotelId <hotelId> -Days 30
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Run')]
 param(
-  [Parameter(Mandatory = $true)][string]$KitPath,
-  [Parameter(Mandatory = $true)][string]$Endpoint,
-  [Parameter(Mandatory = $true)][string]$Email,
-  [Parameter(Mandatory = $true)][string]$HotelId,
+  # --- TL-リンカーンのパスワードを保存するモード（初回のみ） ---
+  [Parameter(ParameterSetName = 'SaveTlPassword', Mandatory = $true)][switch]$SaveTlPassword,
+
+  # --- 実行モード ---
+  [Parameter(ParameterSetName = 'Run', Mandatory = $true)][string]$KitPath,
+  [Parameter(ParameterSetName = 'Run', Mandatory = $true)][string]$Endpoint,
+  [Parameter(ParameterSetName = 'Run', Mandatory = $true)][string]$Email,
+  [Parameter(ParameterSetName = 'Run', Mandatory = $true)][string]$HotelId,
+  # TL-リンカーンのログインID。パスワードは $TlCredentialPath から読む
+  [Parameter(ParameterSetName = 'Run')][string]$TlUser,
+  [string]$TlCredentialPath = (Join-Path $PSScriptRoot 'tl-cred.txt'),
   [string]$SenderPath = (Join-Path $PSScriptRoot '..\field-test\Send-ReservationCsv.ps1'),
   [string]$CredentialPath = (Join-Path $PSScriptRoot 'cred.txt'),
   [string]$Source = 'tl-lincoln',
@@ -32,6 +39,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# TL-リンカーンのパスワードをこの端末・このユーザー専用に暗号化して保存する（DPAPI）。
+# タスクスケジューラから無人実行するとき、環境変数に平文を残さないための入り口。
+if ($PSCmdlet.ParameterSetName -eq 'SaveTlPassword') {
+  $secure = Read-Host -AsSecureString -Prompt 'TL-リンカーンのパスワード'
+  $dir = Split-Path -Parent $TlCredentialPath
+  if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+  $secure | ConvertFrom-SecureString | Set-Content -LiteralPath $TlCredentialPath -Encoding ASCII
+  Write-Host "保存しました: $TlCredentialPath"
+  Write-Host '同じ端末・同じユーザーでしか復号できません。別端末では再作成が必要です。'
+  return
+}
 
 if (-not (Test-Path -LiteralPath $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
 $logPath = Join-Path $LogDir ("pipeline-{0}.log" -f (Get-Date -Format 'yyyyMMdd'))
@@ -57,10 +76,30 @@ if (-not (Test-Path -LiteralPath $runCmd)) {
 $before = @(Get-ChildItem -LiteralPath $outDir -Filter '*.csv' -File -ErrorAction SilentlyContinue |
             Select-Object -ExpandProperty FullName)
 
+# TL-リンカーンの認証情報は、ここで復号してこのプロセス限定の環境変数に載せる。
+# 端末の環境変数（setx）やスクリプトには残さない。プロセス終了と同時に消える。
+if ($TlUser) {
+  if (-not (Test-Path -LiteralPath $TlCredentialPath)) {
+    Write-Log 'error' "TLの認証情報がありません: $TlCredentialPath （-SaveTlPassword で作成してください）"
+    exit 1
+  }
+  $secure = Get-Content -LiteralPath $TlCredentialPath -Raw | ConvertTo-SecureString
+  $env:TL_USER = $TlUser
+  $env:TL_PASSWORD = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                       [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+} elseif (-not $env:TL_USER) {
+  Write-Log 'error' '-TlUser を指定するか、環境変数 TL_USER / TL_PASSWORD を設定してください'
+  exit 1
+}
+
 Write-Log 'info' "取得を開始します（直近 $Days 日）"
-# TL_USER / TL_PASSWORD は呼び出し元（タスクの実行ユーザー環境）で設定しておく
-& $runCmd '--days' $Days
-$exportExit = $LASTEXITCODE
+try {
+  & $runCmd '--days' $Days
+  $exportExit = $LASTEXITCODE
+} finally {
+  # 復号したパスワードをこのプロセスからも消す
+  $env:TL_PASSWORD = $null
+}
 
 if ($exportExit -ne 0) {
   $detail = if (Test-Path -LiteralPath (Join-Path $outDir 'last-error.txt')) {
