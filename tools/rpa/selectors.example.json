@@ -1,0 +1,23 @@
+{
+  "_comment": "現地で codegen を回して実際のセレクタに置き換える。値が空のままだと export-tl.mjs は何をすべきか分からないので起動時に止まる",
+  "loginUrl": "",
+  "login": {
+    "userInput": "",
+    "passwordInput": "",
+    "submitButton": "",
+    "successLocator": ""
+  },
+  "export": {
+    "navigation": [],
+    "dateFromInput": "",
+    "dateToInput": "",
+    "dateFormat": "yyyy/MM/dd",
+    "searchButton": "",
+    "exportButton": "",
+    "confirmButton": ""
+  },
+  "expected": {
+    "minColumns": 5,
+    "requiredHeaders": []
+  }
+}
