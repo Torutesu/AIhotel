@@ -1,0 +1,100 @@
+name: Deploy backend (Fly)
+
+# Ships docker/backend.Dockerfile to the Fly app named in fly.toml (docs/deploy-runbook.md).
+#
+# One-time setup — add this repository secret (Settings → Secrets and variables → Actions):
+#   FLY_API_TOKEN   `fly tokens create deploy -a aihotel-api`   (app-scoped, deploy only)
+#
+# Until that secret exists the workflow still builds the image on every push to main, so a
+# Dockerfile that stopped building is caught immediately, and it reports "deploy skipped"
+# instead of failing. Application secrets (DATABASE_URL, JWT_SECRET, FRONTEND_URL) are never
+# here: they live in Fly's secret store (`fly secrets set`).
+#
+# Deploys run automatically on every push to main that touches the backend, and on demand via
+# workflow_dispatch (re-deploy the current main, e.g. after changing a Fly secret).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'shared/**'
+      - 'docker/backend.Dockerfile'
+      - 'docker/backend-entrypoint.sh'
+      - 'fly.toml'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.npmrc'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+# One release at a time: MIGRATE_ON_START runs `prisma migrate deploy` in the new machine, and two
+# releases racing on the same database is the case Prisma's advisory lock exists to refuse.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Check deploy credential
+    runs-on: ubuntu-latest
+    outputs:
+      has_token: ${{ steps.check.outputs.has_token }}
+    steps:
+      - id: check
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -n "$FLY_API_TOKEN" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::FLY_API_TOKEN is not set — the image is built and verified, but not deployed. See docs/deploy-runbook.md §4."
+          fi
+
+  build:
+    name: Build backend image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (same Dockerfile Fly builds remotely)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/backend.Dockerfile
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+  deploy:
+    name: Deploy to Fly
+    needs: [preflight, build]
+    if: needs.preflight.outputs.has_token == 'true'
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --config fly.toml --dockerfile docker/backend.Dockerfile --remote-only
+
+      # `/health` answers 503 when the database is unreachable, so a green deploy with a broken
+      # DATABASE_URL fails here instead of on the first dashboard load.
+      - name: Confirm the API is healthy
+        run: |
+          APP="$(sed -n 's/^app = "\(.*\)"/\1/p' fly.toml)"
+          URL="https://${APP}.fly.dev/health"
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$URL"; then
+              echo
+              echo "backend is healthy at $URL"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::$URL did not report healthy after the deploy (check DATABASE_URL / fly logs)."
+          exit 1

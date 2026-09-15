@@ -69,6 +69,13 @@ const envSchema = z.object({
   STORAGE_DRIVER: z.enum(['local']).default('local'),
   // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
   STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
+
+  // 本番の初回運営（PLATFORM_ADMIN）アカウント作成専用（jobs/bootstrapPlatformAdmin.ts）。
+  // seed は本番に投入しない（AGENTS.md）ため、最初のログインに使う運営アカウントはこの経路で作る。
+  // API サーバーは参照しない。値はコマンド履歴に残さないよう、実行時にだけ環境変数で渡す。
+  BOOTSTRAP_PLATFORM_ADMIN_EMAIL: z.string().trim().toLowerCase().email().optional(),
+  BOOTSTRAP_PLATFORM_ADMIN_PASSWORD: z.string().min(1).optional(),
+  BOOTSTRAP_PLATFORM_ADMIN_NAME: z.string().trim().min(1).max(100).default('運営'),
 })
   // 本番では DATABASE_URL 未設定のまま起動させない（S-7）。
   // 開発・テストでは型チェックや単体テストのみを回す用途があるため任意のままにする。

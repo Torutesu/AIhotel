@@ -1,0 +1,46 @@
+name: Daily batch (03:00 JST)
+
+# Runs backend/src/jobs/daily.ts inside the running Fly machine once a day
+# (README「バッチ」: 需要予測の再計算 → 着地シミュレーション → KPI スナップショット → 期限切れ
+# トークン掃除). The job is idempotent, so a manual re-run on the same day is safe.
+#
+# Why here and not a Fly scheduled machine: this executes the exact image that is currently
+# deployed (no second copy of the image to keep in step), the repository is public so scheduled
+# Actions cost nothing, and a failed night shows up as a red run with the job's own log.
+#
+# Needs the same FLY_API_TOKEN secret as deploy-backend.yml. `flyctl ssh console -C` returns the
+# command's exit code, and daily.ts exits 1 when any hotel failed, so a partial night is red.
+
+on:
+  schedule:
+    - cron: '0 18 * * *'   # 18:00 UTC = 03:00 JST
+  workflow_dispatch:
+
+concurrency:
+  group: daily-job
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: node dist/jobs/daily.js on the Fly machine
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip until the deploy credential exists
+        id: gate
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::warning::FLY_API_TOKEN is not set — nothing is deployed yet, so there is nothing to run (docs/deploy-runbook.md §4)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+        if: steps.gate.outputs.ready == 'true'
+      - name: Run the daily batch
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          APP="$(sed -n 's/^app = "\(.*\)"/\1/p' fly.toml)"
+          flyctl ssh console -a "$APP" -C "node /app/backend/dist/jobs/daily.js"
