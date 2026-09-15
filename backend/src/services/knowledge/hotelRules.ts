@@ -1,6 +1,7 @@
 // 個社MDの「## ルール」節の解釈（docs/外部要因設計.md §7）。DB 非依存の純粋ロジック。
 //
 // ヒアリングで決めた方針のうち、機械が読める項目だけを固定の語彙で書く:
+//   ティア: おまかせ            （大手/エンタープライズ・標準/スタンダード・おまかせ/旅館 のいずれか）
 //   最小ランク: 8
 //   最大ランク: 36
 //   最低価格: 9800
@@ -16,9 +17,13 @@
 //   禁止: 前年同日より2段以上下げない
 // 解釈できない行は errors に残し、黙って無視しない。数値の係数はここに書かせない（学習と二重管理になる）。
 
+import { parseTier, tierProfile } from './tierProfile.js'
+
 export type FactorGroup = 'weather' | 'event' | 'school' | 'holiday' | 'special' | 'comp' | 'weekend'
 
 export interface HotelRules {
+  /** ティア: ENTERPRISE / STANDARD / MANAGED（tierProfile.ts） */
+  tier?: 'ENTERPRISE' | 'STANDARD' | 'MANAGED'
   minRank?: number
   maxRank?: number
   /** 円。ランク表から最小ランクに変換する（apply 時） */
@@ -168,7 +173,10 @@ export function parseHotelRules(markdown: string): RuleParseResult {
     const value = m[2].trim()
     const fail = (reason: string) => errors.push({ line, text, reason })
 
-    if (key === '最小ランク' || key === '最低ランク') {
+    if (key === 'ティア' || key === '説明レベル' || key === 'プラン') {
+      const t = parseTier(value)
+      t ? (rules.tier = t) : fail('大手（エンタープライズ）／標準（スタンダード）／おまかせ（旅館・小規模） のいずれかで指定してください')
+    } else if (key === '最小ランク' || key === '最低ランク') {
       const n = parseInteger(value)
       n != null && n >= 1 && n <= 40 ? (rules.minRank = n) : fail('1〜40 の整数で指定してください')
     } else if (key === '最大ランク' || key === '上限ランク') {
@@ -226,6 +234,7 @@ export function parseHotelRules(markdown: string): RuleParseResult {
 export function summarizeRulesForPrompt(rules: HotelRules | null | undefined): string {
   if (!rules) return ''
   const parts: string[] = []
+  if (rules.tier) parts.push(`ティア: ${tierProfile(rules.tier).label}`)
   if (rules.minRank != null || rules.maxRank != null) parts.push(`ランク範囲 R${rules.minRank ?? 1}〜R${rules.maxRank ?? 40}`)
   if (rules.minPrice != null) parts.push(`最低価格 ${rules.minPrice.toLocaleString('ja-JP')}円`)
   if (rules.maxDailyRankChange != null) parts.push(`1回の最大変動 ±${rules.maxDailyRankChange}`)

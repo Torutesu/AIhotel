@@ -18,7 +18,25 @@ export type Hotel = SharedHotel & {
   llmProvider?: string | null
   /** LLMモデルID。null ならプロバイダの既定モデル */
   llmModel?: string | null
+  /** ティア（説明の深さと任せ方）: ENTERPRISE / STANDARD / MANAGED */
+  explanationTier?: ExplanationTier | null
 }
+
+export type ExplanationTier = "ENTERPRISE" | "STANDARD" | "MANAGED"
+
+export interface TierProfileInfo {
+  id: ExplanationTier
+  label: string
+  audience: string
+  defaultAutoAdopt: boolean
+  uiEmphasis: "full" | "digest" | "minimal"
+}
+
+const MOCK_TIER_PROFILES: TierProfileInfo[] = [
+  { id: "ENTERPRISE", label: "エンタープライズ（詳細）", audience: "大手・チェーン・レベニューマネージャー専任。指標と理由を細かく見て自分で判断する", defaultAutoAdopt: false, uiEmphasis: "full" },
+  { id: "STANDARD", label: "スタンダード（標準）", audience: "中規模・支配人やフロント責任者が兼任。要点と理由が分かれば自分で採否を決められる", defaultAutoAdopt: false, uiEmphasis: "digest" },
+  { id: "MANAGED", label: "おまかせ（運用代行）", audience: "旅館・小規模・専任なし。価格はシステム側で決め、ホテルは結果と例外だけ見る", defaultAutoAdopt: true, uiEmphasis: "minimal" },
+]
 
 export type { PriceRank }
 
@@ -1159,6 +1177,7 @@ export interface UpdateHotelSettingsInput {
   llmProvider?: LlmProviderName | null
   /** LLMモデルID。プロバイダの既定に戻す場合は null */
   llmModel?: string | null
+  explanationTier?: ExplanationTier
 }
 
 // ---- Dev-only demo data (ダッシュボード/ダイナミックプライシング画面用) ----
@@ -3097,6 +3116,13 @@ export const api = {
   },
 
   /** AIモデル（LLM）の選択肢と、このホテルで実際に使われる選択 */
+  tierProfiles(): Promise<TierProfileInfo[]> {
+    return withDemoFallback(
+      () => rawRequest<TierProfileInfo[]>("/api/v1/settings/tiers"),
+      () => MOCK_TIER_PROFILES
+    )
+  },
+
   llmOptions(hotelId: string): Promise<LlmOptions> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/settings/llm?hotelId=${hotelId}`),

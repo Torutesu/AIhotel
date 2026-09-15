@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { getLlmOptionsService } from '../services/llm/llmService.js'
+import { TIER_PROFILES } from '../services/knowledge/tierProfile.js'
 import { asyncHandler } from '../middlewares/errorHandler.js'
 import { sendSuccess, sendCreated, sendDeleted } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
@@ -104,4 +105,12 @@ export const updateHotelSettings = asyncHandler(async (req: Request, res: Respon
 export const getLlmOptions = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId } = req.query as unknown as { hotelId: string }
   sendSuccess(res, await getLlmOptionsService(hotelId))
+})
+
+/**
+ * ティアの定義（ラベル・想定ホテル像・既定）。設定画面と販売代理店向け説明で共通に使う
+ * GET /api/v1/settings/tiers
+ */
+export const getTierProfiles = asyncHandler(async (_req: Request, res: Response) => {
+  sendSuccess(res, Object.values(TIER_PROFILES).map((t) => ({ id: t.id, label: t.label, audience: t.audience, defaultAutoAdopt: t.defaultAutoAdopt, uiEmphasis: t.uiEmphasis })))
 })

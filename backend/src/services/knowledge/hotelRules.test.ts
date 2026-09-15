@@ -81,3 +81,13 @@ describe('summarizeRulesForPrompt', () => {
     expect(summarizeRulesForPrompt(null)).toBe('')
   })
 })
+
+describe('ティア', () => {
+  it('ティアを別名から解釈し、要約に含める', () => {
+    const r = parseHotelRules('## ルール\nティア: おまかせ')
+    expect(r.rules.tier).toBe('MANAGED')
+    expect(summarizeRulesForPrompt(r.rules)).toContain('おまかせ')
+    expect(parseHotelRules('## ルール\n説明レベル: 大手').rules.tier).toBe('ENTERPRISE')
+    expect(parseHotelRules('## ルール\nティア: 銀').errors[0].reason).toContain('おまかせ')
+  })
+})

@@ -11,6 +11,7 @@ import { searchKnowledge as searchGlobalKnowledge } from './knowledgeService.js'
 import { parseHotelRules, summarizeRulesForPrompt, FACTOR_GROUP_PREFIX, FACTOR_GROUP_LABELS, type HotelRules, type RuleParseError } from './hotelRules.js'
 import { FACTOR_DEFAULTS } from '../forecast/factorDefaults.js'
 import { recomputeForecastService } from '../forecast/forecastService.js'
+import { tierProfile } from './tierProfile.js'
 
 export type KnowledgeScope = 'tenant' | 'global'
 
@@ -97,8 +98,15 @@ export async function applyHotelRulesService(tenantId: string, hotelId: string |
   const lockKeys = factorKeysForGroups(rules.disabledFactorGroups)
 
   for (const hotel of hotels) {
+    // ---- ティア（説明の深さ・運用の任せ方）。自動採用が明示されていなければティアの既定に従う
+    if (rules.tier) {
+      await prisma.hotel.update({ where: { id: hotel.id }, data: { explanationTier: rules.tier } })
+      result.strategyUpdates = { ...result.strategyUpdates, explanationTier: rules.tier }
+    }
+
     // ---- ガードレール（指定された項目だけ更新）
     const update: Prisma.PricingStrategyConfigUncheckedUpdateInput = {}
+    if (rules.autoAdopt == null && rules.tier) update.autoAdopt = tierProfile(rules.tier).defaultAutoAdopt
     if (rules.minRank != null) update.minRank = rules.minRank
     if (rules.maxRank != null) update.maxRank = rules.maxRank
     if (rules.maxDailyRankChange != null) update.maxDailyRankChange = rules.maxDailyRankChange
@@ -274,7 +282,11 @@ export async function deleteKnowledgeDocumentService(id: string, tenantId: strin
 /**
  * チャット・AIまとめ用: このホテルに効く個社ルールの要約と文書名
  */
-export async function getTenantKnowledgeContextService(tenantId: string, hotelId: string): Promise<{ rulesSummary: string; documentTitles: string[]; rules: HotelRules | null }> {
+export async function getTenantKnowledgeContextService(
+  tenantId: string,
+  hotelId: string
+): Promise<{ rulesSummary: string; documentTitles: string[]; rules: HotelRules | null; tier: ReturnType<typeof tierProfile> }> {
+  const hotel = await prisma.hotel.findUnique({ where: { id: hotelId }, select: { explanationTier: true } })
   const docs = await prisma.knowledgeDocument.findMany({
     where: { tenantId, isActive: true, OR: [{ hotelId: null }, { hotelId }] },
     orderBy: [{ hotelId: 'desc' }, { updatedAt: 'desc' }], // ホテル専用を先に
@@ -283,7 +295,7 @@ export async function getTenantKnowledgeContextService(tenantId: string, hotelId
   // ホテル専用のルールを優先し、無ければテナント共通
   const withRules = docs.find((d) => d.rules && d.hotelId === hotelId) ?? docs.find((d) => d.rules)
   const rules = (withRules?.rules as unknown as HotelRules | null) ?? null
-  return { rulesSummary: summarizeRulesForPrompt(rules), documentTitles: docs.map((d) => d.title), rules }
+  return { rulesSummary: summarizeRulesForPrompt(rules), documentTitles: docs.map((d) => d.title), rules, tier: tierProfile(hotel?.explanationTier) }
 }
 
 export { FACTOR_GROUP_LABELS }

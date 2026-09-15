@@ -14,6 +14,7 @@ import {
   deletePriceRank,
   updateHotelSettings,
   getLlmOptions,
+  getTierProfiles,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -69,3 +70,6 @@ settingsRouter.get(
   validate(hotelIdQuerySchema, 'query'),
   getLlmOptions
 )
+
+// GET /api/v1/settings/tiers — ティアの定義
+settingsRouter.get('/tiers', getTierProfiles)

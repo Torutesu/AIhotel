@@ -81,6 +81,8 @@ import {
   type SavedKnowledgeDocument,
   type FactorGroup,
   type DemandLevel,
+  type ExplanationTier,
+  type TierProfileInfo,
 } from "@/lib/api"
 
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"]
@@ -2184,11 +2186,30 @@ export function SettingsTab() {
   const [llmOptions, setLlmOptions] = useState<LlmOptions | null>(null)
   const [llmOptionsLoading, setLlmOptionsLoading] = useState(true)
   const [llmOptionsError, setLlmOptionsError] = useState<string | null>(null)
+  // ティア（説明の深さと任せ方）。個社MDの「ティア:」でも変わる
+  const [explanationTier, setExplanationTier] = useState<ExplanationTier>("STANDARD")
+  const [tierProfiles, setTierProfiles] = useState<TierProfileInfo[]>([])
 
   const applyLlmFromHotel = useCallback((h: Hotel) => {
     setLlmProviderSel(h.llmProvider ?? LLM_DEFAULT_VALUE)
     setLlmModel(h.llmModel ?? "")
     setLlmModelCustom(false)
+    setExplanationTier(h.explanationTier ?? "STANDARD")
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    api
+      .tierProfiles()
+      .then((p) => {
+        if (!cancelled) setTierProfiles(p)
+      })
+      .catch(() => {
+        if (!cancelled) setTierProfiles([])
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const loadLlmOptions = useCallback(async () => {
@@ -2420,6 +2441,7 @@ export function SettingsTab() {
           longitude: lng,
           llmProvider,
           llmModel: llmModelValue,
+          explanationTier,
         })
         setHotel(updated)
         applyLlmFromHotel(updated)
@@ -2671,6 +2693,45 @@ export function SettingsTab() {
                     />
                   </div>
                 </div>
+              </div>
+
+              <Separator />
+
+              {/* ティア（説明の深さと任せ方） */}
+              <div className="space-y-3">
+                <div>
+                  <Label>ティア（説明の深さと任せ方）</Label>
+                  <p className="text-sm text-muted-foreground">
+                    アルゴリズムは共通で、チャット・AIまとめの説明の深さと自動採用の既定が変わります。個社MDの「ティア:」でも切り替わります。
+                  </p>
+                </div>
+                <Select value={explanationTier} onValueChange={(v: ExplanationTier) => setExplanationTier(v)} disabled={!canManageHotel}>
+                  <SelectTrigger className="w-full sm:w-[320px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(tierProfiles.length > 0
+                      ? tierProfiles
+                      : ([
+                          { id: "MANAGED", label: "おまかせ（運用代行）", audience: "", defaultAutoAdopt: true, uiEmphasis: "minimal" },
+                          { id: "STANDARD", label: "スタンダード（標準）", audience: "", defaultAutoAdopt: false, uiEmphasis: "digest" },
+                          { id: "ENTERPRISE", label: "エンタープライズ（詳細）", audience: "", defaultAutoAdopt: false, uiEmphasis: "full" },
+                        ] as TierProfileInfo[])
+                    ).map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {(() => {
+                  const cur = tierProfiles.find((t) => t.id === explanationTier)
+                  return cur ? (
+                    <p className="text-xs text-muted-foreground">
+                      {cur.audience}。自動採用の既定: {cur.defaultAutoAdopt ? "オン" : "オフ"}
+                    </p>
+                  ) : null
+                })()}
               </div>
 
               <Separator />

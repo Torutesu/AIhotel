@@ -207,6 +207,8 @@ export const updateHotelSettingsSchema = z.object({
   // LLM の選択（null で環境変数の既定に戻す）
   llmProvider: z.enum(['anthropic', 'openai']).nullable().optional(),
   llmModel: z.string().min(1).max(100).nullable().optional(),
+  // ティア（説明の深さ・運用の任せ方）
+  explanationTier: z.enum(['ENTERPRISE', 'STANDARD', 'MANAGED']).optional(),
 })
 
 // ======================================

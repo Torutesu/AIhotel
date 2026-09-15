@@ -9,6 +9,7 @@ import { findTool, toolsForRole, type ToolContext } from './chatTools.js'
 import { getPricingDigestService } from '../pricing/digestService.js'
 import { toIsoDate } from '../signals/holidaySignal.js'
 import { getTenantKnowledgeContextService } from '../knowledge/tenantKnowledgeService.js'
+import { tierProfile } from '../knowledge/tierProfile.js'
 
 const HISTORY_LIMIT = 20
 const MAX_TURNS = 6
@@ -75,6 +76,9 @@ export function buildSystemPrompt(params: {
   digestLine: string
   rulesSummary?: string
   tenantDocuments?: string[]
+  /** ティア別の語り口（tierProfile.explanationStyle） */
+  explanationStyle?: string
+  tierLabel?: string
 }): string {
   return [
     `あなたは「${params.hotelName}」のレベニューマネジメント担当を支援するアシスタントです。今日は ${params.today}、客室数は ${params.totalRooms} 室です。`,
@@ -84,6 +88,7 @@ export function buildSystemPrompt(params: {
     `今日のダイジェスト: ${params.digestLine}`,
     params.rulesSummary ? `このホテルの個社ルール（最優先で守る）: ${params.rulesSummary}` : '',
     params.tenantDocuments?.length ? `個社MD: ${params.tenantDocuments.join('、')}（search_knowledge で【個社】として引用できる）` : '',
+    params.explanationStyle ? `説明の深さ（ティア: ${params.tierLabel ?? ''}）: ${params.explanationStyle}` : '',
     '',
     '守ること:',
     '- 稼働率・ランク・価格・RevPAR などの数字は必ずツールで取得した値を使う。自分で計算・推測しない。',
@@ -140,7 +145,7 @@ export async function sendChatMessageService(input: SendChatInput): Promise<Chat
     prisma.chatMessage.findMany({ where: { conversationId: conversation.id }, orderBy: { createdAt: 'desc' }, take: HISTORY_LIMIT }),
     prisma.pricingStrategyConfig.findUnique({ where: { hotelId: input.hotelId }, select: { weightOccupancy: true, weightAdr: true, weightCompetitor: true } }),
     getPricingDigestService(input.hotelId).catch(() => null),
-    getTenantKnowledgeContextService(hotel.tenantId, input.hotelId).catch(() => ({ rulesSummary: '', documentTitles: [] as string[], rules: null })),
+    getTenantKnowledgeContextService(hotel.tenantId, input.hotelId).catch(() => ({ rulesSummary: '', documentTitles: [] as string[], rules: null, tier: tierProfile('STANDARD') })),
   ])
 
   const digestLine = digest
@@ -169,6 +174,8 @@ export async function sendChatMessageService(input: SendChatInput): Promise<Chat
       digestLine,
       rulesSummary: tenantKnowledge.rulesSummary,
       tenantDocuments: tenantKnowledge.documentTitles,
+      explanationStyle: tenantKnowledge.tier.explanationStyle,
+      tierLabel: tenantKnowledge.tier.label,
     }),
     messages,
     tools,

@@ -45,6 +45,7 @@ export async function generateAiSummaryService(
 
   const input = {
     hotel: { name: hotel.name, totalRooms: hotel.totalRooms },
+    tier: { label: tenantKnowledge.tier.label, explanationStyle: tenantKnowledge.tier.explanationStyle, limits: tenantKnowledge.tier.summaryLimits },
     hotelRules: tenantKnowledge.rulesSummary || null,
     asOfDate: digest.asOfDate,
     priorityDays: digest.priorityDays.slice(0, 6).map(({ topFactors: _t, ...rest }) => rest),
@@ -59,7 +60,7 @@ export async function generateAiSummaryService(
 
   const res = await provider.generateStructured({
     system:
-      'あなたはホテルのレベニューマネジメント担当向けに毎朝の要約を書くアシスタントです。入力の数字だけを使い、推測で数字を作らないでください。hotelRules（個社ルール）があれば最優先で従い、考え方の根拠は knowledge の章を引用して citations にその path（【個社】/【汎用】付き）を入れてください。日本語で簡潔に。',
+      'あなたはホテルのレベニューマネジメント担当向けに毎朝の要約を書くアシスタントです。入力の数字だけを使い、推測で数字を作らないでください。hotelRules（個社ルール）があれば最優先で従い、tier.explanationStyle の語り口と tier.limits の項目数上限を守ってください。考え方の根拠は knowledge の章を引用して citations にその path（【個社】/【汎用】付き）を入れてください。日本語で簡潔に。',
     user: `以下のデータから今日のまとめを作ってください。\n${JSON.stringify(input, null, 1)}`,
     schema: SummarySchema,
     schemaName: 'daily_summary',
