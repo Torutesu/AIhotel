@@ -17,7 +17,7 @@
     "clean": "pnpm --filter './*' clean && rm -rf node_modules"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "concurrently": "^9.2.4"
   },
   "pnpm": {
     "overrides": {
