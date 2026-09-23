@@ -16,7 +16,7 @@ import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PricingStrategy } from "@/lib/api"
-import { canManage } from "@shared/types"
+import { canManage, ROLE_LABELS } from "@shared/types"
 
 /** 重みの合計（必須値） */
 const TOTAL_WEIGHT = 100
@@ -138,7 +138,7 @@ export function StrategyWeightsCard() {
             </CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               AIが推奨価格を算出する際の重視度です。合計が100%になるように配分してください。
-              {!canEdit && "（変更にはMANAGER以上の権限が必要です）"}
+              {!canEdit && `（変更には${ROLE_LABELS.MANAGER}以上の権限が必要です）`}
             </p>
           </div>
           {canEdit && !loading && !error && (
@@ -229,7 +229,7 @@ export function StrategyWeightsCard() {
             )}
             {!canEdit && (
               <p className="text-xs text-muted-foreground">
-                現在のロールでは閲覧のみ可能です。変更はMANAGER以上のユーザーに依頼してください。
+                現在のロールでは閲覧のみ可能です。変更は{ROLE_LABELS.MANAGER}以上のユーザーに依頼してください。
               </p>
             )}
           </div>

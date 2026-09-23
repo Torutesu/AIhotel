@@ -39,7 +39,7 @@ import {
   type UpsertBudgetsRequest,
 } from "@/lib/api"
 import { formatGuests, formatPercent, formatYen } from "@/lib/format"
-import { canManage } from "@shared/types"
+import { canManage, ROLE_LABELS } from "@shared/types"
 
 /** 入力欄を持つ項目。budgetRooms / lastYearRooms はバックエンドが稼働率から導出する */
 type BudgetField =
@@ -281,7 +281,7 @@ export function BudgetSection() {
             <CardTitle>予算</CardTitle>
             <CardDescription>
               月次の売上・ADR・稼働率・宿泊人数の予算と前年実績を管理します
-              {!canEdit && "（編集にはMANAGER以上の権限が必要です）"}
+              {!canEdit && `（編集には${ROLE_LABELS.MANAGER}以上の権限が必要です）`}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">

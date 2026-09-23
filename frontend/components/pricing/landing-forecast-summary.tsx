@@ -17,7 +17,7 @@ import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PricingSimulation } from "@/lib/api"
 import { daysInMonth, monthLabel, startOfToday, toDateStr } from "@/lib/date"
 import { formatPercent as pct, formatYen as yen } from "@/lib/format"
-import { canManage } from "@shared/types"
+import { canManage, ROLE_LABELS } from "@shared/types"
 
 /** カレンダー実績から算出した現在値（実データのみ。未確定なら null） */
 export interface CurrentPerformance {
@@ -193,7 +193,7 @@ export function LandingForecastSummary({
                 実績値の平均で代用した数値は表示しません。
               </p>
               {!canRecompute && (
-                <p className="mt-1">再計算はMANAGER以上のユーザーが実行できます。</p>
+                <p className="mt-1">再計算は{ROLE_LABELS.MANAGER}以上のユーザーが実行できます。</p>
               )}
             </div>
           )}

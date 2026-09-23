@@ -92,7 +92,7 @@ export function YearlyTrendSection(props: AnalysisSectionProps) {
               const isYen = entry.dataKey !== "occupancy"
               const formatted = isYen
                 ? entry.dataKey === "revenue" || entry.dataKey === "budget" || entry.dataKey === "lastYear"
-                  ? `¥${(value / 1000000).toFixed(1)}M`
+                  ? `${(value / 1000000).toFixed(1)}百万円`
                   : `¥${Math.round(value).toLocaleString()}`
                 : `${value}%`
               return (
@@ -158,7 +158,7 @@ export function YearlyTrendSection(props: AnalysisSectionProps) {
                       tick={{ fontSize: 11 }}
                       stroke="currentColor"
                       opacity={0.5}
-                      tickFormatter={(value) => `¥${(value / 1000000).toFixed(0)}M`}
+                      tickFormatter={(value) => `${(value / 1000000).toFixed(0)}百万円`}
                     />
                     <Tooltip content={<MonthlyTrendTooltip />} />
                     <Legend wrapperStyle={{ fontSize: "12px" }} />
@@ -300,7 +300,7 @@ export function YearlyTrendSection(props: AnalysisSectionProps) {
                 <div className="flex items-start gap-3">
                   <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2" />
                   <p className="text-sm leading-relaxed">
-                    実績のある月の累計売上は¥{Math.round(monthlyTrendInsights.totalRevenue / 1000000).toLocaleString()}Mで、
+                    実績のある月の累計売上は{Math.round(monthlyTrendInsights.totalRevenue / 1000000).toLocaleString()}百万円で、
                     {monthlyTrendInsights.achievementRate != null
                       ? `同期間の予算比 ${monthlyTrendInsights.achievementRate.toFixed(1)}% です。`
                       : "予算データが未登録のため予算比は算出できません。"}

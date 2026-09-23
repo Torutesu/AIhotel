@@ -30,7 +30,7 @@ import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
 import { formatYen } from "@/lib/format"
 import { zodResolver } from "@/lib/zod-resolver"
-import { canManage as canManageRole } from "@shared/types"
+import { canManage as canManageRole, ROLE_LABELS } from "@shared/types"
 
 /** 料金ランクの上限（F-SET-02。バリデータ・seed と揃える） */
 export const MAX_PRICE_RANKS = 40
@@ -201,7 +201,7 @@ export function PriceRankSection() {
             <CardTitle>料金ランク設定</CardTitle>
             <CardDescription>
               最大{MAX_PRICE_RANKS}段階の料金ランクを管理します（現在 {priceRanks.length} 段階）
-              {!canManage && "（編集にはMANAGER以上の権限が必要です）"}
+              {!canManage && `（編集には${ROLE_LABELS.MANAGER}以上の権限が必要です）`}
             </CardDescription>
           </div>
           {canManage && (

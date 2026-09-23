@@ -225,7 +225,7 @@ export function KpiComparisonSection({ year, month, summary }: KpiComparisonSect
           <div>
             <CardTitle className="text-base font-medium">月初比較・日付比較</CardTitle>
             <p className="text-xs text-muted-foreground">
-              日次で記録したKPIスナップショットと現在の実績を比較します（GET /dashboard/kpi/comparison）
+              日次で記録したKPIスナップショットと現在の実績を比較します
             </p>
           </div>
           {canTakeSnapshot && (

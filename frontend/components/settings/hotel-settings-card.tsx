@@ -25,7 +25,7 @@ import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type Hotel } from "@/lib/api"
 import { DAY_NAMES, DEFAULT_WEEKEND_DAYS, parseWeekendDays } from "@/lib/date"
 import { zodResolver } from "@/lib/zod-resolver"
-import { canManage as canManageRole } from "@shared/types"
+import { canManage as canManageRole, ROLE_LABELS } from "@shared/types"
 
 /** 電話番号（日本の固定・携帯を想定した緩めの検証。数字・ハイフン・括弧・+ のみ） */
 const PHONE_PATTERN = /^[0-9+\-()\s]{10,20}$/
@@ -160,7 +160,7 @@ export function HotelSettingsCard() {
             <CardTitle>ホテル情報</CardTitle>
             <CardDescription>
               ホテルの基本情報を設定します
-              {!canManage && "（変更にはMANAGER以上の権限が必要です）"}
+              {!canManage && `（変更には${ROLE_LABELS.MANAGER}以上の権限が必要です）`}
             </CardDescription>
           </div>
           {canManage && !loading && !error && (

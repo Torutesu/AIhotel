@@ -42,7 +42,7 @@ export function SegmentAnalysisSection(props: AnalysisSectionProps) {
                   <span>
                     {entry.name}:{" "}
                     {entry.dataKey === "revenue" || entry.dataKey === "budget" || entry.dataKey === "lastYear"
-                      ? `¥${(value / 1000000).toFixed(1)}M`
+                      ? `${(value / 1000000).toFixed(1)}百万円`
                       : entry.dataKey === "adr"
                         ? `¥${Math.round(value).toLocaleString()}`
                         : `${Math.round(value)}%`}

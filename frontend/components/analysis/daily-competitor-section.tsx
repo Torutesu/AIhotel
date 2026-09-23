@@ -52,10 +52,15 @@ function diffToneClass(diff: number | null): string {
   return diff >= 0 ? "text-positive" : "text-negative"
 }
 
-function avgOf(rows: Array<Record<string, unknown>>, key: string): number | null {
-  const vals = rows.map((r) => r[key]).filter((v): v is number => typeof v === "number")
+/** 期間中の中央値（1日だけ極端な価格の日に引きずられないよう平均ではなく中央値を使う — C-9 / #92） */
+function medianOf(rows: Array<Record<string, unknown>>, key: string): number | null {
+  const vals = rows
+    .map((r) => r[key])
+    .filter((v): v is number => typeof v === "number")
+    .sort((a, b) => a - b)
   if (vals.length === 0) return null
-  return vals.reduce((a, b) => a + b, 0) / vals.length
+  const mid = Math.floor(vals.length / 2)
+  return vals.length % 2 === 1 ? vals[mid] : Math.round((vals[mid - 1] + vals[mid]) / 2)
 }
 
 /** 競合ホテルとの価格比較分析（実データ: api.competitorPrices。注意事項アラートを含む） */
@@ -283,19 +288,20 @@ export function DailyCompetitorSection() {
                   <div className="flex-1 border-t border-border"></div>
                 </div>
 
-                {/* 週平均サマリーカード（人数別） */}
+                {/* 期間中の中央値のサマリーカード（人数別） */}
                 <div className="flex gap-3 flex-wrap">
                   {selectedOccupancies.map((occ) => {
-                    // 自館価格も利用人数別に平均する（全人数で同じ値にしない — #57）
-                    const ourAvg = avgOf(competitorComparisonData, ownKey(occ))
-                    const compAvg = avgOf(competitorComparisonData, `${comp.id}_${occ}名`)
+                    // 自館価格も利用人数別に集計する（全人数で同じ値にしない — #57）
+                    const ourAvg = medianOf(competitorComparisonData, ownKey(occ))
+                    const compAvg = medianOf(competitorComparisonData, `${comp.id}_${occ}名`)
                     const diff = ourAvg != null && compAvg != null ? ourAvg - compAvg : null
                     const diffPercent = diff != null && compAvg ? (diff / compAvg) * 100 : null
 
                     return (
                       <Card key={`${comp.id}-${occ}`} className="w-full sm:min-w-[200px] sm:flex-1 sm:max-w-[250px]">
                         <CardContent className="py-2.5 px-3">
-                          <p className="text-xs text-muted-foreground mb-1">{occLabel(occ)}</p>
+                          <p className="text-xs text-muted-foreground">{occLabel(occ)}</p>
+                          <p className="text-[10px] text-muted-foreground mb-1">期間中の中央値（自館 / 競合）</p>
                           <div className="text-lg font-semibold mb-0.5">
                             {yen(ourAvg)} / {yen(compAvg)}
                           </div>
@@ -377,7 +383,7 @@ export function DailyCompetitorSection() {
               </div>
             ))}
             <p className="text-[10px] text-muted-foreground">
-              ※ 月別表示・期間集計（平均値）は各種分析タブへの移行を含めて検討中です
+              ※ 月別表示・期間集計は各種分析タブへの移行を含めて検討中です
             </p>
           </div>
         )}

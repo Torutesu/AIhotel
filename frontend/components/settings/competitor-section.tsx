@@ -22,7 +22,7 @@ import {
   type CompetitorFormValues,
 } from "@/components/settings/competitor-dialog"
 import { api, ApiClientError, type CompetitorSetting } from "@/lib/api"
-import { MAX_COMPETITORS_PER_HOTEL, canManage as canManageRole } from "@shared/types"
+import { MAX_COMPETITORS_PER_HOTEL, canManage as canManageRole, ROLE_LABELS } from "@shared/types"
 
 const LIMIT_REASON = `競合ホテルは最大${MAX_COMPETITORS_PER_HOTEL}件までです。不要な競合を削除してから追加してください`
 
@@ -113,7 +113,7 @@ export function CompetitorSection() {
             <CardDescription>
               価格比較の対象となる競合ホテルを最大{MAX_COMPETITORS_PER_HOTEL}件まで登録します（現在{" "}
               {competitors.length} 件）
-              {!canManage && "（編集にはMANAGER以上の権限が必要です）"}
+              {!canManage && `（編集には${ROLE_LABELS.MANAGER}以上の権限が必要です）`}
             </CardDescription>
           </div>
           {canManage && (
