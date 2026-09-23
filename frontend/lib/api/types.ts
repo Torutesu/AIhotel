@@ -465,3 +465,33 @@ export interface DayOfWeekBreakdown {
     revPar: number | null
   }>
 }
+
+// ---- 初期設定を速くする仕組み（#13） ----
+
+export type IntegrationKind = "PMS" | "SITE_CONTROLLER"
+export type IntegrationStatus = "PLANNED" | "TESTING" | "ACTIVE"
+
+export interface HotelIntegration {
+  id: string
+  hotelId: string
+  kind: IntegrationKind
+  product: string
+  connectionMethod: string | null
+  status: IntegrationStatus
+  note: string | null
+  updatedAt: string
+}
+
+export type HotelIntegrationInput = Pick<HotelIntegration, "kind" | "product" | "connectionMethod" | "status" | "note">
+
+export type CopyableSettingsItem = "roomTypes" | "priceRanks" | "strategy"
+
+/** 初期設定シートの取り込み結果（シートごとの新規・更新の件数） */
+export interface SetupWorkbookResult {
+  dryRun: boolean
+  basicUpdated: boolean
+  roomTypes: { created: number; updated: number }
+  priceRanks: { created: number; updated: number }
+  competitors: { created: number; updated: number }
+  budgets: { created: number; updated: number }
+}

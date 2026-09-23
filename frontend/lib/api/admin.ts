@@ -5,8 +5,11 @@
 import type {
   User, HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem
 } from "@shared/types"
-import { rawRequest } from "./client"
+import { rawBinaryRequest, rawRequest, type BinaryDownload } from "./client"
 import type { CompetitorPriceCsvRow, OtbCsvRow } from "@/lib/import-csv"
+import type {
+  CopyableSettingsItem, HotelIntegration, HotelIntegrationInput, IntegrationKind, SetupWorkbookResult
+} from "./types"
 
 export const adminEndpoints = {
   // ---- 実績データの取り込み（#82） ----
@@ -55,6 +58,46 @@ export const adminEndpoints = {
     return rawRequest("/api/v1/imports/otb", {
       method: "POST",
       body: JSON.stringify({ hotelId, rows, dryRun, capturedDate }),
+    })
+  },
+
+  // ---- 初期設定を速くする仕組み（#13） ----
+
+  /** 連携先（PMS・サイトコントローラー）の記録 */
+  integrations(hotelId: string): Promise<HotelIntegration[]> {
+    return rawRequest(`/api/v1/settings/integrations?hotelId=${hotelId}`)
+  },
+
+  saveIntegration(input: HotelIntegrationInput & { hotelId: string }): Promise<HotelIntegration> {
+    return rawRequest("/api/v1/settings/integrations", { method: "PUT", body: JSON.stringify(input) })
+  },
+
+  deleteIntegration(hotelId: string, kind: IntegrationKind): Promise<void> {
+    return rawRequest(`/api/v1/settings/integrations/${kind}?hotelId=${hotelId}`, { method: "DELETE" })
+  },
+
+  /** 同じテナントの既存ホテルから設定を複製する（複製先に既にある項目は 400） */
+  copyHotelSettings(
+    hotelId: string,
+    sourceHotelId: string,
+    items: CopyableSettingsItem[],
+  ): Promise<{ copied: Partial<Record<CopyableSettingsItem, number>> }> {
+    return rawRequest("/api/v1/settings/copy-from", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, sourceHotelId, items }),
+    })
+  },
+
+  /** 現在の設定を埋めた初期設定シート（Excel） */
+  downloadSetupWorkbook(hotelId: string): Promise<BinaryDownload> {
+    return rawBinaryRequest(`/api/v1/hotels/${hotelId}/setup-workbook`)
+  },
+
+  /** 初期設定シートの取り込み。不正な箇所は ApiClientError.fieldErrors（field は「シート名!行番号」） */
+  importSetupWorkbook(hotelId: string, fileBase64: string, dryRun: boolean): Promise<SetupWorkbookResult> {
+    return rawRequest(`/api/v1/hotels/${hotelId}/setup-workbook`, {
+      method: "POST",
+      body: JSON.stringify({ fileBase64, dryRun }),
     })
   },
 

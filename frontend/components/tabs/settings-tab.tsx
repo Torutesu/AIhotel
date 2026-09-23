@@ -26,6 +26,7 @@ import { useAuth } from "@/components/auth-provider"
 import { ErrorCard } from "@/components/error-state"
 import { api, ApiClientError } from "@/lib/api"
 import { HotelSettingsCard } from "@/components/settings/hotel-settings-card"
+import { HotelSetupToolsSection } from "@/components/settings/hotel-setup-tools-section"
 import { PriceRankSection } from "@/components/settings/price-rank-section"
 import { BudgetSection } from "@/components/settings/budget-section"
 import { CompetitorSection } from "@/components/settings/competitor-section"
@@ -132,6 +133,9 @@ export function SettingsTab() {
       </div>
 
       <HotelSettingsCard />
+
+      {/* 初期設定の一括投入・既存ホテルからの複製・連携先の記録（#13） */}
+      <HotelSetupToolsSection />
 
       {/* ホテルの追加・削除（管理者・運営のみ — #81） */}
       {(user?.role === "ADMIN" || user?.role === "PLATFORM_ADMIN") && <HotelManagementSection />}
