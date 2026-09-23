@@ -402,6 +402,42 @@ export const importOtbSchema = z.object({
 })
 
 // ======================================
+// 初期設定を速くする仕組み（#13）
+// ======================================
+
+export const integrationKindSchema = z.enum(['PMS', 'SITE_CONTROLLER'])
+
+export const upsertIntegrationSchema = z.object({
+  hotelId: entityIdSchema,
+  kind: integrationKindSchema,
+  product: z.string().trim().min(1, '製品名は必須です').max(100),
+  connectionMethod: z.string().trim().max(200).nullable().optional(),
+  status: z.enum(['PLANNED', 'TESTING', 'ACTIVE']),
+  note: z.string().trim().max(1000).nullable().optional(),
+})
+
+export const integrationKindParamSchema = z.object({ kind: integrationKindSchema })
+
+export const copyHotelSettingsSchema = z.object({
+  hotelId: entityIdSchema,
+  sourceHotelId: entityIdSchema,
+  items: z
+    .array(z.enum(['roomTypes', 'priceRanks', 'strategy']))
+    .min(1, '複製する項目を選んでください')
+    .refine((items) => new Set(items).size === items.length, '同じ項目が重複しています'),
+})
+
+// 初期設定シート（Excel）の取り込み（#13）。ファイルは base64 で受け取る（express.json の 1mb に収まる大きさ）
+export const importSetupWorkbookSchema = z.object({
+  dryRun: z.boolean().optional(),
+  fileBase64: z
+    .string()
+    .min(1, 'ファイルが空です')
+    .max(900_000, 'ファイルが大きすぎます（約650KBまで）')
+    .regex(/^[A-Za-z0-9+/]+={0,2}$/, 'ファイルの形式が正しくありません'),
+})
+
+// ======================================
 // Platform（運営）Validators（#81）
 // ======================================
 
@@ -685,6 +721,9 @@ export type AuditLogQuery = z.infer<typeof auditLogQuerySchema>
 export type ImportDailyDataInput = z.infer<typeof importDailyDataSchema>
 export type ImportCompetitorPricesInput = z.infer<typeof importCompetitorPricesSchema>
 export type ImportOtbInput = z.infer<typeof importOtbSchema>
+export type UpsertIntegrationInput = z.infer<typeof upsertIntegrationSchema>
+export type CopyHotelSettingsInput = z.infer<typeof copyHotelSettingsSchema>
+export type ImportSetupWorkbookInput = z.infer<typeof importSetupWorkbookSchema>
 export type CreateTenantInput = z.infer<typeof createTenantSchema>
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>

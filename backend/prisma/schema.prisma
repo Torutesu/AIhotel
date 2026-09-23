@@ -38,6 +38,7 @@ model Tenant {
   monthlyBudgets           MonthlyBudget[]
   pricingStrategyConfigs   PricingStrategyConfig[]
   pricingLockPeriods       PricingLockPeriod[]
+  hotelIntegrations        HotelIntegration[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -174,6 +175,7 @@ model Hotel {
   monthlyBudgets           MonthlyBudget[]
   pricingStrategyConfigs   PricingStrategyConfig[]
   pricingLockPeriods       PricingLockPeriod[]
+  hotelIntegrations        HotelIntegration[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -194,6 +196,39 @@ enum HotelType {
   LIMITED_SERVICE // 宿泊特化
   RESORT // リゾートホテル
   RYOKAN // 旅館
+}
+
+// 連携先の記録（#13）。接続そのものは PMS 連携（#6）で作る。ここでは「どの製品を・どの方式で・どこまで進んだか」を残す
+model HotelIntegration {
+  id               String            @id @default(cuid())
+  tenantId         String
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId          String
+  hotel            Hotel             @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  kind             IntegrationKind
+  // 製品名（例: NEHOPS、TLリンカーン）。候補は frontend の INTEGRATION_PRODUCTS。候補外は自由入力
+  product          String
+  // 連携方式（例: Windows端末から CSV を送信、API）
+  connectionMethod String?
+  status           IntegrationStatus @default(PLANNED)
+  note             String?
+  updatedByUserId  String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([hotelId, kind])
+  @@index([tenantId])
+}
+
+enum IntegrationKind {
+  PMS
+  SITE_CONTROLLER
+}
+
+enum IntegrationStatus {
+  PLANNED // 予定（製品が決まった段階）
+  TESTING // 接続試験中
+  ACTIVE // 運用中
 }
 
 model RoomType {

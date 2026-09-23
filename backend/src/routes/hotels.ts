@@ -1,7 +1,8 @@
 import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireRole, requireHotelAccess } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
-import { createHotelSchema, updateHotelSchema, idParamSchema } from '../lib/validators.js'
+import { createHotelSchema, updateHotelSchema, idParamSchema, importSetupWorkbookSchema } from '../lib/validators.js'
+import { downloadSetupWorkbook, importSetupWorkbook } from '../controllers/hotelSetupController.js'
 import {
   getHotels,
   getHotelById,
@@ -34,6 +35,23 @@ hotelsRouter.get(
   validate(idParamSchema, 'params'),
   requireHotelAccess((req) => req.params.id),
   getHotelSetupStatus
+)
+
+// 初期設定シート（Excel）の出力と取り込み（#13）。MANAGER 以上
+hotelsRouter.get(
+  '/:id/setup-workbook',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
+  requireHotelAccess((req) => req.params.id),
+  downloadSetupWorkbook
+)
+hotelsRouter.post(
+  '/:id/setup-workbook',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
+  validate(importSetupWorkbookSchema),
+  requireHotelAccess((req) => req.params.id),
+  importSetupWorkbook
 )
 
 // 作成・更新・削除は ADMIN（テナント管理者）以上。
