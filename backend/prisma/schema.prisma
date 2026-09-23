@@ -37,6 +37,7 @@ model Tenant {
   refreshTokens            RefreshToken[]
   monthlyBudgets           MonthlyBudget[]
   pricingStrategyConfigs   PricingStrategyConfig[]
+  pricingLockPeriods       PricingLockPeriod[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -54,28 +55,28 @@ model Tenant {
 // ======================================
 
 model User {
-  id          String    @id @default(cuid())
+  id                 String    @id @default(cuid())
   // 運営（PLATFORM_ADMIN）はテナント横断のため tenantId は nullable。
   // ADMIN を含むテナント側のロールは必ず tenantId を持つ（#62）
-  tenantId    String?
-  tenant      Tenant?   @relation(fields: [tenantId], references: [id])
-  email       String    @unique
-  password    String
-  name        String
-  role        UserRole  @default(OPERATOR)
-  hotelId     String?
-  hotel       Hotel?    @relation(fields: [hotelId], references: [id])
-  isActive    Boolean   @default(true)
-  lastLoginAt DateTime?
+  tenantId           String?
+  tenant             Tenant?   @relation(fields: [tenantId], references: [id])
+  email              String    @unique
+  password           String
+  name               String
+  role               UserRole  @default(OPERATOR)
+  hotelId            String?
+  hotel              Hotel?    @relation(fields: [hotelId], references: [id])
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
   // アカウント単位のロックアウト（#78）。連続失敗回数と、ロック解除時刻。
   // IP 単位のレート制限だけでは IP を分散した試行を止められないため
-  failedLoginCount Int       @default(0)
-  lockedUntil      DateTime?
+  failedLoginCount   Int       @default(0)
+  lockedUntil        DateTime?
   // 管理者が一時パスワードを発行したら true。本人が変更するまで、パスワード変更・
   // 自分の情報の取得・ログアウト以外の API を使えない（#89）
-  mustChangePassword Boolean @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  mustChangePassword Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
@@ -142,19 +143,26 @@ enum UserRole {
 // ======================================
 
 model Hotel {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  name        String
-  address     String?
-  phone       String?
-  email       String?
-  totalRooms  Int
+  id               String     @id @default(cuid())
+  tenantId         String
+  tenant           Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  address          String?
+  phone            String?
+  email            String?
+  totalRooms       Int
   // 週末定義（チェックイン日基準）。デフォルトは金・土（F-DAILY-02）
-  weekendDays Json     @default("[5, 6]")
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  weekendDays      Json       @default("[5, 6]")
+  // ホテルタイプとマーケット（#13）。既存ホテルは未設定（null）のまま、初期設定のチェックリストで埋めてもらう
+  hotelType        HotelType?
+  // 全国地方公共団体コード（都道府県2桁・市区町村6桁（検査数字付き））
+  prefectureCode   String?
+  municipalityCode String?
+  // 観光エリア名（任意。例: 箱根、湯布院）
+  marketArea       String?
+  isActive         Boolean    @default(true)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   users                    User[]
   roomTypes                RoomType[]
@@ -165,6 +173,7 @@ model Hotel {
   events                   Event[]
   monthlyBudgets           MonthlyBudget[]
   pricingStrategyConfigs   PricingStrategyConfig[]
+  pricingLockPeriods       PricingLockPeriod[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -177,6 +186,14 @@ model Hotel {
   userPreferences          UserPreference[]
 
   @@index([tenantId])
+}
+
+// ホテルタイプ（#13。2026-08-01 クライアントMTGで整理した4区分）
+enum HotelType {
+  FULL_SERVICE // 総合型ホテル
+  LIMITED_SERVICE // 宿泊特化
+  RESORT // リゾートホテル
+  RYOKAN // 旅館
 }
 
 model RoomType {
@@ -230,19 +247,52 @@ model PriceRank {
 
 // 価格戦略の重み付け設定（F-DP-02）
 model PricingStrategyConfig {
-  id               String   @id @default(cuid())
+  id               String @id @default(cuid())
   tenantId         String
-  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId          String   @unique // ホテルごとに1設定
-  hotel            Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  weightOccupancy  Int      @default(40) // 稼働率重視 (%)
-  weightAdr        Int      @default(40) // ADR重視 (%)
-  weightCompetitor Int      @default(20) // 競合追従度 (%)
-  updatedByUserId  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  tenant           Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId          String @unique // ホテルごとに1設定
+  hotel            Hotel  @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // 既定値は稼働率100%。設定を保存していないホテルの計算（OCCUPANCY_ONLY_WEIGHTS）と揃える（#17）
+  weightOccupancy  Int    @default(100) // 稼働率重視 (%)
+  weightAdr        Int    @default(0) // ADR重視 (%)
+  weightCompetitor Int    @default(0) // 競合追従度 (%)
+
+  // 以下は推奨ランクの調整（#17）。既定値は想定で、運用しながらホテルごとに変える前提
+  // 競合と比べる人数（1 or 2）。null はホテルタイプから決める（宿泊特化=1名、それ以外=2名）
+  competitorOccupancy Int?
+  // 競合の中央値に対する自館の狙い（-30〜+30%）。+10 なら「競合より10%高く」
+  competitorOffsetPct Int  @default(0)
+  // 推奨ランクの下限・上限（null は料金ランクの全範囲）
+  minRank             Int?
+  maxRank             Int?
+  // 前回の推奨から1回の再計算で動かせるランク数（null は制限なし）
+  maxDailyRankChange  Int? @default(3)
+  // 前回の推奨との差がこのランク数以内なら据え置く（0 は常に更新）
+  hysteresisRanks     Int  @default(1)
+
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([tenantId])
+}
+
+// 推奨価格を更新しない期間（#17 のガードレール③）。団体・契約レートの日など。
+// 期間内の日は再計算しても前回の推奨をそのまま残す
+model PricingLockPeriod {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId         String
+  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  reason          String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, startDate])
 }
 
 // ======================================
@@ -396,6 +446,8 @@ model AiPriceRecommendation {
   demandLevel        DemandLevel?
   confidence         Float? // 0-1
   modelVersion       String?
+  // 推奨理由（#24 E4）。形は外部契約 v1 として固定する（services/forecast/rationale.ts）
+  rationale          Json?
   computedAt         DateTime     @default(now())
   // 注意: PostgreSQL では NULL 同士が等しいとみなされないため、上の @@unique だけでは
   // roomTypeId IS NULL のホテル全体行の重複を防げない（同一日の推奨が複数行でき、
@@ -594,8 +646,13 @@ model CompetitorPriceData {
   price1P      Int?
   price2P      Int?
   price3P      Int?
-  dataSource   String // scraping, manual
+  dataSource   String // scraping, manual, csv
   reliability  String? // high, medium, low
+  // 価格を取得した日時（#9）。推奨には取得から48時間以内の値だけを使う。
+  // null の行（この列を足す前の行）は updatedAt を取得日時とみなす
+  observedAt   DateTime?
+  // 満室・販売停止（#9）。価格は null になるが、競合の満室は需要のシグナルとして残す
+  soldOut      Boolean    @default(false)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
