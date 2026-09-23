@@ -8,6 +8,7 @@ import {
   createHotel,
   updateHotel,
   deleteHotel,
+  getHotelSetupStatus,
 } from '../controllers/hotelsController.js'
 
 export const hotelsRouter: ExpressRouter = Router()
@@ -25,6 +26,14 @@ hotelsRouter.get(
   validate(idParamSchema, 'params'),
   requireHotelAccess((req) => req.params.id),
   getHotelById
+)
+
+// GET /api/v1/hotels/:id/setup-status — 初期設定の進み具合（#13）。閲覧は全ロール
+hotelsRouter.get(
+  '/:id/setup-status',
+  validate(idParamSchema, 'params'),
+  requireHotelAccess((req) => req.params.id),
+  getHotelSetupStatus
 )
 
 // 作成・更新・削除は ADMIN（テナント管理者）以上。

@@ -9,6 +9,7 @@ import {
   updateHotelService,
   deleteHotelService,
 } from '../services/hotelsService.js'
+import { getSetupStatusService } from '../services/setupStatusService.js'
 import { writeAuditLog } from '../services/auditService.js'
 
 /**
@@ -110,4 +111,12 @@ export const deleteHotel = asyncHandler(async (req: Request, res: Response) => {
     userAgent: req.headers['user-agent'],
   })
   sendDeleted(res)
+})
+
+/**
+ * 初期設定の進み具合（#13）
+ * GET /api/v1/hotels/:id/setup-status
+ */
+export const getHotelSetupStatus = asyncHandler(async (req: Request, res: Response) => {
+  sendSuccess(res, await getSetupStatusService(req.params.id))
 })

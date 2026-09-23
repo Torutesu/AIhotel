@@ -102,16 +102,41 @@ export const refreshTokenSchema = z.object({
 // 指定する手段が必要。そのため optional として受け付け、
 // PLATFORM_ADMIN 以外が送った場合は 403、PLATFORM_ADMIN が省いた場合は 400 を
 // コントローラ（hotelsController.createHotel）で返す。
-export const createHotelSchema = z.object({
+// ホテルタイプ（#13）。表示名は frontend の HOTEL_TYPE_LABELS
+export const hotelTypeSchema = z.enum(['FULL_SERVICE', 'LIMITED_SERVICE', 'RESORT', 'RYOKAN'])
+
+const hotelBaseSchema = z.object({
   tenantId: entityIdSchema.optional(),
   name: z.string().min(1, 'ホテル名は必須です').max(200),
   address: z.string().max(500).optional(),
   phone: z.string().max(20).optional(),
   email: z.string().email().optional(),
   totalRooms: z.number().int().min(1, '部屋数は1以上である必要があります'),
+  // ホテルタイプとマーケット（#13）。未設定でも作成はできるが、初期設定のチェックリストで必須項目として扱う
+  hotelType: hotelTypeSchema.nullable().optional(),
+  prefectureCode: z
+    .string()
+    .regex(/^(0[1-9]|[1-3][0-9]|4[0-7])$/, '都道府県コードは 01〜47 で指定してください')
+    .nullable()
+    .optional(),
+  // 全国地方公共団体コード（6桁、検査数字付き）。先頭2桁は都道府県コード
+  municipalityCode: z.string().regex(/^\d{6}$/, '市区町村コードは6桁の数字で指定してください').nullable().optional(),
+  marketArea: z.string().max(100).nullable().optional(),
 })
 
-export const updateHotelSchema = createHotelSchema.omit({ tenantId: true }).partial()
+const municipalityMatchesPrefecture = (data: { prefectureCode?: string | null; municipalityCode?: string | null }) =>
+  !data.municipalityCode || !data.prefectureCode || data.municipalityCode.startsWith(data.prefectureCode)
+const municipalityMismatch = {
+  message: '市区町村コードの先頭2桁が都道府県コードと一致しません',
+  path: ['municipalityCode'],
+}
+
+export const createHotelSchema = hotelBaseSchema.refine(municipalityMatchesPrefecture, municipalityMismatch)
+
+export const updateHotelSchema = hotelBaseSchema
+  .omit({ tenantId: true })
+  .partial()
+  .refine(municipalityMatchesPrefecture, municipalityMismatch)
 
 // ======================================
 // Price Rank Validators
@@ -187,7 +212,12 @@ export const updateHotelSettingsSchema = z.object({
       message: '週末の曜日が重複しています',
     })
     .optional(),
-})
+  // ホテルタイプとマーケット（#13）
+  hotelType: hotelBaseSchema.shape.hotelType,
+  prefectureCode: hotelBaseSchema.shape.prefectureCode,
+  municipalityCode: hotelBaseSchema.shape.municipalityCode,
+  marketArea: hotelBaseSchema.shape.marketArea,
+}).refine(municipalityMatchesPrefecture, municipalityMismatch)
 
 // ======================================
 // Budget Validators（N-1 / F-SET-04）

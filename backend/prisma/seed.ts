@@ -37,12 +37,20 @@ async function main() {
   console.log(`✅ Tenant: ${tenant.name}`)
 
   // 2. Hotel
+  const DEMO_HOTEL_MARKET = {
+    hotelType: 'FULL_SERVICE' as const,
+    prefectureCode: '13',
+    municipalityCode: '131016', // 千代田区
+    marketArea: '丸の内',
+  }
   const hotel = await prisma.hotel.upsert({
     where: { id: HOTEL_ID },
-    update: { tenantId: tenant.id },
+    // ホテルタイプとマーケット（#13）は既存のデモ環境にも入れる（未設定だと初期設定のチェックリストが出続けるため）
+    update: { tenantId: tenant.id, ...DEMO_HOTEL_MARKET },
     create: {
       id: HOTEL_ID,
       tenantId: tenant.id,
+      ...DEMO_HOTEL_MARKET,
       name: 'デモホテル東京',
       address: '東京都千代田区丸の内1-1-1',
       phone: '03-1234-5678',

@@ -1,5 +1,5 @@
 import type { Hotel } from '@hotel-revenue-system/shared/types'
-import type { UserRole } from '@prisma/client'
+import type { HotelType, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 
@@ -87,6 +87,10 @@ export async function createHotelService(data: {
   phone?: string
   email?: string
   totalRooms: number
+  hotelType?: HotelType | null
+  prefectureCode?: string | null
+  municipalityCode?: string | null
+  marketArea?: string | null
 }): Promise<Hotel> {
   const hotel = await prisma.hotel.create({
     data,
@@ -106,6 +110,10 @@ export async function updateHotelService(
     email?: string
     totalRooms: number
     isActive: boolean
+    hotelType: HotelType | null
+    prefectureCode: string | null
+    municipalityCode: string | null
+    marketArea: string | null
   }>
 ): Promise<Hotel> {
   const hotel = await prisma.hotel.update({

@@ -89,6 +89,17 @@ export interface LoginResponse {
 // Hotel & Room Types
 // ======================================
 
+/** ホテルタイプ（#13。2026-08-01 クライアントMTGで整理した4区分） */
+export type HotelType = 'FULL_SERVICE' | 'LIMITED_SERVICE' | 'RESORT' | 'RYOKAN'
+
+/** ホテルタイプの表示名（唯一の出所） */
+export const HOTEL_TYPE_LABELS: Record<HotelType, string> = {
+  FULL_SERVICE: '総合型ホテル',
+  LIMITED_SERVICE: '宿泊特化',
+  RESORT: 'リゾートホテル',
+  RYOKAN: '旅館',
+}
+
 export interface Hotel {
   id: string
   tenantId: string
@@ -103,6 +114,12 @@ export interface Hotel {
    * APIレスポンス／フロントエンドで扱う際は必ず {@link HotelDto}（`number[]` 確定）を使う。
    */
   weekendDays: unknown
+  /** ホテルタイプ（#13）。未設定の既存ホテルは null */
+  hotelType: HotelType | null
+  /** マーケット（#13）。都道府県コード（01〜47）・市区町村コード（6桁）・観光エリア名 */
+  prefectureCode: string | null
+  municipalityCode: string | null
+  marketArea: string | null
   isActive: boolean
   createdAt: Date
   updatedAt: Date
