@@ -87,7 +87,7 @@ root/
 
 **Backend:**
 - **Express.js** + **TypeScript**
-- **Node.js 18+**
+- **Node.js 22 LTS**（`.nvmrc` 参照。20 以前はサポート終了のため非対応）
 - **Prisma ORM** (`backend/prisma/schema.prisma`)
 - **PostgreSQL 16**（マルチテナント構成、全モデルに `tenantId`）
 - **JWT認証**（アクセストークン＋リフレッシュトークンローテーション、DBにはSHA-256ハッシュのみ保存）
