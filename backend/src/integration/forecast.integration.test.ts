@@ -220,4 +220,37 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       expect(res.body.data.simulation.projectedAdr).toBe(47_000)
     })
   })
+
+  describe('削除済み競合の除外（#90）', () => {
+    it('論理削除した競合の価格は価格カレンダーの代表値に含まれない', async () => {
+      await setWeights(100, 0, 0)
+      await recomputeAndReadRanks()
+
+      const deleted = await prisma.competitor.create({
+        data: { tenantId: TENANT, hotelId: HOTEL, name: '削除済みの競合', isActive: false },
+      })
+      await prisma.competitorPriceData.create({
+        data: {
+          tenantId: TENANT,
+          competitorId: deleted.id,
+          date: today,
+          price1P: 90_000,
+          dataSource: 'manual',
+        },
+      })
+
+      const res = await request(app)
+        .get('/api/v1/pricing/calendar')
+        .query({ hotelId: HOTEL, year: today.getUTCFullYear(), month: today.getUTCMonth() + 1 })
+        .set('Authorization', `Bearer ${token}`)
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+
+      const day = res.body.data.calendar.find(
+        (d: { date: string }) => d.date === today.toISOString().slice(0, 10)
+      )
+      expect(day).toBeDefined()
+      expect(day.competitorMaxPrice).toBe(10_000)
+      expect(day.competitorMedianPrice).toBe(10_000)
+    })
+  })
 })

@@ -28,7 +28,9 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     prisma.competitorPriceData.findMany({
       where: {
         date: { gte: start, lt: end },
-        competitor: { hotelId },
+        // 競合の削除は論理削除なので、isActive で絞らないと削除した競合の価格が
+        // 代表値（中央値・最小・最大）に残り続ける（#90）
+        competitor: { hotelId, isActive: true },
       },
       select: { date: true, price1P: true },
     }),
