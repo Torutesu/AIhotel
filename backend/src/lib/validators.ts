@@ -216,6 +216,39 @@ export const createCompetitorSchema = z.object({
 export const updateCompetitorSchema = createCompetitorSchema.omit({ hotelId: true }).partial()
 
 // ======================================
+// Import Validators（#82）
+// ======================================
+
+/** 1回の取り込みで受け付ける最大行数（1年分＋余裕。リクエストは express.json の 1mb にも収まる） */
+export const MAX_IMPORT_ROWS = 1000
+
+/** "YYYY-MM-DD"。暦に存在しない日付（2026-02-30 など）は弾く */
+const importDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, '日付は YYYY-MM-DD 形式で入力してください')
+  .refine((value) => {
+    const d = new Date(`${value}T00:00:00Z`)
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value
+  }, '存在しない日付です')
+
+export const importDailyDataSchema = z.object({
+  hotelId: entityIdSchema,
+  // true なら検証と件数の集計だけを行い、書き込まない
+  dryRun: z.boolean().optional(),
+  rows: z
+    .array(
+      z.object({
+        date: importDateSchema,
+        soldRooms: z.number({ invalid_type_error: '販売室数は数値で入力してください' }).int('販売室数は整数で入力してください').min(0, '販売室数は0以上で入力してください'),
+        totalRevenue: z.number({ invalid_type_error: '室料売上は数値で入力してください' }).min(0, '室料売上は0以上で入力してください'),
+        guests: z.number().int('宿泊人数は整数で入力してください').min(0, '宿泊人数は0以上で入力してください').nullable().optional(),
+      })
+    )
+    .min(1, '取り込む行がありません')
+    .max(MAX_IMPORT_ROWS, `1回に取り込めるのは${MAX_IMPORT_ROWS}行までです`),
+})
+
+// ======================================
 // Platform（運営）Validators（#81）
 // ======================================
 
@@ -461,6 +494,7 @@ export type BudgetMonthInput = z.infer<typeof budgetMonthSchema>
 export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>
 export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
 export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
+export type ImportDailyDataInput = z.infer<typeof importDailyDataSchema>
 export type CreateTenantInput = z.infer<typeof createTenantSchema>
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>
