@@ -32,6 +32,8 @@ interface AuthContextValue {
   setHotel: (hotel: Hotel) => void
   /** ホテルの作成・削除の後に、アクセスできるホテルの一覧を取り直す（#81） */
   reloadHotels: () => Promise<void>
+  /** パスワード変更の後などに、保持しているログインユーザーを差し替える（#89） */
+  replaceUser: (user: User) => Promise<void>
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
@@ -67,6 +69,14 @@ async function resolveHotels(user: User & { hotel?: Hotel | null }): Promise<Hot
   return hotels
 }
 
+/**
+ * 一時パスワードの変更待ちのユーザーは、バックエンドが /hotels を 403 にする（#89）。
+ * ホテル一覧は取らずに空にしておき、パスワードを変えたあとで取り直す
+ */
+async function hotelsFor(user: User & { hotel?: Hotel | null }): Promise<Hotel[]> {
+  return user.mustChangePassword ? [] : resolveHotels(user)
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { hotelParam, setHotelParam } = useAppState()
   const [user, setUser] = useState<User | null>(null)
@@ -91,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const me = await api.me()
-        const resolvedHotels = await resolveHotels(me)
+        const resolvedHotels = await hotelsFor(me)
         if (cancelled) return
         setUser(me)
         setHotels(resolvedHotels)
@@ -137,7 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const result = await api.login(email, password)
-    const resolvedHotels = await resolveHotels(result.user)
+    const resolvedHotels = await hotelsFor(result.user)
     setUser(result.user)
     setHotels(resolvedHotels)
     setRestoreError(null)
@@ -174,8 +184,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const reloadHotels = useCallback(async () => {
     if (!user) return
-    setHotels(await resolveHotels(user))
+    setHotels(await hotelsFor(user))
   }, [user])
+
+  /** パスワード変更の後などにユーザーを差し替え、変更待ちが解けていればホテルも取り直す（#89） */
+  const replaceUser = useCallback(async (next: User) => {
+    setUser(next)
+    setHotels(await hotelsFor(next))
+  }, [])
 
   const selectHotel = useCallback(
     (nextHotelId: string) => {
@@ -198,6 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         retryRestore,
         setHotel,
         reloadHotels,
+        replaceUser,
         login,
         logout,
       }}

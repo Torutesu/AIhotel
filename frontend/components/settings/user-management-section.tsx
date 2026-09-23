@@ -29,6 +29,13 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
@@ -63,6 +70,8 @@ export function UserManagementSection() {
   const [inviting, setInviting] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [pendingDeactivate, setPendingDeactivate] = useState<User | null>(null)
+  const [pendingReset, setPendingReset] = useState<User | null>(null)
+  const [issuedPassword, setIssuedPassword] = useState<{ user: User; password: string } | null>(null)
 
   // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
   const {
@@ -129,6 +138,19 @@ export function UserManagementSection() {
     }
   }
 
+  /** 一時パスワードの発行（#89）。発行したパスワードはダイアログで1回だけ見せる */
+  const resetPassword = async (target: User) => {
+    setUpdatingId(target.id)
+    try {
+      const { temporaryPassword } = await api.resetUserPassword(target.id)
+      setIssuedPassword({ user: target, password: temporaryPassword })
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "一時パスワードの発行に失敗しました")
+    } finally {
+      setUpdatingId(null)
+    }
+  }
+
   const setActive = async (target: User, isActive: boolean) => {
     setUpdatingId(target.id)
     try {
@@ -181,7 +203,7 @@ export function UserManagementSection() {
           <div>
             <CardTitle>ユーザー管理</CardTitle>
             <CardDescription>
-              同じテナントのユーザーの一覧・招待・ロール変更・有効/無効を管理します（現在{" "}
+              同じテナントのユーザーの一覧・招待・ロール変更・有効/無効・一時パスワードの発行を行います（現在{" "}
               {users.length} 名）
               {!isAdmin && "。管理者ユーザーの変更と管理者ロールの付与は管理者のみ行えます"}
             </CardDescription>
@@ -312,6 +334,23 @@ export function UserManagementSection() {
                             有効化
                           </Button>
                         )}
+                        {!busy && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={!editable || self || !target.isActive}
+                            onClick={() => setPendingReset(target)}
+                            title={
+                              self
+                                ? "自分のパスワードは「アカウントのセキュリティ」から変更してください"
+                                : !editable
+                                  ? notEditableReason(target)
+                                  : undefined
+                            }
+                          >
+                            一時パスワード
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   )
@@ -333,6 +372,55 @@ export function UserManagementSection() {
         saving={inviting}
         onSubmit={handleInvite}
       />
+
+      {/* 一時パスワードの発行（#89） */}
+      <ConfirmDialog
+        open={pendingReset !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingReset(null)
+        }}
+        title="一時パスワードを発行しますか？"
+        description={
+          pendingReset
+            ? `「${pendingReset.name}」の現在のパスワードは使えなくなり、ログイン中の端末もすべてログアウトされます。本人は次のログインで新しいパスワードを設定します。`
+            : undefined
+        }
+        confirmLabel="発行する"
+        onConfirm={() => {
+          const target = pendingReset
+          setPendingReset(null)
+          if (target) void resetPassword(target)
+        }}
+      />
+      <Dialog open={issuedPassword !== null} onOpenChange={(open) => !open && setIssuedPassword(null)}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>一時パスワードを発行しました</DialogTitle>
+            <DialogDescription>
+              {issuedPassword?.user.name}（{issuedPassword?.user.email}）に、次のパスワードを安全な方法で伝えてください。
+              この画面を閉じると再表示できません。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 rounded-md border bg-muted px-3 py-2 font-mono text-base tracking-wider">
+              {issuedPassword?.password}
+            </code>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (!issuedPassword) return
+                void navigator.clipboard
+                  .writeText(issuedPassword.password)
+                  .then(() => toast.success("コピーしました"))
+                  .catch(() => toast.error("コピーできませんでした。手動で控えてください"))
+              }}
+            >
+              コピー
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* 無効化の確認（F-5） */}
       <ConfirmDialog

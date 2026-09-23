@@ -9,7 +9,7 @@
 import type {
   User, HotelDto as Hotel, Event as HotelEvent, PriceRank, BudgetYear, UpsertBudgetsRequest,
   CompetitorSetting, RegisterUserRequest, UpdateUserRequest, UpdateAlertStatusRequest, ReviewScore,
-  RoomType, RoomTypeInput, TenantSummary
+  RoomType, RoomTypeInput, TenantSummary, AuditLogItem
 } from "@shared/types"
 import {
   ApiClientError, getRefreshToken, storeTokens, clearTokens, MOCK_HOTEL, isDemoModeEnabled,
@@ -28,9 +28,10 @@ import {
   mockCompetitorPrices, mockMonthlyTrend, mockCompetitorAnalysis, getMockPriceRanks, mockStrategy,
   setMockStrategy, setMockEvents, getMockEvents
 } from "./demo-data"
+import { adminEndpoints } from "./admin"
 
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
-export type { Hotel, PriceRank, RoomType, RoomTypeInput, TenantSummary }
+export type { Hotel, PriceRank, RoomType, RoomTypeInput, TenantSummary, AuditLogItem }
 export type { Event as HotelEvent } from "@shared/types"
 // Wave C の画面が使う型（X-1〜X-7）。backend の契約は shared/types が唯一の出所
 export type {
@@ -48,6 +49,9 @@ export type { BinaryDownload } from "./client"
 // ---- API surface ----
 
 export const api = {
+  // 運営・管理者向け（取り込み・ホテル・部屋タイプ・テナント・一時パスワード・監査ログ）は admin.ts
+  ...adminEndpoints,
+
   async login(email: string, password: string): Promise<LoginResult> {
     try {
       const result = await rawRequest<LoginResult>("/api/v1/auth/login", {
@@ -81,6 +85,27 @@ export const api = {
       }
     }
     clearTokens()
+  },
+
+  /**
+   * 本人のパスワード変更（#89）。ほかの端末のセッションは失効し、この端末には新しいトークンが返る
+   */
+  async changePassword(currentPassword: string, newPassword: string): Promise<User> {
+    const result = await rawRequest<LoginResult>("/api/v1/auth/password", {
+      method: "PUT",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    })
+    storeTokens(result.tokens.accessToken, result.tokens.refreshToken)
+    return result.user
+  },
+
+  /** すべての端末からログアウトする（#89）。この端末のトークンも消す */
+  async logoutAll(): Promise<void> {
+    try {
+      await rawRequest("/api/v1/auth/logout-all", { method: "POST" })
+    } finally {
+      clearTokens()
+    }
   },
 
   me(): Promise<User & { hotel?: Hotel | null }> {
@@ -442,80 +467,6 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     })
-  },
-
-  // ---- 実績データの取り込み（#82） ----
-
-  /**
-   * 日次実績の一括取り込み（MANAGER 以上、1回1,000行まで）。
-   * dryRun: true なら検証と件数の集計だけ。不正な行があると 400 で、行ごとのエラーは
-   * ApiClientError.fieldErrors（field は "rows.<index>.<項目>"）に入る
-   */
-  importDailyData(
-    hotelId: string,
-    rows: Array<{ date: string; soldRooms: number; totalRevenue: number; guests: number | null }>,
-    dryRun: boolean,
-  ): Promise<{ dryRun: boolean; total: number; created: number; updated: number; startDate: string; endDate: string }> {
-    return rawRequest("/api/v1/imports/daily-data", {
-      method: "POST",
-      body: JSON.stringify({ hotelId, rows, dryRun }),
-    })
-  },
-
-  // ---- ホテル・部屋タイプ・テナント（#81） ----
-
-  /** ホテルの作成（ADMIN 以上）。作成先は呼び出し元のテナント。運営は tenantId を指定する */
-  createHotel(input: {
-    name: string
-    totalRooms: number
-    address?: string
-    phone?: string
-    email?: string
-    tenantId?: string
-  }): Promise<Hotel> {
-    return rawRequest("/api/v1/hotels", { method: "POST", body: JSON.stringify(input) })
-  },
-
-  /** ホテルの削除（ADMIN 以上・論理削除） */
-  deleteHotel(hotelId: string): Promise<void> {
-    return rawRequest(`/api/v1/hotels/${hotelId}`, { method: "DELETE" })
-  },
-
-  roomTypes(hotelId: string): Promise<RoomType[]> {
-    return rawRequest(`/api/v1/settings/room-types?hotelId=${hotelId}`)
-  },
-
-  /** 部屋タイプの登録（MANAGER 以上）。削除済みの同じコードは復活する */
-  createRoomType(hotelId: string, input: RoomTypeInput): Promise<RoomType> {
-    return rawRequest("/api/v1/settings/room-types", {
-      method: "POST",
-      body: JSON.stringify({ hotelId, ...input }),
-    })
-  },
-
-  updateRoomType(id: string, hotelId: string, input: Partial<RoomTypeInput>): Promise<RoomType> {
-    return rawRequest(`/api/v1/settings/room-types/${id}?hotelId=${hotelId}`, {
-      method: "PUT",
-      body: JSON.stringify(input),
-    })
-  },
-
-  deleteRoomType(id: string, hotelId: string): Promise<void> {
-    return rawRequest(`/api/v1/settings/room-types/${id}?hotelId=${hotelId}`, { method: "DELETE" })
-  },
-
-  /** テナント一覧（運営のみ） */
-  tenants(): Promise<TenantSummary[]> {
-    return rawRequest("/api/v1/platform/tenants")
-  },
-
-  createTenant(input: { name: string; code: string }): Promise<TenantSummary> {
-    return rawRequest("/api/v1/platform/tenants", { method: "POST", body: JSON.stringify(input) })
-  },
-
-  /** テナントの名称変更・契約停止（isActive: false）／再開（運営のみ） */
-  updateTenant(id: string, input: { name?: string; isActive?: boolean }): Promise<TenantSummary> {
-    return rawRequest(`/api/v1/platform/tenants/${id}`, { method: "PUT", body: JSON.stringify(input) })
   },
 
   // ---- アラート操作（X-4 / N-4） ----

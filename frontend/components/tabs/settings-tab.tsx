@@ -34,6 +34,8 @@ import { HotelManagementSection } from "@/components/settings/hotel-management-s
 import { RoomTypeSection } from "@/components/settings/room-type-section"
 import { TenantManagementSection } from "@/components/settings/tenant-management-section"
 import { DailyDataImportSection } from "@/components/settings/daily-data-import-section"
+import { AccountSecurityCard } from "@/components/settings/account-security-card"
+import { AuditLogSection } from "@/components/settings/audit-log-section"
 
 // ダッシュボードKPI進捗表に表示する指標（施設ごとに選択可能。F-DASH-01）
 const DASHBOARD_KPI_ITEMS = [
@@ -146,6 +148,12 @@ export function SettingsTab() {
 
       {/* ユーザー管理（管理者 / マネージャー / 運営のみ。OPERATOR では何も描画されない — X-3） */}
       <UserManagementSection />
+
+      {/* 監査ログ（管理者・運営のみ — #89） */}
+      {(user?.role === "ADMIN" || user?.role === "PLATFORM_ADMIN") && <AuditLogSection />}
+
+      {/* パスワード変更・全端末ログアウト（全ロール — #89） */}
+      <AccountSecurityCard />
 
       {/* テナントの作成・契約停止（運営のみ — #81） */}
       {user?.role === "PLATFORM_ADMIN" && <TenantManagementSection />}

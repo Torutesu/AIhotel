@@ -46,9 +46,24 @@ export interface User {
   role: UserRole
   hotelId: string | null
   isActive: boolean
+  /** 管理者が一時パスワードを発行した後、本人が変更するまで true（#89） */
+  mustChangePassword?: boolean
   lastLoginAt: Date | null
   createdAt: Date
   updatedAt: Date
+}
+
+/** GET /api/v1/audit-logs の1行（#89） */
+export interface AuditLogItem {
+  id: string
+  action: string
+  entity: string
+  entityId: string | null
+  oldValue: unknown
+  newValue: unknown
+  ipAddress: string | null
+  createdAt: string
+  user: { name: string; email: string } | null
 }
 
 export interface Tenant {
