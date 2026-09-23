@@ -6,6 +6,13 @@ import { defineConfig } from 'vitest/config'
 //
 // DATABASE_URL はここでは設定しない。設定されていれば統合テスト（N-8）が
 // 実DBに対して走り、未設定なら describe.skip でスキップされる。
+// REQUIRE_DB_TESTS=1 のときは DATABASE_URL が無ければ失敗させる（#87）。
+// 統合テストは DATABASE_URL が無いと describe.skip で黙ってスキップされるため、
+// CI の database ジョブで設定漏れがあっても「全件成功」に見えてしまうのを防ぐ
+if (process.env.REQUIRE_DB_TESTS === '1' && !process.env.DATABASE_URL) {
+  throw new Error('REQUIRE_DB_TESTS=1 ですが DATABASE_URL が設定されていません。統合テストがスキップされます')
+}
+
 export default defineConfig({
   test: {
     environment: 'node',

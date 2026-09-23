@@ -79,6 +79,8 @@ jobs:
       DATABASE_URL: postgresql://postgres:password@localhost:5432/hotel_revenue_ci?schema=public
       SHADOW_DATABASE_URL: postgresql://postgres:password@localhost:5432/hotel_revenue_shadow?schema=public
       JWT_SECRET: ci-only-jwt-secret-value-not-used-in-production-0000
+      # 統合テストが DATABASE_URL の設定漏れで黙ってスキップされないようにする（#87）
+      REQUIRE_DB_TESTS: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
