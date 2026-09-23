@@ -2,6 +2,7 @@
 
 import { EVENT_TYPE_OPTIONS } from "@/components/pricing/event-dialog"
 import type { PricingCalendarDay } from "@/lib/api"
+import type { Event as HotelEvent } from "@shared/types"
 
 export function eventTypeLabel(type: string): string {
   return EVENT_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type
@@ -41,6 +42,16 @@ export function formatEventRange(start: Date | string, end: Date | string): stri
   const s = formatEventDate(start)
   const e = formatEventDate(end)
   return s === e ? s : `${s} 〜 ${e}`
+}
+
+/** "yyyy-MM-dd" に変換する（API は日付を ISO 文字列で返す） */
+function eventDateKey(value: Date | string): string {
+  return (typeof value === "string" ? value : value.toISOString()).slice(0, 10)
+}
+
+/** 指定日（"yyyy-MM-dd"）にかかっている登録済みイベント（#80） */
+export function eventsOnDate(events: HotelEvent[], date: string): HotelEvent[] {
+  return events.filter((ev) => eventDateKey(ev.startDate) <= date && date <= eventDateKey(ev.endDate))
 }
 
 // 料金ランクのバッジカラー（バックエンドは40段階でランクを管理 — backend/prisma/seed.ts の PRICE_RANK_COUNT）
@@ -115,18 +126,6 @@ export function specialDayNameOf(date: Date): string | null {
   if ((m === 4 && d >= 29) || (m === 5 && d <= 5)) return "GW"
   return null
 }
-
-// 部屋タイプ・部屋タイプグループの選択肢（マスタ設定に相当するモック定義。先頭がデフォルト表示）
-export const ROOM_TYPES = [
-  { value: "standard", label: "スタンダード", priceFactor: 1.0 },
-  { value: "deluxe", label: "デラックス", priceFactor: 1.35 },
-  { value: "suite", label: "スイート", priceFactor: 1.9 },
-]
-
-export const ROOM_TYPE_GROUPS = [
-  { value: "group-standard", label: "スタンダード系グループ" },
-  { value: "group-premium", label: "プレミアム系グループ" },
-]
 
 // AI価格最適化の提案（モック。レベルを色付きバッジで表示）
 export const AI_PRICING_PROPOSALS: Array<{ level: "high" | "medium" | "low"; text: string }> = [

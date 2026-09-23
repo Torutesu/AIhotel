@@ -19,8 +19,6 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Tooltip as UITooltip,
   TooltipContent,
@@ -29,8 +27,8 @@ import {
 } from "@/components/ui/tooltip"
 import { useWeekend } from "@/hooks/use-weekend"
 import {
-  ROOM_TYPES,
   demandBadgeClass,
+  eventsOnDate,
   getRankBadgeColor,
   holidayNameOf,
   specialDayNameOf,
@@ -45,13 +43,14 @@ import {
 } from "@/lib/format"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 import type { PricingCalendarDay } from "@/lib/api"
+import type { Event as HotelEvent } from "@shared/types"
 
 interface PriceCalendarSectionProps {
   monthData: MonthCalendar
   /** 日別分析から遷移してきた日（該当行を強調してスクロールする） */
   highlightedDate: string | null
-  /** 日別メモ（イベント情報・外部要因） */
-  eventInfoMap: Record<string, { eventInfo?: string; externalFactors?: string }>
+  /** 当月の登録済みイベント（GET /events — #80） */
+  events: HotelEvent[]
   /** テーブル行のクリックでAI分析ダイアログを開く */
   onSelectRowForAnalysis: (day: PricingCalendarDay) => void
   /** カレンダーのセルクリックで詳細ダイアログを開く */
@@ -88,14 +87,12 @@ function PricingTooltip({ active, payload }: ChartTooltipProps) {
 export function PriceCalendarSection({
   monthData,
   highlightedDate,
-  eventInfoMap,
+  events,
   onSelectRowForAnalysis,
   onSelectDay,
 }: PriceCalendarSectionProps) {
   const { isWeekendDow } = useWeekend()
   const [calendarViewMode, setCalendarViewMode] = useState<"table" | "grid">("table")
-  // タイプ別人数別カレンダーの表示タイプ（全タイプ表示なし。デフォルトはマスタの先頭タイプ）
-  const [gridRoomType, setGridRoomType] = useState(ROOM_TYPES[0].value)
 
   const days = monthData.calendar
   const chartData = useMemo(
@@ -302,9 +299,7 @@ export function PriceCalendarSection({
               year={monthData.year}
               month={monthData.month}
               days={days}
-              eventInfoMap={eventInfoMap}
-              roomType={gridRoomType}
-              onRoomTypeChange={setGridRoomType}
+              events={events}
               onSelectDay={onSelectDay}
             />
           )}
@@ -364,17 +359,13 @@ function PriceGrid({
   year,
   month,
   days,
-  eventInfoMap,
-  roomType,
-  onRoomTypeChange,
+  events,
   onSelectDay,
 }: {
   year: number
   month: number
   days: PricingCalendarDay[]
-  eventInfoMap: Record<string, { eventInfo?: string; externalFactors?: string }>
-  roomType: string
-  onRoomTypeChange: (value: string) => void
+  events: HotelEvent[]
   onSelectDay: (day: PricingCalendarDay) => void
 }) {
   const { isWeekendDow } = useWeekend()
@@ -385,11 +376,9 @@ function PriceGrid({
   const prevMonthDays = new Date(year, month - 1, 0).getDate()
   const weeks = Math.ceil((daysInMonth + startDayOfWeek) / 7)
 
-  const selectedType = ROOM_TYPES.find((t) => t.value === roomType) ?? ROOM_TYPES[0]
-  const priceOf = (base: number | null | undefined): string => {
-    if (base == null) return "-"
-    return Math.round(base * selectedType.priceFactor).toLocaleString()
-  }
+  // 料金ランクの人数別料金をそのまま表示する。部屋タイプ別の料金はマスタが無いため出さない
+  // （以前は架空の係数を掛けた「デラックス」「スイート」の料金を表示していた — #80）
+  const priceOf = (base: number | null | undefined): string => (base == null ? "-" : base.toLocaleString())
 
   const cells: Array<{ date: number; isCurrentMonth: boolean; dayOfWeek: number; data?: PricingCalendarDay }> = []
 
@@ -408,23 +397,10 @@ function PriceGrid({
 
   return (
     <div className="space-y-2">
-      {/* 表示タイプ選択（全タイプ表示なし。デフォルトはマスタ先頭のタイプ。ランクは利用人数にかかわらず共通） */}
-      <div className="flex items-center gap-1.5">
-        <Label htmlFor="grid-room-type" className="text-xs whitespace-nowrap">表示タイプ</Label>
-        <Select value={roomType} onValueChange={onRoomTypeChange}>
-          <SelectTrigger id="grid-room-type" className="h-8 w-36 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ROOM_TYPES.map((t) => (
-              <SelectItem key={t.value} value={t.value}>
-                {t.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="text-[10px] text-muted-foreground ml-2">料金ランクは利用人数にかかわらず共通です</span>
-      </div>
+      <p className="text-[10px] text-muted-foreground">
+        推奨料金ランクの人数別料金です（部屋タイプ別の料金は部屋タイプのマスタ登録後に対応します）
+      </p>
+
 
       <div className="overflow-x-auto">
         <div className="inline-block min-w-full">
@@ -438,9 +414,9 @@ function PriceGrid({
           <div className="grid grid-cols-7 gap-px border">
             {cells.map((cell, index) => {
               const key = `${year}-${String(month).padStart(2, "0")}-${String(cell.date).padStart(2, "0")}-${index}`
-              const info = cell.isCurrentMonth
-                ? eventInfoMap[`${year}-${String(month).padStart(2, "0")}-${String(cell.date).padStart(2, "0")}`]
-                : undefined
+              const dayEvents = cell.isCurrentMonth
+                ? eventsOnDate(events, `${year}-${String(month).padStart(2, "0")}-${String(cell.date).padStart(2, "0")}`)
+                : []
               return (
                 <div
                   key={key}
@@ -482,10 +458,14 @@ function PriceGrid({
                     )}
                   </div>
 
-                  {info && (info.eventInfo || info.externalFactors) && (
+                  {dayEvents.length > 0 && (
                     <div className="mb-1">
-                      <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
-                        {(info.eventInfo ? "イベント" : "") + (info.eventInfo && info.externalFactors ? "・" : "") + (info.externalFactors ? "要因" : "")}
+                      <Badge
+                        variant="secondary"
+                        className="text-[9px] px-1 py-0 h-4"
+                        title={dayEvents.map((ev) => ev.name).join("、")}
+                      >
+                        イベント{dayEvents.length > 1 ? ` ${dayEvents.length}件` : ""}
                       </Badge>
                     </div>
                   )}

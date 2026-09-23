@@ -4,21 +4,11 @@
 //
 // 実データ: GET /pricing/calendar・GET/PUT /pricing/strategy・GET /pricing/simulation・
 //           POST /pricing/recompute・/events 一式
-// サンプル表示: AI価格最適化の提案（Claude API未実装）、部屋タイプの選択肢（マスタ未実装）
+// サンプル表示: AI価格最適化の提案（Claude API未実装）
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorCard } from "@/components/error-state"
 import { SampleDataNotice } from "@/components/sample-data-notice"
@@ -30,17 +20,17 @@ import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
 import { PriceCalendarSection } from "@/components/pricing/price-calendar-section"
 import { EventListCard } from "@/components/pricing/event-list-card"
-import { DayDetailDialog, type DayNote } from "@/components/pricing/day-detail-dialog"
+import { DayDetailDialog } from "@/components/pricing/day-detail-dialog"
 import { DayAnalysisDialog } from "@/components/pricing/day-analysis-dialog"
 import {
   AI_PRICING_PROPOSALS,
   PROPOSAL_LEVEL_STYLE,
-  ROOM_TYPES,
-  ROOM_TYPE_GROUPS,
+  eventsOnDate,
   type MonthCalendar,
 } from "@/components/pricing/pricing-constants"
 
 import { api, ApiClientError, type PricingCalendarDay } from "@/lib/api"
+import type { Event as HotelEvent } from "@shared/types"
 import { monthRange, toDateStr } from "@/lib/date"
 import { average } from "@/lib/format"
 
@@ -60,7 +50,6 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   const [highlightedDate, setHighlightedDate] = useState<string | null>(
     focusDate ? toDateStr(focusDate) : null,
   )
-  const [roomType, setRoomType] = useState("all")
 
   const [monthsData, setMonthsData] = useState<MonthCalendar[]>([])
   const [loading, setLoading] = useState(true)
@@ -71,8 +60,10 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     null,
   )
 
-  // 日別のイベント情報・外部要因メモ（日単位の自由記述を保存するAPIが未整備のため画面内の一時メモ）
-  const [eventInfoMap, setEventInfoMap] = useState<Record<string, DayNote>>({})
+  // 当月の登録済みイベント。一覧カード・カレンダー・日別詳細で同じデータを使う（#80）
+  const [events, setEvents] = useState<HotelEvent[]>([])
+  const [eventsLoading, setEventsLoading] = useState(true)
+  const [eventsError, setEventsError] = useState<string | null>(null)
 
   // 日別分析から日付付きで遷移してきたら該当行をハイライトする（対象月の切り替えは呼び出し側が行う）
   useEffect(() => {
@@ -101,6 +92,23 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     loadData()
   }, [loadData])
 
+  const loadEvents = useCallback(async () => {
+    if (!hotelId) return
+    setEventsLoading(true)
+    setEventsError(null)
+    try {
+      setEvents(await api.events(hotelId, range.startDate, range.endDate))
+    } catch (err) {
+      setEventsError(err instanceof ApiClientError ? err.message : "イベント情報の取得に失敗しました")
+    } finally {
+      setEventsLoading(false)
+    }
+  }, [hotelId, range.startDate, range.endDate])
+
+  useEffect(() => {
+    loadEvents()
+  }, [loadEvents])
+
   // 現在値（実績が確定した日のみを集計した実データ）。
   // 着地予測は GET /pricing/simulation（LandingForecastSummary）が担当し、ここでは算出しない（U-2）。
   const currentPerformance = useMemo(() => {
@@ -115,10 +123,6 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
       ),
     }
   }, [monthsData])
-
-  const saveDayNote = useCallback((date: string, note: DayNote) => {
-    setEventInfoMap((prev) => ({ ...prev, [date]: note }))
-  }, [])
 
   if (!hotelId) {
     return (
@@ -185,35 +189,6 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
               onChange={setPeriodMonth}
             />
 
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="room-type" className="whitespace-nowrap text-xs">
-                部屋タイプ
-              </Label>
-              <Select value={roomType} onValueChange={setRoomType}>
-                <SelectTrigger id="room-type" className="h-8 w-48 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全タイプ</SelectItem>
-                  <SelectGroup>
-                    <SelectLabel>部屋タイプ</SelectLabel>
-                    {ROOM_TYPES.map((t) => (
-                      <SelectItem key={t.value} value={t.value}>
-                        {t.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                  <SelectGroup>
-                    <SelectLabel>部屋タイプグループ</SelectLabel>
-                    {ROOM_TYPE_GROUPS.map((g) => (
-                      <SelectItem key={g.value} value={g.value}>
-                        {g.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           {/* 着地予測（U-2 — GET /pricing/simulation / POST /pricing/recompute） */}
@@ -235,7 +210,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                 key={`${monthData.year}-${monthData.month}`}
                 monthData={monthData}
                 highlightedDate={highlightedDate}
-                eventInfoMap={eventInfoMap}
+                events={events}
                 onSelectRowForAnalysis={setSelectedRowForAnalysis}
                 onSelectDay={setSelectedDay}
               />
@@ -245,13 +220,17 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
       </Card>
 
       {/* 当月のイベント情報（実API接続 — F-DP-07） */}
-      <EventListCard startDate={range.startDate} endDate={range.endDate} />
+      <EventListCard
+        events={events}
+        loading={eventsLoading}
+        error={eventsError}
+        onReload={loadEvents}
+      />
 
       <DayDetailDialog
         day={selectedDay}
-        info={selectedDay ? eventInfoMap[selectedDay.date] : undefined}
+        events={selectedDay ? eventsOnDate(events, selectedDay.date) : []}
         onClose={() => setSelectedDay(null)}
-        onSaveInfo={saveDayNote}
       />
 
       <DayAnalysisDialog
