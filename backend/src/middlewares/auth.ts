@@ -3,6 +3,7 @@ import type { UserRole } from '@prisma/client'
 import { verifyAccessToken, JWTPayload } from '../lib/auth.js'
 import { ApiError, NotFoundError } from './errorHandler.js'
 import { findActiveHotelService } from '../services/hotelsService.js'
+import { resolveAuthSubjectService } from '../services/authService.js'
 
 // Express Requestの拡張
 declare global {
@@ -18,7 +19,7 @@ declare global {
 /**
  * 認証が必要なエンドポイント用ミドルウェア
  */
-export function authenticate(req: Request, _res: Response, next: NextFunction) {
+export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization
     
@@ -33,18 +34,25 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
     }
     
     const token = parts[1]
-    const payload = verifyAccessToken(token)
-    
-    req.user = payload
+    let payload: JWTPayload
+    try {
+      payload = verifyAccessToken(token)
+    } catch (error) {
+      throw new ApiError(401, error instanceof Error ? error.message : '認証に失敗しました')
+    }
+
+    // 署名が正しくても、無効化・削除されたユーザーや契約停止中のテナントは通さない。
+    // ロール・所属はトークン発行時の値ではなく DB の現在値を使い、降格や異動を
+    // 次のリクエストから反映する（#78）
+    const subject = await resolveAuthSubjectService(payload.userId)
+    if (!subject) {
+      throw new ApiError(401, 'このアカウントは現在利用できません')
+    }
+
+    req.user = subject
     next()
   } catch (error) {
-    if (error instanceof ApiError) {
-      next(error)
-    } else if (error instanceof Error) {
-      next(new ApiError(401, error.message))
-    } else {
-      next(new ApiError(401, '認証に失敗しました'))
-    }
+    next(error)
   }
 }
 

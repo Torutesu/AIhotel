@@ -75,6 +75,47 @@ async function recordLoginFailure(
 }
 
 /**
+ * アクセストークンの主体を DB の現在の状態で解決する（#78）。
+ *
+ * アクセストークンは署名だけで検証できるため、そのままでは無効化・降格・
+ * テナントの契約停止が有効期限まで反映されない。authenticate が毎リクエスト
+ * これを呼び、ユーザーが無効・存在しない、またはテナントが停止されていれば null を返す。
+ * ロール・所属は常にこの戻り値（DB の値）を正とし、トークンの中身は信用しない。
+ * 主キー検索＋テナントの結合1回なので、1リクエストあたりのコストは小さい。
+ */
+export async function resolveAuthSubjectService(userId: string): Promise<{
+  userId: string
+  email: string
+  role: UserRole
+  tenantId: string | null
+  hotelId: string | null
+} | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      tenantId: true,
+      hotelId: true,
+      isActive: true,
+      tenant: { select: { isActive: true } },
+    },
+  })
+  if (!user || !user.isActive) return null
+  // テナントに属するユーザーは、テナントが停止されていれば使えない（運営は tenant を持たない）
+  if (user.tenant && !user.tenant.isActive) return null
+
+  return {
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    tenantId: user.tenantId,
+    hotelId: user.hotelId,
+  }
+}
+
+/**
  * ユーザーログイン
  */
 export async function loginService(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
@@ -82,6 +123,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 
   const user = await prisma.user.findUnique({
     where: { email },
+    include: { tenant: { select: { isActive: true } } },
   })
 
   // ユーザーが存在しない場合もダミーハッシュと比較して同じ計算量を消費する（S-8）。
@@ -89,10 +131,18 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
   // 推測できないようにする。
   const isValidPassword = await verifyPasswordConstantWork(password, user?.password)
 
-  // 「存在しない」「パスワード不一致」「無効化済み」を同一メッセージ・同一ステータスで返す（S-8）。
+  // 「存在しない」「パスワード不一致」「無効化済み」「テナント停止中」を
+  // 同一メッセージ・同一ステータスで返す（S-8 / #78）。
   // アカウント列挙と、有効／無効の判別を防ぐ。失敗理由は監査ログにのみ残す。
-  if (!user || !isValidPassword || !user.isActive) {
-    const reason = !user ? 'USER_NOT_FOUND' : !isValidPassword ? 'BAD_PASSWORD' : 'INACTIVE'
+  const tenantSuspended = Boolean(user?.tenant && !user.tenant.isActive)
+  if (!user || !isValidPassword || !user.isActive || tenantSuspended) {
+    const reason = !user
+      ? 'USER_NOT_FOUND'
+      : !isValidPassword
+        ? 'BAD_PASSWORD'
+        : !user.isActive
+          ? 'INACTIVE'
+          : 'TENANT_SUSPENDED'
     await recordLoginFailure(
       { email, reason, tenantId: user?.tenantId ?? null, userId: user?.id ?? null },
       ctx
@@ -134,7 +184,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     userAgent: ctx?.userAgent,
   })
 
-  const { password: _, ...userWithoutPassword } = user
+  const { password: _, tenant: _tenant, ...userWithoutPassword } = user
 
   return {
     user: userWithoutPassword,
@@ -271,7 +321,7 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 
   const storedToken = await prisma.refreshToken.findUnique({
     where: { tokenHash: hashToken(refreshToken) },
-    include: { user: true },
+    include: { user: { include: { tenant: { select: { isActive: true } } } } },
   })
 
   if (!storedToken) {
@@ -317,6 +367,11 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
     throw new ApiError(401, 'このアカウントは無効化されています')
   }
 
+  // テナントの契約停止中はトークンを更新させない（#78）
+  if (storedToken.user.tenant && !storedToken.user.tenant.isActive) {
+    throw new ApiError(401, 'このアカウントは現在利用できません')
+  }
+
   const tokens = await prisma.$transaction(async (tx) => {
     // revokedAt: null を条件に含めることで、同時に届いた2本目のリフレッシュ要求は
     // count 0 になり、トークンが二重に発行されない（更新は行ロックで直列化される）。
@@ -340,7 +395,7 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
     return pair
   })
 
-  const { password: _, ...userWithoutPassword } = storedToken.user
+  const { password: _, tenant: _tenant, ...userWithoutPassword } = storedToken.user
 
   return {
     user: userWithoutPassword,
