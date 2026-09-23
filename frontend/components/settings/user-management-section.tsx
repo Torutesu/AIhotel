@@ -14,7 +14,7 @@
 //  - 自分自身のロール変更・無効化はできない
 // それでも 400/403 が返った場合はバックエンドのメッセージをそのまま表示する。
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { Loader2, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 
@@ -31,6 +31,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import {
   NO_HOTEL_VALUE,
   UserInviteDialog,
@@ -58,31 +59,24 @@ export function UserManagementSection() {
     [isAdmin, isPlatformAdmin],
   )
 
-  const [users, setUsers] = useState<User[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviting, setInviting] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [pendingDeactivate, setPendingDeactivate] = useState<User | null>(null)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setUsers(await api.users(hotelId))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "ユーザーの取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId])
-
-  useEffect(() => {
-    if (!canManageUsers) return
-    load()
-  }, [canManageUsers, load])
+  // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: usersData,
+    loading,
+    error,
+    reload: load,
+    setData: setUsers,
+  } = useApiQuery<User[]>(
+    hotelId && canManageUsers ? () => api.users(hotelId) : null,
+    [hotelId, canManageUsers],
+    "ユーザーの取得に失敗しました",
+  )
+  const users = useMemo(() => usersData ?? [], [usersData])
 
   const roleOptions = useMemo(
     () =>
@@ -124,7 +118,7 @@ export function UserManagementSection() {
     setUpdatingId(target.id)
     try {
       const updated = await api.updateUser(target.id, { role })
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
+      setUsers((prev) => prev?.map((u) => (u.id === updated.id ? updated : u)) ?? prev)
       toast.success(`${updated.name} のロールを変更しました`)
     } catch (err) {
       toast.error(err instanceof ApiClientError ? err.message : "ロールの変更に失敗しました")
@@ -139,7 +133,7 @@ export function UserManagementSection() {
     setUpdatingId(target.id)
     try {
       const updated = await api.updateUser(target.id, { isActive })
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)))
+      setUsers((prev) => prev?.map((u) => (u.id === updated.id ? updated : u)) ?? prev)
       toast.success(isActive ? `${updated.name} を有効化しました` : `${updated.name} を無効化しました`)
     } catch (err) {
       toast.error(

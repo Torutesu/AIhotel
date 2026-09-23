@@ -3,7 +3,7 @@
 // 部屋タイプ（#81 / GET・POST・PUT・DELETE /settings/room-types）
 // 部屋タイプ別の実績・推奨価格の前提となるマスタ。登録・編集・削除は MANAGER 以上。
 
-import { useCallback, useEffect, useState } from "react"
+import { useState, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { Edit2, Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -25,6 +25,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { FormFieldError } from "@/components/form-field-error"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type RoomType } from "@/lib/api"
 import { zodResolver } from "@/lib/zod-resolver"
 import { ROLE_LABELS, canManage } from "@shared/types"
@@ -45,30 +46,23 @@ export function RoomTypeSection() {
   const { hotelId, user } = useAuth()
   const editable = canManage(user?.role)
 
-  const [roomTypes, setRoomTypes] = useState<RoomType[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<RoomType | null>(null)
   const [saving, setSaving] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<RoomType | null>(null)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setRoomTypes(await api.roomTypes(hotelId))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "部屋タイプの取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: roomTypesData,
+    loading,
+    error,
+    reload: load,
+  } = useApiQuery<RoomType[]>(
+    hotelId ? () => api.roomTypes(hotelId) : null,
+    [hotelId],
+    "部屋タイプの取得に失敗しました",
+  )
+  const roomTypes = useMemo(() => roomTypesData ?? [], [roomTypesData])
 
   const form = useForm<RoomTypeFormValues>({
     resolver: zodResolver(roomTypeFormSchema),

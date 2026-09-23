@@ -14,6 +14,7 @@ import { ErrorCard } from "@/components/error-state"
 import { LabeledMonthPicker } from "@/components/month-picker"
 import { usePeriod } from "@/components/app-state-provider"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { AlertsCard } from "@/components/dashboard/alerts-card"
 import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
 import { TrendChartCard } from "@/components/dashboard/trend-chart-card"
@@ -35,11 +36,21 @@ interface DashboardTabProps {
  */
 const DASHBOARD_MIN_ALERT_LEVEL = 4
 
+const NO_ALERTS: AlertItem[] = []
+
+/** ダッシュボードの取得結果。どのホテルのデータかを持たせ、後から届いたアラートの混入を防ぐ */
+interface DashboardData {
+  hotelId: string
+  kpi: DashboardKpi
+  alerts: AlertItem[]
+  aiSummary: AiSummary | null
+}
+
 /** 設定タブでの保存を同じ画面のダッシュボードへ即時反映するためのイベント名（#51-2） */
 const PREFERENCES_UPDATED_EVENT = "preferencesUpdated"
 
 export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
-  const { hotelId } = useAuth()
+  const { hotelId, hotel } = useAuth()
   // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
   const { year, month, periodMonth, setPeriodMonth } = usePeriod()
 
@@ -48,12 +59,6 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   // 設定タブで選択されたKPI表示項目（利用者・施設ごと。未保存なら全項目）
   const [visibleKpiKeys, setVisibleKpiKeys] = useState<string[]>([...ALL_KPI_KEYS])
 
-  const [kpi, setKpi] = useState<DashboardKpi | null>(null)
-  const [alerts, setAlerts] = useState<AlertItem[]>([])
-  const [aiSummary, setAiSummary] = useState<AiSummary | null>(null)
-  const [totalRooms, setTotalRooms] = useState<number | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   // 表示設定はサーバ保存（#51-2）。端末やブラウザを変えても同じ表示になる。
   // 取得に失敗しても画面は既定値で表示する（表示設定のためにダッシュボード全体を
@@ -86,44 +91,46 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     }
   }, [hotelId])
 
-  const loadData = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const [kpiResult, alertsResult, summaryResult, hotels] = await Promise.all([
-        api.dashboardKpi(hotelId, year, month),
-        // ダッシュボードはLevel 5・4のみ表示（F-DASH-05）。Level 3以下は各分析画面で確認する
-        api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL),
-        api.aiSummary(hotelId),
-        api.hotels(),
-      ])
-      setKpi(kpiResult)
-      setAlerts(alertsResult)
-      setAiSummary(summaryResult)
-      setTotalRooms(hotels.find((h) => h.id === hotelId)?.totalRooms ?? null)
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "データの取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, year, month])
-
-  useEffect(() => {
-    loadData()
-  }, [loadData])
+  // ホテル・年月を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: dashboard,
+    loading,
+    error,
+    reload: loadData,
+    setData: setDashboard,
+  } = useApiQuery<DashboardData>(
+    hotelId
+      ? async () => {
+          const [kpi, alerts, aiSummary] = await Promise.all([
+            api.dashboardKpi(hotelId, year, month),
+            // ダッシュボードはLevel 5・4のみ表示（F-DASH-05）。Level 3以下は各分析画面で確認する
+            api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL),
+            api.aiSummary(hotelId),
+          ])
+          return { hotelId, kpi, alerts, aiSummary }
+        }
+      : null,
+    [hotelId, year, month],
+  )
+  const kpi = dashboard?.kpi ?? null
+  const alerts = dashboard?.alerts ?? NO_ALERTS
+  const aiSummary = dashboard?.aiSummary ?? null
+  // 客室数は認証コンテキストが持つ選択中のホテルから取る（一覧 API を取り直さない）
+  const totalRooms = hotel?.totalRooms ?? null
 
   /** アラートの状態変更後にアラートだけ取り直す（X-4。画面全体の再取得は不要） */
   const reloadAlerts = useCallback(async () => {
     if (!hotelId) return
     try {
-      setAlerts(await api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL))
+      const next = await api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL)
+      // 取り直している間にホテルが切り替わっていたら捨てる
+      setDashboard((prev) => (prev && prev.hotelId === hotelId ? { ...prev, alerts: next } : prev))
     } catch (err) {
       toast.error(
         err instanceof ApiClientError ? err.message : "アラートの再取得に失敗しました",
       )
     }
-  }, [hotelId])
+  }, [hotelId, setDashboard])
 
   if (!hotelId) {
     return (

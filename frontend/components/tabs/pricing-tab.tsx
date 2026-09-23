@@ -6,7 +6,7 @@
 //           POST /pricing/recompute・/events 一式
 // サンプル表示: AI価格最適化の提案（Claude API未実装）
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -15,6 +15,7 @@ import { SampleDataNotice } from "@/components/sample-data-notice"
 import { LabeledMonthPicker } from "@/components/month-picker"
 import { usePeriod } from "@/components/app-state-provider"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 
 import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
@@ -29,7 +30,7 @@ import {
   type MonthCalendar,
 } from "@/components/pricing/pricing-constants"
 
-import { api, ApiClientError, type PricingCalendarDay } from "@/lib/api"
+import { api, type PricingCalendarDay } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 import { monthRange, toDateStr } from "@/lib/date"
 import { average } from "@/lib/format"
@@ -51,19 +52,12 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     focusDate ? toDateStr(focusDate) : null,
   )
 
-  const [monthsData, setMonthsData] = useState<MonthCalendar[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   const [selectedDay, setSelectedDay] = useState<PricingCalendarDay | null>(null)
   const [selectedRowForAnalysis, setSelectedRowForAnalysis] = useState<PricingCalendarDay | null>(
     null,
   )
 
-  // 当月の登録済みイベント。一覧カード・カレンダー・日別詳細で同じデータを使う（#80）
-  const [events, setEvents] = useState<HotelEvent[]>([])
-  const [eventsLoading, setEventsLoading] = useState(true)
-  const [eventsError, setEventsError] = useState<string | null>(null)
 
   // 日別分析から日付付きで遷移してきたら該当行をハイライトする（対象月の切り替えは呼び出し側が行う）
   useEffect(() => {
@@ -74,40 +68,36 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
 
   const range = useMemo(() => monthRange(selectedYear, selectedMonth), [selectedYear, selectedMonth])
 
-  const loadData = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const calendar = await api.pricingCalendar(hotelId, selectedYear, selectedMonth)
-      setMonthsData([{ year: calendar.year, month: calendar.month, calendar: calendar.calendar }])
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "データの取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, selectedYear, selectedMonth])
+  // ホテル・年月を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: calendarData,
+    loading,
+    error,
+    reload: loadData,
+  } = useApiQuery<MonthCalendar>(
+    hotelId
+      ? async () => {
+          const calendar = await api.pricingCalendar(hotelId, selectedYear, selectedMonth)
+          return { year: calendar.year, month: calendar.month, calendar: calendar.calendar }
+        }
+      : null,
+    [hotelId, selectedYear, selectedMonth],
+    "データの取得に失敗しました",
+  )
+  const monthsData = useMemo(() => (calendarData ? [calendarData] : []), [calendarData])
 
-  useEffect(() => {
-    loadData()
-  }, [loadData])
-
-  const loadEvents = useCallback(async () => {
-    if (!hotelId) return
-    setEventsLoading(true)
-    setEventsError(null)
-    try {
-      setEvents(await api.events(hotelId, range.startDate, range.endDate))
-    } catch (err) {
-      setEventsError(err instanceof ApiClientError ? err.message : "イベント情報の取得に失敗しました")
-    } finally {
-      setEventsLoading(false)
-    }
-  }, [hotelId, range.startDate, range.endDate])
-
-  useEffect(() => {
-    loadEvents()
-  }, [loadEvents])
+  // 当月の登録済みイベント。一覧カード・カレンダー・日別詳細で同じデータを使う（#80）
+  const {
+    data: eventsData,
+    loading: eventsLoading,
+    error: eventsError,
+    reload: loadEvents,
+  } = useApiQuery<HotelEvent[]>(
+    hotelId ? () => api.events(hotelId, range.startDate, range.endDate) : null,
+    [hotelId, range.startDate, range.endDate],
+    "イベント情報の取得に失敗しました",
+  )
+  const events = useMemo(() => eventsData ?? [], [eventsData])
 
   // 現在値（実績が確定した日のみを集計した実データ）。
   // 着地予測は GET /pricing/simulation（LandingForecastSummary）が担当し、ここでは算出しない（U-2）。

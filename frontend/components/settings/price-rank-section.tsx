@@ -4,7 +4,7 @@
 // 一覧・追加（POST）・編集（PUT）・削除（DELETE）。最大40段階をUIで強制する。
 // 人数別価格は 1名 ≤ 2名 ≤ 3名 ≤ 4名 を zod でインライン検証する。
 
-import { useCallback, useEffect, useState } from "react"
+import { useState, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { Edit2, Loader2, Plus, Save, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -26,6 +26,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { FormFieldError } from "@/components/form-field-error"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
 import { formatYen } from "@/lib/format"
 import { zodResolver } from "@/lib/zod-resolver"
@@ -95,9 +96,6 @@ export function PriceRankSection() {
   const { hotelId, user } = useAuth()
   const canManage = canManageRole(user?.role)
 
-  const [priceRanks, setPriceRanks] = useState<PriceRank[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   /** ダイアログの対象。"create" なら新規追加、PriceRank なら編集 */
   const [target, setTarget] = useState<PriceRank | "create" | null>(null)
@@ -115,22 +113,18 @@ export function PriceRankSection() {
     mode: "onBlur",
   })
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setPriceRanks(await api.priceRanks(hotelId))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "料金ランクの取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: priceRanksData,
+    loading,
+    error,
+    reload: load,
+  } = useApiQuery<PriceRank[]>(
+    hotelId ? () => api.priceRanks(hotelId) : null,
+    [hotelId],
+    "料金ランクの取得に失敗しました",
+  )
+  const priceRanks = useMemo(() => priceRanksData ?? [], [priceRanksData])
 
   /** 次に採番するランク番号（既存の最大＋1） */
   const nextRankNumber = priceRanks.reduce((max, r) => Math.max(max, r.rank), 0) + 1

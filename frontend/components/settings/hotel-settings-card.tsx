@@ -4,7 +4,7 @@
 // 総客室数・メール・電話番号の検証を zod + react-hook-form でインライン表示する。
 // 週末定義は Hotel.weekendDays としてここでのみ編集し、保存後は AuthProvider に反映する。
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { Loader2, Save } from "lucide-react"
 import { toast } from "sonner"
@@ -21,6 +21,7 @@ import { ErrorState } from "@/components/error-state"
 import { FormFieldError } from "@/components/form-field-error"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type Hotel } from "@/lib/api"
 import { DAY_NAMES, DEFAULT_WEEKEND_DAYS, parseWeekendDays } from "@/lib/date"
 import { zodResolver } from "@/lib/zod-resolver"
@@ -68,9 +69,6 @@ export function HotelSettingsCard() {
   const { hotelId, user, setHotel: setAuthHotel } = useAuth()
   const canManage = canManageRole(user?.role)
 
-  const [hotel, setHotel] = useState<Hotel | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [weekendDays, setWeekendDays] = useState<number[]>(DEFAULT_WEEKEND_DAYS)
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
@@ -86,27 +84,31 @@ export function HotelSettingsCard() {
     mode: "onBlur",
   })
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const hotels = await api.hotels()
-      const found = hotels.find((h) => h.id === hotelId) ?? null
-      if (!found) throw new ApiClientError(404, "ホテル情報が見つかりません")
-      setHotel(found)
-      reset(toFormValues(found))
-      setWeekendDays(parseWeekendDays(found.weekendDays))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "ホテル情報の取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, reset])
+  // ホテルを切り替えた直後に前のホテルの情報が遅れて返っても使わない（#91）
+  const {
+    data: hotel,
+    loading,
+    error,
+    reload: load,
+    setData: setHotel,
+  } = useApiQuery<Hotel>(
+    hotelId
+      ? async () => {
+          const hotels = await api.hotels()
+          const found = hotels.find((h) => h.id === hotelId)
+          if (!found) throw new ApiClientError(404, "ホテル情報が見つかりません")
+          return found
+        }
+      : null,
+    [hotelId],
+    "ホテル情報の取得に失敗しました",
+  )
 
   useEffect(() => {
-    load()
-  }, [load])
+    if (!hotel) return
+    reset(toFormValues(hotel))
+    setWeekendDays(parseWeekendDays(hotel.weekendDays))
+  }, [hotel, reset])
 
   const toggleWeekendDay = (day: number, checked: boolean) => {
     setWeekendDays((prev) => {
@@ -116,14 +118,15 @@ export function HotelSettingsCard() {
   }
 
   const onSubmit = async (values: HotelFormValues) => {
-    if (!hotelId) return
+    // 保存先はフォームに読み込んだホテル。選択中のホテルとずれていれば保存しない（#91）
+    if (!hotelId || !hotel || hotel.id !== hotelId) return
     if (weekendDays.length === 0) {
       toast.error("週末として扱う曜日を1つ以上選択してください")
       return
     }
     setSaving(true)
     try {
-      const updated = await api.updateHotelSettings(hotelId, {
+      const updated = await api.updateHotelSettings(hotel.id, {
         name: values.name.trim(),
         address: values.address.trim(),
         email: values.email.trim(),
@@ -132,8 +135,6 @@ export function HotelSettingsCard() {
         weekendDays,
       })
       setHotel(updated)
-      reset(toFormValues(updated))
-      setWeekendDays(parseWeekendDays(updated.weekendDays))
       // 週末定義などは AuthProvider が全画面へ配っているため、保存後に差し替える（U-6）
       setAuthHotel(updated)
       toast.success("ホテル設定を保存しました")

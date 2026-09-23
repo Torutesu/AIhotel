@@ -5,7 +5,7 @@
 // スナップショットが未取得の月は空配列が返るため、値を生成せず空状態を表示する。
 // MANAGER 以上は POST /dashboard/kpi/snapshot で当日時点のスナップショットを手動取得できる（X-7）。
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { CalendarIcon, CameraIcon, Loader2 } from "lucide-react"
 import { format } from "date-fns"
 import { ja } from "date-fns/locale/ja"
@@ -18,6 +18,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type DashboardKpi, type KpiSnapshot } from "@/lib/api"
 import { toDateStr } from "@/lib/date"
 import { formatPercent, formatYen } from "@/lib/format"
@@ -167,27 +168,20 @@ export function KpiComparisonSection({ year, month, summary }: KpiComparisonSect
   const canTakeSnapshot = canManage(user?.role)
   const [takingSnapshot, setTakingSnapshot] = useState(false)
 
-  const [snapshots, setSnapshots] = useState<KpiSnapshot[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [comparisonDate, setComparisonDate] = useState<Date | undefined>(undefined)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setSnapshots(await api.kpiComparison(hotelId, year, month))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "KPI比較データの取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, year, month])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: snapshotsData,
+    loading,
+    error,
+    reload: load,
+  } = useApiQuery<KpiSnapshot[]>(
+    hotelId ? () => api.kpiComparison(hotelId, year, month) : null,
+    [hotelId, year, month],
+    "KPI比較データの取得に失敗しました",
+  )
+  const snapshots = useMemo(() => snapshotsData ?? [], [snapshotsData])
 
   /** 当日時点のKPIを記録し、比較表を取り直す（同日・同対象月に対して冪等 — X-7） */
   const takeSnapshot = async () => {

@@ -4,7 +4,7 @@
 // 着地予測値は GET /api/v1/pricing/simulation（MonthlyLandingSimulation）を唯一の出所とする。
 // 行が無い月は画面側で平均を捏造せず、生成元（再計算／日次バッチ）を案内する空状態を出す。
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Loader2, RefreshCw, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PricingSimulation } from "@/lib/api"
 import { daysInMonth, monthLabel, startOfToday, toDateStr } from "@/lib/date"
 import { formatPercent as pct, formatYen as yen } from "@/lib/format"
@@ -45,28 +46,15 @@ export function LandingForecastSummary({
   const { hotelId, user } = useAuth()
   const canRecompute = canManage(user?.role)
 
-  const [data, setData] = useState<PricingSimulation | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [recomputing, setRecomputing] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setData(await api.pricingSimulation(hotelId, year, month))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "着地予測の取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, year, month])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  // ホテル・年月を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const { data, loading, error, reload: load } = useApiQuery<PricingSimulation>(
+    hotelId ? () => api.pricingSimulation(hotelId, year, month) : null,
+    [hotelId, year, month],
+    "着地予測の取得に失敗しました",
+  )
 
   // 再計算できる期間。バックエンドは過去日の startDate を拒否するため本日以降に丸める
   const recomputeRange = useMemo(() => {

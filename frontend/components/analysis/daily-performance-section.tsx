@@ -4,7 +4,7 @@
 // 数値は GET /api/v1/dashboard/kpi の summary / comparison / dailyTrend を出所とする。
 // 以前はシード付き乱数で生成したダミー値を表示していたが、実データへ置き換えた。
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { TrendingUp } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -14,8 +14,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorState } from "@/components/error-state"
 import { MonthPicker } from "@/components/month-picker"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { useWeekend } from "@/hooks/use-weekend"
-import { api, ApiClientError, type DashboardKpi } from "@/lib/api"
+import { api, type DashboardKpi } from "@/lib/api"
 import { DAY_NAMES, monthLabel, parseMonthStr, startOfToday } from "@/lib/date"
 import { formatPercent, formatPt, formatRooms, formatYen } from "@/lib/format"
 
@@ -88,27 +89,20 @@ export function DailyPerformanceSection({
   const { year, month } = useMemo(() => parseMonthStr(targetMonth), [targetMonth])
   const targetMonthLabel = monthLabel(year, month)
 
-  const [kpi, setKpi] = useState<DashboardKpi | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [selectedStayDate, setSelectedStayDate] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setKpi(await api.dashboardKpi(hotelId, year, month))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "日別実績の取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, year, month])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: kpiData,
+    loading,
+    error,
+    reload: load,
+  } = useApiQuery<DashboardKpi | null>(
+    hotelId ? () => api.dashboardKpi(hotelId, year, month) : null,
+    [hotelId, year, month],
+    "日別実績の取得に失敗しました",
+  )
+  const kpi = kpiData ?? null
 
   const totalRooms = hotel?.totalRooms ?? null
 

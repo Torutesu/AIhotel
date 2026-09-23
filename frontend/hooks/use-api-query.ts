@@ -7,7 +7,7 @@
 // （予算の画面では、前のホテルの予算を表示したまま今のホテルへ保存できた）。
 // 取得ごとに世代番号を振り、最新の世代の結果だけを state に入れる。
 
-import { useCallback, useEffect, useRef, useState, type DependencyList } from "react"
+import { useCallback, useEffect, useRef, useState, type DependencyList, type Dispatch, type SetStateAction } from "react"
 
 import { ApiClientError } from "@/lib/api"
 
@@ -18,7 +18,7 @@ export interface ApiQuery<T> {
   /** 同じ条件で取り直す（エラー時の再試行・保存後の再読込） */
   reload: () => Promise<void>
   /** 保存 API の戻り値などで手元の値を差し替える */
-  setData: (value: T | null) => void
+  setData: Dispatch<SetStateAction<T | null>>
 }
 
 /**
