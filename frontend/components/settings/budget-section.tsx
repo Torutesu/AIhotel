@@ -10,7 +10,7 @@
 // 予算室数（budgetRooms）はUIで入力させず、バックエンドが
 // 「客室数 × 稼働率 × 月の日数」で導出する。
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Loader2, Save } from "lucide-react"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -30,6 +30,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import {
   api,
   ApiClientError,
@@ -143,11 +144,8 @@ export function BudgetSection() {
 
   const currentYear = new Date().getFullYear()
   const [year, setYear] = useState(currentYear)
-  const [data, setData] = useState<BudgetYear | null>(null)
   const [draft, setDraft] = useState<Record<number, DraftRow>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -156,25 +154,23 @@ export function BudgetSection() {
     [currentYear],
   )
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await api.budgets(hotelId, year)
-      setData(result)
-      setDraft(buildDraft(result))
-      setErrors({})
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "予算の取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, year])
+  // ホテル・年を切り替えた直後に前の条件のレスポンスが遅れて返っても、表示・保存に使わない（#91）
+  const {
+    data,
+    loading,
+    error,
+    reload: load,
+    setData,
+  } = useApiQuery<BudgetYear>(
+    hotelId ? () => api.budgets(hotelId, year) : null,
+    [hotelId, year],
+    "予算の取得に失敗しました",
+  )
 
   useEffect(() => {
-    load()
-  }, [load])
+    setDraft(data ? buildDraft(data) : {})
+    setErrors({})
+  }, [data])
 
   const original = useMemo(() => (data ? buildDraft(data) : {}), [data])
 
@@ -226,7 +222,8 @@ export function BudgetSection() {
   }
 
   const buildPayload = (): UpsertBudgetsRequest | null => {
-    if (!hotelId) return null
+    // 保存先は「いま表示している予算を読み込んだホテル・年」。選択中の値とずれていれば保存しない（#91）
+    if (!data || data.hotelId !== hotelId || data.year !== year) return null
     const months: UpsertBudgetsRequest["months"] = changedMonths.map((month) => {
       const row = draft[month]
       const entry: UpsertBudgetsRequest["months"][number] = { month }
@@ -237,7 +234,7 @@ export function BudgetSection() {
       }
       return entry
     })
-    return { hotelId, year, months }
+    return { hotelId: data.hotelId, year: data.year, months }
   }
 
   const save = async () => {
@@ -247,9 +244,7 @@ export function BudgetSection() {
     try {
       const result = await api.saveBudgets(payload)
       setData(result)
-      setDraft(buildDraft(result))
-      setErrors({})
-      toast.success(`${year}年の予算を保存しました`, {
+      toast.success(`${payload.year}年の予算を保存しました`, {
         description: `${payload.months.length}か月ぶんを更新しました。`,
       })
     } catch (err) {

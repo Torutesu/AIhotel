@@ -4,7 +4,7 @@
 // GET/PUT /api/v1/pricing/strategy に接続する。合計は必ず 100% でなければ保存できない。
 // 変更は MANAGER 以上。OPERATOR には読み取り専用で表示する。
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Loader2, Save, Scale } from "lucide-react"
 import { toast } from "sonner"
 
@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PricingStrategy } from "@/lib/api"
 import { canManage } from "@shared/types"
 
@@ -58,34 +59,29 @@ export function StrategyWeightsCard() {
   const { hotelId, user } = useAuth()
   const canEdit = canManage(user?.role)
 
-  const [strategy, setStrategy] = useState<PricingStrategy | null>(null)
   const [weights, setWeights] = useState<WeightState>({
     weightOccupancy: 0,
     weightAdr: 0,
     weightCompetitor: 0,
   })
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      const result = await api.pricingStrategy(hotelId)
-      setStrategy(result)
-      setWeights(toWeightState(result))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "価格戦略の取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId])
+  // ホテルを切り替えた直後に前のホテルの重みが遅れて返っても使わない（#91）
+  const {
+    data: strategy,
+    loading,
+    error,
+    reload: load,
+    setData: setStrategy,
+  } = useApiQuery<PricingStrategy>(
+    hotelId ? () => api.pricingStrategy(hotelId) : null,
+    [hotelId],
+    "価格戦略の取得に失敗しました",
+  )
 
   useEffect(() => {
-    load()
-  }, [load])
+    if (strategy) setWeights(toWeightState(strategy))
+  }, [strategy])
 
   const total = weights.weightOccupancy + weights.weightAdr + weights.weightCompetitor
   const isValid = total === TOTAL_WEIGHT
@@ -117,12 +113,12 @@ export function StrategyWeightsCard() {
   }
 
   const handleSave = async () => {
-    if (!hotelId || !isValid) return
+    // 保存先は重みを読み込んだホテル。選択中のホテルとずれていれば保存しない（#91）
+    if (!hotelId || !isValid || !strategy || strategy.hotelId !== hotelId) return
     setSaving(true)
     try {
       const updated = await api.updatePricingStrategy(hotelId, weights)
       setStrategy(updated)
-      setWeights(toWeightState(updated))
       toast.success("価格戦略の重み付けを保存しました")
     } catch (err) {
       toast.error(err instanceof ApiClientError ? err.message : "価格戦略の保存に失敗しました")
