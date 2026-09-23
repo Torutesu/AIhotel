@@ -33,6 +33,7 @@ import { UserManagementSection } from "@/components/settings/user-management-sec
 import { HotelManagementSection } from "@/components/settings/hotel-management-section"
 import { RoomTypeSection } from "@/components/settings/room-type-section"
 import { TenantManagementSection } from "@/components/settings/tenant-management-section"
+import { DailyDataImportSection } from "@/components/settings/daily-data-import-section"
 
 // ダッシュボードKPI進捗表に表示する指標（施設ごとに選択可能。F-DASH-01）
 const DASHBOARD_KPI_ITEMS = [
@@ -137,6 +138,9 @@ export function SettingsTab() {
       <PriceRankSection />
 
       <BudgetSection />
+
+      {/* 日次実績の CSV 取り込み（PMS 連携までのつなぎ — #82） */}
+      <DailyDataImportSection />
 
       <CompetitorSection />
 

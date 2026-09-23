@@ -55,10 +55,18 @@ export class ApiClientError extends Error {
   status: number
   /** バックエンド自体に到達できなかった（接続失敗/非JSON応答）場合のみ true。開発用モックログインの発火条件に使う。 */
   isBackendUnreachable: boolean
-  constructor(status: number, message: string, isBackendUnreachable = false) {
+  /** 項目ごとのエラー（バリデーションエラー時の `errors`）。取り込みの行番号表示などに使う（#82） */
+  fieldErrors: Array<{ field: string; message: string }>
+  constructor(
+    status: number,
+    message: string,
+    isBackendUnreachable = false,
+    fieldErrors: Array<{ field: string; message: string }> = [],
+  ) {
     super(message)
     this.status = status
     this.isBackendUnreachable = isBackendUnreachable
+    this.fieldErrors = fieldErrors
   }
 }
 
@@ -244,7 +252,12 @@ async function rawRequest<T>(
   }
 
   if (!res.ok || !body.success) {
-    throw new ApiClientError(res.status, body.error || `リクエストに失敗しました (${res.status})`)
+    throw new ApiClientError(
+      res.status,
+      body.error || `リクエストに失敗しました (${res.status})`,
+      false,
+      body.errors ?? [],
+    )
   }
 
   return body.data as T
@@ -1623,6 +1636,24 @@ export const api = {
     return rawRequest("/api/v1/auth/register", {
       method: "POST",
       body: JSON.stringify(input),
+    })
+  },
+
+  // ---- 実績データの取り込み（#82） ----
+
+  /**
+   * 日次実績の一括取り込み（MANAGER 以上、1回1,000行まで）。
+   * dryRun: true なら検証と件数の集計だけ。不正な行があると 400 で、行ごとのエラーは
+   * ApiClientError.fieldErrors（field は "rows.<index>.<項目>"）に入る
+   */
+  importDailyData(
+    hotelId: string,
+    rows: Array<{ date: string; soldRooms: number; totalRevenue: number; guests: number | null }>,
+    dryRun: boolean,
+  ): Promise<{ dryRun: boolean; total: number; created: number; updated: number; startDate: string; endDate: string }> {
+    return rawRequest("/api/v1/imports/daily-data", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, rows, dryRun }),
     })
   },
 
