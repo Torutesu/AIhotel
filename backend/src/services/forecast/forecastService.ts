@@ -47,6 +47,7 @@ async function replaceHotelWideRecommendations(
         roomTypeId: null,
         date: forecast.date,
         predictedOccupancy: forecast.predictedOccupancy,
+        predictedAdr: forecast.predictedAdr,
         recommendedRank: forecast.recommendedRank,
         recommendedPrice: forecast.recommendedPrice,
         demandLevel: forecast.demandLevel as DemandLevel,

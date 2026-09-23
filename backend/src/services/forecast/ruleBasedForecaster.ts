@@ -5,7 +5,9 @@ import {
   OCCUPANCY_ONLY_WEIGHTS,
   blendRanksByStrategy,
   computeAdrRank,
+  computeBaseAdr,
   computeCompetitorRank,
+  computePredictedAdr,
   type AdrRecord,
   type CompetitorPriceRecord,
   type RankPrice,
@@ -178,7 +180,7 @@ export function computeDailyForecastCore(
   events: EventImpactRecord[],
   weekendDays: number[],
   maxRank = DEFAULT_MAX_RANK
-): Omit<DailyForecast, 'recommendedPrice' | 'modelVersion'> {
+): Omit<DailyForecast, 'recommendedPrice' | 'predictedAdr' | 'modelVersion'> {
   const movingAverage = computeMovingAverageBySameWeekday(history, targetDate)
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
   const eventImpact = computeEventImpact(events, targetDate)
@@ -286,6 +288,13 @@ export const ruleBasedForecaster: DemandForecaster = {
         ...core,
         recommendedRank: blended.rank,
         recommendedPrice: priceByRank.get(blended.rank) ?? null,
+        // 予測ADRは着地シミュレーション（F-DP-04）とダッシュボードの予測ADR系列の元になる。
+        // 書き込まないと再計算のたびに消え、着地が1名料金ベースで過小になっていた（#77）
+        predictedAdr: computePredictedAdr({
+          baseAdr: computeBaseAdr(adrHistory, date),
+          recommendedRank: blended.rank,
+          ranks: rankPrices,
+        }),
         modelVersion: MODEL_VERSION,
       })
     }

@@ -10,7 +10,7 @@ import { addUtcDays, todayJst } from '../lib/date.js'
 //
 // 観点ごとに推奨ランクが大きく離れるようにデータを置く:
 // - 料金ランク 1〜10（1名料金 = ランク × 5,000円）
-// - 過去28日の実績: 稼働率 0.5（→ 稼働率観点はおおむねランク5）、ADR 45,000円（→ ADR観点はランク9）
+// - 過去28日の実績: 稼働率 0.5（→ 稼働率観点はおおむねランク5）、ADR 47,000円（→ 最も近い 45,000円のランク9。1名料金と一致させないため端数をずらす）
 // - 対象期間の競合価格: 10,000円（→ 競合観点はランク2）
 
 const hasDatabase = Boolean(process.env.DATABASE_URL)
@@ -108,9 +108,9 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
         hotelId: HOTEL,
         date: addUtcDays(today, -(i + 1)),
         occupancy: 0.5,
-        adr: 45_000,
+        adr: 47_000,
         soldRooms: 50,
-        totalRevenue: 50 * 45_000,
+        totalRevenue: 50 * 47_000,
       })),
     })
 
@@ -185,6 +185,39 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       await recomputeAndReadRanks()
       const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL } })
       expect(row.modelVersion).toBe('rule-based-v2')
+    })
+  })
+
+  describe('予測ADR（#77）', () => {
+    it('再計算後も predictedAdr が入っている（実績ADRを推奨ランクへの価格変化率で補正）', async () => {
+      await setWeights(0, 100, 0)
+      await recomputeAndReadRanks()
+      const rows = await prisma.aiPriceRecommendation.findMany({ where: { hotelId: HOTEL } })
+      // 推奨ランク9 = 実績ADRに見合うランクなので、実績ADRがそのまま予測ADRになる
+      expect(rows.every((r) => r.predictedAdr === 47_000)).toBe(true)
+
+      await setWeights(0, 0, 100)
+      await recomputeAndReadRanks()
+      const lowered = await prisma.aiPriceRecommendation.findMany({ where: { hotelId: HOTEL } })
+      // 推奨ランク2（10,000円）は基準ランク9（45,000円）の 2/9 倍
+      expect(lowered.every((r) => r.predictedAdr === Math.round((47_000 * 10_000) / 45_000))).toBe(true)
+    })
+
+    it('着地シミュレーションは1名料金ではなく予測ADRで積み上がる', async () => {
+      await setWeights(0, 100, 0)
+      await recomputeAndReadRanks()
+
+      const year = today.getUTCFullYear()
+      const month = today.getUTCMonth() + 1
+      const res = await request(app)
+        .post('/api/v1/pricing/simulation/recompute')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ hotelId: HOTEL, year, month })
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+
+      // 実績・予測ともに ADR は 47,000円なので着地ADRも 47,000円になる。
+      // predictedAdr が無かった従来は予測日が1名料金（ランク9 = 45,000円）で積まれ、着地ADRが下がっていた
+      expect(res.body.data.simulation.projectedAdr).toBe(47_000)
     })
   })
 })

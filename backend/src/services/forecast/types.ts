@@ -19,6 +19,8 @@ export interface DailyForecast {
   demandLevel: ForecastDemandLevel
   recommendedRank: number | null
   recommendedPrice: number | null
+  /** 予測ADR（#77）。ADR実績が無いホテルでは null */
+  predictedAdr: number | null
   confidence: number
   modelVersion: string
 }
