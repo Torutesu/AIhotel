@@ -23,7 +23,7 @@ const nextConfig = {
     return [{ source: '/:path*', headers: SECURITY_HEADERS }]
   },
   env: {
-    // デモモードは opt-in。lib/api.ts 側で「"true" のときだけ有効」と判定する。
+    // デモモードは opt-in。lib/api/ 側で「"true" のときだけ有効」と判定する。
     // 未設定時は '' がインライン化されて無効になり、デモ分岐はツリーシェイクで成果物から消える
     // （scripts/verify-demo-mode.mjs --expect-disabled で検証できる）。
     // クライアントへのUI確認・デモ用ビルドでのみ NEXT_PUBLIC_DEMO_MODE=true を設定する。

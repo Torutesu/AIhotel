@@ -1,6 +1,6 @@
 // バックエンドAPIへのリバースプロキシ（same-origin 中継）。
 //
-// ブラウザは常に same-origin の /api/* を叩く（frontend/lib/api.ts）。ここで
+// ブラウザは常に same-origin の /api/* を叩く（frontend/lib/api/）。ここで
 // サーバー側だけが知る BACKEND_URL へ中継するため、バックエンドのURLがブラウザに
 // 露出せず、CORS 設定も不要になる。
 //

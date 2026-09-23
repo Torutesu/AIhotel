@@ -58,7 +58,7 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 ## API契約
 
 - パスは `/api/v1/<領域>`。レスポンスは成功 `{success: true, data, message?, meta?}` / 失敗 `{success: false, error, errors?: [{field, message}]}` に統一（`utils/response.ts`・`middlewares/errorHandler.ts` を使う。独自形式を作らない）。
-- フロントエンドからの呼び出しは `frontend/lib/api.ts` に集約する。コンポーネント内で直接 `fetch` しない。モックへのサイレントフォールバックは禁止（ローディング＋エラー表示＋再試行を出す）。
+- フロントエンドからの呼び出しは `frontend/lib/api/` に集約する。コンポーネント内で直接 `fetch` しない。モックへのサイレントフォールバックは禁止（ローディング＋エラー表示＋再試行を出す）。
 
 ## 未実装領域（Phase 4 — 器だけ存在）
 

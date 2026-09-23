@@ -123,7 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [restoreAttempt])
 
-  // リフレッシュトークンも失効した場合、lib/api.ts から通知を受けてログイン画面へ戻す（F-2）
+  // リフレッシュトークンも失効した場合、lib/api/ から通知を受けてログイン画面へ戻す（F-2）
   useEffect(() => {
     const onExpired = () => {
       setUser(null)

@@ -62,7 +62,7 @@ pnpm --filter backend build && pnpm --filter frontend build
 成功 `{success: true, data}` / 失敗 `{success: false, error, errors?}` に統一。独自形式を作らない。
 既存APIを増やす前に、フロントエンド未接続のAPI（`docs/改善計画.md` の U-1〜U-5）が残っていないか確認する
 
-**フロントエンド**: API呼び出しは `frontend/lib/api.ts` に集約（コンポーネント内で直接fetchしない）。
+**フロントエンド**: API呼び出しは `frontend/lib/api/` に集約（コンポーネント内で直接fetchしない）。
 モックへのサイレントフォールバック禁止（ローディング＋エラー＋再試行を表示）。UIは日本語
 
 **コミット規約**: Conventional Commits（`feat(backend):` 等）＋件名末尾に対応する指摘ID/タスクID（例 `(C-2, C-3)` `(Task-3)`）。修正単位でコミットを分割
