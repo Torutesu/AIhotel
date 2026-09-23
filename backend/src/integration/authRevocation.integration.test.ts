@@ -5,13 +5,13 @@ import bcrypt from 'bcryptjs'
 import { PrismaClient } from '@prisma/client'
 
 // 無効化・降格・テナント停止の即時反映と、アカウント単位のロックアウト（#78）の統合テスト。
-// DATABASE_URL が無ければスキップし、専用テナント（プレフィクス rtest）で検証する。
+// DATABASE_URL が無ければスキップし、専用テナント（プレフィクス rvtest）で検証する。
 // 各テストの前にユーザーとテナントの状態を初期値へ戻す。
 
 const hasDatabase = Boolean(process.env.DATABASE_URL)
 const describeIntegration = hasDatabase ? describe : describe.skip
 
-const PREFIX = 'rtest'
+const PREFIX = 'rvtest'
 const TENANT = `${PREFIX}-tenant`
 const HOTEL = `${PREFIX}-hotel`
 const PASSWORD = 'Test1234'
