@@ -9,7 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { api, type DashboardKpi } from "@/lib/api"
+import { ErrorState } from "@/components/error-state"
+import { api, ApiClientError, type DashboardKpi } from "@/lib/api"
 import { formatPercent, formatRatio, formatYen, isRatioNegative as ratioNegative } from "@/lib/format"
 
 /** KPI進捗表に表示できる指標（設定タブで施設ごとに選択する。F-DASH-01） */
@@ -54,6 +55,50 @@ interface KpiProgressSectionProps {
   visibleKpiKeys: string[]
 }
 
+/**
+ * 開始月からNか月ぶんの KPI を単月APIの並列取得で集める（F-DASH-01）。
+ * 失敗時は黙って単月表示に戻さず error を返す（サイレントフォールバック禁止 — #80）。
+ */
+export function useMultiMonthKpis(hotelId: string, year: number, month: number, span: number) {
+  const [kpis, setKpis] = useState<DashboardKpi[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // retry() で取得をやり直すためのカウンタ
+  const [attempt, setAttempt] = useState(0)
+
+  useEffect(() => {
+    if (!hotelId || span <= 1) {
+      setKpis([])
+      setError(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    const targets = Array.from({ length: span }, (_, i) => {
+      const offset = month - 1 + i
+      return { year: year + Math.floor(offset / 12), month: (offset % 12) + 1 }
+    })
+    Promise.all(targets.map((t) => api.dashboardKpi(hotelId, t.year, t.month)))
+      .then((results) => {
+        if (!cancelled) setKpis(results)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setKpis([])
+        setError(err instanceof ApiClientError ? err.message : "複数月のKPIの取得に失敗しました")
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [hotelId, year, month, span, attempt])
+
+  return { kpis, loading, error, retry: () => setAttempt((n) => n + 1) }
+}
+
 export function KpiProgressSection({
   hotelId,
   kpi,
@@ -67,37 +112,12 @@ export function KpiProgressSection({
   // KPI進捗の表示月数（1/3/6/12か月。開始月＝上部で選択中の対象年月）
   const [monthSpan, setMonthSpan] = useState("1")
   // 複数月表示時の各月KPI
-  const [spanKpis, setSpanKpis] = useState<DashboardKpi[]>([])
-  const [spanLoading, setSpanLoading] = useState(false)
-
-  // 複数月表示（F-DASH-01）: 開始月からNか月ぶんを単月APIの並列取得で組み立てる
-  useEffect(() => {
-    const span = Number(monthSpan)
-    if (!hotelId || span <= 1) {
-      setSpanKpis([])
-      return
-    }
-    let cancelled = false
-    setSpanLoading(true)
-    const targets = Array.from({ length: span }, (_, i) => {
-      const offset = month - 1 + i
-      return { year: year + Math.floor(offset / 12), month: (offset % 12) + 1 }
-    })
-    Promise.all(targets.map((t) => api.dashboardKpi(hotelId, t.year, t.month)))
-      .then((results) => {
-        if (!cancelled) setSpanKpis(results)
-      })
-      .catch(() => {
-        // 単月表示は成功しているため、複数月ぶんの取得失敗時は単月表示にフォールバックする
-        if (!cancelled) setSpanKpis([])
-      })
-      .finally(() => {
-        if (!cancelled) setSpanLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [hotelId, year, month, monthSpan])
+  const {
+    kpis: spanKpis,
+    loading: spanLoading,
+    error: spanError,
+    retry: retrySpan,
+  } = useMultiMonthKpis(hotelId, year, month, Number(monthSpan))
 
   const axis = useMemo(() => {
     if (!kpi?.comparison) return null
@@ -422,6 +442,8 @@ export function KpiProgressSection({
           <CardContent className="pt-2">
             {spanLoading ? (
               <Skeleton className="h-40 w-full" />
+            ) : spanError ? (
+              <ErrorState message={spanError} onRetry={retrySpan} />
             ) : multiMonthTable ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs border-collapse">

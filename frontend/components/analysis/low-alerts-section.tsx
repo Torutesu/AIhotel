@@ -7,7 +7,7 @@
 // GET /dashboard/alerts?minLevel=1 を取得し、Level 3以下だけを表示する
 // （Level 5・4 はダッシュボードの担当なのでここでは重複させない）。
 
-import { useCallback, useEffect, useState } from "react"
+import { useMemo } from "react"
 import { format } from "date-fns"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,7 +15,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { AlertActions } from "@/components/alert-actions"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type AlertItem } from "@/lib/api"
+import { useApiQuery } from "@/hooks/use-api-query"
+import { api, type AlertItem } from "@/lib/api"
 
 /** 分析タブで扱うアラートの上限レベル（Level 5・4 はダッシュボードの担当） */
 const MAX_ANALYSIS_ALERT_LEVEL = 3
@@ -33,27 +34,22 @@ function resolveLevel(alert: AlertItem): number {
 
 export function LowAlertsSection() {
   const { hotelId } = useAuth()
-  const [alerts, setAlerts] = useState<AlertItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
+  // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: alertsData,
+    loading,
+    error,
+    reload: load,
+  } = useApiQuery<AlertItem[]>(
+    hotelId ? async () => {
       const all = await api.alerts(hotelId, 1)
-      setAlerts(all.filter((a) => resolveLevel(a) <= MAX_ANALYSIS_ALERT_LEVEL))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "アラートの取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId])
-
-  useEffect(() => {
-    load()
-  }, [load])
+      return all.filter((a) => resolveLevel(a) <= MAX_ANALYSIS_ALERT_LEVEL)
+    } : null,
+    [hotelId],
+    "アラートの取得に失敗しました",
+  )
+  const alerts = useMemo(() => alertsData ?? [], [alertsData])
 
   return (
     <Card>

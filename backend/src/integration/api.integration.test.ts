@@ -923,8 +923,9 @@ describeIntegration('API 統合テスト', () => {
       expect(res.status).toBe(200)
       const emails = (res.body.data as Array<{ email: string }>).map((u) => u.email)
       expect(emails).toContain(EMAILS.manager)
-      // hotelId が null のテナント統括ユーザーも含まれる
-      expect(emails).toContain(EMAILS.tenantManager)
+      // ホテルに所属するマネージャーには、自ホテルのユーザーだけが見える。
+      // hotelId が null のテナント統括ユーザーは管理範囲の外なので含まれない（#79）
+      expect(emails).not.toContain(EMAILS.tenantManager)
       // 別テナントのユーザーは含まれない
       expect(emails).not.toContain(EMAILS.otherTenantManager)
     })
@@ -1011,10 +1012,12 @@ describeIntegration('API 統合テスト', () => {
 
     // #52: 他テナントのホテルIDを送っても「見つからない」と同じ 400 にして、
     // そのホテルが存在するかどうかを判別できないようにする
+    // ホテルに所属するマネージャーは所属ホテル以外を一律 403 にする（#79 — hotelScopedUsers で検証）。
+    // テナント境界の 400（#52）は、ホテルに所属しないテナント統括のマネージャーで確かめる
     it('MANAGER は他テナントのホテルにユーザーを登録できない（400・存在を漏らさない）', async () => {
       const res = await request(app)
         .post('/api/v1/auth/register')
-        .set('Authorization', `Bearer ${tokens.manager}`)
+        .set('Authorization', `Bearer ${tokens.tenantManager}`)
         .send({
           email: `${PREFIX}-cross@example.com`,
           password: 'Created1234',

@@ -1,5 +1,6 @@
 import type React from "react"
 import type { Metadata } from "next"
+import { headers } from "next/headers"
 import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
@@ -14,11 +15,16 @@ export const metadata: Metadata = {
   description: "ホテレベ - AIホテル収益管理システム",
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // middleware.ts が作った CSP の nonce。next-themes はテーマのちらつき防止に
+  // インラインスクリプトを出すため、同じ nonce を渡さないと CSP で止まる（#85）。
+  // headers() を読むのでページは動的レンダリングになる（nonce はリクエストごとに変わるため必須）
+  const nonce = (await headers()).get("x-nonce") ?? undefined
+
   return (
     // next-themes は描画前に html へ class を付けるため suppressHydrationWarning が必要（U-12）
     <html lang="ja" suppressHydrationWarning>
@@ -28,6 +34,7 @@ export default function RootLayout({
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
+          nonce={nonce}
         >
           {children}
           <Toaster />

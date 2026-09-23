@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
+import { addUtcDays, eachUtcDay } from '../lib/date.js'
 
 /**
  * ブッキングカーブ（F-DAILY-01）
@@ -127,6 +128,7 @@ export async function getCompetitorPricesService(
   ])
 
   const ownActualByDate = new Map(ownActuals.map((d) => [d.date.toISOString().slice(0, 10), d]))
+  const ownRecommendationByDate = new Map(ownRecommendations.map((r) => [r.date.toISOString().slice(0, 10), r]))
   const rankByNumber = new Map(priceRanks.map((r) => [r.rank, r]))
 
   return {
@@ -135,13 +137,15 @@ export async function getCompetitorPricesService(
     endDate: endDate.toISOString().slice(0, 10),
     // 自ホテル: 実績日は ADR、未来日は AI 推奨価格。
     // 利用人数別の価格は price1P / price2P / price3P に入れる（#57）
-    ownPrices: ownRecommendations.map((r) => {
-      const key = r.date.toISOString().slice(0, 10)
+    // 暦日を軸に実績と推奨を外部結合する。推奨の無い日も実績 ADR を出す（#90）
+    ownPrices: eachUtcDay(startDate, addUtcDays(endDate, 1)).map((day) => {
+      const key = day.toISOString().slice(0, 10)
       const actual = ownActualByDate.get(key)
-      const rank = r.recommendedRank != null ? rankByNumber.get(r.recommendedRank) : undefined
+      const r = ownRecommendationByDate.get(key)
+      const rank = r?.recommendedRank != null ? rankByNumber.get(r.recommendedRank) : undefined
       return {
         date: key,
-        price: actual?.adr != null ? Math.round(actual.adr) : r.recommendedPrice,
+        price: actual?.adr != null ? Math.round(actual.adr) : (r?.recommendedPrice ?? null),
         isActual: actual?.adr != null,
         ...resolveOwnGuestPrices(actual?.roomData ?? [], rank),
       }

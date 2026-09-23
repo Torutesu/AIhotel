@@ -29,6 +29,9 @@ export const OTA_FIELDS: Array<{ key: keyof CompetitorOtaUrls; label: string }> 
   { key: "ikkyu", label: "一休.com" },
   { key: "expedia", label: "Expedia" },
   { key: "agoda", label: "Agoda" },
+  { key: "booking", label: "Booking.com" },
+  { key: "tripcom", label: "Trip.com" },
+  { key: "official", label: "公式サイト" },
 ]
 
 const urlField = z
@@ -50,6 +53,9 @@ export const competitorFormSchema = z.object({
   ikkyu: urlField,
   expedia: urlField,
   agoda: urlField,
+  booking: urlField,
+  tripcom: urlField,
+  official: urlField,
 })
 
 export type CompetitorFormValues = z.infer<typeof competitorFormSchema>
@@ -63,6 +69,9 @@ export const EMPTY_COMPETITOR_FORM: CompetitorFormValues = {
   ikkyu: "",
   expedia: "",
   agoda: "",
+  booking: "",
+  tripcom: "",
+  official: "",
 }
 
 /** 既存の競合をフォーム値に変換する */
@@ -77,6 +86,9 @@ export function toFormValues(competitor: CompetitorSetting): CompetitorFormValue
     ikkyu: ota.ikkyu ?? "",
     expedia: ota.expedia ?? "",
     agoda: ota.agoda ?? "",
+    booking: ota.booking ?? "",
+    tripcom: ota.tripcom ?? "",
+    official: ota.official ?? "",
   }
 }
 

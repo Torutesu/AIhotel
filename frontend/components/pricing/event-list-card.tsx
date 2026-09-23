@@ -1,9 +1,10 @@
 "use client"
 
 // 当月のイベント情報（U-3 / U-15 で pricing-tab.tsx から分割）
-// GET/POST /events・PUT /events/:id・DELETE /events/:id を扱う自己完結セクション。
+// POST /events・PUT /events/:id・DELETE /events/:id を扱う。
+// 一覧（GET /events）は親（プライシングタブ）が読み込み、カレンダー・日別詳細と共有する（#80）。
 
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
 import { Edit2, Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -22,43 +23,28 @@ import {
   impactLabel,
 } from "@/components/pricing/pricing-constants"
 import { api, ApiClientError, type CreateEventInput } from "@/lib/api"
-import type { Event as HotelEvent } from "@shared/types"
+import { canManage, type Event as HotelEvent } from "@shared/types"
 
 interface EventListCardProps {
-  /** 表示対象期間（"yyyy-MM-dd"） */
-  startDate: string
-  endDate: string
+  events: HotelEvent[]
+  loading: boolean
+  error: string | null
+  /** 一覧の再取得（登録・更新・削除の後、エラー時の再試行） */
+  onReload: () => void | Promise<void>
 }
 
-export function EventListCard({ startDate, endDate }: EventListCardProps) {
-  const { hotelId } = useAuth()
+export function EventListCard({ events, loading, error, onReload }: EventListCardProps) {
+  const { hotelId, user } = useAuth()
+  // 編集・削除は MANAGER 以上（バックエンドの PUT/DELETE /events と同じ — S-4）。
+  // 登録（POST）はオペレーターにも許可されているのでボタンを残す（#80）
+  const canEdit = canManage(user?.role)
 
-  const [events, setEvents] = useState<HotelEvent[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   /** 編集中のイベント（null なら新規登録） */
   const [editingEvent, setEditingEvent] = useState<HotelEvent | null>(null)
   const [saving, setSaving] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<HotelEvent | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setEvents(await api.events(hotelId, startDate, endDate))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "イベント情報の取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, startDate, endDate])
-
-  useEffect(() => {
-    load()
-  }, [load])
 
   const openCreate = () => {
     setEditingEvent(null)
@@ -94,7 +80,7 @@ export function EventListCard({ startDate, endDate }: EventListCardProps) {
       }
       setDialogOpen(false)
       setEditingEvent(null)
-      await load()
+      await onReload()
     } catch (err) {
       toast.error(
         err instanceof ApiClientError
@@ -114,7 +100,7 @@ export function EventListCard({ startDate, endDate }: EventListCardProps) {
     try {
       await api.deleteEvent(id, hotelId)
       toast.success("イベントを削除しました")
-      await load()
+      await onReload()
     } catch (err) {
       toast.error(err instanceof ApiClientError ? err.message : "イベントの削除に失敗しました")
     } finally {
@@ -142,7 +128,7 @@ export function EventListCard({ startDate, endDate }: EventListCardProps) {
           {loading ? (
             <Skeleton className="h-16 w-full" />
           ) : error ? (
-            <ErrorState message={error} onRetry={load} />
+            <ErrorState message={error} onRetry={onReload} />
           ) : events.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
               この期間のイベント情報は登録されていません。
@@ -171,29 +157,31 @@ export function EventListCard({ startDate, endDate }: EventListCardProps) {
                       {ev.location ? ` ・ ${ev.location}` : ""}
                     </p>
                   </div>
-                  <div className="flex flex-shrink-0 items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEdit(ev)}
-                      aria-label={`イベント「${ev.name}」を編集`}
-                    >
-                      <Edit2 className="h-4 w-4 text-muted-foreground" aria-hidden />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setPendingDelete(ev)}
-                      disabled={deletingId === ev.id}
-                      aria-label={`イベント「${ev.name}」を削除`}
-                    >
-                      {deletingId === ev.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                      ) : (
-                        <Trash2 className="h-4 w-4 text-muted-foreground" aria-hidden />
-                      )}
-                    </Button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => openEdit(ev)}
+                        aria-label={`イベント「${ev.name}」を編集`}
+                      >
+                        <Edit2 className="h-4 w-4 text-muted-foreground" aria-hidden />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setPendingDelete(ev)}
+                        disabled={deletingId === ev.id}
+                        aria-label={`イベント「${ev.name}」を削除`}
+                      >
+                        {deletingId === ev.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : (
+                          <Trash2 className="h-4 w-4 text-muted-foreground" aria-hidden />
+                        )}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

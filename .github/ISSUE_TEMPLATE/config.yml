@@ -1,0 +1,6 @@
+# テンプレートを使わない Issue は作れないようにする（再現手順・ロール・テナントの記入漏れを防ぐ — #94）
+blank_issues_enabled: false
+contact_links:
+  - name: セキュリティの問題を報告する
+    url: https://github.com/Torutesu/AIhotel/security/advisories/new
+    about: 脆弱性は公開の Issue ではなく、非公開のセキュリティアドバイザリで報告してください（SECURITY.md）

@@ -12,6 +12,7 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 
 - バックエンドは **Express + TypeScript + Prisma + PostgreSQL 16**。要件定義書の旧記述にあった FastAPI/Redis/Celery には移行しない。
 - クラウド非依存を維持する: DB接続は `DATABASE_URL` 環境変数のみ。AWS/GCP固有のSDK・サービスをコードに持ち込まない（AWS RDS / GCP Cloud SQL のどちらでも動くこと）。
+  例外は S3 互換 API のクライアント（`@aws-sdk/client-s3`）を `lib/storage.ts` の中だけで使うこと（#21）。ESLint の `no-restricted-imports` が他の場所での import を止める。
 - スキーマ変更は `prisma migrate dev`（マイグレーションファイルをコミット）。`db:push` を本番系フローに使わない。
 
 ## セキュリティ・テナント分離（必須・例外なし）
@@ -58,20 +59,20 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 ## API契約
 
 - パスは `/api/v1/<領域>`。レスポンスは成功 `{success: true, data, message?, meta?}` / 失敗 `{success: false, error, errors?: [{field, message}]}` に統一（`utils/response.ts`・`middlewares/errorHandler.ts` を使う。独自形式を作らない）。
-- フロントエンドからの呼び出しは `frontend/lib/api.ts` に集約する。コンポーネント内で直接 `fetch` しない。モックへのサイレントフォールバックは禁止（ローディング＋エラー表示＋再試行を出す）。
+- フロントエンドからの呼び出しは `frontend/lib/api/` に集約する。コンポーネント内で直接 `fetch` しない。モックへのサイレントフォールバックは禁止（ローディング＋エラー表示＋再試行を出す）。
 
 ## 未実装領域（Phase 4 — 器だけ存在）
 
-PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成、バッチジョブ（スケジューラ）は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータで動く。これらを「実装済み」と記述・報告しない。
+PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータ・CSV 取り込み（#82）・ルールベース予測で動く。これらを「実装済み」と記述・報告しない。
 
-PDF/Excel出力は**バックエンド実装済み**（`GET /reports/monthly?format=pdf|excel`）。フロントエンド未接続なだけなので「未実装」と書かない。
+次は実装済み（「未実装」と書かない）: PDF/Excel出力（`GET /reports/monthly?format=pdf|excel`、レポートタブから接続済み）、日次バッチ（`job daily`。スケジューラへの登録はデプロイ先の作業）。
 
-フロントエンドの画面には実APIに未接続のサンプル表示が残っている（分析タブの大半・レポート・AIまとめ）。
+フロントエンドの画面には実APIに未接続のサンプル表示が残っている（分析タブの一部・AIまとめ）。
 状況は `要件定義書.md` §6 と `docs/改善計画.md` を正とし、サンプル表示のセクションはUI上でその旨を明示する。
 
 ## コミット・検証
 
 - コミットは修正単位で分け、件名末尾に対応する指摘ID（`(C-2, C-3)` / `(W-4)` / `(Task-3)` 形式）を含める。
-- コミット前チェック: `pnpm --filter './*' type-check` → `pnpm --filter './*' lint` → `pnpm --filter backend test` → 必要に応じ `pnpm --filter backend build` / `pnpm --filter frontend build`。backend の type-check には事前に `pnpm --filter backend db:generate` が必要。
+- コミット前チェック: `pnpm --filter './*' type-check` → `pnpm --filter './*' lint` → `pnpm --filter backend test` → `pnpm --filter frontend test` → 必要に応じ `pnpm --filter backend build` / `pnpm --filter frontend build`。backend の type-check には事前に `pnpm --filter backend db:generate` が必要。
 - デモ環境: シードは冪等（何度実行してもよい）。アカウントは admin/manager/operator@demo-hotel.example.com と、
   運営（PLATFORM_ADMIN）の platform@example.com。パスワードはいずれも `Admin1234`。

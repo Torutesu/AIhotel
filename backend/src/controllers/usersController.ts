@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import { asyncHandler } from '../middlewares/errorHandler.js'
 import { sendSuccess } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
-import { listUsersService, updateUserService } from '../services/usersService.js'
+import { listUsersService, resetUserPasswordService, updateUserService } from '../services/usersService.js'
 import type { UpdateUserInput } from '../lib/validators.js'
 
 /**
@@ -11,7 +11,13 @@ import type { UpdateUserInput } from '../lib/validators.js'
  */
 export const getUsers = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId } = req.query as unknown as { hotelId: string }
-  const users = await listUsersService(hotelId)
+  const actor = req.user!
+  const users = await listUsersService(hotelId, {
+    userId: actor.userId,
+    tenantId: actor.tenantId,
+    role: actor.role,
+    hotelId: actor.hotelId,
+  })
   sendSuccess(res, users)
 })
 
@@ -26,6 +32,7 @@ export const putUser = asyncHandler(async (req: Request, res: Response) => {
     userId: actor.userId,
     tenantId: actor.tenantId,
     role: actor.role,
+    hotelId: actor.hotelId,
   })
 
   await writeAuditLog({
@@ -41,4 +48,32 @@ export const putUser = asyncHandler(async (req: Request, res: Response) => {
   })
 
   sendSuccess(res, after, 200, 'ユーザーを更新しました')
+})
+
+/**
+ * 一時パスワードの発行（ADMIN / MANAGER・監査対象 — #89）
+ * POST /api/v1/users/:id/reset-password
+ * 一時パスワードはこのレスポンスで1回だけ返す。監査ログには残さない
+ */
+export const resetUserPassword = asyncHandler(async (req: Request, res: Response) => {
+  const actor = req.user!
+  const { user, temporaryPassword } = await resetUserPasswordService(req.params.id, {
+    userId: actor.userId,
+    tenantId: actor.tenantId,
+    role: actor.role,
+    hotelId: actor.hotelId,
+  })
+
+  await writeAuditLog({
+    tenantId: user.tenantId,
+    userId: actor.userId,
+    action: 'PASSWORD_RESET',
+    entity: 'User',
+    entityId: user.id,
+    newValue: { email: user.email },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+
+  sendSuccess(res, { user, temporaryPassword }, 200, '一時パスワードを発行しました')
 })

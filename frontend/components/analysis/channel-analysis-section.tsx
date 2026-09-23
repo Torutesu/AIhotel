@@ -1,129 +1,114 @@
 "use client"
 
-// チャネル別分析（U-15 で analysis-tab.tsx から分割）。PMS/OTA連携が未実装のためサンプル表示。
+// チャネル別分析（#88 / GET /analysis/channels）。対象月の実績を販売チャネルごとに集計する。
+// チャネル別の実績は PMS/OTA 連携（Phase 4）まで CSV 取り込みや seed で入る。
 
-import { useMemo } from "react"
-import { TrendingUp } from "lucide-react"
+import { TrendingDown, TrendingUp } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { SampleDataNotice } from "@/components/sample-data-notice"
-import { buildPeriodData } from "@/components/analysis/sample-period-data"
+import { Skeleton } from "@/components/ui/skeleton"
+import { ErrorState } from "@/components/error-state"
+import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
+import { api, type ChannelBreakdown } from "@/lib/api"
+import { monthLabel, parseMonthStr } from "@/lib/date"
+import { formatYen } from "@/lib/format"
 import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysis/section-props"
 
+function Growth({ value }: { value: number | null }) {
+  if (value == null) return <span className="text-muted-foreground">—</span>
+  const up = value >= 0
+  return (
+    <span className={`inline-flex items-center gap-1 ${up ? "text-positive" : "text-negative"}`}>
+      {up ? <TrendingUp className="h-3 w-3" aria-hidden /> : <TrendingDown className="h-3 w-3" aria-hidden />}
+      {up ? "+" : ""}
+      {value.toFixed(1)}%
+    </span>
+  )
+}
+
 export function ChannelAnalysisSection(props: AnalysisSectionProps) {
+  const { hotelId } = useAuth()
   const { targetPeriod } = useTargetPeriod(props)
-  const periodData = useMemo(() => buildPeriodData(targetPeriod), [targetPeriod])
+  const { year, month } = parseMonthStr(targetPeriod)
+
+  const { data, loading, error, reload } = useApiQuery<ChannelBreakdown>(
+    hotelId ? () => api.channelBreakdown(hotelId, year, month) : null,
+    [hotelId, year, month],
+    "チャネル別の実績の取得に失敗しました",
+  )
+  const channels = data?.channels ?? []
+  const topRevenue = channels[0]
+  const topAdr = [...channels].filter((c) => c.adr != null).sort((a, b) => (b.adr ?? 0) - (a.adr ?? 0))[0]
+  const topGrowth = [...channels]
+    .filter((c) => c.revenueGrowth != null)
+    .sort((a, b) => (b.revenueGrowth ?? 0) - (a.revenueGrowth ?? 0))[0]
 
   return (
-    <div className="space-y-4">
-      <SampleDataNotice detail="PMS/OTA連携が未実装のため、チャネル別の数値はサンプルです。" />
-      {/* AI解説を一番上に */}
-      <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium flex items-center gap-2">
-            <span className="text-xl" aria-hidden>
-              🤖
-            </span>
-            チャネル分析インサイト
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-2 text-sm leading-relaxed">
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2 flex-shrink-0" />
-              <p>
-                公式サイトが全体の38.5%を占め、最も重要なチャネルとなっています。前期比+12.3%と好調に成長しています。
-              </p>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-medium">チャネル別パフォーマンス（{monthLabel(year, month)}）</CardTitle>
+        <p className="text-xs text-muted-foreground">販売チャネルごとの実績です。前月比は室料売上の比較です。</p>
+      </CardHeader>
+      <CardContent className="space-y-3 pt-0">
+        {loading ? (
+          <Skeleton className="h-40 w-full" />
+        ) : error ? (
+          <ErrorState message={error} onRetry={reload} />
+        ) : channels.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            この月のチャネル別の実績はまだありません（PMS/OTA 連携後、または取り込み後に表示されます）。
+          </p>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-lg border px-3 py-2.5">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">最高収益チャネル</p>
+                <div className="text-lg font-semibold">{topRevenue.channel}</div>
+                <p className="text-xs text-muted-foreground">売上の{topRevenue.revenueShare.toFixed(1)}%</p>
+              </div>
+              <div className="rounded-lg border px-3 py-2.5">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">最高ADRチャネル</p>
+                <div className="text-lg font-semibold">{topAdr?.channel ?? "—"}</div>
+                <p className="text-xs text-muted-foreground">{formatYen(topAdr?.adr)}</p>
+              </div>
+              <div className="rounded-lg border px-3 py-2.5">
+                <p className="mb-1 text-xs font-medium text-muted-foreground">前月比の伸びが最も大きいチャネル</p>
+                <div className="text-lg font-semibold">{topGrowth?.channel ?? "—"}</div>
+                <p className="text-xs">{topGrowth ? <Growth value={topGrowth.revenueGrowth} /> : "前月の実績がありません"}</p>
+              </div>
             </div>
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2 flex-shrink-0" />
-              <p>
-                公式アプリの成長率が+24.8%と突出しており、モバイル戦略の強化が効果を発揮しています。
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 rounded-full bg-[color:var(--chart-2)] mt-2 flex-shrink-0" />
-              <p>
-                電話直接予約のADRが¥21,450と最も高く、高単価顧客の獲得チャネルとして重要です。
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <Card>
-          <CardContent className="py-2.5 px-3">
-            <p className="text-xs font-medium text-muted-foreground mb-1">最高収益チャネル</p>
-            <div className="text-lg font-semibold mb-0.5">公式サイト</div>
-            <p className="text-xs text-muted-foreground">全体の38.5%</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-2.5 px-3">
-            <p className="text-xs font-medium text-muted-foreground mb-1">最高ADRチャネル</p>
-            <div className="text-lg font-semibold mb-0.5">電話直接</div>
-            <p className="text-xs text-muted-foreground">¥{periodData.channelData[3].adr.toLocaleString()}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-2.5 px-3">
-            <p className="text-xs font-medium text-muted-foreground mb-1">成長率トップ</p>
-            <div className="text-lg font-semibold mb-0.5">公式アプリ</div>
-            <div className="flex items-center gap-1">
-              <TrendingUp className="w-3 h-3 text-[color:var(--positive)]" />
-              <span className="text-xs text-[color:var(--positive)]">
-                +{periodData.channelData[4].growth.toFixed(1)}% vs 前期
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium">チャネル別パフォーマンス</CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2 px-2 font-medium">チャネル</th>
-                  <th className="text-right py-2 px-2 font-medium">予約数</th>
-                  <th className="text-right py-2 px-2 font-medium">構成比</th>
-                  <th className="text-right py-2 px-2 font-medium">ADR</th>
-                  <th className="text-right py-2 px-2 font-medium">売上</th>
-                  <th className="text-right py-2 px-2 font-medium">前期比</th>
-                  <th className="text-center py-2 px-2 font-medium">トレンド</th>
-                </tr>
-              </thead>
-              <tbody>
-                {periodData.channelData.map((row) => (
-                  <tr key={row.channel} className="border-b hover:bg-muted/50">
-                    <td className="py-2 px-2 font-medium">{row.channel}</td>
-                    <td className="text-right py-2 px-2">{row.bookings}件</td>
-                    <td className="text-right py-2 px-2">{row.share.toFixed(1)}%</td>
-                    <td className="text-right py-2 px-2">¥{row.adr.toLocaleString()}</td>
-                    <td className="text-right py-2 px-2 font-medium">¥{row.revenue.toLocaleString()}</td>
-                    <td className="text-right py-2 px-2">
-                      <span className="text-[color:var(--positive)]">+{row.growth.toFixed(1)}%</span>
-                    </td>
-                    <td className="text-center py-2 px-2">
-                      {row.trend === "up" && (
-                        <TrendingUp className="w-4 h-4 text-[color:var(--positive)] mx-auto" />
-                      )}
-                      {row.trend === "stable" && <span className="text-muted-foreground">→</span>}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b">
+                    <th className="px-2 py-2 text-left font-medium">チャネル</th>
+                    <th className="px-2 py-2 text-right font-medium">販売室数</th>
+                    <th className="px-2 py-2 text-right font-medium">売上構成比</th>
+                    <th className="px-2 py-2 text-right font-medium">ADR</th>
+                    <th className="px-2 py-2 text-right font-medium">室料売上</th>
+                    <th className="px-2 py-2 text-right font-medium">前月比</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+                </thead>
+                <tbody>
+                  {channels.map((row) => (
+                    <tr key={row.channel} className="border-b hover:bg-muted/50">
+                      <td className="px-2 py-2 font-medium">{row.channel}</td>
+                      <td className="px-2 py-2 text-right">{row.roomsSold.toLocaleString()}室</td>
+                      <td className="px-2 py-2 text-right">{row.revenueShare.toFixed(1)}%</td>
+                      <td className="px-2 py-2 text-right">{formatYen(row.adr)}</td>
+                      <td className="px-2 py-2 text-right font-medium">{formatYen(row.revenue)}</td>
+                      <td className="px-2 py-2 text-right">
+                        <Growth value={row.revenueGrowth} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }

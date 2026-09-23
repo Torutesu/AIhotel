@@ -32,14 +32,32 @@ type ExternalFactorRow = {
   kpis?: FactorKpi[]
 }
 
-// 先6ヶ月の月別予測データ（2026年2月〜7月）
+// 先6ヶ月の月別予測データ（サンプル）。月の表示は今日から数えた翌月〜6か月後にする
+// （固定の月名だと、時間が経つと過去の月を「予測」として見せてしまう — #92）
+function upcomingMonthLabel(offset: number): string {
+  const d = new Date()
+  d.setDate(1)
+  d.setMonth(d.getMonth() + offset)
+  return `${d.getMonth() + 1}月`
+}
+
+/** 表示期間（例: 2026年10月〜2027年3月） */
+function upcomingPeriodLabel(): string {
+  const from = new Date()
+  from.setDate(1)
+  from.setMonth(from.getMonth() + 1)
+  const to = new Date(from)
+  to.setMonth(to.getMonth() + 5)
+  return `${from.getFullYear()}年${from.getMonth() + 1}月〜${to.getFullYear()}年${to.getMonth() + 1}月`
+}
+
 const monthlyForecastData = [
-  { month: "2月", demandIndex: 75, climate: 60, inbound: 70, events: 85, access: 75 },
-  { month: "3月", demandIndex: 90, climate: 75, inbound: 85, events: 95, access: 80 },
-  { month: "4月", demandIndex: 95, climate: 85, inbound: 90, events: 100, access: 85 },
-  { month: "5月", demandIndex: 100, climate: 90, inbound: 95, events: 95, access: 90 },
-  { month: "6月", demandIndex: 70, climate: 50, inbound: 75, events: 60, access: 70 },
-  { month: "7月", demandIndex: 85, climate: 65, inbound: 85, events: 80, access: 85 },
+  { month: upcomingMonthLabel(1), demandIndex: 75, climate: 60, inbound: 70, events: 85, access: 75 },
+  { month: upcomingMonthLabel(2), demandIndex: 90, climate: 75, inbound: 85, events: 95, access: 80 },
+  { month: upcomingMonthLabel(3), demandIndex: 95, climate: 85, inbound: 90, events: 100, access: 85 },
+  { month: upcomingMonthLabel(4), demandIndex: 100, climate: 90, inbound: 95, events: 95, access: 90 },
+  { month: upcomingMonthLabel(5), demandIndex: 70, climate: 50, inbound: 75, events: 60, access: 70 },
+  { month: upcomingMonthLabel(6), demandIndex: 85, climate: 65, inbound: 85, events: 80, access: 85 },
 ]
 
 // 外部要因カテゴリ別の影響度データ（数値はデモ用ダミー）
@@ -265,7 +283,7 @@ export function AISummaryTab() {
           外部需要動向
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          外部要因に基づく先6ヶ月（2026年2月〜7月）のマーケット動向予測
+          外部要因に基づく先6ヶ月（{upcomingPeriodLabel()}）のマーケット動向予測
         </p>
       </div>
 
@@ -312,7 +330,7 @@ export function AISummaryTab() {
             月別需要指数予測（2026年2月〜7月）
           </CardTitle>
           <CardDescription>
-            外部要因を加味した総合需要指数の推移予測（100が平均需要）
+            外部要因を加味した総合需要指数の推移予測（100が通常の需要）
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -323,8 +341,8 @@ export function AISummaryTab() {
               <YAxis domain={[0, 120]} className="text-xs" />
               <ChartTooltip content={<ChartTooltipContent />} />
               <Legend />
-              <ReferenceArea x1="3月" x2="5月" fill="var(--chart-3)" fillOpacity={0.1} />
-              <ReferenceLine y={80} stroke="hsl(var(--muted-foreground))" strokeDasharray="5 5" label={{ value: "平均", position: "right", fontSize: 10 }} />
+              <ReferenceArea x1={monthlyForecastData[1].month} x2={monthlyForecastData[3].month} fill="var(--chart-3)" fillOpacity={0.1} />
+              <ReferenceLine y={100} stroke="var(--muted-foreground)" strokeDasharray="5 5" label={{ value: "通常の需要（100）", position: "right", fontSize: 10 }} />
               <Area type="monotone" dataKey="demandIndex" name="総合需要指数" fill="var(--chart-1)" fillOpacity={0.3} stroke="var(--chart-1)" strokeWidth={2} />
               <Line type="monotone" dataKey="inbound" name="インバウンド" stroke="var(--chart-2)" strokeWidth={2} dot={{ r: 4 }} />
               <Line type="monotone" dataKey="events" name="イベント" stroke="var(--chart-3)" strokeWidth={2} dot={{ r: 4 }} />
@@ -357,7 +375,7 @@ export function AISummaryTab() {
               <YAxis domain={[0, 150]} className="text-xs" />
               <ChartTooltip content={<ChartTooltipContent />} />
               <Legend />
-              <ReferenceLine y={100} stroke="hsl(var(--destructive))" strokeDasharray="5 5" label={{ value: "高需要ライン", position: "right", fontSize: 10 }} />
+              <ReferenceLine y={100} stroke="var(--destructive)" strokeDasharray="5 5" label={{ value: "高需要ライン", position: "right", fontSize: 10 }} />
               <Bar dataKey="base" name="ベース需要" stackId="a" fill="hsl(210, 70%, 50%)" />
               <Bar dataKey="event" name="イベント効果" stackId="a" fill="hsl(150, 70%, 50%)" />
               <Bar dataKey="inbound" name="インバウンド効果" stackId="a" fill="hsl(30, 70%, 50%)" />

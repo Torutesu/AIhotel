@@ -26,10 +26,18 @@ import { useAuth } from "@/components/auth-provider"
 import { ErrorCard } from "@/components/error-state"
 import { api, ApiClientError } from "@/lib/api"
 import { HotelSettingsCard } from "@/components/settings/hotel-settings-card"
+import { HotelSetupToolsSection } from "@/components/settings/hotel-setup-tools-section"
 import { PriceRankSection } from "@/components/settings/price-rank-section"
 import { BudgetSection } from "@/components/settings/budget-section"
 import { CompetitorSection } from "@/components/settings/competitor-section"
 import { UserManagementSection } from "@/components/settings/user-management-section"
+import { HotelManagementSection } from "@/components/settings/hotel-management-section"
+import { RoomTypeSection } from "@/components/settings/room-type-section"
+import { TenantManagementSection } from "@/components/settings/tenant-management-section"
+import { DailyDataImportSection } from "@/components/settings/daily-data-import-section"
+import { CompetitorPriceImportSection, OtbImportSection } from "@/components/settings/external-data-import-sections"
+import { AccountSecurityCard } from "@/components/settings/account-security-card"
+import { AuditLogSection } from "@/components/settings/audit-log-section"
 
 // ダッシュボードKPI進捗表に表示する指標（施設ごとに選択可能。F-DASH-01）
 const DASHBOARD_KPI_ITEMS = [
@@ -49,7 +57,7 @@ const ALL_DASHBOARD_KPI_KEYS: string[] = DASHBOARD_KPI_ITEMS.map((item) => item.
 const PREFERENCES_UPDATED_EVENT = "preferencesUpdated"
 
 export function SettingsTab() {
-  const { hotelId } = useAuth()
+  const { hotelId, user } = useAuth()
   const { theme, setTheme } = useTheme()
   // next-themes はマウント後にしか実際のテーマを知らないため、SSRとの不一致を避ける
   const [mounted, setMounted] = useState(false)
@@ -120,20 +128,46 @@ export function SettingsTab() {
       <div>
         <h1 className="font-heading text-2xl font-medium tracking-tight">設定</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          ホテル情報・料金ランク・予算・競合ホテル・ユーザー・画面表示の設定を管理します
+          ホテル情報・部屋タイプ・料金ランク・予算・競合ホテル・ユーザー・画面表示の設定を管理します
         </p>
       </div>
 
       <HotelSettingsCard />
 
+      {/* 初期設定の一括投入・既存ホテルからの複製・連携先の記録（#13） */}
+      <HotelSetupToolsSection />
+
+      {/* ホテルの追加・削除（管理者・運営のみ — #81） */}
+      {(user?.role === "ADMIN" || user?.role === "PLATFORM_ADMIN") && <HotelManagementSection />}
+
+      <RoomTypeSection />
+
       <PriceRankSection />
 
       <BudgetSection />
 
+      {/* 日次実績の CSV 取り込み（PMS 連携までのつなぎ — #82） */}
+      <DailyDataImportSection />
+
+      {/* 予約数（OTB）の取り込み（#24 E2） */}
+      <OtbImportSection />
+
       <CompetitorSection />
+
+      {/* 競合価格の取り込み（#9 の段階A） */}
+      <CompetitorPriceImportSection />
 
       {/* ユーザー管理（管理者 / マネージャー / 運営のみ。OPERATOR では何も描画されない — X-3） */}
       <UserManagementSection />
+
+      {/* 監査ログ（管理者・運営のみ — #89） */}
+      {(user?.role === "ADMIN" || user?.role === "PLATFORM_ADMIN") && <AuditLogSection />}
+
+      {/* パスワード変更・全端末ログアウト（全ロール — #89） */}
+      <AccountSecurityCard />
+
+      {/* テナントの作成・契約停止（運営のみ — #81） */}
+      {user?.role === "PLATFORM_ADMIN" && <TenantManagementSection />}
 
       {/* 外観（テーマ）— next-themes が localStorage に保存し、即座に反映される */}
       <Card>

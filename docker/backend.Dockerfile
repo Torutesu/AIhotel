@@ -18,7 +18,7 @@
 # ---------------------------------------
 # Stage 1: install workspace dependencies
 # ---------------------------------------
-FROM node:20-slim AS deps
+FROM node:22-slim AS deps
 RUN corepack enable
 WORKDIR /app
 
@@ -53,7 +53,7 @@ RUN pnpm --filter backend build
 # ---------------------------------------
 # Stage 3: runtime image
 # ---------------------------------------
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl \
@@ -91,7 +91,7 @@ USER node
 EXPOSE 3001
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3001) + '/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.PORT || 3001) + '/livez').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 # DATABASE_URL, JWT_SECRET etc. are supplied at deploy time via the
 # platform's secret manager / env injection — no cloud SDK is baked in.

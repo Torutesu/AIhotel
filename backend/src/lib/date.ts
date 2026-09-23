@@ -57,3 +57,13 @@ export function monthRange(
     daysInMonth: new Date(Date.UTC(year, month, 0)).getUTCDate(),
   }
 }
+
+/**
+ * start から end まで（end を含まない）の暦日を1日ずつ返す。
+ * 推奨や実績の行を起点にすると、行の無い日が抜け落ちるため、日別の表はこれを軸に組み立てる（#90）。
+ */
+export function eachUtcDay(start: Date, endExclusive: Date): Date[] {
+  const days: Date[] = []
+  for (let d = dateOnly(start); d < endExclusive; d = addUtcDays(d, 1)) days.push(d)
+  return days
+}

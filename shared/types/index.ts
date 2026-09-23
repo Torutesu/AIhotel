@@ -46,9 +46,24 @@ export interface User {
   role: UserRole
   hotelId: string | null
   isActive: boolean
+  /** 管理者が一時パスワードを発行した後、本人が変更するまで true（#89） */
+  mustChangePassword?: boolean
   lastLoginAt: Date | null
   createdAt: Date
   updatedAt: Date
+}
+
+/** GET /api/v1/audit-logs の1行（#89） */
+export interface AuditLogItem {
+  id: string
+  action: string
+  entity: string
+  entityId: string | null
+  oldValue: unknown
+  newValue: unknown
+  ipAddress: string | null
+  createdAt: string
+  user: { name: string; email: string } | null
 }
 
 export interface Tenant {
@@ -74,6 +89,17 @@ export interface LoginResponse {
 // Hotel & Room Types
 // ======================================
 
+/** ホテルタイプ（#13。2026-08-01 クライアントMTGで整理した4区分） */
+export type HotelType = 'FULL_SERVICE' | 'LIMITED_SERVICE' | 'RESORT' | 'RYOKAN'
+
+/** ホテルタイプの表示名（唯一の出所） */
+export const HOTEL_TYPE_LABELS: Record<HotelType, string> = {
+  FULL_SERVICE: '総合型ホテル',
+  LIMITED_SERVICE: '宿泊特化',
+  RESORT: 'リゾートホテル',
+  RYOKAN: '旅館',
+}
+
 export interface Hotel {
   id: string
   tenantId: string
@@ -88,6 +114,12 @@ export interface Hotel {
    * APIレスポンス／フロントエンドで扱う際は必ず {@link HotelDto}（`number[]` 確定）を使う。
    */
   weekendDays: unknown
+  /** ホテルタイプ（#13）。未設定の既存ホテルは null */
+  hotelType: HotelType | null
+  /** マーケット（#13）。都道府県コード（01〜47）・市区町村コード（6桁）・観光エリア名 */
+  prefectureCode: string | null
+  municipalityCode: string | null
+  marketArea: string | null
   isActive: boolean
   createdAt: Date
   updatedAt: Date
@@ -506,6 +538,10 @@ export interface CompetitorOtaUrls {
   ikkyu?: string | null
   expedia?: string | null
   agoda?: string | null
+  booking?: string | null
+  tripcom?: string | null
+  /** 公式サイト（最安値保証のため取得対象 — #9） */
+  official?: string | null
 }
 
 /** GET/POST/PUT /settings/competitors が返す競合ホテル（論理削除済みは返らない） */
@@ -547,6 +583,32 @@ export interface RegisterUserRequest {
   name: string
   role?: UserRole
   hotelId?: string
+  /** 所属テナントの直接指定。運営（PLATFORM_ADMIN）だけが使える（#81） */
+  tenantId?: string
+}
+
+// ======================================
+// Platform（運営）Types（#81）
+// ======================================
+
+/** GET /api/v1/platform/tenants の1行 */
+export interface TenantSummary {
+  id: string
+  name: string
+  code: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  hotelCount: number
+  userCount: number
+}
+
+export interface RoomTypeInput {
+  name: string
+  code: string
+  capacity: number
+  count: number
+  sortOrder?: number
 }
 
 // ======================================

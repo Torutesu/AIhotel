@@ -6,7 +6,7 @@
 // 取得元（OTA・レビューサイト）ごとの最新評価点と、取得月ごとの推移を表示する。
 // 行が1件も無い場合は値を作らず空状態を出す。
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import {
   CartesianGrid,
   Legend,
@@ -22,7 +22,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type ReviewScore } from "@/lib/api"
+import { useApiQuery } from "@/hooks/use-api-query"
+import { api, type ReviewScore } from "@/lib/api"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
 /** 取得元の表示名。未知のキーはそのまま出す */
@@ -70,26 +71,19 @@ interface LatestRow {
 
 export function ReviewScoreSection() {
   const { hotelId } = useAuth()
-  const [reviews, setReviews] = useState<ReviewScore[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setReviews(await api.reviewScores(hotelId))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "口コミ評価点の取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: reviewsData,
+    loading,
+    error,
+    reload: load,
+  } = useApiQuery<ReviewScore[]>(
+    hotelId ? () => api.reviewScores(hotelId) : null,
+    [hotelId],
+    "口コミ評価点の取得に失敗しました",
+  )
+  const reviews = useMemo(() => reviewsData ?? [], [reviewsData])
 
   /** 取得元ごとに取得日の昇順へ並べ替える */
   const bySource = useMemo(() => {

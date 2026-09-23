@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
-import type { DemandLevel } from '@prisma/client'
+import { Prisma, type DemandLevel } from '@prisma/client'
 import type { DailyForecast, DemandForecaster } from './types.js'
 import { ruleBasedForecaster } from './ruleBasedForecaster.js'
 import { addUtcDays, dateOnly, todayJst } from '../../lib/date.js'
@@ -30,7 +30,8 @@ async function replaceHotelWideRecommendations(
   tenantId: string,
   start: Date,
   end: Date,
-  forecasts: DailyForecast[]
+  forecasts: DailyForecast[],
+  lockedDates: Date[] = []
 ): Promise<void> {
   if (forecasts.length === 0) return
 
@@ -38,7 +39,8 @@ async function replaceHotelWideRecommendations(
 
   await prisma.$transaction([
     prisma.aiPriceRecommendation.deleteMany({
-      where: { hotelId, roomTypeId: null, date: { gte: start, lte: end } },
+      // 固定期間（#17）の日は消さない＝前回の推奨を残す
+      where: { hotelId, roomTypeId: null, date: { gte: start, lte: end, notIn: lockedDates } },
     }),
     prisma.aiPriceRecommendation.createMany({
       data: forecasts.map((forecast) => ({
@@ -47,11 +49,13 @@ async function replaceHotelWideRecommendations(
         roomTypeId: null,
         date: forecast.date,
         predictedOccupancy: forecast.predictedOccupancy,
+        predictedAdr: forecast.predictedAdr,
         recommendedRank: forecast.recommendedRank,
         recommendedPrice: forecast.recommendedPrice,
         demandLevel: forecast.demandLevel as DemandLevel,
         confidence: forecast.confidence,
         modelVersion: forecast.modelVersion,
+        rationale: forecast.rationale ? (forecast.rationale as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
         computedAt,
       })),
     }),
@@ -60,6 +64,8 @@ async function replaceHotelWideRecommendations(
 
 export interface RecomputeForecastResult {
   count: number
+  /** 固定期間（#17）のため更新しなかった日数 */
+  lockedDays: number
   modelVersion: string
   tenantId: string
   startDate: string
@@ -82,12 +88,24 @@ export async function recomputeForecastService(
   const start = startDate ? dateOnly(startDate) : todayJst()
   const end = dateOnly(endDate ?? addUtcDays(start, DEFAULT_FORECAST_DAYS))
 
-  const forecasts = await forecaster.forecast({ hotelId, startDate: start, endDate: end })
+  const [allForecasts, locks] = await Promise.all([
+    forecaster.forecast({ hotelId, startDate: start, endDate: end }),
+    prisma.pricingLockPeriod.findMany({
+      where: { hotelId, startDate: { lte: end }, endDate: { gte: start } },
+      select: { startDate: true, endDate: true },
+    }),
+  ])
 
-  await replaceHotelWideRecommendations(hotelId, hotel.tenantId, start, end, forecasts)
+  // 固定期間（#17 のガードレール③）の日は推奨を更新しない
+  const isLocked = (date: Date) => locks.some((l) => l.startDate <= date && date <= l.endDate)
+  const lockedDates = allForecasts.filter((f) => isLocked(f.date)).map((f) => f.date)
+  const forecasts = allForecasts.filter((f) => !isLocked(f.date))
+
+  await replaceHotelWideRecommendations(hotelId, hotel.tenantId, start, end, forecasts, lockedDates)
 
   return {
     count: forecasts.length,
+    lockedDays: lockedDates.length,
     modelVersion: forecaster.name,
     tenantId: hotel.tenantId,
     startDate: start.toISOString().slice(0, 10),

@@ -51,10 +51,9 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 - 需要予測分析
 - 市場トレンド分析
 
-### 📄 レポート（Phase 4で実装予定）
-- 詳細レポート生成
-- PDF/Excelエクスポート
-- カスタムレポート設定
+### 📄 レポート
+- 月次レポートの PDF / Excel 出力（レポートタブからダウンロード。PDF は日本語フォント同梱）
+- 定期配信・カスタムレポートは未実装（画面にはサンプル表示の注記あり）
 
 ### 🎯 キャンペーン管理
 - キャンペーン参画データ管理
@@ -87,7 +86,7 @@ root/
 
 **Backend:**
 - **Express.js** + **TypeScript**
-- **Node.js 18+**
+- **Node.js 22 LTS**（`.nvmrc` 参照。20 以前はサポート終了のため非対応）
 - **Prisma ORM** (`backend/prisma/schema.prisma`)
 - **PostgreSQL 16**（マルチテナント構成、全モデルに `tenantId`）
 - **JWT認証**（アクセストークン＋リフレッシュトークンローテーション、DBにはSHA-256ハッシュのみ保存）
@@ -109,12 +108,13 @@ root/
 - **Docker & Docker Compose** (ローカル開発用PostgreSQL、および本番用イメージビルド)
 - **Concurrently** (並列実行)
 
-> 補足: 需要予測・バッチ処理（PMS/OTA連携、AIコメント自動生成等）はPhase 4で導入予定。現時点ではRedis/Celery等のジョブキューは未導入で、DBスキーマとAPIの器のみ用意済み（詳細は「API エンドポイント」節末尾を参照）。
+> 補足: PMS/OTA 連携・スクレイピング・需要予測 ML・Claude API による AI コメント生成は Phase 4 で導入予定（DB スキーマと API の器のみ）。
+> 需要予測はルールベース、実績は設定タブの CSV 取り込み（#82）で入れる。日次バッチ（`job daily`）は実装済みで、スケジューラへの登録はデプロイ先で行う（「バッチ」節）。
 
 ## 前提条件
 
-- **Node.js**: 18.0.0 以上
-- **pnpm**: 9.0.0 以上（推奨）
+- **Node.js**: 22 LTS（`.nvmrc`）
+- **pnpm**: 10（`package.json` の `packageManager` と同じ版。`corepack enable` で揃う）
 - **Docker**: ローカルPostgreSQLの起動に使用（`docker/docker-compose.dev.yml`）
 
 ### pnpm のインストール
@@ -145,10 +145,11 @@ pnpm install
 
 #### Frontend
 
-`frontend/.env.local` を作成：
+`frontend/.env.example` をコピーして `frontend/.env.local` を作成（既定のままなら不要）：
 
 ```env
-NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
+# /api/* の中継先（サーバー専用。ブラウザには出ない）
+BACKEND_URL=http://localhost:3001
 ```
 
 #### Backend
@@ -261,12 +262,16 @@ pnpm --filter backend db:studio       # Prisma Studio（DB GUI）起動
 
 ### テスト・CI
 
-- バックエンドは **Vitest** でユニットテストを実装（`backend/src/lib/auth.test.ts`、`backend/src/lib/validators.test.ts` 等）。`pnpm test` で実行。
+- backend: **Vitest** のユニットテストと、実 DB に対する supertest の統合テスト（`backend/src/integration/`。`DATABASE_URL` があるときだけ実行）。`pnpm --filter backend test`
+- frontend: **Vitest + React Testing Library**。`pnpm --filter frontend test`
+- E2E: **Playwright** のスモークテスト（`e2e/`。frontend・backend を起動し seed 済みの DB につないだ状態で `pnpm --filter @hotel-revenue-system/e2e test`）
 - **GitHub Actions**（`.github/workflows/ci.yml`）が `main` へのpushおよび全PRに対して以下を必須ゲートとして実行します。
-  - **verify**: 依存関係インストール（`--frozen-lockfile`）→ Prisma Client生成 → 全ワークスペースの型チェック → backend/frontend の lint → バックエンドのテスト → 両ビルド → デモモードが無効であることの検証
-  - **database**: PostgreSQL 16 サービス上で `prisma validate` → `migrate deploy` → スキーマドリフト検出（`migrate diff --exit-code`）→ seedを2回実行（冪等性）→ テスト
+  - **verify**: 依存関係インストール（`--frozen-lockfile`）→ Prisma Client生成 → 全ワークスペースの型チェック → backend/frontend の lint → frontend / backend のユニットテスト → 両ビルド → デモモードが無効であることの検証
+  - **database**: PostgreSQL 16 サービス上で `prisma validate` → `migrate deploy` → スキーマドリフト検出（`migrate diff --exit-code`）→ seedを2回実行（冪等性）→ 統合テストを含むテスト（`REQUIRE_DB_TESTS=1` で DB 無しのスキップを失敗にする）
+  - **e2e**: 両サーバーを起動して Playwright のスモークテスト
   - **audit**: `pnpm audit --prod --audit-level=high`
-  - **docker**: backend / frontend の本番イメージビルド
+  - **docker**: backend / frontend の本番イメージビルドと、backend コンテナの起動確認（`migrate` → `/livez`・`/readyz` → `job daily`）
+- タグ（`v*`）を push すると **Release images**（`.github/workflows/release.yml`）が GHCR にイメージを push する。リリース手順は `docs/運用手順書.md`
 
 ### プロジェクト構造の詳細
 
@@ -308,11 +313,12 @@ frontend/
 ```
 backend/
 ├── prisma/
-│   ├── schema.prisma      # DBスキーマ（Tenant最上位のマルチテナント構成、24モデル）
+│   ├── schema.prisma      # DBスキーマ（Tenant最上位のマルチテナント構成）
 │   ├── migrations/        # マイグレーション履歴
 │   └── seed.ts            # 冪等なシードスクリプト
 └── src/
-    ├── index.ts           # エントリーポイント（Express設定・ルート登録）
+    ├── app.ts             # Express の設定・ルート登録（統合テストからも import する）
+    ├── index.ts           # エントリーポイント（app を listen し、終了時に DB を切断する）
     ├── routes/            # エンドポイント定義
     │   ├── auth.ts
     │   ├── hotels.ts
@@ -408,7 +414,7 @@ pnpm build
 | ファイル | 用途 |
 | --- | --- |
 | `docker/docker-compose.dev.yml` | **開発用**。PostgreSQL 16 コンテナのみを起動する（アプリ本体はホスト側で `pnpm dev` を使う） |
-| `docker/backend.Dockerfile` | **本番用**。backend のマルチステージビルド（`prisma migrate deploy` を起動時に実行してからサーバー起動） |
+| `docker/backend.Dockerfile` | **本番用**。backend のマルチステージビルド。引数なしで API サーバー、`migrate` でマイグレーションだけ、`job daily` で日次ジョブを実行する。マイグレーションはリリース時に別ジョブで1回だけ流す（起動時の自動適用は `MIGRATE_ON_START=true` のときだけ。単一レプリカの検証環境向け）。手順は `docs/運用手順書.md` |
 | `docker/frontend.Dockerfile` | **本番用**。frontend（Next.js）のマルチステージビルド |
 
 ### 開発用DB起動（推奨）
@@ -455,7 +461,7 @@ docker build -f docker/frontend.Dockerfile -t hotel-revenue-frontend .
 3. **環境変数の設定**
    - Vercel ダッシュボードで環境変数を設定：
      ```
-     BACKEND_URL=<your-backend-url>        # /api/* の rewrite 先（サーバー側のみ）
+     BACKEND_URL=<your-backend-url>        # /api/* の中継先（サーバー側のみ。app/api/[...path]/route.ts が毎リクエスト読む）
      NEXT_PUBLIC_DEMO_MODE=true           # クライアント向けデモ環境のときだけ。実運用では設定しない
      ```
 
@@ -495,7 +501,21 @@ PORT=3001
 FRONTEND_URL=https://your-frontend-domain.com
 DATABASE_URL="postgresql://USER:PASSWORD@<managed-postgres-host>:5432/hotel_revenue_db?schema=public&sslmode=require"
 JWT_SECRET="<openssl rand -base64 64 で生成した値>"
+# ブラウザからの API は frontend（Next.js）の /api/* 中継を必ず通る。
+# 中継はクライアント IP を1つに解決して X-Forwarded-For に入れるので、backend は Next.js の1段だけを信頼する
+TRUST_PROXY=1
 ```
+
+#### クライアント IP の扱い（ログインのレート制限・監査ログ — #85）
+
+| 構成 | frontend | backend |
+|---|---|---|
+| Vercel（frontend）＋ コンテナ（backend） | 設定不要（Vercel が設定した値を使う） | `TRUST_PROXY=1` |
+| ロードバランサ／nginx → Next.js → backend | `TRUSTED_PROXY_HOPS=1`（前段の段数） | `TRUST_PROXY=1` |
+
+- Next.js をリバースプロキシなしで直接インターネットに公開しないでください。クライアントが送った `X-Forwarded-For` と区別できず、IP を偽装できます
+- 前段のプロキシは `X-Forwarded-For` に接続元を**追記**（nginx なら `$proxy_add_x_forwarded_for`）または**上書き**してください
+- backend を API 中継を通さずに直接公開する場合は、その前段の段数を `TRUST_PROXY` に指定します
 
 ## API エンドポイント
 
@@ -511,11 +531,17 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `POST /api/v1/auth/logout` - ログアウト（該当リフレッシュトークンを無効化）
 - `POST /api/v1/auth/logout-all` - 全セッションログアウト
 - `GET /api/v1/auth/me` - ログイン中ユーザー情報取得
+- `PUT /api/v1/auth/password` - 本人のパスワード変更（現在のパスワード必須。ほかの端末は失効し、この端末には新しいトークンを返す — #89）
+
+一時パスワードの変更待ち（`mustChangePassword`）のユーザーは、パスワード変更・`me`・ログアウト以外が 403 になる。
+無効化・降格・テナントの契約停止は、発行済みのアクセストークンにも次のリクエストから反映される（#78）。
+連続5回のログイン失敗でアカウントを15分ロックする。
 
 ### Hotels (`backend/src/routes/hotels.ts`)
 
 - `GET /api/v1/hotels` - ホテル一覧取得（**運営は全件**、ADMIN を含むそれ以外は自テナントのみ）
 - `GET /api/v1/hotels/:id` - ホテル詳細取得（自テナントのホテル or 運営のみ）
+- `GET /api/v1/hotels/:id/setup-status` - 初期設定の進み具合（必須項目ごとの完了・未完了と理由 — #13）
 - `POST /api/v1/hotels` - ホテル作成（**ADMIN以上**。テナントは作成者のトークンから導出。`tenantId` を指定できるのは運営のみ）
 - `PUT /api/v1/hotels/:id` - ホテル更新（**ADMIN以上**。自テナントのホテルのみ）
 - `DELETE /api/v1/hotels/:id` - ホテル削除（**ADMIN以上**。自テナントのホテルのみ）
@@ -533,7 +559,9 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 
 - `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）
 - `GET /api/v1/pricing/strategy` - 価格戦略の重み付け取得（`hotelId`）
-- `PUT /api/v1/pricing/strategy` - 価格戦略の重み付け更新（**MANAGER以上**。重みの合計は100%必須）
+- `PUT /api/v1/pricing/strategy` - 価格戦略の更新（**MANAGER以上**）。重みは3つ揃えて送る（合計100%必須）か、送らない。
+  推奨の調整（比較人数・競合との価格差・ランクの下限/上限・1回の変動幅・ヒステリシス — #17）は送った項目だけが変わる
+- `GET /api/v1/pricing/locks` / `POST /api/v1/pricing/locks` / `DELETE /api/v1/pricing/locks/:id` - 推奨を固定する期間（変更は **MANAGER以上** — #17）
 - `GET /api/v1/pricing/simulation` - 月間着地シミュレーション取得（`hotelId`, `year`, `month`）
 - `POST /api/v1/pricing/recompute` - ルールベース需要予測の再計算（**MANAGER以上**）
 - `POST /api/v1/pricing/simulation/recompute` - 月間着地シミュレーションの再計算（**MANAGER以上**）
@@ -562,8 +590,31 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 
 ### Users (`backend/src/routes/users.ts`)
 
-- `GET /api/v1/users` - 自テナントのユーザー一覧（**ADMIN / MANAGER**。運営以外はテナントを越えられない）
+- `GET /api/v1/users` - 自テナントのユーザー一覧（**ADMIN / MANAGER**。運営以外はテナントを越えられない。ホテルに所属する利用者には自ホテルのユーザーだけを返す — #79）
+
+ユーザー管理（一覧・更新・一時パスワード・登録）は、ホテルに所属する利用者（`hotelId` あり）の場合は自ホテルのユーザーに限る。
+他ホテルのユーザーとテナント全体を見るユーザーは存在しない扱い（404）で、他ホテルへの登録は 403（#79）。
 - `PUT /api/v1/users/:id` - ユーザーの氏名・ロール・有効/無効を更新（**自テナントのADMIN / MANAGER**。運営ロールの付与は運営のみ。自分自身の無効化・ロール変更は不可）
+- `POST /api/v1/users/:id/reset-password` - 一時パスワードの発行（**自テナントのADMIN / MANAGER**。MANAGER は ADMIN を対象にできない。一時パスワードはレスポンスで1回だけ返す — #89）
+
+### Audit logs (`backend/src/routes/auditLogs.ts`)
+
+- `GET /api/v1/audit-logs` - 監査ログ（**ADMIN以上**。`hotelId` のテナント内、`action`・`from`・`to` で絞り込み、`cursor` で続きを取得 — #89）
+
+### Imports（実績の取り込み） (`backend/src/routes/imports.ts`)
+
+- `POST /api/v1/imports/daily-data` - 日次実績の一括取り込み（**MANAGER以上**、1,000行まで、`dryRun` 対応。1行でも不正なら何も書き込まない — #82）
+- `POST /api/v1/imports/competitor-prices` - 競合価格の一括取り込み（**MANAGER以上**、5,000行まで。同じ競合・同じ日は人数ごとの最安値にまとめる — #9）。
+  自前の取得（クローラ）もこの API に書き込む
+- `POST /api/v1/imports/otb` - その時点の予約積上室数（OTB）の取り込み（**MANAGER以上**、1,000行まで — #24 E2）。
+  提供側が毎日自動で呼ぶ（運営のアカウントでも実行できる）
+
+### Platform（運営専用） (`backend/src/routes/platform.ts`)
+
+- `GET /api/v1/platform/tenants` - テナント一覧（有効なホテル数・ユーザー数つき）
+- `POST /api/v1/platform/tenants` - テナント作成
+- `PUT /api/v1/platform/tenants/:id` - 名称変更・契約停止／再開（停止すると所属ユーザーは即時に使えなくなる）
+- 最初の管理者は `POST /api/v1/auth/register` に `tenantId` を指定して作る（`tenantId` を指定できるのは運営のみ — #81）
 
 ### Settings (`backend/src/routes/settings.ts`)
 
@@ -578,22 +629,69 @@ JWT_SECRET="<openssl rand -base64 64 で生成した値>"
 - `POST /api/v1/settings/competitors` - 競合ホテル登録（**MANAGER以上**、1ホテルあたり最大5件）
 - `PUT /api/v1/settings/competitors/:id` - 競合ホテル更新（**MANAGER以上**）
 - `DELETE /api/v1/settings/competitors/:id` - 競合ホテル削除（**MANAGER以上**、論理削除）
+- `GET /api/v1/settings/room-types` - 部屋タイプ一覧（`hotelId`）
+- `POST /api/v1/settings/room-types` - 部屋タイプ登録（**MANAGER以上**。コードは大文字に揃え、削除済みの同じコードは復活）
+- `PUT /api/v1/settings/room-types/:id` - 部屋タイプ更新（**MANAGER以上**）
+- `DELETE /api/v1/settings/room-types/:id` - 部屋タイプ削除（**MANAGER以上**、論理削除）
 
 ### バッチ（スケジューラから実行）
 
-- `pnpm --filter backend job:daily`（本番は `node dist/jobs/daily.js`）— 有効な全ホテルに対して
-  需要予測の再計算・着地シミュレーション更新・KPIスナップショット取得を実行する。cron / Cloud Scheduler から1日1回呼ぶ想定
+- `pnpm --filter backend job:daily`（本番コンテナは `docker run <image> job daily`）— 有効な全ホテルに対して
+  次を順に実行する（冪等。同じ日に何度実行してもよい — #83）
+  1. 需要予測の再計算（今日から90日）
+  2. 着地シミュレーションの更新（当月＋先 `DAILY_JOB_MONTHS_AHEAD` か月、既定3）
+  3. 当月の KPI スナップショット（月初比較・日付比較の比較元）
+  4. アラートの自動生成と解決（着地予測が予算の95%未満 → Level 4、90%未満 → Level 5、14日以内の高需要日 → Level 4。閾値は #19 の確定までの暫定値）
+  5. 期限切れリフレッシュトークンの削除
+- 1ホテルでも失敗すると**終了コード 1** で終わる。スケジューラ側で失敗として通知すること
+- `pnpm --filter backend job:competitor-prices`（本番コンテナは `job competitor-prices`）— 競合価格の定期取得（#9 段階B）。
+  登録済みの取得元（`services/competitorRates/sources.ts`）を、設定タブで URL を登録した競合に対して呼び、
+  取得元ごとの観測値と代表値を保存する。**取得元はまだ登録していない**ので、今は何もせずに終わる（競合価格は CSV で取り込む）。
+  日次バッチより前（JST 3:00 目安）に実行する。取得元が1つでも失敗すると終了コード 1、同じ取得元の2回連続の失敗は「連続失敗」とログに出す
+
+1日1回（JST の早朝を推奨）実行する。スケジューラはクラウドを問わない。設定例:
+
+```yaml
+# Kubernetes CronJob（JST 5:00 = UTC 20:00）
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: hotel-revenue-daily }
+spec:
+  schedule: "0 20 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: daily
+              image: <backend-image>
+              args: ["job", "daily"]
+              envFrom: [{ secretRef: { name: hotel-revenue-backend } }]
+```
+
+```sh
+# Cloud Run Jobs（GCP）: 同じイメージをジョブとして登録し、Cloud Scheduler から起動する
+gcloud run jobs create hotel-revenue-daily --image <backend-image> --args job,daily --set-secrets ...
+# ECS Scheduled Task（AWS）: タスク定義の command に ["job", "daily"] を指定し、EventBridge Scheduler で起動する
+# 単一サーバーの cron:
+0 5 * * * docker run --rm --env-file /etc/hotel-revenue/backend.env <backend-image> job daily
+```
 
 ### Health check（認証不要・`/api/v1`配下ではない）
 
-- `GET /health` - 死活監視（DB疎通を含む。DB断時は503）
+- `GET /livez` - liveness（DB を見ない。コンテナの HEALTHCHECK 用）
+- `GET /readyz` - readiness（DB疎通を含む。DB断時は503。ロードバランサ用）
+- `GET /health` - `/readyz` と同じ（互換のため）
 - `GET /api/health` - 同上（別名。レート制限の対象外）
 
 ### 未実装（Phase 4以降）
 
-PMS/OTA連携（取込・書き戻し）、OTAスクレイピング、需要予測MLモデル、Claude APIによるAIコメント自動生成（現状は `ai_comments` テーブルへのシードデータ表示のみ）、バッチジョブ（スケジューラ）、口コミの自動収集は未実装です。DBスキーマ（`Campaign`, `ReviewScore`, `GroupBooking`, `AuditLog` 等）とAPIの器は用意済みで、Phase 4で順次接続します。
+PMS/OTA連携（取込・書き戻し）、OTAスクレイピング、需要予測MLモデル、Claude APIによるAIコメント自動生成（現状は `ai_comments` テーブルへのシードデータ表示のみ）、口コミの自動収集は未実装です。DBスキーマ（`Campaign`, `ReviewScore`, `GroupBooking` 等）とAPIの器は用意済みで、Phase 4で順次接続します。
 
-なお **レポートのPDF/Excel出力はバックエンド実装済み**で、フロントエンドからの接続が残っています。
+日次バッチ（`job daily`）・実績の CSV 取り込み・レポートの PDF/Excel 出力は実装済みです（スケジューラへの登録はデプロイ先で行う）。
 画面ごとの実装状況は `要件定義書.md` §6、未解消の所見と対応タスクは `docs/改善計画.md` を参照してください。
 
 ## トラブルシューティング
@@ -691,7 +789,7 @@ pnpm build
 1. `backend/src/routes/` にルートファイルを作成
 2. `backend/src/controllers/` にコントローラーを作成
 3. `backend/src/services/` にサービスロジックを作成
-4. `backend/src/index.ts` にルートを登録
+4. `backend/src/app.ts` にルートを登録
 
 ### 共通型定義の追加
 

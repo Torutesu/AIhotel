@@ -123,3 +123,7 @@ temp/
 .localhost/
 # Claude Code のエージェント用 worktree
 .claude/worktrees/
+
+# Playwright の実行結果（#87）
+e2e/test-results/
+e2e/playwright-report/

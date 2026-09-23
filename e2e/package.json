@@ -1,0 +1,15 @@
+{
+  "name": "@hotel-revenue-system/e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ブラウザを通した E2E スモークテスト（#87）",
+  "scripts": {
+    "test": "playwright test",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^22",
+    "typescript": "^5"
+  }
+}

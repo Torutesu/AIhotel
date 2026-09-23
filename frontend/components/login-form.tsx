@@ -84,7 +84,7 @@ export function LoginForm() {
           </form>
 
           {/* デモ認証情報はデモモード（NEXT_PUBLIC_DEMO_MODE=true）のビルドでのみ表示する。
-              本番ビルドでは JSX ごと成果物から除去されるよう、lib/api.ts の関数経由ではなく
+              本番ビルドでは JSX ごと成果物から除去されるよう、lib/api/ の関数経由ではなく
               ビルド時にインライン化される環境変数をこのモジュール内で直接比較する
               （scripts/verify-demo-mode.mjs --expect-disabled で検証） */}
           {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (

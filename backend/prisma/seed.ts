@@ -37,12 +37,20 @@ async function main() {
   console.log(`✅ Tenant: ${tenant.name}`)
 
   // 2. Hotel
+  const DEMO_HOTEL_MARKET = {
+    hotelType: 'FULL_SERVICE' as const,
+    prefectureCode: '13',
+    municipalityCode: '131016', // 千代田区
+    marketArea: '丸の内',
+  }
   const hotel = await prisma.hotel.upsert({
     where: { id: HOTEL_ID },
-    update: { tenantId: tenant.id },
+    // ホテルタイプとマーケット（#13）は既存のデモ環境にも入れる（未設定だと初期設定のチェックリストが出続けるため）
+    update: { tenantId: tenant.id, ...DEMO_HOTEL_MARKET },
     create: {
       id: HOTEL_ID,
       tenantId: tenant.id,
+      ...DEMO_HOTEL_MARKET,
       name: 'デモホテル東京',
       address: '東京都千代田区丸の内1-1-1',
       phone: '03-1234-5678',
@@ -233,6 +241,87 @@ async function main() {
   await prisma.dailyData.createMany({ data: dailyRows })
   await prisma.aiPriceRecommendation.createMany({ data: aiRows })
   console.log(`✅ Daily data: ${dailyRows.length}, AI recommendations: ${aiRows.length}`)
+
+  // 8b. チャネル別・部屋タイプ別の内訳（#88）。日次実績の販売室数・売上をちょうど分け合うように作る。
+  // 既存の数値が変わらないよう、ここだけ別の乱数列を使う
+  const breakdownRng = createRng(20260923)
+  await prisma.otaChannelData.deleteMany({ where: { hotelId: hotel.id } })
+  // DailyRoomData は DailyData の削除に連動して消えている（onDelete: Cascade）
+
+  /** 合計を保ったまま整数に割り振る（最大剰余法） */
+  const allocate = (total: number, weights: number[]): number[] => {
+    const sum = weights.reduce((a, b) => a + b, 0)
+    const exact = weights.map((w) => (total * w) / sum)
+    const floors = exact.map(Math.floor)
+    let rest = total - floors.reduce((a, b) => a + b, 0)
+    const order = exact.map((v, i) => [v - Math.floor(v), i] as const).sort((a, b) => b[0] - a[0])
+    for (const [, i] of order) {
+      if (rest <= 0) break
+      floors[i] += 1
+      rest -= 1
+    }
+    return floors
+  }
+
+  const channels = [
+    { name: '公式サイト', share: 0.3, adrFactor: 1.05 },
+    { name: '楽天トラベル', share: 0.25, adrFactor: 0.98 },
+    { name: 'じゃらん', share: 0.2, adrFactor: 0.97 },
+    { name: '一休', share: 0.1, adrFactor: 1.15 },
+    { name: 'Expedia', share: 0.08, adrFactor: 0.95 },
+    { name: 'Agoda', share: 0.07, adrFactor: 0.92 },
+  ]
+  const seededRoomTypes = await prisma.roomType.findMany({
+    where: { hotelId: hotel.id, isActive: true },
+    orderBy: { sortOrder: 'asc' },
+  })
+  const savedDaily = await prisma.dailyData.findMany({
+    where: { hotelId: hotel.id },
+    select: { id: true, date: true, soldRooms: true, totalRevenue: true },
+  })
+
+  const channelRows = []
+  const roomRows = []
+  for (const day of savedDaily) {
+    const sold = day.soldRooms ?? 0
+    const revenue = day.totalRevenue ?? 0
+    if (sold === 0) continue
+
+    const channelRooms = allocate(sold, channels.map((c) => c.share * (0.85 + breakdownRng() * 0.3)))
+    const channelWeights = channels.map((c, i) => channelRooms[i] * c.adrFactor)
+    const weightSum = channelWeights.reduce((a, b) => a + b, 0) || 1
+    channels.forEach((c, i) => {
+      if (channelRooms[i] === 0) return
+      const channelRevenue = Math.round((revenue * channelWeights[i]) / weightSum)
+      channelRows.push({
+        hotelId: hotel.id,
+        tenantId: tenant.id,
+        date: day.date,
+        channel: c.name,
+        roomsSold: channelRooms[i],
+        revenue: channelRevenue,
+        adr: Math.round(channelRevenue / channelRooms[i]),
+      })
+    })
+
+    // 部屋タイプは室数に比例し、上位タイプほど単価が高い（sortOrder が後ろほど高い）
+    const typeRooms = allocate(sold, seededRoomTypes.map((t) => t.count * (0.8 + breakdownRng() * 0.4)))
+    const typeWeights = seededRoomTypes.map((t, i) => typeRooms[i] * (1 + t.sortOrder * 0.12))
+    const typeWeightSum = typeWeights.reduce((a, b) => a + b, 0) || 1
+    seededRoomTypes.forEach((t, i) => {
+      if (typeRooms[i] === 0) return
+      roomRows.push({
+        tenantId: tenant.id,
+        dailyDataId: day.id,
+        roomTypeId: t.id,
+        soldRooms: typeRooms[i],
+        revenue: Math.round((revenue * typeWeights[i]) / typeWeightSum),
+      })
+    })
+  }
+  await prisma.otaChannelData.createMany({ data: channelRows })
+  await prisma.dailyRoomData.createMany({ data: roomRows })
+  console.log(`✅ Channel rows: ${channelRows.length}, Room-type rows: ${roomRows.length}`)
 
   // 9. ブッキングカーブ（今後30日の宿泊日 × リードタイム）
   const curveRows = []

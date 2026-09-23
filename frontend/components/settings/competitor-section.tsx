@@ -4,7 +4,7 @@
 // 一覧（GET）・追加（POST）・編集（PUT）・削除（DELETE・論理削除）。
 // 登録できるのは最大5件で、上限に達したら追加ボタンを無効化して理由を表示する。
 
-import { useCallback, useEffect, useState } from "react"
+import { useState, useMemo } from "react"
 import { Edit2, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import {
   CompetitorDialog,
   OTA_FIELDS,
@@ -21,7 +22,7 @@ import {
   type CompetitorFormValues,
 } from "@/components/settings/competitor-dialog"
 import { api, ApiClientError, type CompetitorSetting } from "@/lib/api"
-import { MAX_COMPETITORS_PER_HOTEL, canManage as canManageRole } from "@shared/types"
+import { MAX_COMPETITORS_PER_HOTEL, canManage as canManageRole, ROLE_LABELS } from "@shared/types"
 
 const LIMIT_REASON = `競合ホテルは最大${MAX_COMPETITORS_PER_HOTEL}件までです。不要な競合を削除してから追加してください`
 
@@ -29,9 +30,6 @@ export function CompetitorSection() {
   const { hotelId, user } = useAuth()
   const canManage = canManageRole(user?.role)
 
-  const [competitors, setCompetitors] = useState<CompetitorSetting[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   /** 編集対象。null なら新規追加 */
@@ -39,22 +37,18 @@ export function CompetitorSection() {
   const [pendingDelete, setPendingDelete] = useState<CompetitorSetting | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setCompetitors(await api.competitorSettings(hotelId))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "競合ホテルの取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: competitorsData,
+    loading,
+    error,
+    reload: load,
+  } = useApiQuery<CompetitorSetting[]>(
+    hotelId ? () => api.competitorSettings(hotelId) : null,
+    [hotelId],
+    "競合ホテルの取得に失敗しました",
+  )
+  const competitors = useMemo(() => competitorsData ?? [], [competitorsData])
 
   const atLimit = competitors.length >= MAX_COMPETITORS_PER_HOTEL
 
@@ -119,7 +113,7 @@ export function CompetitorSection() {
             <CardDescription>
               価格比較の対象となる競合ホテルを最大{MAX_COMPETITORS_PER_HOTEL}件まで登録します（現在{" "}
               {competitors.length} 件）
-              {!canManage && "（編集にはMANAGER以上の権限が必要です）"}
+              {!canManage && `（編集には${ROLE_LABELS.MANAGER}以上の権限が必要です）`}
             </CardDescription>
           </div>
           {canManage && (

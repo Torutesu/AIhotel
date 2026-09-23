@@ -30,6 +30,9 @@ import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
 import { useAppState } from "@/components/app-state-provider"
 import { LoginForm } from "@/components/login-form"
+import { ErrorBoundary } from "@/components/error-boundary"
+import { NoHotelState } from "@/components/onboarding/no-hotel-state"
+import { ForcePasswordChange } from "@/components/onboarding/force-password-change"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { HotelSwitcher } from "@/components/hotel-switcher"
 import type { Tab } from "@shared/types"
@@ -67,7 +70,7 @@ export function MainLayout() {
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
-  const { user, loading, logout, restoreError, retryRestore, canSwitchHotel } = useAuth()
+  const { user, loading, logout, restoreError, retryRestore, canSwitchHotel, hotels } = useAuth()
 
   // 表示中のタブをブラウザのタブ名に反映する（F-8）
   useEffect(() => {
@@ -124,6 +127,16 @@ export function MainLayout() {
 
   if (!user) {
     return <LoginForm />
+  }
+
+  // 一時パスワードでログインした直後は、パスワードを変えるまで他の画面を使えない（#89）
+  if (user.mustChangePassword) {
+    return <ForcePasswordChange />
+  }
+
+  // アクセスできるホテルが無いと、どのタブも表示するものが無い。初期設定の画面を出す（#81）
+  if (hotels.length === 0) {
+    return <NoHotelState />
   }
 
   return (
@@ -290,24 +303,27 @@ export function MainLayout() {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-auto">
-          {activeTab === "dashboard" && <DashboardTab onAlertNavigate={handleAlertNavigate} />}
-          {activeTab === "pricing" && (
-            <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
-          )}
-          {activeTab === "analysis" && (
-            <AnalysisTab
-              onNavigateToPricing={(date) => {
-                setPricingFocusDate(date)
-                setPeriodMonth(
-                  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
-                )
-                selectTab("pricing")
-              }}
-            />
-          )}
-          {activeTab === "reports" && <ReportsTab />}
-          {activeTab === "ai-summary" && <AISummaryTab />}
-          {activeTab === "settings" && <SettingsTab />}
+          {/* タブごとにエラー境界で囲む。key でタブを切り替えたら境界の状態も戻す（#91） */}
+          <ErrorBoundary key={activeTab}>
+            {activeTab === "dashboard" && <DashboardTab onAlertNavigate={handleAlertNavigate} />}
+            {activeTab === "pricing" && (
+              <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
+            )}
+            {activeTab === "analysis" && (
+              <AnalysisTab
+                onNavigateToPricing={(date) => {
+                  setPricingFocusDate(date)
+                  setPeriodMonth(
+                    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+                  )
+                  selectTab("pricing")
+                }}
+              />
+            )}
+            {activeTab === "reports" && <ReportsTab />}
+            {activeTab === "ai-summary" && <AISummaryTab />}
+            {activeTab === "settings" && <SettingsTab />}
+          </ErrorBoundary>
         </main>
       </div>
 

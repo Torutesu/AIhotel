@@ -1,13 +1,11 @@
 "use client"
 
 // 日別の詳細情報ダイアログ（U-15 で pricing-tab.tsx から分割）
-// イベント情報・外部要因メモは保存APIが未整備のため、画面内の一時メモとして親が保持する。
-
-import { useState } from "react"
-import { Edit2, Save } from "lucide-react"
+// その日の推奨価格・需要予測と、その日にかかる登録済みイベント（GET /events）を表示する。
+// 以前は画面内だけに保持する「メモ保存」があり、保存したように見えてリロードで消えていたため廃止した（#80）。
+// イベントの登録・編集は「当月のイベント情報」から行う。
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -15,39 +13,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { demandDescription } from "@/components/pricing/pricing-constants"
+import {
+  demandDescription,
+  eventTypeLabel,
+  formatEventRange,
+  impactBadgeClass,
+  impactLabel,
+} from "@/components/pricing/pricing-constants"
 import { DAY_NAMES } from "@/lib/date"
 import { formatPercent as pct, formatYen as yen } from "@/lib/format"
-import type { PricingCalendarDay } from "@/lib/api"
-
-/** 日別の自由記述メモ（イベント情報・外部要因情報） */
-export interface DayNote {
-  eventInfo?: string
-  externalFactors?: string
-}
+import type { PricingCalendarDay, RecommendationRationale } from "@/lib/api"
+import type { Event as HotelEvent } from "@shared/types"
 
 interface DayDetailDialogProps {
   day: PricingCalendarDay | null
-  info: DayNote | undefined
+  /** その日にかかっている登録済みイベント */
+  events: HotelEvent[]
   onClose: () => void
-  onSaveInfo: (date: string, note: DayNote) => void
 }
 
-export function DayDetailDialog({ day, info, onClose, onSaveInfo }: DayDetailDialogProps) {
-  const [isEditing, setIsEditing] = useState(false)
-  const [editingEventInfo, setEditingEventInfo] = useState("")
-  const [editingExternalFactors, setEditingExternalFactors] = useState("")
-
+export function DayDetailDialog({ day, events, onClose }: DayDetailDialogProps) {
   return (
     <Dialog
       open={day !== null}
       onOpenChange={(open) => {
-        if (!open) {
-          onClose()
-          setIsEditing(false)
-        }
+        if (!open) onClose()
       }}
     >
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -56,21 +46,6 @@ export function DayDetailDialog({ day, info, onClose, onSaveInfo }: DayDetailDia
             const [y, m, d] = day.date.split("-").map(Number)
             const dow = new Date(day.date).getDay()
             const dateString = `${y}年${m}月${d}日（${DAY_NAMES[dow]}）`
-            const savedInfo = info
-
-            const handleEditStart = () => {
-              setEditingEventInfo(savedInfo?.eventInfo || "")
-              setEditingExternalFactors(savedInfo?.externalFactors || "")
-              setIsEditing(true)
-            }
-
-            const handleSave = () => {
-              onSaveInfo(day.date, {
-                eventInfo: editingEventInfo || undefined,
-                externalFactors: editingExternalFactors || undefined,
-              })
-              setIsEditing(false)
-            }
 
             return (
               <>
@@ -98,70 +73,39 @@ export function DayDetailDialog({ day, info, onClose, onSaveInfo }: DayDetailDia
                       {day.actualAdr != null && <div>実績ADR：{yen(day.actualAdr)}</div>}
                       {day.actualOccupancy != null && <div>実績稼働率：{pct(day.actualOccupancy)}</div>}
                     </div>
+                    {day.rationale && <RationaleSection rationale={day.rationale} />}
                   </div>
 
                   <div className="space-y-3 border-t pt-4">
-                    <div className="flex items-center justify-between">
-                      <h3 className="font-semibold text-base">イベント情報・外部要因情報</h3>
-                      {!isEditing && (
-                        <Button variant="outline" size="sm" onClick={handleEditStart} className="gap-2">
-                          <Edit2 className="w-4 h-4" />
-                          編集
-                        </Button>
-                      )}
-                    </div>
-
-                    {isEditing ? (
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="event-info">イベント情報</Label>
-                          <Textarea
-                            id="event-info"
-                            placeholder="例：○○ホールで○○コンサート予定です"
-                            value={editingEventInfo}
-                            onChange={(e) => setEditingEventInfo(e.target.value)}
-                            rows={3}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="external-factors">外部要因情報</Label>
-                          <Textarea
-                            id="external-factors"
-                            placeholder="例：天候、交通機関の遅延、その他の要因"
-                            value={editingExternalFactors}
-                            onChange={(e) => setEditingExternalFactors(e.target.value)}
-                            rows={3}
-                          />
-                        </div>
-                        <div className="flex gap-2">
-                          <Button onClick={handleSave} className="gap-2">
-                            <Save className="w-4 h-4" />
-                            保存
-                          </Button>
-                          <Button variant="outline" onClick={() => setIsEditing(false)}>
-                            キャンセル
-                          </Button>
-                        </div>
-                      </div>
+                    <h3 className="font-semibold text-base">この日のイベント</h3>
+                    {events.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">この日にかかる登録済みのイベントはありません。</p>
                     ) : (
-                      <div className="space-y-2 text-sm">
-                        {savedInfo?.eventInfo && (
-                          <div className="p-3 bg-primary/5 rounded-lg">
-                            <div className="font-medium mb-1">イベント情報</div>
-                            <div className="text-muted-foreground">{savedInfo.eventInfo}</div>
-                          </div>
-                        )}
-                        {savedInfo?.externalFactors && (
-                          <div className="p-3 bg-warning/10 rounded-lg">
-                            <div className="font-medium mb-1">外部要因情報</div>
-                            <div className="text-muted-foreground">{savedInfo.externalFactors}</div>
-                          </div>
-                        )}
-                        {!savedInfo?.eventInfo && !savedInfo?.externalFactors && (
-                          <div className="text-muted-foreground text-sm">イベント情報・外部要因情報は未設定です</div>
-                        )}
-                      </div>
+                      <ul className="space-y-2">
+                        {events.map((ev) => (
+                          <li key={ev.id} className="rounded-lg border px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium">{ev.name}</span>
+                              <Badge variant="outline" className="text-[10px]">
+                                {eventTypeLabel(ev.type)}
+                              </Badge>
+                              {ev.expectedImpact && (
+                                <Badge className={`${impactBadgeClass(ev.expectedImpact)} text-[10px]`}>
+                                  {impactLabel(ev.expectedImpact)}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {formatEventRange(ev.startDate, ev.endDate)}
+                              {ev.location ? ` ・ ${ev.location}` : ""}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
                     )}
+                    <p className="text-xs text-muted-foreground">
+                      イベントの登録・編集は、画面下の「当月のイベント情報」から行えます。登録したイベントは需要予測に反映されます。
+                    </p>
                   </div>
                 </div>
               </>
@@ -169,5 +113,60 @@ export function DayDetailDialog({ day, info, onClose, onSaveInfo }: DayDetailDia
           })()}
       </DialogContent>
     </Dialog>
+  )
+}
+
+const FACTOR_LABELS: Record<RecommendationRationale["factors"][number]["key"], string> = {
+  occupancy: "稼働率",
+  adr: "ADR",
+  competitor: "競合価格",
+}
+
+const EXCLUDED_REASONS: Record<RecommendationRationale["excluded"][number]["reason"], string> = {
+  no_data: "データが無いため使っていません",
+  stale: "取得から48時間を超えて古いため使っていません",
+  zero_weight: "重みが0%のため使っていません",
+}
+
+const GUARDRAIL_LABELS: Record<RecommendationRationale["guardrails"][number]["key"], string> = {
+  minRank: "推奨ランクの下限",
+  maxRank: "推奨ランクの上限",
+  maxDailyChange: "1回の変動幅",
+  hysteresis: "据え置き（前回との差が小さい）",
+}
+
+/** 推奨理由（#24 E4）。なぜこのランクを推奨したかを、観点ごとのランクと重みで示す */
+export function RationaleSection({ rationale }: { rationale: RecommendationRationale }) {
+  return (
+    <div className="space-y-2 border-t pt-3 text-sm">
+      <div className="font-medium">推奨の根拠</div>
+      <ul className="space-y-1">
+        {rationale.factors.map((f) => (
+          <li key={f.key} className="flex flex-wrap justify-between gap-2">
+            <span>{FACTOR_LABELS[f.key]}から見たランク：{f.rank}</span>
+            <span className="tabular-nums text-muted-foreground">重み {f.weight}%</span>
+          </li>
+        ))}
+        {rationale.excluded.map((e) => (
+          <li key={e.key} className="text-xs text-muted-foreground">
+            {FACTOR_LABELS[e.key]}：{EXCLUDED_REASONS[e.reason]}
+          </li>
+        ))}
+      </ul>
+      {rationale.adjustments.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          稼働率予測の補正：
+          {rationale.adjustments
+            .map((a) => `${a.key === "event" ? "イベント" : "週末"} ${a.impact > 0 ? "+" : ""}${Math.round(a.impact * 100)}pt`)
+            .join("、")}
+        </p>
+      )}
+      {rationale.guardrails.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          調整：
+          {rationale.guardrails.map((g) => `${GUARDRAIL_LABELS[g.key]}でランク${g.from}→${g.to}`).join("、")}
+        </p>
+      )}
+    </div>
   )
 }

@@ -6,6 +6,14 @@ import tsPlugin from '@typescript-eslint/eslint-plugin'
 // 差し替え時の影響範囲を config.ts と services/ に閉じ込めることが目的。
 //
 // あわせて @typescript-eslint の recommended と未使用コード検出を有効にしている（C-11）。
+
+// クラウド固有 SDK の import 禁止（AGENTS.md「クラウド固有SDKを追加しない」）
+const CLOUD_SDK_RESTRICTION = {
+  group: ['@aws-sdk/*', 'aws-sdk', '@google-cloud/*', 'firebase', 'firebase-admin', '@azure/*'],
+  message:
+    'クラウド固有 SDK は使わないでください（AGENTS.md）。S3 互換のファイル保存は lib/storage.ts の storage を使うこと（#21 の例外はそこだけ）',
+}
+
 export default [
   { ignores: ['dist/**', 'node_modules/**'] },
   {
@@ -64,9 +72,18 @@ export default [
               group: ['**/lib/prisma', '**/lib/prisma.js'],
               message: 'DBアクセス（prisma クライアント）は services 層からのみ行ってください。controllers/routes はサービス関数を呼ぶこと',
             },
+            CLOUD_SDK_RESTRICTION,
           ],
         },
       ],
+    },
+  },
+  {
+    // クラウド固有 SDK は使わない（AGENTS.md）。例外は S3 互換 API のクライアントを lib/storage.ts の中だけで使うこと（#21）
+    files: ['src/services/**/*.ts', 'src/lib/**/*.ts'],
+    ignores: ['src/lib/storage.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [CLOUD_SDK_RESTRICTION] }],
     },
   },
   {

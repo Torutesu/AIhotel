@@ -2,12 +2,17 @@ import type { User, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { ApiError, BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
 import type { UpdateUserInput } from '../lib/validators.js'
+import { randomInt } from 'node:crypto'
+import { hashPassword } from '../lib/auth.js'
 
 // ユーザー管理（N-3 / #62）。
 //
 // 操作できるのは ADMIN（テナント管理者）・MANAGER と、運営（PLATFORM_ADMIN）のみ
 // （ルータで requireRole 済み）。
 // テナント越えの参照・更新を防ぐため、運営以外は ADMIN を含めて必ず actor.tenantId で絞り込む。
+
+/** ユーザー一覧で返す最大件数（#90） */
+export const MAX_USERS_PER_LIST = 1000
 
 /** レスポンスに含めるユーザー項目（password は返さない） */
 export type SafeUser = Omit<User, 'password'>
@@ -17,6 +22,20 @@ export interface UserActor {
   userId: string
   tenantId: string | null
   role: UserRole
+  /**
+   * 所属ホテル。ホテルに所属する利用者は、ユーザー管理の対象も自ホテルのユーザーに限る（#79）。
+   * データ系の API が requireHotelAccess でホテル単位の境界を守っているのと揃える
+   */
+  hotelId: string | null
+}
+
+/**
+ * ホテルに所属する利用者から見て、対象ユーザーが管理範囲の外か（#79）。
+ * 範囲外は 403 ではなく 404 にして、他ホテルにそのユーザーがいるかを判別させない。
+ * テナント全体を見るユーザー（hotelId が null）は、ホテル所属の利用者より上位なので範囲外
+ */
+function outsideActorHotel(actor: UserActor, target: { hotelId: string | null }): boolean {
+  return actor.role !== 'PLATFORM_ADMIN' && actor.hotelId !== null && target.hotelId !== actor.hotelId
 }
 
 function stripPassword(user: User): SafeUser {
@@ -32,7 +51,7 @@ function stripPassword(user: User): SafeUser {
  * テナント横断ユーザー（N-6）も一覧に含まれる。
  * ホテルへのアクセス権はルータの requireHotelAccess が検証済み。
  */
-export async function listUsersService(hotelId: string): Promise<SafeUser[]> {
+export async function listUsersService(hotelId: string, actor: UserActor): Promise<SafeUser[]> {
   const hotel = await prisma.hotel.findFirst({
     where: { id: hotelId, isActive: true },
     select: { tenantId: true },
@@ -40,8 +59,14 @@ export async function listUsersService(hotelId: string): Promise<SafeUser[]> {
   if (!hotel) throw new NotFoundError('ホテル')
 
   const users = await prisma.user.findMany({
-    where: { tenantId: hotel.tenantId },
+    where: {
+      tenantId: hotel.tenantId,
+      // ホテルに所属する利用者には自ホテルのユーザーだけを見せる（#79）
+      ...(actor.role !== 'PLATFORM_ADMIN' && actor.hotelId !== null && { hotelId: actor.hotelId }),
+    },
     orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+    // 1テナントのユーザーは多くて数百人の想定。無制限に返さないための上限（#90）
+    take: MAX_USERS_PER_LIST,
   })
   return users.map(stripPassword)
 }
@@ -55,6 +80,7 @@ export async function listUsersService(hotelId: string): Promise<SafeUser[]> {
  * - 運営ユーザーの変更と運営ロールの付与は運営のみ（テナント側から運営権限が生えないようにする）
  * - MANAGER は ADMIN ユーザーを操作できず、ADMIN ロールも付与できない（権限昇格の防止）
  * - 自分自身の無効化・ロール変更はできない（最後の管理者が自分を締め出す事故の防止）
+ * - ホテルに所属する利用者は、自ホテルのユーザーしか操作できない（#79）
  */
 export async function updateUserService(
   id: string,
@@ -73,6 +99,7 @@ export async function updateUserService(
     },
   })
   if (!before) throw new NotFoundError('ユーザー')
+  if (outsideActorHotel(actor, before)) throw new NotFoundError('ユーザー')
 
   // 運営ユーザーの変更・運営ロールの付与は運営だけに許す。
   // テナント管理者（ADMIN）が自分やほかのユーザーを運営に昇格できると
@@ -110,14 +137,82 @@ export async function updateUserService(
       ...(input.name !== undefined && { name: input.name }),
       ...(input.role !== undefined && { role: input.role }),
       ...(input.isActive !== undefined && { isActive: input.isActive }),
+      // 有効化の操作はロックアウトの解除も兼ねる（#78）。ロック中の利用者を
+      // 管理者が 15 分待たせずに戻せるようにする
+      ...(input.isActive === true && { failedLoginCount: 0, lockedUntil: null }),
     },
   })
 
   // 無効化したユーザーのセッションは即座に断つ（リフレッシュトークンを全削除）。
-  // アクセストークンは短命なので、これで実質的にログアウトさせられる
+  // アクセストークンは authenticate が毎リクエスト isActive を確認するので（#78）、
+  // これで次のリクエストからすべての端末がログアウトされる
   if (input.isActive === false) {
     await prisma.refreshToken.deleteMany({ where: { userId: id } })
   }
 
   return { before: stripPassword(before), after: stripPassword(after) }
+}
+
+/**
+ * 一時パスワードを作る（passwordSchema を満たす12文字）。
+ * 見間違えやすい文字（0/O・1/l/I）は使わない
+ */
+export function generateTemporaryPassword(): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const lower = 'abcdefghijkmnpqrstuvwxyz'
+  const digits = '23456789'
+  const all = upper + lower + digits
+  const pick = (chars: string) => chars[randomInt(chars.length)]
+  const chars = [pick(upper), pick(lower), pick(digits)]
+  while (chars.length < 12) chars.push(pick(all))
+  // 先頭3文字の種類が固定にならないよう並べ替える
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1)
+    ;[chars[i], chars[j]] = [chars[j], chars[i]]
+  }
+  return chars.join('')
+}
+
+/**
+ * 管理者による一時パスワードの発行（#89）。
+ *
+ * メール送信の仕組みがまだ無いため（#21 待ち）、一時パスワードはこのレスポンスで1回だけ返し、
+ * 管理者が本人に伝える。本人は次のログインでパスワードの変更を求められる。
+ * 対象の選び方は updateUserService と同じ（テナント内のみ、MANAGER は ADMIN を対象にできない、
+ * 運営ユーザーは運営だけ）。自分自身はパスワード変更画面を使うので対象外。
+ */
+export async function resetUserPasswordService(
+  id: string,
+  actor: UserActor
+): Promise<{ user: SafeUser; temporaryPassword: string }> {
+  const isPlatformAdmin = actor.role === 'PLATFORM_ADMIN'
+  const target = await prisma.user.findFirst({
+    where: { id, ...(!isPlatformAdmin && { tenantId: actor.tenantId ?? '__no_tenant__' }) },
+  })
+  if (!target) throw new NotFoundError('ユーザー')
+  if (outsideActorHotel(actor, target)) throw new NotFoundError('ユーザー')
+
+  if (id === actor.userId) {
+    throw new BadRequestError('自分のパスワードは設定タブの「パスワード変更」から変更してください')
+  }
+  if (!isPlatformAdmin && target.role === 'PLATFORM_ADMIN') {
+    throw new ApiError(403, '運営（PLATFORM_ADMIN）ユーザーのパスワードを発行できるのは運営のみです')
+  }
+  if (actor.role === 'MANAGER' && target.role === 'ADMIN') {
+    throw new ApiError(403, 'ADMIN ユーザーのパスワードを発行できるのは ADMIN のみです')
+  }
+
+  const temporaryPassword = generateTemporaryPassword()
+  const password = await hashPassword(temporaryPassword)
+  const user = await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id },
+      // ロックアウト中の利用者を戻す手段も兼ねる（#78）
+      data: { password, mustChangePassword: true, failedLoginCount: 0, lockedUntil: null },
+    })
+    // 以前のパスワードで作られたセッションはすべて断つ
+    await tx.refreshToken.deleteMany({ where: { userId: id } })
+    return updated
+  })
+  return { user: stripPassword(user), temporaryPassword }
 }

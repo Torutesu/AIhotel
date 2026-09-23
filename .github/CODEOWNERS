@@ -1,0 +1,14 @@
+# テナント分離・認証・スキーマに関わる変更は、必ずオーナーのレビューを通す（#94）。
+# 違反は本番事故になる領域（AGENTS.md「必須ルール」）なので、ここに列挙したパスは明示的に指定する。
+
+*                                   @Torutesu
+
+/backend/src/middlewares/           @Torutesu
+/backend/src/lib/auth.ts            @Torutesu
+/backend/src/lib/config.ts          @Torutesu
+/backend/src/services/authService.ts  @Torutesu
+/backend/prisma/                    @Torutesu
+/frontend/middleware.ts             @Torutesu
+/frontend/app/api/                  @Torutesu
+/.github/workflows/                 @Torutesu
+/docker/                            @Torutesu

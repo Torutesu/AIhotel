@@ -21,7 +21,8 @@ interface ErrorStateProps {
 /** Card の中身として使うエラー表示（外枠は呼び出し側が用意する） */
 export function ErrorState({ message, onRetry, retryLabel = "再試行", className }: ErrorStateProps) {
   return (
-    <div className={cn("flex flex-col items-center gap-3 py-8 text-center", className)}>
+    // 取得失敗を支援技術にも伝える（#91）
+    <div role="alert" className={cn("flex flex-col items-center gap-3 py-8 text-center", className)}>
       <AlertCircle className="h-6 w-6 text-destructive" aria-hidden />
       <p className="text-sm text-muted-foreground">{message}</p>
       {onRetry && (

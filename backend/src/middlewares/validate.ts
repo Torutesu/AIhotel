@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express'
-import { ZodSchema, ZodError } from 'zod'
+import { ZodError, type ZodType, type ZodTypeDef } from 'zod'
 import { ApiError } from './errorHandler.js'
 
 type ValidateTarget = 'body' | 'query' | 'params'
@@ -10,7 +10,7 @@ type ValidateTarget = 'body' | 'query' | 'params'
  * @param target - 検証対象（body, query, params）
  */
 export function validate<T>(
-  schema: ZodSchema<T>,
+  schema: ZodType<T, ZodTypeDef, unknown>,
   target: ValidateTarget = 'body'
 ) {
   return async (req: Request, _res: Response, next: NextFunction) => {

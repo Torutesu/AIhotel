@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import {
+  verifyPassword,
   hashPassword,
   verifyPasswordConstantWork,
   generateTokenPair,
@@ -7,7 +8,7 @@ import {
   getRefreshTokenExpiry,
   hashToken,
 } from '../lib/auth.js'
-import { ApiError } from '../middlewares/errorHandler.js'
+import { ApiError, BadRequestError } from '../middlewares/errorHandler.js'
 import { writeAuditLog } from './auditService.js'
 import { logger } from '../utils/logger.js'
 import type { User, UserRole } from '@prisma/client'
@@ -27,6 +28,8 @@ interface RegisterInput {
   name: string
   role?: UserRole
   hotelId?: string
+  /** 運営だけが指定できる所属テナント（#81） */
+  tenantId?: string
 }
 
 interface RequestContext {
@@ -53,6 +56,45 @@ interface AuthResult {
  */
 export const INVALID_CREDENTIALS_MESSAGE = 'メールアドレスまたはパスワードが正しくありません'
 
+/** 連続でこの回数だけ失敗するとアカウントをロックする（#78） */
+export const MAX_FAILED_LOGIN_ATTEMPTS = 5
+/** ロックの長さ（#78） */
+export const ACCOUNT_LOCK_MINUTES = 15
+
+/**
+ * パスワード不一致を数え、上限に達したらアカウントをロックする（#78）。
+ *
+ * increment で数えるので、同時に届いた失敗も取りこぼさない。ロックしたら回数は 0 に戻し、
+ * ロックが明けたら再び上限まで試せるようにする。ロックは監査ログ ACCOUNT_LOCKED に残す。
+ */
+async function registerFailedPassword(
+  user: { id: string; tenantId: string | null; email: string },
+  ctx?: RequestContext
+): Promise<void> {
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLoginCount: { increment: 1 } },
+    select: { failedLoginCount: true },
+  })
+  if (updated.failedLoginCount < MAX_FAILED_LOGIN_ATTEMPTS) return
+
+  const lockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60_000)
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLoginCount: 0, lockedUntil },
+  })
+  await writeAuditLog({
+    tenantId: user.tenantId,
+    userId: user.id,
+    action: 'ACCOUNT_LOCKED',
+    entity: 'User',
+    entityId: user.id,
+    newValue: { email: user.email, lockedUntil: lockedUntil.toISOString() },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
+  })
+}
+
 /**
  * ログイン失敗を監査ログに残す（S-6）。
  * ブルートフォース検知のため、失敗理由は監査ログにのみ記録し、
@@ -75,6 +117,51 @@ async function recordLoginFailure(
 }
 
 /**
+ * アクセストークンの主体を DB の現在の状態で解決する（#78）。
+ *
+ * アクセストークンは署名だけで検証できるため、そのままでは無効化・降格・
+ * テナントの契約停止が有効期限まで反映されない。authenticate が毎リクエスト
+ * これを呼び、ユーザーが無効・存在しない、またはテナントが停止されていれば null を返す。
+ * ロール・所属は常にこの戻り値（DB の値）を正とし、トークンの中身は信用しない。
+ * 主キー検索＋テナントの結合1回なので、1リクエストあたりのコストは小さい。
+ */
+export async function resolveAuthSubjectService(userId: string): Promise<{
+  userId: string
+  email: string
+  role: UserRole
+  tenantId: string | null
+  hotelId: string | null
+  /** 一時パスワードの変更待ち（#89）。authenticate が使える API を絞る */
+  mustChangePassword: boolean
+} | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+      tenantId: true,
+      hotelId: true,
+      isActive: true,
+      mustChangePassword: true,
+      tenant: { select: { isActive: true } },
+    },
+  })
+  if (!user || !user.isActive) return null
+  // テナントに属するユーザーは、テナントが停止されていれば使えない（運営は tenant を持たない）
+  if (user.tenant && !user.tenant.isActive) return null
+
+  return {
+    userId: user.id,
+    email: user.email,
+    role: user.role,
+    tenantId: user.tenantId,
+    hotelId: user.hotelId,
+    mustChangePassword: user.mustChangePassword,
+  }
+}
+
+/**
  * ユーザーログイン
  */
 export async function loginService(input: LoginInput, ctx?: RequestContext): Promise<AuthResult> {
@@ -82,6 +169,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 
   const user = await prisma.user.findUnique({
     where: { email },
+    include: { tenant: { select: { isActive: true } } },
   })
 
   // ユーザーが存在しない場合もダミーハッシュと比較して同じ計算量を消費する（S-8）。
@@ -89,10 +177,25 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
   // 推測できないようにする。
   const isValidPassword = await verifyPasswordConstantWork(password, user?.password)
 
-  // 「存在しない」「パスワード不一致」「無効化済み」を同一メッセージ・同一ステータスで返す（S-8）。
-  // アカウント列挙と、有効／無効の判別を防ぐ。失敗理由は監査ログにのみ残す。
-  if (!user || !isValidPassword || !user.isActive) {
-    const reason = !user ? 'USER_NOT_FOUND' : !isValidPassword ? 'BAD_PASSWORD' : 'INACTIVE'
+  // 「存在しない」「パスワード不一致」「無効化済み」「テナント停止中」「ロック中」を
+  // 同一メッセージ・同一ステータスで返す（S-8 / #78）。
+  // アカウント列挙と、有効／無効・ロック状態の判別を防ぐ。失敗理由は監査ログにのみ残す。
+  // ロック中は正しいパスワードでも通さない（通すとロックが総当たりの妨げにならない）
+  const tenantSuspended = Boolean(user?.tenant && !user.tenant.isActive)
+  const locked = Boolean(user?.lockedUntil && user.lockedUntil > new Date())
+  if (!user || locked || !isValidPassword || !user.isActive || tenantSuspended) {
+    const reason = !user
+      ? 'USER_NOT_FOUND'
+      : locked
+        ? 'LOCKED'
+        : !isValidPassword
+          ? 'BAD_PASSWORD'
+          : !user.isActive
+            ? 'INACTIVE'
+            : 'TENANT_SUSPENDED'
+    if (user && !locked && !isValidPassword) {
+      await registerFailedPassword(user, ctx)
+    }
     await recordLoginFailure(
       { email, reason, tenantId: user?.tenantId ?? null, userId: user?.id ?? null },
       ctx
@@ -119,9 +222,10 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     },
   })
 
+  // 成功したら連続失敗の回数とロックを解除する（#78）
   await prisma.user.update({
     where: { id: user.id },
-    data: { lastLoginAt: new Date() },
+    data: { lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null },
   })
 
   await writeAuditLog({
@@ -134,7 +238,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     userAgent: ctx?.userAgent,
   })
 
-  const { password: _, ...userWithoutPassword } = user
+  const { password: _, tenant: _tenant, ...userWithoutPassword } = user
 
   return {
     user: userWithoutPassword,
@@ -156,19 +260,34 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
  * - PLATFORM_ADMIN（運営）: テナント横断可。PLATFORM_ADMIN を作れる唯一のロール
  * - ADMIN（テナント管理者）: 自テナント内のみ。ADMIN / MANAGER / OPERATOR を作れる
  * - MANAGER: 自テナント内のみ。hotelId 必須で、ADMIN / PLATFORM_ADMIN は付与できない
+ * - ホテルに所属する利用者（hotelId あり）: 作成先は自ホテルに限る（#79）
  */
 export async function registerService(
   input: RegisterInput,
-  createdBy: { userId: string; tenantId: string | null; role: UserRole },
+  createdBy: { userId: string; tenantId: string | null; role: UserRole; hotelId?: string | null },
   ctx?: RequestContext
 ): Promise<Omit<User, 'password'>> {
-  const { email, password, name, role, hotelId } = input
+  const { email, password, name, role, hotelId, tenantId: requestedTenantId } = input
   const isPlatformAdmin = createdBy.role === 'PLATFORM_ADMIN'
+
+  // テナントの直接指定は運営だけ（#81）。テナント側のロールは自テナントにしか作れない
+  if (requestedTenantId !== undefined && !isPlatformAdmin) {
+    throw new ApiError(403, 'テナントを指定してユーザーを作成できるのは運営のみです')
+  }
+  if (requestedTenantId !== undefined && role === 'PLATFORM_ADMIN') {
+    throw new ApiError(400, '運営（PLATFORM_ADMIN）ユーザーはテナントに所属させられません')
+  }
   const isTenantManager = createdBy.role === 'MANAGER'
 
   // 運営ロールを作れるのは運営だけ（テナント側から運営権限が生えないようにする — #62）
   if (role === 'PLATFORM_ADMIN' && !isPlatformAdmin) {
     throw new ApiError(403, '運営（PLATFORM_ADMIN）ロールを付与できるのは運営のみです')
+  }
+
+  // ホテルに所属する利用者は、自ホテルにしかユーザーを作れない（#79）。
+  // テナント全体を見るユーザー（hotelId なし）も作れない（自分より広い範囲の権限になるため）
+  if (!isPlatformAdmin && createdBy.hotelId && hotelId !== createdBy.hotelId) {
+    throw new ApiError(403, '所属ホテル以外にはユーザーを作成できません')
   }
 
   if (isTenantManager) {
@@ -195,6 +314,14 @@ export async function registerService(
 
   let tenantId: string | null = isPlatformAdmin ? null : createdBy.tenantId
 
+  if (requestedTenantId !== undefined) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: requestedTenantId } })
+    if (!tenant) {
+      throw new ApiError(400, '指定されたテナントが見つかりません')
+    }
+    tenantId = tenant.id
+  }
+
   if (hotelId) {
     // テナント側のロールでは、自テナントのホテルに限定して検索する。
     // 他テナントのホテルIDを送られても「見つからない」と同じ 400 になり、
@@ -209,6 +336,9 @@ export async function registerService(
 
     if (!hotel) {
       throw new ApiError(400, '指定されたホテルが見つかりません')
+    }
+    if (requestedTenantId !== undefined && hotel.tenantId !== requestedTenantId) {
+      throw new ApiError(400, '指定されたホテルは指定されたテナントに属していません')
     }
 
     tenantId = hotel.tenantId
@@ -271,7 +401,7 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 
   const storedToken = await prisma.refreshToken.findUnique({
     where: { tokenHash: hashToken(refreshToken) },
-    include: { user: true },
+    include: { user: { include: { tenant: { select: { isActive: true } } } } },
   })
 
   if (!storedToken) {
@@ -317,6 +447,11 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
     throw new ApiError(401, 'このアカウントは無効化されています')
   }
 
+  // テナントの契約停止中はトークンを更新させない（#78）
+  if (storedToken.user.tenant && !storedToken.user.tenant.isActive) {
+    throw new ApiError(401, 'このアカウントは現在利用できません')
+  }
+
   const tokens = await prisma.$transaction(async (tx) => {
     // revokedAt: null を条件に含めることで、同時に届いた2本目のリフレッシュ要求は
     // count 0 になり、トークンが二重に発行されない（更新は行ロックで直列化される）。
@@ -340,7 +475,7 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
     return pair
   })
 
-  const { password: _, ...userWithoutPassword } = storedToken.user
+  const { password: _, tenant: _tenant, ...userWithoutPassword } = storedToken.user
 
   return {
     user: userWithoutPassword,
@@ -430,4 +565,58 @@ export async function purgeExpiredRefreshTokensService(): Promise<{ deleted: num
     where: { expiresAt: { lt: new Date() } },
   })
   return { deleted: count }
+}
+
+/**
+ * 本人によるパスワード変更（#89）。
+ *
+ * 現在のパスワードを確かめてから変更し、一時パスワードの変更待ちを解除する。
+ * 盗まれたセッションを残さないよう本人のリフレッシュトークンをすべて失効させ、
+ * この操作をした端末には新しいトークンを発行して返す（ログアウトさせない）。
+ */
+export async function changePasswordService(
+  userId: string,
+  input: { currentPassword: string; newPassword: string },
+  ctx?: RequestContext
+): Promise<AuthResult> {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user || !user.isActive) throw new ApiError(401, 'このアカウントは現在利用できません')
+
+  if (!(await verifyPassword(input.currentPassword, user.password))) {
+    throw new BadRequestError('現在のパスワードが正しくありません', [
+      { field: 'currentPassword', message: '現在のパスワードが正しくありません' },
+    ])
+  }
+
+  const hashed = await hashPassword(input.newPassword)
+  const tokens = generateTokenPair(user)
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.user.update({
+      where: { id: user.id },
+      data: { password: hashed, mustChangePassword: false },
+    })
+    await tx.refreshToken.deleteMany({ where: { userId: user.id } })
+    await tx.refreshToken.create({
+      data: {
+        tokenHash: hashToken(tokens.refreshToken),
+        userId: user.id,
+        tenantId: user.tenantId,
+        expiresAt: getRefreshTokenExpiry(),
+      },
+    })
+    return next
+  })
+
+  await writeAuditLog({
+    tenantId: user.tenantId,
+    userId: user.id,
+    action: 'PASSWORD_CHANGED',
+    entity: 'User',
+    entityId: user.id,
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
+  })
+
+  const { password: _, ...userWithoutPassword } = updated
+  return { user: userWithoutPassword, tokens }
 }

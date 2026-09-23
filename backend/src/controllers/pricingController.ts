@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express'
 import { asyncHandler } from '../middlewares/errorHandler.js'
-import { sendSuccess } from '../utils/response.js'
+import { sendDeleted, sendSuccess } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
 import {
   getPricingCalendarService,
@@ -8,9 +8,12 @@ import {
   updateStrategyService,
   getSimulationService,
   recomputeSimulationService,
+  listPricingLocksService,
+  createPricingLockService,
+  deletePricingLockService,
 } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
-import type { MonthTargetInput } from '../lib/validators.js'
+import type { CreatePricingLockInput, MonthTargetInput, UpdateStrategyInput } from '../lib/validators.js'
 
 /**
  * 日別価格カレンダー
@@ -41,12 +44,8 @@ export const getStrategy = asyncHandler(async (req: Request, res: Response) => {
  * PUT /api/v1/pricing/strategy
  */
 export const updateStrategy = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId, weightOccupancy, weightAdr, weightCompetitor } = req.body
-  const { before, after } = await updateStrategyService(
-    hotelId,
-    { weightOccupancy, weightAdr, weightCompetitor },
-    req.user!.userId
-  )
+  const { hotelId, ...input } = req.body as UpdateStrategyInput
+  const { before, after } = await updateStrategyService(hotelId, input, req.user!.userId)
   await writeAuditLog({
     tenantId: after.tenantId,
     userId: req.user!.userId,
@@ -130,4 +129,46 @@ export const recomputeSimulation = asyncHandler(async (req: Request, res: Respon
     200,
     `着地シミュレーションを再計算しました（実績${result.actualDays}日＋予測${result.predictedDays}日）`
   )
+})
+
+/**
+ * 推奨を固定する期間（#17）
+ * GET /api/v1/pricing/locks?hotelId=
+ */
+export const getPricingLocks = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  sendSuccess(res, await listPricingLocksService(hotelId))
+})
+
+/** POST /api/v1/pricing/locks */
+export const createPricingLock = asyncHandler(async (req: Request, res: Response) => {
+  const lock = await createPricingLockService(req.body as CreatePricingLockInput, req.user!.userId)
+  await writeAuditLog({
+    tenantId: lock.tenantId,
+    userId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'PricingLockPeriod',
+    entityId: lock.id,
+    newValue: lock,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, lock, 201, '推奨を固定する期間を登録しました')
+})
+
+/** DELETE /api/v1/pricing/locks/:id?hotelId= */
+export const deletePricingLock = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const deleted = await deletePricingLockService(req.params.id, hotelId)
+  await writeAuditLog({
+    tenantId: deleted.tenantId,
+    userId: req.user!.userId,
+    action: 'DELETE',
+    entity: 'PricingLockPeriod',
+    entityId: deleted.id,
+    oldValue: deleted,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendDeleted(res)
 })

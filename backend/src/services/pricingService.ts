@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
-import { NotFoundError } from '../middlewares/errorHandler.js'
-import { monthRange } from '../lib/date.js'
+import { ApiError, NotFoundError } from '../middlewares/errorHandler.js'
+import { eachUtcDay, monthRange, todayJst } from '../lib/date.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
 
 /**
@@ -28,7 +28,9 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     prisma.competitorPriceData.findMany({
       where: {
         date: { gte: start, lt: end },
-        competitor: { hotelId },
+        // 競合の削除は論理削除なので、isActive で絞らないと削除した競合の価格が
+        // 代表値（中央値・最小・最大）に残り続ける（#90）
+        competitor: { hotelId, isActive: true },
       },
       select: { date: true, price1P: true },
     }),
@@ -47,29 +49,35 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     competitorByDate.set(key, list)
   }
 
-  const calendar = recommendations.map((rec) => {
-    const key = rec.date.toISOString().slice(0, 10)
+  const recommendationByDate = new Map(recommendations.map((r) => [r.date.toISOString().slice(0, 10), r]))
+
+  // 暦日を軸に推奨・実績・競合を外部結合する。推奨の無い日も実績と競合価格を出す（#90）
+  const calendar = eachUtcDay(start, end).map((day) => {
+    const key = day.toISOString().slice(0, 10)
+    const rec = recommendationByDate.get(key)
     const actual = actualByDate.get(key)
-    const rank = rec.recommendedRank != null ? rankByNumber.get(rec.recommendedRank) : undefined
+    const rank = rec?.recommendedRank != null ? rankByNumber.get(rec.recommendedRank) : undefined
     const compPrices = competitorByDate.get(key)
     return {
       date: key,
-      demandLevel: rec.demandLevel,
-      recommendedRank: rec.recommendedRank,
-      recommendedPrice: rec.recommendedPrice,
+      demandLevel: rec?.demandLevel ?? null,
+      recommendedRank: rec?.recommendedRank ?? null,
+      recommendedPrice: rec?.recommendedPrice ?? null,
       rankLabel: rank?.label ?? null,
       price1P: rank?.price1P ?? null,
       price2P: rank?.price2P ?? null,
       price3P: rank?.price3P ?? null,
-      predictedOccupancy: rec.predictedOccupancy,
-      predictedAdr: rec.predictedAdr,
+      predictedOccupancy: rec?.predictedOccupancy ?? null,
+      predictedAdr: rec?.predictedAdr ?? null,
       actualOccupancy: actual?.occupancy ?? null,
       actualAdr: actual?.adr ?? null,
       // 競合料金の代表値。1社の極端な価格に引きずられない中央値を使う（C-9）
       competitorMedianPrice: median(compPrices ?? []),
       competitorMinPrice: minOf(compPrices ?? []),
       competitorMaxPrice: maxOf(compPrices ?? []),
-      confidence: rec.confidence,
+      confidence: rec?.confidence ?? null,
+      // 推奨理由（#24 E4）。推奨の無い日と、この列を足す前に作った推奨は null
+      rationale: rec?.rationale ?? null,
     }
   })
 
@@ -77,39 +85,99 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
 }
 
 /**
- * 価格戦略の重み付け取得（F-DP-02）
+ * 価格戦略の重み付け取得（F-DP-02）。
+ *
+ * まだ保存されていないホテル（新しく作ったホテルなど）は 404 にせず、需要予測が実際に使う
+ * 既定値（稼働率100% — strategyWeighting.ts の OCCUPANCY_ONLY_WEIGHTS）を返す。
+ * 404 だと画面がエラーになり、最初の重みを保存できなかった（#91 の作業中に判明）
  */
 export async function getStrategyService(hotelId: string) {
   const config = await prisma.pricingStrategyConfig.findUnique({ where: { hotelId } })
-  if (!config) throw new NotFoundError('価格戦略設定')
-  return config
+  if (config) return config
+  // 列の既定値（schema.prisma）と同じ値を返す（#17）
+  return {
+    id: null,
+    hotelId,
+    weightOccupancy: 100,
+    weightAdr: 0,
+    weightCompetitor: 0,
+    competitorOccupancy: null,
+    competitorOffsetPct: 0,
+    minRank: null,
+    maxRank: null,
+    maxDailyRankChange: 3,
+    hysteresisRanks: 1,
+    updatedByUserId: null,
+    updatedAt: null,
+  }
+}
+
+export interface StrategyUpdate {
+  weightOccupancy?: number
+  weightAdr?: number
+  weightCompetitor?: number
+  competitorOccupancy?: 1 | 2 | null
+  competitorOffsetPct?: number
+  minRank?: number | null
+  maxRank?: number | null
+  maxDailyRankChange?: number | null
+  hysteresisRanks?: number
 }
 
 /**
- * 価格戦略の重み付け更新（F-DP-02）。監査対象。
+ * 価格戦略の更新（F-DP-02 / #17）。監査対象。
+ * 送られてきた項目だけを変更する（undefined は据え置き、null は「制限なし」）。重みは3つ揃って届く（validators）。
  */
-export async function updateStrategyService(
-  hotelId: string,
-  weights: { weightOccupancy: number; weightAdr: number; weightCompetitor: number },
-  updatedByUserId: string
-) {
+export async function updateStrategyService(hotelId: string, input: StrategyUpdate, updatedByUserId: string) {
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const before = await prisma.pricingStrategyConfig.findUnique({ where: { hotelId } })
 
+  const minRank = input.minRank !== undefined ? input.minRank : (before?.minRank ?? null)
+  const maxRank = input.maxRank !== undefined ? input.maxRank : (before?.maxRank ?? null)
+  if (minRank != null && maxRank != null && minRank > maxRank) {
+    throw new ApiError(400, 'バリデーションエラー', [{ field: 'minRank', message: '推奨ランクの下限は上限以下にしてください' }])
+  }
+
+  const data = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) as StrategyUpdate
   const config = await prisma.pricingStrategyConfig.upsert({
     where: { hotelId },
-    update: { ...weights, updatedByUserId },
-    create: {
-      hotelId,
-      tenantId: hotel.tenantId,
-      ...weights,
-      updatedByUserId,
-    },
+    update: { ...data, updatedByUserId },
+    create: { hotelId, tenantId: hotel.tenantId, ...data, updatedByUserId },
   })
 
   return { before, after: config }
+}
+
+// ======================================
+// 推奨を固定する期間（#17 のガードレール③）
+// ======================================
+
+export async function listPricingLocksService(hotelId: string) {
+  return prisma.pricingLockPeriod.findMany({
+    where: { hotelId, endDate: { gte: todayJst() } },
+    orderBy: { startDate: 'asc' },
+  })
+}
+
+export async function createPricingLockService(
+  input: { hotelId: string; startDate: Date; endDate: Date; reason?: string },
+  createdByUserId: string
+) {
+  const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+  return prisma.pricingLockPeriod.create({
+    data: { ...input, tenantId: hotel.tenantId, createdByUserId },
+  })
+}
+
+export async function deletePricingLockService(id: string, hotelId: string) {
+  const existing = await prisma.pricingLockPeriod.findFirst({ where: { id, hotelId } })
+  if (!existing) throw new NotFoundError('固定期間')
+  const result = await prisma.pricingLockPeriod.deleteMany({ where: { id, hotelId } })
+  if (result.count === 0) throw new NotFoundError('固定期間')
+  return existing
 }
 
 /**
@@ -158,7 +226,9 @@ export interface LandingProjection {
  *
  * 実績が入っている日はその値を、まだ実績が無い日は AI 予測
  * （予測稼働率 × 客室数、予測ADR）を積み上げる。
- * 予測ADR が無い日は推奨価格を代わりに使う。どちらも無い日は積み上げない
+ * 予測ADR が無い日は推奨価格を代わりに使う。forecaster は ADR 実績があれば必ず
+ * predictedAdr を出すので（#77）、この代替が効くのは ADR 実績がまだ無い新規ホテルだけ。
+ * どちらも無い日は積み上げない
  * （0円で積むと着地ADRが不当に下がるため、日数から除外する）。
  *
  * DB に触れない純関数にしてあり、単体テストで検証する。

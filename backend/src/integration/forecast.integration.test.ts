@@ -1,0 +1,381 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import request from 'supertest'
+import type { Express } from 'express'
+import bcrypt from 'bcryptjs'
+import { PrismaClient } from '@prisma/client'
+import { addUtcDays, todayJst } from '../lib/date.js'
+
+// 需要予測・推奨価格の統合テスト（#76 / #77 / #90）。
+// DATABASE_URL が無ければスキップし、専用テナント（プレフィクス ftest）で検証する。
+//
+// 観点ごとに推奨ランクが大きく離れるようにデータを置く:
+// - 料金ランク 1〜10（1名料金 = ランク × 5,000円）
+// - 過去28日の実績: 稼働率 0.5（→ 稼働率観点はおおむねランク5）、ADR 47,000円（→ 最も近い 45,000円のランク9。1名料金と一致させないため端数をずらす）
+// - 対象期間の競合価格: 10,000円（→ 競合観点はランク2）
+
+const hasDatabase = Boolean(process.env.DATABASE_URL)
+const describeIntegration = hasDatabase ? describe : describe.skip
+
+const PREFIX = 'ftest'
+const TENANT = `${PREFIX}-tenant`
+const HOTEL = `${PREFIX}-hotel`
+const PASSWORD = 'Test1234'
+const MANAGER_EMAIL = `${PREFIX}-manager@example.com`
+const FORECAST_DAYS = 7
+const NO_GUARDRAILS = { maxDailyRankChange: null, hysteresisRanks: 0, minRank: null, maxRank: null, competitorOffsetPct: 0 }
+
+describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
+  let app: Express
+  let prisma: PrismaClient
+  let token = ''
+  const today = todayJst()
+  const endDate = addUtcDays(today, FORECAST_DAYS - 1)
+
+  async function cleanup() {
+    const users = await prisma.user.findMany({
+      where: { email: { startsWith: PREFIX } },
+      select: { id: true },
+    })
+    await prisma.auditLog.deleteMany({
+      where: { OR: [{ tenantId: TENANT }, { userId: { in: users.map((u) => u.id) } }] },
+    })
+    await prisma.user.deleteMany({ where: { email: { startsWith: PREFIX } } })
+    await prisma.tenant.deleteMany({ where: { id: TENANT } })
+  }
+
+  async function setWeights(
+    weightOccupancy: number,
+    weightAdr: number,
+    weightCompetitor: number,
+    extra: Record<string, unknown> = {}
+  ) {
+    const res = await request(app)
+      .put('/api/v1/pricing/strategy')
+      .set('Authorization', `Bearer ${token}`)
+      // 重みの効き方だけを見るため、前回推奨からの変動幅・ヒステリシス（#17）は切る
+      .send({ hotelId: HOTEL, weightOccupancy, weightAdr, weightCompetitor, ...NO_GUARDRAILS, ...extra })
+    expect(res.status, JSON.stringify(res.body)).toBe(200)
+  }
+
+  async function recomputeAndReadRanks(): Promise<number[]> {
+    const res = await request(app)
+      .post('/api/v1/pricing/recompute')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        hotelId: HOTEL,
+        startDate: today.toISOString().slice(0, 10),
+        endDate: endDate.toISOString().slice(0, 10),
+      })
+    expect(res.status, JSON.stringify(res.body)).toBe(200)
+
+    const rows = await prisma.aiPriceRecommendation.findMany({
+      where: { hotelId: HOTEL, roomTypeId: null },
+      orderBy: { date: 'asc' },
+    })
+    expect(rows).toHaveLength(FORECAST_DAYS)
+    return rows.map((r) => r.recommendedRank as number)
+  }
+
+  beforeAll(async () => {
+    const appModule = await import('../app.js')
+    app = appModule.app as unknown as Express
+    prisma = new PrismaClient()
+
+    await cleanup()
+
+    await prisma.tenant.create({ data: { id: TENANT, code: TENANT, name: '予測テストテナント' } })
+    await prisma.hotel.create({
+      data: { id: HOTEL, tenantId: TENANT, name: '予測テストホテル', totalRooms: 100 },
+    })
+    await prisma.user.create({
+      data: {
+        email: MANAGER_EMAIL,
+        password: await bcrypt.hash(PASSWORD, 10),
+        name: '予測テストマネージャー',
+        role: 'MANAGER',
+        tenantId: TENANT,
+        hotelId: HOTEL,
+      },
+    })
+
+    await prisma.priceRank.createMany({
+      data: Array.from({ length: 10 }, (_, i) => ({
+        tenantId: TENANT,
+        hotelId: HOTEL,
+        rank: i + 1,
+        label: `R${String(i + 1).padStart(2, '0')}`,
+        price1P: (i + 1) * 5_000,
+        price2P: (i + 1) * 9_000,
+      })),
+    })
+
+    await prisma.dailyData.createMany({
+      data: Array.from({ length: 28 }, (_, i) => ({
+        tenantId: TENANT,
+        hotelId: HOTEL,
+        date: addUtcDays(today, -(i + 1)),
+        occupancy: 0.5,
+        adr: 47_000,
+        soldRooms: 50,
+        totalRevenue: 50 * 47_000,
+      })),
+    })
+
+    const active = await prisma.competitor.create({
+      data: { tenantId: TENANT, hotelId: HOTEL, name: '有効な競合' },
+    })
+    await prisma.competitorPriceData.createMany({
+      data: Array.from({ length: FORECAST_DAYS }, (_, i) => ({
+        tenantId: TENANT,
+        competitorId: active.id,
+        date: addUtcDays(today, i),
+        price1P: 10_000,
+        dataSource: 'manual',
+      })),
+    })
+
+    const res = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: MANAGER_EMAIL, password: PASSWORD })
+    expect(res.status).toBe(200)
+    token = res.body.data.tokens.accessToken
+  })
+
+  afterAll(async () => {
+    if (!prisma) return
+    await cleanup()
+    await prisma.$disconnect()
+  })
+
+  describe('価格戦略の重み（#76）', () => {
+    it('まだ保存していないホテルは 404 ではなく既定値（稼働率100%）を返す', async () => {
+      const res = await request(app)
+        .get('/api/v1/pricing/strategy')
+        .query({ hotelId: HOTEL })
+        .set('Authorization', `Bearer ${token}`)
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+      expect(res.body.data).toMatchObject({ id: null, weightOccupancy: 100, weightAdr: 0, weightCompetitor: 0 })
+    })
+
+    it('重みを変えると推奨ランクが変わる', async () => {
+      await setWeights(100, 0, 0)
+      const byOccupancy = await recomputeAndReadRanks()
+
+      await setWeights(0, 100, 0)
+      const byAdr = await recomputeAndReadRanks()
+
+      await setWeights(0, 0, 100)
+      const byCompetitor = await recomputeAndReadRanks()
+
+      // ADR観点はすべての日でランク9、競合観点はランク2
+      expect(byAdr.every((r) => r === 9)).toBe(true)
+      expect(byCompetitor.every((r) => r === 2)).toBe(true)
+      // 稼働率観点はそのどちらとも異なる
+      expect(byOccupancy.every((r) => r !== 9 && r !== 2)).toBe(true)
+    })
+
+    it('競合価格が無い日は競合の重みを残りの観点へ按分する（ランクが下がらない）', async () => {
+      await prisma.competitorPriceData.deleteMany({ where: { tenantId: TENANT } })
+      try {
+        await setWeights(0, 50, 50)
+        const ranks = await recomputeAndReadRanks()
+        expect(ranks.every((r) => r === 9)).toBe(true)
+      } finally {
+        const competitor = await prisma.competitor.findFirstOrThrow({
+          where: { hotelId: HOTEL, isActive: true },
+        })
+        await prisma.competitorPriceData.createMany({
+          data: Array.from({ length: FORECAST_DAYS }, (_, i) => ({
+            tenantId: TENANT,
+            competitorId: competitor.id,
+            date: addUtcDays(today, i),
+            price1P: 10_000,
+            dataSource: 'manual',
+          })),
+        })
+      }
+    })
+
+    it('推奨行に新しいモデルバージョンが記録される', async () => {
+      await setWeights(60, 20, 20)
+      await recomputeAndReadRanks()
+      const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL } })
+      expect(row.modelVersion).toBe('rule-based-v3')
+    })
+  })
+
+  describe('推奨ランクの調整とガードレール（#17）', () => {
+    it('設定を保存すると監査ログに残り、GET で返る', async () => {
+      await setWeights(0, 0, 100, { competitorOffsetPct: 10, minRank: 2, maxRank: 8, maxDailyRankChange: 2, hysteresisRanks: 1 })
+      const res = await request(app)
+        .get('/api/v1/pricing/strategy')
+        .query({ hotelId: HOTEL })
+        .set('Authorization', `Bearer ${token}`)
+      expect(res.body.data).toMatchObject({ competitorOffsetPct: 10, minRank: 2, maxRank: 8, maxDailyRankChange: 2 })
+      const log = await prisma.auditLog.findFirst({
+        where: { tenantId: TENANT, entity: 'PricingStrategyConfig' },
+        orderBy: { createdAt: 'desc' },
+      })
+      expect(log).not.toBeNull()
+    })
+
+    it('重みを送らずに調整だけを保存でき、重みは変わらない。重みを一部だけ送ると 400', async () => {
+      await setWeights(20, 30, 50)
+      const res = await request(app)
+        .put('/api/v1/pricing/strategy')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ hotelId: HOTEL, hysteresisRanks: 2 })
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+      expect(res.body.data).toMatchObject({ weightOccupancy: 20, weightAdr: 30, weightCompetitor: 50, hysteresisRanks: 2 })
+
+      const partial = await request(app)
+        .put('/api/v1/pricing/strategy')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ hotelId: HOTEL, weightOccupancy: 100 })
+      expect(partial.status).toBe(400)
+    })
+
+    it('下限が上限より大きければ 400', async () => {
+      const res = await request(app)
+        .put('/api/v1/pricing/strategy')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ hotelId: HOTEL, weightOccupancy: 100, weightAdr: 0, weightCompetitor: 0, minRank: 9, maxRank: 3 })
+      expect(res.status).toBe(400)
+    })
+
+    it('下限を設定すると、それより下のランクは推奨しない', async () => {
+      // 競合観点だけならランク2。下限4で4に引き上げる
+      await setWeights(0, 0, 100, { minRank: 4 })
+      const ranks = await recomputeAndReadRanks()
+      expect(ranks.every((r) => r === 4)).toBe(true)
+    })
+
+    it('相対ポジション +30% で、競合の中央値（10,000円）の1.3倍に近いランクを狙う', async () => {
+      await setWeights(0, 0, 100, { competitorOffsetPct: 30 })
+      const ranks = await recomputeAndReadRanks()
+      // 13,000円に最も近いのは 15,000円のランク3（10,000円のランク2 より近い）
+      expect(ranks.every((r) => r === 3)).toBe(true)
+    })
+
+    it('前回の推奨から動かせるのは1回あたり maxDailyRankChange まで', async () => {
+      await setWeights(0, 0, 100) // 前回 = ランク2
+      await recomputeAndReadRanks()
+      await setWeights(0, 100, 0, { maxDailyRankChange: 3 }) // ADR観点ならランク9
+      const ranks = await recomputeAndReadRanks()
+      expect(ranks.every((r) => r === 5)).toBe(true)
+    })
+
+    it('取得から48時間を超えた競合価格は使わず、推奨理由に stale と残す', async () => {
+      await prisma.competitorPriceData.updateMany({
+        where: { tenantId: TENANT },
+        data: { observedAt: addUtcDays(new Date(), -3) },
+      })
+      try {
+        await setWeights(0, 50, 50)
+        const ranks = await recomputeAndReadRanks()
+        // 競合観点が外れて ADR 観点（ランク9）だけになる
+        expect(ranks.every((r) => r === 9)).toBe(true)
+        const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL } })
+        const rationale = row.rationale as { version: number; excluded: Array<{ key: string; reason: string }> }
+        expect(rationale.version).toBe(1)
+        expect(rationale.excluded).toContainEqual({ key: 'competitor', reason: 'stale' })
+      } finally {
+        await prisma.competitorPriceData.updateMany({ where: { tenantId: TENANT }, data: { observedAt: null } })
+      }
+    })
+
+    it('固定期間の日は再計算しても前回の推奨を残す。登録・削除は監査ログに残る', async () => {
+      await setWeights(0, 0, 100)
+      const before = await recomputeAndReadRanks() // すべてランク2
+
+      const iso = (d: Date) => d.toISOString().slice(0, 10)
+      const created = await request(app)
+        .post('/api/v1/pricing/locks')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ hotelId: HOTEL, startDate: iso(today), endDate: iso(addUtcDays(today, 1)), reason: '団体' })
+      expect(created.status, JSON.stringify(created.body)).toBe(201)
+
+      await setWeights(0, 100, 0)
+      const after = await recomputeAndReadRanks()
+      expect(after.slice(0, 2)).toEqual(before.slice(0, 2))
+      expect(after.slice(2).every((r) => r === 9)).toBe(true)
+
+      const list = await request(app).get('/api/v1/pricing/locks').query({ hotelId: HOTEL }).set('Authorization', `Bearer ${token}`)
+      expect(list.body.data).toHaveLength(1)
+
+      const removed = await request(app)
+        .delete(`/api/v1/pricing/locks/${created.body.data.id}`)
+        .query({ hotelId: HOTEL })
+        .set('Authorization', `Bearer ${token}`)
+      expect(removed.status).toBe(200)
+      const actions = await prisma.auditLog.findMany({ where: { tenantId: TENANT, entity: 'PricingLockPeriod' } })
+      expect(actions.map((a) => a.action).sort()).toEqual(['CREATE', 'DELETE'])
+    })
+  })
+
+  describe('予測ADR（#77）', () => {
+    it('再計算後も predictedAdr が入っている（実績ADRを推奨ランクへの価格変化率で補正）', async () => {
+      await setWeights(0, 100, 0)
+      await recomputeAndReadRanks()
+      const rows = await prisma.aiPriceRecommendation.findMany({ where: { hotelId: HOTEL } })
+      // 推奨ランク9 = 実績ADRに見合うランクなので、実績ADRがそのまま予測ADRになる
+      expect(rows.every((r) => r.predictedAdr === 47_000)).toBe(true)
+
+      await setWeights(0, 0, 100)
+      await recomputeAndReadRanks()
+      const lowered = await prisma.aiPriceRecommendation.findMany({ where: { hotelId: HOTEL } })
+      // 推奨ランク2（10,000円）は基準ランク9（45,000円）の 2/9 倍
+      expect(lowered.every((r) => r.predictedAdr === Math.round((47_000 * 10_000) / 45_000))).toBe(true)
+    })
+
+    it('着地シミュレーションは1名料金ではなく予測ADRで積み上がる', async () => {
+      await setWeights(0, 100, 0)
+      await recomputeAndReadRanks()
+
+      const year = today.getUTCFullYear()
+      const month = today.getUTCMonth() + 1
+      const res = await request(app)
+        .post('/api/v1/pricing/simulation/recompute')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ hotelId: HOTEL, year, month })
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+
+      // 実績・予測ともに ADR は 47,000円なので着地ADRも 47,000円になる。
+      // predictedAdr が無かった従来は予測日が1名料金（ランク9 = 45,000円）で積まれ、着地ADRが下がっていた
+      expect(res.body.data.simulation.projectedAdr).toBe(47_000)
+    })
+  })
+
+  describe('削除済み競合の除外（#90）', () => {
+    it('論理削除した競合の価格は価格カレンダーの代表値に含まれない', async () => {
+      await setWeights(100, 0, 0)
+      await recomputeAndReadRanks()
+
+      const deleted = await prisma.competitor.create({
+        data: { tenantId: TENANT, hotelId: HOTEL, name: '削除済みの競合', isActive: false },
+      })
+      await prisma.competitorPriceData.create({
+        data: {
+          tenantId: TENANT,
+          competitorId: deleted.id,
+          date: today,
+          price1P: 90_000,
+          dataSource: 'manual',
+        },
+      })
+
+      const res = await request(app)
+        .get('/api/v1/pricing/calendar')
+        .query({ hotelId: HOTEL, year: today.getUTCFullYear(), month: today.getUTCMonth() + 1 })
+        .set('Authorization', `Bearer ${token}`)
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+
+      const day = res.body.data.calendar.find(
+        (d: { date: string }) => d.date === today.toISOString().slice(0, 10)
+      )
+      expect(day).toBeDefined()
+      expect(day.competitorMaxPrice).toBe(10_000)
+      expect(day.competitorMedianPrice).toBe(10_000)
+    })
+  })
+})

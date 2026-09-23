@@ -8,6 +8,10 @@ import {
   updateHotelSettingsSchema,
   idParamSchema,
   MAX_FORECAST_RANGE_DAYS,
+  MAX_QUERY_RANGE_DAYS,
+  dateOnlyInputSchema,
+  eventsQuerySchema,
+  competitorPricesQuerySchema,
 } from './validators.js'
 import { addUtcDays, todayJst } from './date.js'
 
@@ -257,5 +261,48 @@ describe('idParamSchema (C-11)', () => {
     expect(idParamSchema.safeParse({ id: '' }).success).toBe(false)
     expect(idParamSchema.safeParse({ id: '../etc/passwd' }).success).toBe(false)
     expect(idParamSchema.safeParse({ id: 'a'.repeat(65) }).success).toBe(false)
+  })
+})
+
+describe('dateOnlyInputSchema (#90)', () => {
+  it('YYYY-MM-DD を UTC 0時の Date にする', () => {
+    const result = dateOnlyInputSchema.safeParse('2026-09-23')
+    expect(result.success).toBe(true)
+    if (result.success) expect(result.data.toISOString()).toBe('2026-09-23T00:00:00.000Z')
+  })
+
+  it.each(['2026-09-23T00:00:00+09:00', '2026-09-23T15:00:00Z', '2026/09/23', '20260923', ''])(
+    '時刻付き・区切り違いの値 %s は拒否する（UTC 変換で前日にずれるのを防ぐ）',
+    (value) => {
+      expect(dateOnlyInputSchema.safeParse(value).success).toBe(false)
+    }
+  )
+
+  it('存在しない日付は拒否する', () => {
+    expect(dateOnlyInputSchema.safeParse('2026-02-30').success).toBe(false)
+    expect(dateOnlyInputSchema.safeParse('2026-13-01').success).toBe(false)
+  })
+
+  it('文字列以外は拒否する', () => {
+    expect(dateOnlyInputSchema.safeParse(20260923).success).toBe(false)
+  })
+})
+
+describe('期間の上限 (#90)', () => {
+  const hotelId = 'demo-hotel-001'
+  const iso = (d: Date) => d.toISOString().slice(0, 10)
+  const start = new Date('2026-01-01T00:00:00Z')
+
+  it(`${MAX_QUERY_RANGE_DAYS}日までは受け入れ、それを超えると拒否する`, () => {
+    const within = { hotelId, startDate: iso(start), endDate: iso(addUtcDays(start, MAX_QUERY_RANGE_DAYS - 1)) }
+    const over = { hotelId, startDate: iso(start), endDate: iso(addUtcDays(start, MAX_QUERY_RANGE_DAYS)) }
+    for (const schema of [eventsQuerySchema, competitorPricesQuerySchema]) {
+      expect(schema.safeParse(within).success).toBe(true)
+      expect(schema.safeParse(over).success).toBe(false)
+    }
+  })
+
+  it('イベント一覧は期間を省略できる', () => {
+    expect(eventsQuerySchema.safeParse({ hotelId }).success).toBe(true)
   })
 })

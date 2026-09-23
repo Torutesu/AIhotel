@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_WEEKEND_DAYS, addUtcDays, dateOnly, monthRange, todayJst } from './date.js'
+import { DEFAULT_WEEKEND_DAYS, addUtcDays, dateOnly, eachUtcDay, monthRange, todayJst } from './date.js'
 
 describe('todayJst (C-6)', () => {
   it('UTC では前日でも JST の暦日を返す', () => {
@@ -87,5 +87,17 @@ describe('monthRange (C-6)', () => {
 describe('DEFAULT_WEEKEND_DAYS (C-6)', () => {
   it('週末は金(5)・土(6)（F-DAILY-02）', () => {
     expect([...DEFAULT_WEEKEND_DAYS]).toEqual([5, 6])
+  })
+})
+
+describe('eachUtcDay (#90)', () => {
+  it('終端を含まない暦日を1日ずつ返す（月またぎ・うるう日を含む）', () => {
+    const days = eachUtcDay(new Date('2028-02-28T00:00:00Z'), new Date('2028-03-02T00:00:00Z'))
+    expect(days.map((d) => d.toISOString().slice(0, 10))).toEqual(['2028-02-28', '2028-02-29', '2028-03-01'])
+  })
+
+  it('開始と終端が同じなら空', () => {
+    const d = new Date('2026-09-23T00:00:00Z')
+    expect(eachUtcDay(d, d)).toEqual([])
   })
 })

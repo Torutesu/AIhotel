@@ -4,7 +4,7 @@
 // 着地予測値は GET /api/v1/pricing/simulation（MonthlyLandingSimulation）を唯一の出所とする。
 // 行が無い月は画面側で平均を捏造せず、生成元（再計算／日次バッチ）を案内する空状態を出す。
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { Loader2, RefreshCw, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
@@ -13,10 +13,11 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PricingSimulation } from "@/lib/api"
 import { daysInMonth, monthLabel, startOfToday, toDateStr } from "@/lib/date"
 import { formatPercent as pct, formatYen as yen } from "@/lib/format"
-import { canManage } from "@shared/types"
+import { canManage, ROLE_LABELS } from "@shared/types"
 
 /** カレンダー実績から算出した現在値（実データのみ。未確定なら null） */
 export interface CurrentPerformance {
@@ -45,28 +46,15 @@ export function LandingForecastSummary({
   const { hotelId, user } = useAuth()
   const canRecompute = canManage(user?.role)
 
-  const [data, setData] = useState<PricingSimulation | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [recomputing, setRecomputing] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
 
-  const load = useCallback(async () => {
-    if (!hotelId) return
-    setLoading(true)
-    setError(null)
-    try {
-      setData(await api.pricingSimulation(hotelId, year, month))
-    } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "着地予測の取得に失敗しました")
-    } finally {
-      setLoading(false)
-    }
-  }, [hotelId, year, month])
-
-  useEffect(() => {
-    load()
-  }, [load])
+  // ホテル・年月を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const { data, loading, error, reload: load } = useApiQuery<PricingSimulation>(
+    hotelId ? () => api.pricingSimulation(hotelId, year, month) : null,
+    [hotelId, year, month],
+    "着地予測の取得に失敗しました",
+  )
 
   // 再計算できる期間。バックエンドは過去日の startDate を拒否するため本日以降に丸める
   const recomputeRange = useMemo(() => {
@@ -82,9 +70,12 @@ export function LandingForecastSummary({
     if (!hotelId || !recomputeRange) return
     setRecomputing(true)
     try {
+      // 需要予測を作り直しただけでは着地予測（MonthlyLandingSimulation）は変わらないため、
+      // 続けて表示中の月の着地シミュレーションも再計算する（#77）
       const result = await api.recomputeForecast(hotelId, recomputeRange)
+      await api.recomputeSimulation(hotelId, year, month)
       toast.success("AI予測値へリセットしました", {
-        description: `${result.startDate} 〜 ${result.endDate} の${result.count}日分を再計算しました。`,
+        description: `${result.startDate} 〜 ${result.endDate} の${result.count}日分の需要予測と、${monthLabel(year, month)}の着地予測を再計算しました。`,
       })
       await load()
       await onRecomputed?.()
@@ -197,11 +188,12 @@ export function LandingForecastSummary({
             <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
               <p className="font-medium text-foreground">この月の着地予測はまだ生成されていません。</p>
               <p className="mt-1">
-                着地予測は需要予測の再計算（下記「AI予測値へリセット」）または日次バッチで生成されます。
+                着地予測は「AI予測値へリセット」（需要予測と着地予測をまとめて再計算）または日次バッチで生成されます。
+                過去の月は再計算できません。
                 実績値の平均で代用した数値は表示しません。
               </p>
               {!canRecompute && (
-                <p className="mt-1">再計算はMANAGER以上のユーザーが実行できます。</p>
+                <p className="mt-1">再計算は{ROLE_LABELS.MANAGER}以上のユーザーが実行できます。</p>
               )}
             </div>
           )}
@@ -214,7 +206,7 @@ export function LandingForecastSummary({
         title="AI予測値へリセットしますか？"
         description={
           recomputeRange
-            ? `${recomputeRange.startDate} 〜 ${recomputeRange.endDate} のAI推奨価格・需要予測を再計算し、現在の推奨値を上書きします。この操作は取り消せません。`
+            ? `${recomputeRange.startDate} 〜 ${recomputeRange.endDate} のAI推奨価格・需要予測と、${monthLabel(year, month)}の着地予測を再計算し、現在の値を上書きします。この操作は取り消せません。`
             : undefined
         }
         confirmLabel="リセットする"

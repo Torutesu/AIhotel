@@ -30,6 +30,10 @@ interface AuthContextValue {
   retryRestore: () => void
   /** 設定タブでホテル設定を保存した後などに、保持している hotel を差し替える */
   setHotel: (hotel: Hotel) => void
+  /** ホテルの作成・削除の後に、アクセスできるホテルの一覧を取り直す（#81） */
+  reloadHotels: () => Promise<void>
+  /** パスワード変更の後などに、保持しているログインユーザーを差し替える（#89） */
+  replaceUser: (user: User) => Promise<void>
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
@@ -47,18 +51,30 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
  * ここでロールを特別扱いせず、返ってきた一覧をそのまま候補にする。
  *
  * ホテル一覧を取得できなかった場合は /auth/me が返したホテルだけで動作させる。
+ * それも無い場合はエラーにする。0件として扱うと「ホテルが無い」初期設定画面が出て、
+ * 一時的な通信エラーなのにホテルを重複して作らせてしまうため（#81）。
  */
 async function resolveHotels(user: User & { hotel?: Hotel | null }): Promise<Hotel[]> {
+  let hotels: Hotel[]
   try {
-    const hotels = await api.hotels()
-    if (user.role !== "PLATFORM_ADMIN" && user.hotelId) {
-      return hotels.filter((h) => h.id === user.hotelId)
-    }
-    if (hotels.length > 0) return hotels
-  } catch {
+    hotels = await api.hotels()
+  } catch (err) {
     // 一覧が取れなくても /auth/me のホテルで最低限は動かす（値は捏造しない）
+    if (user.hotel) return [user.hotel]
+    throw err
   }
-  return user.hotel ? [user.hotel] : []
+  if (user.role !== "PLATFORM_ADMIN" && user.hotelId) {
+    return hotels.filter((h) => h.id === user.hotelId)
+  }
+  return hotels
+}
+
+/**
+ * 一時パスワードの変更待ちのユーザーは、バックエンドが /hotels を 403 にする（#89）。
+ * ホテル一覧は取らずに空にしておき、パスワードを変えたあとで取り直す
+ */
+async function hotelsFor(user: User & { hotel?: Hotel | null }): Promise<Hotel[]> {
+  return user.mustChangePassword ? [] : resolveHotels(user)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -85,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       try {
         const me = await api.me()
-        const resolvedHotels = await resolveHotels(me)
+        const resolvedHotels = await hotelsFor(me)
         if (cancelled) return
         setUser(me)
         setHotels(resolvedHotels)
@@ -117,7 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [restoreAttempt])
 
-  // リフレッシュトークンも失効した場合、lib/api.ts から通知を受けてログイン画面へ戻す（F-2）
+  // リフレッシュトークンも失効した場合、lib/api/ から通知を受けてログイン画面へ戻す（F-2）
   useEffect(() => {
     const onExpired = () => {
       setUser(null)
@@ -131,7 +147,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const result = await api.login(email, password)
-    const resolvedHotels = await resolveHotels(result.user)
+    const resolvedHotels = await hotelsFor(result.user)
     setUser(result.user)
     setHotels(resolvedHotels)
     setRestoreError(null)
@@ -166,6 +182,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
+  const reloadHotels = useCallback(async () => {
+    if (!user) return
+    setHotels(await hotelsFor(user))
+  }, [user])
+
+  /** パスワード変更の後などにユーザーを差し替え、変更待ちが解けていればホテルも取り直す（#89） */
+  const replaceUser = useCallback(async (next: User) => {
+    setUser(next)
+    setHotels(await hotelsFor(next))
+  }, [])
+
   const selectHotel = useCallback(
     (nextHotelId: string) => {
       setHotelParam(nextHotelId)
@@ -186,6 +213,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         restoreError,
         retryRestore,
         setHotel,
+        reloadHotels,
+        replaceUser,
         login,
         logout,
       }}

@@ -8,9 +8,14 @@
 # (rather than the standalone server.js approach).
 #
 # Environment variables:
-#   BACKEND_URL           (runtime, server-side) origin the /api/* rewrite proxies
-#                         to, e.g. http://backend:3001. Browser code always calls
+#   BACKEND_URL           (runtime, server-side) origin that the /api/* route
+#                         handler (app/api/[...path]/route.ts) proxies to, e.g.
+#                         http://backend:3001. Read on every request, so one image
+#                         works for every environment. Browser code always calls
 #                         same-origin /api/*, so no CORS configuration is needed.
+#   TRUSTED_PROXY_HOPS    (runtime, optional) number of trusted proxies in front of
+#                         Next.js, used to resolve the client IP sent to the backend
+#                         (default 1). See README "クライアント IP の扱い".
 #   NEXT_PUBLIC_DEMO_MODE (build-time, optional) "true" enables the demo fallback
 #                         that shows sample data when the backend is unreachable.
 #                         Leave unset for real deployments.
@@ -18,7 +23,7 @@
 # ---------------------------------------
 # Stage 1: install workspace dependencies
 # ---------------------------------------
-FROM node:20-slim AS deps
+FROM node:22-slim AS deps
 RUN corepack enable
 WORKDIR /app
 
@@ -50,7 +55,7 @@ RUN pnpm --filter frontend build
 # ---------------------------------------
 # Stage 3: runtime image
 # ---------------------------------------
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -78,5 +83,6 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
-# BACKEND_URL is read at runtime by next.config.mjs rewrites().
+# BACKEND_URL is read at runtime by the /api/* route handler (not by rewrites(),
+# which would bake the build-time value into routes-manifest.json).
 CMD ["npx", "next", "start", "-p", "3000"]

@@ -2,10 +2,15 @@ import { prisma } from '../lib/prisma.js'
 import { NotFoundError, BadRequestError } from '../middlewares/errorHandler.js'
 import type { CreateEventInput, UpdateEventInput } from '../lib/validators.js'
 
+/** 期間を指定しないときに返す最大件数（#90）。期間を指定すれば 366 日以内で全件 */
+export const MAX_EVENTS_WITHOUT_RANGE = 500
+
 /**
- * イベント一覧（F-DP-07）。期間は任意 — 指定期間と重なるイベントを返す
+ * イベント一覧（F-DP-07）。期間は任意 — 指定期間と重なるイベントを返す。
+ * 期間を省略したときは件数に上限を設ける（全件を1リクエストで返させない — #90）
  */
 export async function getEventsService(hotelId: string, startDate?: Date, endDate?: Date) {
+  const unbounded = !startDate && !endDate
   return prisma.event.findMany({
     where: {
       hotelId,
@@ -13,6 +18,7 @@ export async function getEventsService(hotelId: string, startDate?: Date, endDat
       ...(endDate && { startDate: { lte: endDate } }),
     },
     orderBy: { startDate: 'asc' },
+    ...(unbounded && { take: MAX_EVENTS_WITHOUT_RANGE }),
   })
 }
 
