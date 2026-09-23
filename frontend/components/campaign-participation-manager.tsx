@@ -18,6 +18,9 @@ import { toast } from "sonner"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import type { CampaignData } from "@shared/types"
 
+// 保存APIが無いため、操作はこの画面の一覧にだけ反映される。成功トーストで保存済みと誤解させない（#80）
+const SAMPLE_NOT_SAVED = "サンプル表示のため保存されません。再読み込みすると元に戻ります。"
+
 // OTAスクレイピング用アカウントの状態（モック）。
 // スクレイピングには施設ID（OTAごと）・ユーザーID・パスワードの登録が必要で、
 // OTAによっては3か月単位でのパスワード更新が求められる
@@ -115,12 +118,12 @@ export function CampaignParticipationManager() {
         ...formData,
       }
       setCampaigns([...campaigns, newCampaign])
-      toast.success("キャンペーンを追加しました")
+      toast.info("キャンペーンを一覧に追加しました", { description: SAMPLE_NOT_SAVED })
     } else if (editingId) {
       setCampaigns(
         campaigns.map((c) => (c.id === editingId ? { id: editingId, ...formData } : c))
       )
-      toast.success("キャンペーンを更新しました")
+      toast.info("キャンペーンの表示を更新しました", { description: SAMPLE_NOT_SAVED })
     }
 
     setIsAdding(false)
@@ -140,7 +143,7 @@ export function CampaignParticipationManager() {
 
   const handleDelete = (id: string) => {
     setCampaigns(campaigns.filter((c) => c.id !== id))
-    toast.success("キャンペーンを削除しました")
+    toast.info("キャンペーンを一覧から外しました", { description: SAMPLE_NOT_SAVED })
   }
 
   const handleCancel = () => {

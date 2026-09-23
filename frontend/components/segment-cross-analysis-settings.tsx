@@ -118,24 +118,14 @@ export function SegmentCrossAnalysisSettings({ onSave }: SegmentCrossAnalysisSet
       includeBatch,
     }
 
-    // 保存処理のシミュレーション（非同期）
-    const savePromise = new Promise<void>((resolve, reject) => {
-      setTimeout(() => {
-        try {
-          onSave?.(settings)
-          resolve()
-        } catch (error) {
-          reject(error)
-        }
-      }, 500)
-    })
-
-    toast.promise(savePromise, {
-      loading: "設定を保存中...",
-      success: includeBatch
-        ? "基本分析に設定しました。バッチ処理に登録されました。"
-        : "基本分析に設定しました。",
-      error: "保存に失敗しました。もう一度お試しください。",
+    // 設定を保存するAPIが無いため、この画面の表示に反映するだけにする。
+    // 以前は待ち時間を演出して「バッチ処理に登録されました」と出しており、
+    // 実際に保存・登録されたように見えていた（#80）
+    onSave?.(settings)
+    toast.info("この画面の表示にだけ反映しました", {
+      description: includeBatch
+        ? "サンプル表示のため、設定の保存とバッチ処理への登録は行われません。"
+        : "サンプル表示のため、設定は保存されません。",
     })
   }
 
