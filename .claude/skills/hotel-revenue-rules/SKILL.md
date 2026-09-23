@@ -62,16 +62,16 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 
 ## 未実装領域（Phase 4 — 器だけ存在）
 
-PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成、バッチジョブ（スケジューラ）は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータで動く。これらを「実装済み」と記述・報告しない。
+PMS/OTA連携、スクレイピング、需要予測ML、Claude APIによるAIコメント生成は未実装。対応テーブル（ai_comments, ota_channel_data 等）とAPIは存在し、現在はseedデータ・CSV 取り込み（#82）・ルールベース予測で動く。これらを「実装済み」と記述・報告しない。
 
-PDF/Excel出力は**バックエンド実装済み**（`GET /reports/monthly?format=pdf|excel`）。フロントエンド未接続なだけなので「未実装」と書かない。
+次は実装済み（「未実装」と書かない）: PDF/Excel出力（`GET /reports/monthly?format=pdf|excel`、レポートタブから接続済み）、日次バッチ（`job daily`。スケジューラへの登録はデプロイ先の作業）。
 
-フロントエンドの画面には実APIに未接続のサンプル表示が残っている（分析タブの大半・レポート・AIまとめ）。
+フロントエンドの画面には実APIに未接続のサンプル表示が残っている（分析タブの一部・AIまとめ）。
 状況は `要件定義書.md` §6 と `docs/改善計画.md` を正とし、サンプル表示のセクションはUI上でその旨を明示する。
 
 ## コミット・検証
 
 - コミットは修正単位で分け、件名末尾に対応する指摘ID（`(C-2, C-3)` / `(W-4)` / `(Task-3)` 形式）を含める。
-- コミット前チェック: `pnpm --filter './*' type-check` → `pnpm --filter './*' lint` → `pnpm --filter backend test` → 必要に応じ `pnpm --filter backend build` / `pnpm --filter frontend build`。backend の type-check には事前に `pnpm --filter backend db:generate` が必要。
+- コミット前チェック: `pnpm --filter './*' type-check` → `pnpm --filter './*' lint` → `pnpm --filter backend test` → `pnpm --filter frontend test` → 必要に応じ `pnpm --filter backend build` / `pnpm --filter frontend build`。backend の type-check には事前に `pnpm --filter backend db:generate` が必要。
 - デモ環境: シードは冪等（何度実行してもよい）。アカウントは admin/manager/operator@demo-hotel.example.com と、
   運営（PLATFORM_ADMIN）の platform@example.com。パスワードはいずれも `Admin1234`。

@@ -19,8 +19,9 @@ pnpm dev                                            # frontend:3000 + backend:30
 
 # コミット前に必ず全部通すこと:
 pnpm --filter './*' type-check && pnpm --filter './*' lint
-pnpm --filter backend test
+pnpm --filter backend test && pnpm --filter frontend test   # backend の統合テストは DATABASE_URL があるときだけ走る
 pnpm --filter backend build && pnpm --filter frontend build
+# 画面の流れを変えたら E2E も: 両サーバーを起動して pnpm --filter @hotel-revenue-system/e2e test
 ```
 
 デモログイン: `admin@demo-hotel.example.com` / `Admin1234`（MANAGER/OPERATORは manager@/operator@）。
@@ -69,11 +70,12 @@ pnpm --filter backend build && pnpm --filter frontend build
 
 ## 未実装領域（Phase 4 — 「実装済み」と報告しないこと）
 
-PMS/OTA連携・スクレイピング・需要予測ML・Claude APIによるAIコメント生成・バッチジョブ（スケジューラ）。
-対応するDBテーブルとAPIの器は存在し、現在はseedデータで動作している。
+PMS/OTA連携・スクレイピング・需要予測ML・Claude APIによるAIコメント生成。
+対応するDBテーブルとAPIの器は存在し、現在はseedデータ・CSV 取り込み（#82）・ルールベース予測で動作している。
 
-**PDF/Excel出力はバックエンド実装済み**（`services/reportsService.ts`、pdfkit / exceljs、`GET /reports/monthly?format=pdf|excel`）。
-フロントエンドが未接続なだけなので「未実装」と書かない。
+次は**実装済み**なので「未実装」と書かない:
+- PDF/Excel出力（`services/reportsService.ts`、`GET /reports/monthly?format=pdf|excel`。レポートタブから接続済み）
+- 日次バッチ（`jobs/daily.ts`、コンテナは `job daily`）。スケジューラへの登録はデプロイ先の作業（`docs/運用手順書.md`）
 
 **画面の実装状況は要件定義書 §6 の表を正とする。** 分析タブの大半・レポートタブ・AIまとめタブは
 コンポーネント内のサンプルデータで表示している。サンプル表示のセクションには必ずその旨をUIに明示し、

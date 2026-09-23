@@ -12,5 +12,5 @@ allowed-tools: Bash(git status *), Bash(git diff *), Bash(git log *), Bash(pnpm 
    - シークレットのハードコード・フォールバックが混入していないか（`grep -rE "secret|password|API_KEY"` を差分に対して実行）
    - フロントエンドで lib/api/ を経由しない fetch が増えていないか
    - コミットメッセージが規約（Conventional Commits + 指摘ID）に従っているか
-3. 検証パイプライン実行: db:generate → 全type-check → backend test → 両build
+3. 検証パイプライン実行: db:generate → 全type-check → 全lint → backend test → frontend test → 両build（`/check` と同じ）
 4. 結果を「マージ可否の結論 → 違反・懸念のリスト → 検証結果」の順で報告。修正はユーザーの指示を待つ
