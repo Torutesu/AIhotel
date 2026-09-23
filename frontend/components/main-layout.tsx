@@ -30,6 +30,7 @@ import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
 import { useAppState } from "@/components/app-state-provider"
 import { LoginForm } from "@/components/login-form"
+import { ErrorBoundary } from "@/components/error-boundary"
 import { NoHotelState } from "@/components/onboarding/no-hotel-state"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { HotelSwitcher } from "@/components/hotel-switcher"
@@ -296,24 +297,27 @@ export function MainLayout() {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-auto">
-          {activeTab === "dashboard" && <DashboardTab onAlertNavigate={handleAlertNavigate} />}
-          {activeTab === "pricing" && (
-            <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
-          )}
-          {activeTab === "analysis" && (
-            <AnalysisTab
-              onNavigateToPricing={(date) => {
-                setPricingFocusDate(date)
-                setPeriodMonth(
-                  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
-                )
-                selectTab("pricing")
-              }}
-            />
-          )}
-          {activeTab === "reports" && <ReportsTab />}
-          {activeTab === "ai-summary" && <AISummaryTab />}
-          {activeTab === "settings" && <SettingsTab />}
+          {/* タブごとにエラー境界で囲む。key でタブを切り替えたら境界の状態も戻す（#91） */}
+          <ErrorBoundary key={activeTab}>
+            {activeTab === "dashboard" && <DashboardTab onAlertNavigate={handleAlertNavigate} />}
+            {activeTab === "pricing" && (
+              <PricingTab focusDate={pricingFocusDate} onFocusDateHandled={() => setPricingFocusDate(null)} />
+            )}
+            {activeTab === "analysis" && (
+              <AnalysisTab
+                onNavigateToPricing={(date) => {
+                  setPricingFocusDate(date)
+                  setPeriodMonth(
+                    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`,
+                  )
+                  selectTab("pricing")
+                }}
+              />
+            )}
+            {activeTab === "reports" && <ReportsTab />}
+            {activeTab === "ai-summary" && <AISummaryTab />}
+            {activeTab === "settings" && <SettingsTab />}
+          </ErrorBoundary>
         </main>
       </div>
 
