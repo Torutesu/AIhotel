@@ -1,11 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import {
+  COMPETITOR_PRICE_MAX_AGE_HOURS,
   OCCUPANCY_ONLY_WEIGHTS,
+  applyRankGuardrails,
   blendRanksByStrategy,
   computeAdrRank,
   computeCompetitorRank,
   computePredictedAdr,
   mapPriceToRank,
+  resolveCompetitorOccupancy,
   type AdrRecord,
   type CompetitorPriceRecord,
   type RankPrice,
@@ -17,7 +20,7 @@ function d(y: number, m: number, day: number): Date {
 }
 
 // rank 1 = 10000円, rank 2 = 20000円 ... rank 5 = 50000円
-const RANKS: RankPrice[] = [1, 2, 3, 4, 5].map((rank) => ({ rank, price1P: rank * 10_000 }))
+const RANKS: RankPrice[] = [1, 2, 3, 4, 5].map((rank) => ({ rank, price: rank * 10_000 }))
 
 describe('mapPriceToRank', () => {
   it('最も近い価格のランクを返す', () => {
@@ -70,30 +73,93 @@ describe('computeAdrRank', () => {
 })
 
 describe('computeCompetitorRank', () => {
+  const NOW = new Date('2026-07-01T12:00:00Z')
+  const fresh = new Date('2026-07-01T03:00:00Z') // 9時間前
+  const opts = { now: NOW }
+
   it('対象日の競合価格の中央値に対応するランクを返す', () => {
     const target = d(2026, 7, 10)
     const prices: CompetitorPriceRecord[] = [
-      { date: target, price1P: 20_000 },
-      { date: target, price1P: 40_000 },
-      { date: d(2026, 7, 11), price1P: 50_000 }, // 別日 → 除外
+      { date: target, price: 20_000, observedAt: fresh },
+      { date: target, price: 40_000, observedAt: fresh },
+      { date: d(2026, 7, 11), price: 50_000, observedAt: fresh }, // 別日 → 除外
     ]
-    expect(computeCompetitorRank(prices, target, RANKS)).toBe(3)
+    const result = computeCompetitorRank(prices, target, RANKS, opts)
+    expect(result).toMatchObject({ rank: 3, median: 30_000, count: 2, excluded: null })
   })
 
   it('1社だけ極端に高くても中央値なので引きずられない', () => {
     const target = d(2026, 7, 10)
     const prices: CompetitorPriceRecord[] = [
-      { date: target, price1P: 20_000 },
-      { date: target, price1P: 21_000 },
-      { date: target, price1P: 200_000 },
+      { date: target, price: 20_000, observedAt: fresh },
+      { date: target, price: 21_000, observedAt: fresh },
+      { date: target, price: 200_000, observedAt: fresh },
     ]
-    expect(computeCompetitorRank(prices, target, RANKS)).toBe(2)
+    expect(computeCompetitorRank(prices, target, RANKS, opts).rank).toBe(2)
   })
 
-  it('対象日の競合価格が無ければ null を返す（競合観点を合成から除外する）', () => {
+  it('対象日の競合価格が無ければ null（no_data）を返す', () => {
     const target = d(2026, 7, 10)
-    const prices: CompetitorPriceRecord[] = [{ date: d(2026, 7, 11), price1P: 50_000 }]
-    expect(computeCompetitorRank(prices, target, RANKS)).toBeNull()
+    const prices: CompetitorPriceRecord[] = [{ date: d(2026, 7, 11), price: 50_000, observedAt: fresh }]
+    expect(computeCompetitorRank(prices, target, RANKS, opts)).toMatchObject({ rank: null, excluded: 'no_data' })
+  })
+
+  it(`取得から${COMPETITOR_PRICE_MAX_AGE_HOURS}時間を超えた値は使わない（#9）`, () => {
+    const target = d(2026, 7, 10)
+    const stale = new Date(NOW.getTime() - (COMPETITOR_PRICE_MAX_AGE_HOURS + 1) * 3_600_000)
+    const prices: CompetitorPriceRecord[] = [
+      { date: target, price: 50_000, observedAt: stale },
+      { date: target, price: 20_000, observedAt: fresh },
+    ]
+    expect(computeCompetitorRank(prices, target, RANKS, opts)).toMatchObject({ rank: 2, count: 1 })
+    expect(computeCompetitorRank([prices[0]], target, RANKS, opts)).toMatchObject({ rank: null, excluded: 'stale' })
+  })
+
+  it('相対ポジション: +50% なら中央値の1.5倍に近いランクを狙う（#17）', () => {
+    const target = d(2026, 7, 10)
+    const prices: CompetitorPriceRecord[] = [{ date: target, price: 20_000, observedAt: fresh }]
+    expect(computeCompetitorRank(prices, target, RANKS, { ...opts, offsetPct: 50 }).rank).toBe(3)
+    expect(computeCompetitorRank(prices, target, RANKS, { ...opts, offsetPct: -50 }).rank).toBe(1)
+  })
+})
+
+describe('applyRankGuardrails (#17)', () => {
+  const base = { minRank: null, maxRank: null, maxDailyRankChange: 3, hysteresisRanks: 1 }
+
+  it('前回との差がヒステリシス以内なら前回のまま据え置く', () => {
+    const result = applyRankGuardrails({ rank: 11, previousRank: 10, guardrails: base, maxRank: 40 })
+    expect(result).toEqual({ rank: 10, applied: [{ key: 'hysteresis', from: 11, to: 10 }] })
+  })
+
+  it('前回から動かせるのは maxDailyRankChange まで', () => {
+    expect(applyRankGuardrails({ rank: 20, previousRank: 10, guardrails: base, maxRank: 40 }).rank).toBe(13)
+    expect(applyRankGuardrails({ rank: 2, previousRank: 10, guardrails: base, maxRank: 40 }).rank).toBe(7)
+  })
+
+  it('下限・上限は最後に必ずかかる（前回の推奨が無い初回も）', () => {
+    const g = { ...base, minRank: 5, maxRank: 30 }
+    expect(applyRankGuardrails({ rank: 2, previousRank: null, guardrails: g, maxRank: 40 })).toEqual({
+      rank: 5,
+      applied: [{ key: 'minRank', from: 2, to: 5 }],
+    })
+    expect(applyRankGuardrails({ rank: 35, previousRank: null, guardrails: g, maxRank: 40 }).rank).toBe(30)
+    // 上限は料金ランクの最大値も超えない
+    expect(applyRankGuardrails({ rank: 50, previousRank: null, guardrails: { ...base, maxRank: 45 }, maxRank: 40 }).rank).toBe(40)
+  })
+
+  it('制限なし・ヒステリシス0なら計算どおり', () => {
+    const g = { minRank: null, maxRank: null, maxDailyRankChange: null, hysteresisRanks: 0 }
+    expect(applyRankGuardrails({ rank: 30, previousRank: 10, guardrails: g, maxRank: 40 })).toEqual({ rank: 30, applied: [] })
+  })
+})
+
+describe('resolveCompetitorOccupancy (#17)', () => {
+  it('設定があればそれを使い、無ければホテルタイプから決める', () => {
+    expect(resolveCompetitorOccupancy(2, 'LIMITED_SERVICE')).toBe(2)
+    expect(resolveCompetitorOccupancy(null, 'LIMITED_SERVICE')).toBe(1)
+    expect(resolveCompetitorOccupancy(null, 'RYOKAN')).toBe(2)
+    expect(resolveCompetitorOccupancy(null, 'RESORT')).toBe(2)
+    expect(resolveCompetitorOccupancy(null, null)).toBe(1)
   })
 })
 

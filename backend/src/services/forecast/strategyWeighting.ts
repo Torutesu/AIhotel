@@ -27,10 +27,13 @@ export interface StrategyWeights {
   weightCompetitor: number
 }
 
-/** 料金ランクと1名料金の対応（PriceRank 由来） */
+/**
+ * 料金ランクと料金の対応（PriceRank 由来）。
+ * ADR 観点と予測ADRでは1名料金、競合観点では比較人数（#17 の competitorOccupancy）の料金を入れる
+ */
 export interface RankPrice {
   rank: number
-  price1P: number
+  price: number
 }
 
 export interface AdrRecord {
@@ -40,8 +43,13 @@ export interface AdrRecord {
 
 export interface CompetitorPriceRecord {
   date: Date
-  price1P: number
+  price: number
+  /** 取得日時（#9）。鮮度の判定に使う */
+  observedAt: Date
 }
+
+/** この時間を超えて古い競合価格は推奨に使わない（#9 §4、#17）。古い値で強気の推奨を出さないため */
+export const COMPETITOR_PRICE_MAX_AGE_HOURS = 48
 
 export interface BlendedRank {
   rank: number
@@ -75,7 +83,7 @@ export function mapPriceToRank(price: number, ranks: RankPrice[]): number | null
 
   let best: { rank: number; diff: number } | null = null
   for (const r of ranks) {
-    const diff = Math.abs(r.price1P - price)
+    const diff = Math.abs(r.price - price)
     if (best === null || diff < best.diff || (diff === best.diff && r.rank < best.rank)) {
       best = { rank: r.rank, diff }
     }
@@ -137,29 +145,51 @@ export function computePredictedAdr(params: {
   if (baseAdr == null) return null
 
   const baseRank = mapPriceToRank(baseAdr, ranks)
-  const basePrice = ranks.find((r) => r.rank === baseRank)?.price1P
-  const recommendedPrice = ranks.find((r) => r.rank === recommendedRank)?.price1P
+  const basePrice = ranks.find((r) => r.rank === baseRank)?.price
+  const recommendedPrice = ranks.find((r) => r.rank === recommendedRank)?.price
   if (!basePrice || !recommendedPrice) return Math.round(baseAdr)
 
   return Math.round(baseAdr * (recommendedPrice / basePrice))
 }
 
 /**
- * 対象日の競合価格の中央値に対応するランク。
- * 対象日の競合価格が1件も無ければ null（競合観点を合成から除外）。
+ * 対象日の競合価格の中央値に対応するランク（#76）。
+ *
+ * - 取得から COMPETITOR_PRICE_MAX_AGE_HOURS を超えた値は使わない（#9 §4）
+ * - offsetPct で「競合より X% 高く／安く」を狙う（#17）。+10 なら中央値の 1.1 倍に近いランク
+ *
+ * 使える値が1件も無ければ null（競合観点を合成から除外）。
+ * 除外の理由を推奨理由（#24 E4）に残せるよう、stale / no_data を区別して返す。
  */
 export function computeCompetitorRank(
   prices: CompetitorPriceRecord[],
   targetDate: Date,
-  ranks: RankPrice[]
-): number | null {
-  if (ranks.length === 0) return null
+  ranks: RankPrice[],
+  options: { offsetPct?: number; now?: Date } = {}
+): { rank: number | null; median: number | null; count: number; observedAt: Date | null; excluded: 'no_data' | 'stale' | null } {
+  const none = { rank: null, median: null, count: 0, observedAt: null }
+  if (ranks.length === 0) return { ...none, excluded: 'no_data' }
 
   const sameDay = prices.filter((p) => p.date.getTime() === targetDate.getTime())
-  if (sameDay.length === 0) return null
+  if (sameDay.length === 0) return { ...none, excluded: 'no_data' }
 
-  const representative = median(sameDay.map((p) => p.price1P))
-  return representative == null ? null : mapPriceToRank(representative, ranks)
+  const now = options.now ?? new Date()
+  const oldest = now.getTime() - COMPETITOR_PRICE_MAX_AGE_HOURS * 3_600_000
+  const fresh = sameDay.filter((p) => p.observedAt.getTime() >= oldest)
+  if (fresh.length === 0) return { ...none, excluded: 'stale' }
+
+  const representative = median(fresh.map((p) => p.price))
+  if (representative == null) return { ...none, excluded: 'no_data' }
+
+  const target = representative * (1 + (options.offsetPct ?? 0) / 100)
+  const latest = fresh.reduce((a, b) => (a.observedAt > b.observedAt ? a : b)).observedAt
+  return {
+    rank: mapPriceToRank(target, ranks),
+    median: representative,
+    count: fresh.length,
+    observedAt: latest,
+    excluded: null,
+  }
 }
 
 /**
@@ -230,4 +260,74 @@ function effectiveWeight(
 
 function clampRank(rank: number, maxRank: number): number {
   return Math.min(maxRank, Math.max(1, rank))
+}
+
+// ======================================
+// ガードレール（#17）
+// ======================================
+
+export interface RankGuardrails {
+  /** 推奨ランクの下限・上限（null は料金ランクの全範囲） */
+  minRank: number | null
+  maxRank: number | null
+  /** 前回の推奨から1回で動かせるランク数（null は制限なし） */
+  maxDailyRankChange: number | null
+  /** 前回の推奨との差がこれ以内なら据え置く（0 は常に更新） */
+  hysteresisRanks: number
+}
+
+export type GuardrailKey = 'minRank' | 'maxRank' | 'maxDailyChange' | 'hysteresis'
+
+export interface GuardrailResult {
+  rank: number
+  applied: Array<{ key: GuardrailKey; from: number; to: number }>
+}
+
+/**
+ * 加重平均で出したランクにガードレールをかける。順序:
+ *   1. ヒステリシス（前回との差が小さければ前回のまま）
+ *   2. 1回あたりの変動幅（前回から maxDailyRankChange を超えて動かさない）
+ *   3. 下限・上限（最後に必ず範囲へ収める）
+ * 前回の推奨が無い日（初回）は 3 だけをかける。
+ */
+export function applyRankGuardrails(params: {
+  rank: number
+  previousRank: number | null
+  guardrails: RankGuardrails
+  maxRank: number
+}): GuardrailResult {
+  const { previousRank, guardrails } = params
+  const applied: GuardrailResult['applied'] = []
+  let rank = params.rank
+
+  if (previousRank != null) {
+    const diff = rank - previousRank
+    if (diff !== 0 && Math.abs(diff) <= guardrails.hysteresisRanks) {
+      applied.push({ key: 'hysteresis', from: rank, to: previousRank })
+      rank = previousRank
+    } else if (guardrails.maxDailyRankChange != null && Math.abs(diff) > guardrails.maxDailyRankChange) {
+      const limited = previousRank + Math.sign(diff) * guardrails.maxDailyRankChange
+      applied.push({ key: 'maxDailyChange', from: rank, to: limited })
+      rank = limited
+    }
+  }
+
+  const lower = Math.max(1, guardrails.minRank ?? 1)
+  const upper = Math.min(params.maxRank, guardrails.maxRank ?? params.maxRank)
+  if (rank < lower) {
+    applied.push({ key: 'minRank', from: rank, to: lower })
+    rank = lower
+  } else if (rank > upper) {
+    applied.push({ key: 'maxRank', from: rank, to: upper })
+    rank = upper
+  }
+
+  return { rank, applied }
+}
+
+/** 競合と比べる人数（#17）。未設定ならホテルタイプから決める: 宿泊特化=1名、それ以外=2名、タイプ未設定=1名 */
+export function resolveCompetitorOccupancy(configured: number | null | undefined, hotelType: string | null | undefined): 1 | 2 {
+  if (configured === 1 || configured === 2) return configured
+  if (hotelType == null || hotelType === 'LIMITED_SERVICE') return 1
+  return 2
 }

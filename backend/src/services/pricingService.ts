@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
-import { NotFoundError } from '../middlewares/errorHandler.js'
-import { eachUtcDay, monthRange } from '../lib/date.js'
+import { ApiError, NotFoundError } from '../middlewares/errorHandler.js'
+import { eachUtcDay, monthRange, todayJst } from '../lib/date.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
 
 /**
@@ -76,6 +76,8 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       competitorMinPrice: minOf(compPrices ?? []),
       competitorMaxPrice: maxOf(compPrices ?? []),
       confidence: rec?.confidence ?? null,
+      // 推奨理由（#24 E4）。推奨の無い日と、この列を足す前に作った推奨は null
+      rationale: rec?.rationale ?? null,
     }
   })
 
@@ -92,42 +94,90 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
 export async function getStrategyService(hotelId: string) {
   const config = await prisma.pricingStrategyConfig.findUnique({ where: { hotelId } })
   if (config) return config
+  // 列の既定値（schema.prisma）と同じ値を返す（#17）
   return {
     id: null,
     hotelId,
     weightOccupancy: 100,
     weightAdr: 0,
     weightCompetitor: 0,
+    competitorOccupancy: null,
+    competitorOffsetPct: 0,
+    minRank: null,
+    maxRank: null,
+    maxDailyRankChange: 3,
+    hysteresisRanks: 1,
     updatedByUserId: null,
     updatedAt: null,
   }
 }
 
+export interface StrategyUpdate {
+  weightOccupancy?: number
+  weightAdr?: number
+  weightCompetitor?: number
+  competitorOccupancy?: 1 | 2 | null
+  competitorOffsetPct?: number
+  minRank?: number | null
+  maxRank?: number | null
+  maxDailyRankChange?: number | null
+  hysteresisRanks?: number
+}
+
 /**
- * 価格戦略の重み付け更新（F-DP-02）。監査対象。
+ * 価格戦略の更新（F-DP-02 / #17）。監査対象。
+ * 送られてきた項目だけを変更する（undefined は据え置き、null は「制限なし」）。重みは3つ揃って届く（validators）。
  */
-export async function updateStrategyService(
-  hotelId: string,
-  weights: { weightOccupancy: number; weightAdr: number; weightCompetitor: number },
-  updatedByUserId: string
-) {
+export async function updateStrategyService(hotelId: string, input: StrategyUpdate, updatedByUserId: string) {
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
 
   const before = await prisma.pricingStrategyConfig.findUnique({ where: { hotelId } })
 
+  const minRank = input.minRank !== undefined ? input.minRank : (before?.minRank ?? null)
+  const maxRank = input.maxRank !== undefined ? input.maxRank : (before?.maxRank ?? null)
+  if (minRank != null && maxRank != null && minRank > maxRank) {
+    throw new ApiError(400, 'バリデーションエラー', [{ field: 'minRank', message: '推奨ランクの下限は上限以下にしてください' }])
+  }
+
+  const data = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) as StrategyUpdate
   const config = await prisma.pricingStrategyConfig.upsert({
     where: { hotelId },
-    update: { ...weights, updatedByUserId },
-    create: {
-      hotelId,
-      tenantId: hotel.tenantId,
-      ...weights,
-      updatedByUserId,
-    },
+    update: { ...data, updatedByUserId },
+    create: { hotelId, tenantId: hotel.tenantId, ...data, updatedByUserId },
   })
 
   return { before, after: config }
+}
+
+// ======================================
+// 推奨を固定する期間（#17 のガードレール③）
+// ======================================
+
+export async function listPricingLocksService(hotelId: string) {
+  return prisma.pricingLockPeriod.findMany({
+    where: { hotelId, endDate: { gte: todayJst() } },
+    orderBy: { startDate: 'asc' },
+  })
+}
+
+export async function createPricingLockService(
+  input: { hotelId: string; startDate: Date; endDate: Date; reason?: string },
+  createdByUserId: string
+) {
+  const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+  return prisma.pricingLockPeriod.create({
+    data: { ...input, tenantId: hotel.tenantId, createdByUserId },
+  })
+}
+
+export async function deletePricingLockService(id: string, hotelId: string) {
+  const existing = await prisma.pricingLockPeriod.findFirst({ where: { id, hotelId } })
+  if (!existing) throw new NotFoundError('固定期間')
+  const result = await prisma.pricingLockPeriod.deleteMany({ where: { id, hotelId } })
+  if (result.count === 0) throw new NotFoundError('固定期間')
+  return existing
 }
 
 /**

@@ -5,6 +5,8 @@
 // みに依存する。過去実績・イベント等の必要データは各実装が自分でサービス層
 // （prisma）から取得する。
 
+import type { RationaleV1 } from './rationale.js'
+
 export type ForecastDemandLevel = 'A' | 'B' | 'C' | 'D' | 'E'
 
 export interface ForecastInput {
@@ -23,6 +25,8 @@ export interface DailyForecast {
   predictedAdr: number | null
   confidence: number
   modelVersion: string
+  /** 推奨理由（#24 E4）。推奨ランクを出さない予測実装では省略してよい */
+  rationale?: RationaleV1
 }
 
 export interface DemandForecaster {

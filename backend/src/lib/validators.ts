@@ -503,13 +503,42 @@ export const recomputeForecastSchema = z.object({
 })
 
 // 重み付けは合計100%（F-DP-02）
+const rankBoundSchema = z.number().int().min(1).max(40)
+
 export const updateStrategySchema = z.object({
   hotelId: entityIdSchema,
-  weightOccupancy: z.number().int().min(0).max(100),
-  weightAdr: z.number().int().min(0).max(100),
-  weightCompetitor: z.number().int().min(0).max(100),
-}).refine(data => data.weightOccupancy + data.weightAdr + data.weightCompetitor === 100, {
+  // 重みは3つ揃えて送るか、まったく送らない（推奨の調整だけを保存する場合 — #17）
+  weightOccupancy: z.number().int().min(0).max(100).optional(),
+  weightAdr: z.number().int().min(0).max(100).optional(),
+  weightCompetitor: z.number().int().min(0).max(100).optional(),
+  // 推奨ランクの調整（#17）。省略した項目は変更しない
+  competitorOccupancy: z.union([z.literal(1), z.literal(2)]).nullable().optional(),
+  competitorOffsetPct: z.number().int().min(-30, '競合との価格差は-30%以上で指定してください').max(30, '競合との価格差は+30%以下で指定してください').optional(),
+  minRank: rankBoundSchema.nullable().optional(),
+  maxRank: rankBoundSchema.nullable().optional(),
+  maxDailyRankChange: z.number().int().min(1).max(40).nullable().optional(),
+  hysteresisRanks: z.number().int().min(0).max(5).optional(),
+}).refine(data => {
+  const weights = [data.weightOccupancy, data.weightAdr, data.weightCompetitor]
+  if (weights.every((w) => w === undefined)) return true
+  return weights.every((w) => w !== undefined) && weights.reduce<number>((sum, w) => sum + (w ?? 0), 0) === 100
+}, {
   message: '重み付けの合計は100%である必要があります',
+}).refine(data => data.minRank == null || data.maxRank == null || data.minRank <= data.maxRank, {
+  message: '推奨ランクの下限は上限以下にしてください',
+  path: ['minRank'],
+})
+
+// 推奨を固定する期間（#17 のガードレール③）
+export const createPricingLockSchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: dateOnlyInputSchema,
+  endDate: dateOnlyInputSchema,
+  reason: z.string().max(200).optional(),
+}).refine(data => data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+}).refine(data => withinMaxRange(data.startDate, data.endDate), {
+  message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください`,
 })
 
 // ======================================
@@ -553,6 +582,8 @@ export type MonthlyReportQueryInput = z.infer<typeof monthlyReportQuerySchema>
 export type RecomputeForecastInput = z.infer<typeof recomputeForecastSchema>
 export type BudgetMonthInput = z.infer<typeof budgetMonthSchema>
 export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>
+export type UpdateStrategyInput = z.infer<typeof updateStrategySchema>
+export type CreatePricingLockInput = z.infer<typeof createPricingLockSchema>
 export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
 export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
