@@ -495,7 +495,21 @@ PORT=3001
 FRONTEND_URL=https://your-frontend-domain.com
 DATABASE_URL="postgresql://USER:PASSWORD@<managed-postgres-host>:5432/hotel_revenue_db?schema=public&sslmode=require"
 JWT_SECRET="<openssl rand -base64 64 で生成した値>"
+# ブラウザからの API は frontend（Next.js）の /api/* 中継を必ず通る。
+# 中継はクライアント IP を1つに解決して X-Forwarded-For に入れるので、backend は Next.js の1段だけを信頼する
+TRUST_PROXY=1
 ```
+
+#### クライアント IP の扱い（ログインのレート制限・監査ログ — #85）
+
+| 構成 | frontend | backend |
+|---|---|---|
+| Vercel（frontend）＋ コンテナ（backend） | 設定不要（Vercel が設定した値を使う） | `TRUST_PROXY=1` |
+| ロードバランサ／nginx → Next.js → backend | `TRUSTED_PROXY_HOPS=1`（前段の段数） | `TRUST_PROXY=1` |
+
+- Next.js をリバースプロキシなしで直接インターネットに公開しないでください。クライアントが送った `X-Forwarded-For` と区別できず、IP を偽装できます
+- 前段のプロキシは `X-Forwarded-For` に接続元を**追記**（nginx なら `$proxy_add_x_forwarded_for`）または**上書き**してください
+- backend を API 中継を通さずに直接公開する場合は、その前段の段数を `TRUST_PROXY` に指定します
 
 ## API エンドポイント
 

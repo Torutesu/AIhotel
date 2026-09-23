@@ -12,6 +12,8 @@
 
 import { type NextRequest } from 'next/server'
 
+import { clientIpOptionsFromEnv, resolveClientIp } from '@/lib/client-ip'
+
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
@@ -35,11 +37,33 @@ const HOP_BY_HOP = new Set([
   'content-length',
 ])
 
+// クライアントが偽装できる転送元ヘッダー。そのまま中継せず、解決した IP で入れ直す（#85）
+const CLIENT_FORWARDING = new Set(['x-forwarded-for', 'x-real-ip', 'forwarded'])
+
 function filterHeaders(source: Headers): Headers {
   const out = new Headers()
   source.forEach((value, key) => {
     if (!HOP_BY_HOP.has(key.toLowerCase())) out.append(key, value)
   })
+  return out
+}
+
+/**
+ * バックエンドへ送るリクエストヘッダー。
+ * X-Forwarded-For はクライアント IP 1つだけにする。バックエンドは TRUST_PROXY=1
+ * （この Next.js の1段だけを信頼）で req.ip を取り、ログインのレート制限と監査ログに使う
+ */
+function upstreamRequestHeaders(request: NextRequest): Headers {
+  const out = new Headers()
+  request.headers.forEach((value, key) => {
+    const lower = key.toLowerCase()
+    if (!HOP_BY_HOP.has(lower) && !CLIENT_FORWARDING.has(lower)) out.append(key, value)
+  })
+  const clientIp = resolveClientIp(
+    request.headers.get('x-forwarded-for'),
+    clientIpOptionsFromEnv(process.env)
+  )
+  if (clientIp) out.set('x-forwarded-for', clientIp)
   return out
 }
 
@@ -51,7 +75,7 @@ async function proxy(request: NextRequest, path: string[]): Promise<Response> {
   try {
     upstream = await fetch(target, {
       method: request.method,
-      headers: filterHeaders(request.headers),
+      headers: upstreamRequestHeaders(request),
       body: hasBody ? await request.arrayBuffer() : undefined,
       redirect: 'manual',
       cache: 'no-store',
