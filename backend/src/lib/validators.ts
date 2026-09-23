@@ -42,6 +42,9 @@ export const registerSchema = z.object({
   // 運営（PLATFORM_ADMIN）を付与できるのは運営だけ。authService.registerService が検証する（#62）
   role: z.enum(['PLATFORM_ADMIN', 'ADMIN', 'MANAGER', 'OPERATOR']).optional(),
   hotelId: entityIdSchema.optional(),
+  // 所属テナントの直接指定は運営だけ（まだホテルの無い新規テナントに最初の ADMIN を作るため — #81）。
+  // テナント側のロールが送ると registerService が 403 にする
+  tenantId: entityIdSchema.optional(),
 })
 
 export const refreshTokenSchema = z.object({
@@ -211,6 +214,51 @@ export const createCompetitorSchema = z.object({
 })
 
 export const updateCompetitorSchema = createCompetitorSchema.omit({ hotelId: true }).partial()
+
+// ======================================
+// Platform（運営）Validators（#81）
+// ======================================
+
+export const createTenantSchema = z.object({
+  name: z.string().trim().min(1, 'テナント名は必須です').max(200),
+  // URL やログに出す識別子。小文字英数字とハイフン
+  code: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, 'コードは小文字英数字とハイフンの3〜50文字で入力してください'),
+})
+
+export const updateTenantSchema = z
+  .object({
+    name: z.string().trim().min(1, 'テナント名は必須です').max(200).optional(),
+    // false で契約停止。所属ユーザーは次のリクエストから 401 になる（#78）
+    isActive: z.boolean().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目を指定してください' })
+
+// ======================================
+// Room Type Validators（#81）
+// ======================================
+
+export const createRoomTypeSchema = z.object({
+  hotelId: entityIdSchema,
+  name: z.string().trim().min(1, '部屋タイプ名は必須です').max(100),
+  // PMS の部屋タイプコードと突き合わせるための識別子。大文字小文字は区別しない（保存時に大文字へ揃える）
+  code: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9_-]{1,30}$/, 'コードは英数字・ハイフン・アンダースコアの30文字以内で入力してください')
+    .transform((v) => v.toUpperCase()),
+  capacity: z.number().int().min(1, '定員は1以上である必要があります').max(20),
+  count: z.number().int().min(1, '室数は1以上である必要があります').max(10000),
+  sortOrder: z.number().int().min(0).max(1000).optional(),
+})
+
+export const updateRoomTypeSchema = createRoomTypeSchema
+  .omit({ hotelId: true })
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目を指定してください' })
 
 // ======================================
 // User Management Validators（N-3）
@@ -413,6 +461,10 @@ export type BudgetMonthInput = z.infer<typeof budgetMonthSchema>
 export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>
 export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
 export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
+export type CreateTenantInput = z.infer<typeof createTenantSchema>
+export type UpdateTenantInput = z.infer<typeof updateTenantSchema>
+export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>
+export type UpdateRoomTypeInput = z.infer<typeof updateRoomTypeSchema>
 export type UpdateUserInput = z.infer<typeof updateUserSchema>
 export type UpdateAlertStatusInput = z.infer<typeof updateAlertStatusSchema>
 export type MonthTargetInput = z.infer<typeof monthTargetSchema>

@@ -14,6 +14,10 @@ import {
   createCompetitorService,
   updateCompetitorService,
   deleteCompetitorService,
+  getRoomTypesService,
+  createRoomTypeService,
+  updateRoomTypeService,
+  deleteRoomTypeService,
 } from '../services/settingsService.js'
 import type { UpsertBudgetsInput } from '../lib/validators.js'
 
@@ -201,6 +205,75 @@ export const deleteCompetitor = asyncHandler(async (req: Request, res: Response)
     userId: req.user!.userId,
     action: 'DELETE',
     entity: 'Competitor',
+    entityId: req.params.id,
+    oldValue: deleted,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendDeleted(res)
+})
+
+/**
+ * 部屋タイプ一覧（#81）
+ * GET /api/v1/settings/room-types?hotelId=
+ */
+export const getRoomTypes = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  sendSuccess(res, await getRoomTypesService(hotelId))
+})
+
+/**
+ * 部屋タイプ作成（MANAGER 以上・監査対象 — #81）
+ * POST /api/v1/settings/room-types
+ */
+export const createRoomType = asyncHandler(async (req: Request, res: Response) => {
+  const roomType = await createRoomTypeService(req.body)
+  await writeAuditLog({
+    tenantId: roomType.tenantId,
+    userId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'RoomType',
+    entityId: roomType.id,
+    newValue: roomType,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendCreated(res, roomType)
+})
+
+/**
+ * 部屋タイプ更新（MANAGER 以上・監査対象 — #81）
+ * PUT /api/v1/settings/room-types/:id?hotelId=
+ */
+export const updateRoomType = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const { before, after } = await updateRoomTypeService(req.params.id, hotelId, req.body)
+  await writeAuditLog({
+    tenantId: before.tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'RoomType',
+    entityId: req.params.id,
+    oldValue: before,
+    newValue: req.body,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, after, 200, '部屋タイプを更新しました')
+})
+
+/**
+ * 部屋タイプ削除（論理削除・MANAGER 以上・監査対象 — #81）
+ * DELETE /api/v1/settings/room-types/:id?hotelId=
+ */
+export const deleteRoomType = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const deleted = await deleteRoomTypeService(req.params.id, hotelId)
+  await writeAuditLog({
+    tenantId: deleted.tenantId,
+    userId: req.user!.userId,
+    action: 'DELETE',
+    entity: 'RoomType',
     entityId: req.params.id,
     oldValue: deleted,
     ipAddress: req.ip,

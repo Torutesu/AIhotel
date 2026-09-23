@@ -11,6 +11,8 @@ import {
   upsertBudgetsSchema,
   createCompetitorSchema,
   updateCompetitorSchema,
+  createRoomTypeSchema,
+  updateRoomTypeSchema,
 } from '../lib/validators.js'
 import {
   getPriceRanks,
@@ -24,6 +26,10 @@ import {
   createCompetitor,
   updateCompetitor,
   deleteCompetitor,
+  getRoomTypes,
+  createRoomType,
+  updateRoomType,
+  deleteRoomType,
 } from '../controllers/settingsController.js'
 
 export const settingsRouter: ExpressRouter = Router()
@@ -136,4 +142,43 @@ settingsRouter.delete(
   validate(hotelIdQuerySchema, 'query'),
   requireHotelAccess((req) => req.query.hotelId),
   deleteCompetitor
+)
+
+// ======================================
+// 部屋タイプ（#81）
+// ======================================
+
+// GET /api/v1/settings/room-types?hotelId=
+settingsRouter.get(
+  '/room-types',
+  validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  getRoomTypes
+)
+
+settingsRouter.post(
+  '/room-types',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(createRoomTypeSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
+  createRoomType
+)
+
+settingsRouter.put(
+  '/room-types/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
+  validate(updateRoomTypeSchema),
+  requireHotelAccess((req) => req.query.hotelId),
+  updateRoomType
+)
+
+settingsRouter.delete(
+  '/room-types/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  deleteRoomType
 )

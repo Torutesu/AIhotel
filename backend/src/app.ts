@@ -19,6 +19,7 @@ import { eventsRouter } from './routes/events.js'
 import { reportsRouter } from './routes/reports.js'
 import { usersRouter } from './routes/users.js'
 import { preferencesRouter } from './routes/preferences.js'
+import { platformRouter } from './routes/platform.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -158,6 +159,7 @@ app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/reports', reportsRouter)
 app.use('/api/v1/users', usersRouter)
 app.use('/api/v1/preferences', preferencesRouter)
+app.use('/api/v1/platform', platformRouter)
 
 // ======================================
 // Error Handling

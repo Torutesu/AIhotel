@@ -27,6 +27,8 @@ interface RegisterInput {
   name: string
   role?: UserRole
   hotelId?: string
+  /** 運営だけが指定できる所属テナント（#81） */
+  tenantId?: string
 }
 
 interface RequestContext {
@@ -259,8 +261,16 @@ export async function registerService(
   createdBy: { userId: string; tenantId: string | null; role: UserRole },
   ctx?: RequestContext
 ): Promise<Omit<User, 'password'>> {
-  const { email, password, name, role, hotelId } = input
+  const { email, password, name, role, hotelId, tenantId: requestedTenantId } = input
   const isPlatformAdmin = createdBy.role === 'PLATFORM_ADMIN'
+
+  // テナントの直接指定は運営だけ（#81）。テナント側のロールは自テナントにしか作れない
+  if (requestedTenantId !== undefined && !isPlatformAdmin) {
+    throw new ApiError(403, 'テナントを指定してユーザーを作成できるのは運営のみです')
+  }
+  if (requestedTenantId !== undefined && role === 'PLATFORM_ADMIN') {
+    throw new ApiError(400, '運営（PLATFORM_ADMIN）ユーザーはテナントに所属させられません')
+  }
   const isTenantManager = createdBy.role === 'MANAGER'
 
   // 運営ロールを作れるのは運営だけ（テナント側から運営権限が生えないようにする — #62）
@@ -292,6 +302,14 @@ export async function registerService(
 
   let tenantId: string | null = isPlatformAdmin ? null : createdBy.tenantId
 
+  if (requestedTenantId !== undefined) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: requestedTenantId } })
+    if (!tenant) {
+      throw new ApiError(400, '指定されたテナントが見つかりません')
+    }
+    tenantId = tenant.id
+  }
+
   if (hotelId) {
     // テナント側のロールでは、自テナントのホテルに限定して検索する。
     // 他テナントのホテルIDを送られても「見つからない」と同じ 400 になり、
@@ -306,6 +324,9 @@ export async function registerService(
 
     if (!hotel) {
       throw new ApiError(400, '指定されたホテルが見つかりません')
+    }
+    if (requestedTenantId !== undefined && hotel.tenantId !== requestedTenantId) {
+      throw new ApiError(400, '指定されたホテルは指定されたテナントに属していません')
     }
 
     tenantId = hotel.tenantId

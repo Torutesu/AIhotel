@@ -9,6 +9,8 @@ import type {
   UpsertBudgetsInput,
   CreateCompetitorInput,
   UpdateCompetitorInput,
+  CreateRoomTypeInput,
+  UpdateRoomTypeInput,
 } from '../lib/validators.js'
 
 const MAX_PRICE_RANKS = 40 // F-SET-02
@@ -330,5 +332,92 @@ export async function deleteCompetitorService(id: string, hotelId: string) {
   })
   if (result.count === 0) throw new NotFoundError('競合ホテル')
 
+  return before
+}
+
+// ======================================
+// 部屋タイプ（#81）
+// ======================================
+
+/**
+ * 部屋タイプ一覧（有効なもののみ、表示順）
+ */
+export async function getRoomTypesService(hotelId: string) {
+  return prisma.roomType.findMany({
+    where: { hotelId, isActive: true },
+    orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+  })
+}
+
+/**
+ * 部屋タイプ作成。
+ * 削除は論理削除だが @@unique([hotelId, code]) は残るため、料金ランク（C-5）と同じく
+ * 削除済みの同じコードがあれば入力値で上書きして復活させる。
+ */
+export async function createRoomTypeService(input: CreateRoomTypeInput) {
+  const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  const existing = await prisma.roomType.findUnique({
+    where: { hotelId_code: { hotelId: input.hotelId, code: input.code } },
+  })
+  if (existing?.isActive) {
+    throw new ConflictError(`コード「${input.code}」の部屋タイプは既に登録されています`)
+  }
+
+  const data = {
+    name: input.name,
+    code: input.code,
+    capacity: input.capacity,
+    count: input.count,
+    sortOrder: input.sortOrder ?? 0,
+  }
+  if (existing) {
+    return prisma.roomType.update({
+      where: { id: existing.id },
+      data: { ...data, tenantId: hotel.tenantId, isActive: true },
+    })
+  }
+  return prisma.roomType.create({
+    data: { ...data, hotelId: input.hotelId, tenantId: hotel.tenantId },
+  })
+}
+
+/**
+ * 部屋タイプ更新。hotelId 条件を必ず含めてテナント越えを防ぐ
+ */
+export async function updateRoomTypeService(id: string, hotelId: string, input: UpdateRoomTypeInput) {
+  const before = await prisma.roomType.findFirst({ where: { id, hotelId, isActive: true } })
+  if (!before) throw new NotFoundError('部屋タイプ')
+
+  if (input.code !== undefined && input.code !== before.code) {
+    const clash = await prisma.roomType.findUnique({
+      where: { hotelId_code: { hotelId, code: input.code } },
+    })
+    if (clash) {
+      throw new ConflictError(`コード「${input.code}」の部屋タイプは既に登録されています（削除済みを含む）`)
+    }
+  }
+
+  const result = await prisma.roomType.updateMany({ where: { id, hotelId, isActive: true }, data: input })
+  if (result.count === 0) throw new NotFoundError('部屋タイプ')
+
+  const after = await prisma.roomType.findUnique({ where: { id } })
+  if (!after) throw new NotFoundError('部屋タイプ')
+  return { before, after }
+}
+
+/**
+ * 部屋タイプ削除（論理削除。部屋タイプ別の実績・推奨の履歴を残すため）
+ */
+export async function deleteRoomTypeService(id: string, hotelId: string) {
+  const before = await prisma.roomType.findFirst({ where: { id, hotelId, isActive: true } })
+  if (!before) throw new NotFoundError('部屋タイプ')
+
+  const result = await prisma.roomType.updateMany({
+    where: { id, hotelId, isActive: true },
+    data: { isActive: false },
+  })
+  if (result.count === 0) throw new NotFoundError('部屋タイプ')
   return before
 }
