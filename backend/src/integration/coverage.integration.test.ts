@@ -205,6 +205,33 @@ describeIntegration('統合テストの穴埋め（#87）', () => {
     })
   })
 
+  describe('推奨の無い日も暦日で返す（#90）', () => {
+    // このテナントには推奨行が1つも無く、実績だけが直近3日分ある
+    it('価格カレンダーは月の全日を返し、実績の日は実績 ADR が入る', async () => {
+      const res = await get('/api/v1/pricing/calendar', tokens.operator, { hotelId: HOTEL_A, year, month })
+      expect(res.status).toBe(200)
+      const days: Array<{ date: string; actualAdr: number | null; recommendedPrice: number | null }> = res.body.data.calendar
+      expect(days).toHaveLength(new Date(Date.UTC(year, month, 0)).getUTCDate())
+      expect(days.every((d) => d.recommendedPrice === null)).toBe(true)
+      const withActual = days.filter((d) => d.actualAdr === 20_000).map((d) => d.date)
+      const expected = [1, 2, 3].map((n) => iso(addUtcDays(today, -n))).filter((d) => d.startsWith(iso(today).slice(0, 7)))
+      expect(withActual.sort()).toEqual(expected.sort())
+    })
+
+    it('競合価格の自館価格は期間の全日を返し、実績の日は実績 ADR、それ以外は null', async () => {
+      const res = await get('/api/v1/daily/competitor-prices', tokens.operator, {
+        hotelId: HOTEL_A,
+        startDate: iso(addUtcDays(today, -3)),
+        endDate: iso(today),
+      })
+      expect(res.status).toBe(200)
+      const own: Array<{ date: string; price: number | null; isActual: boolean }> = res.body.data.ownPrices
+      expect(own.map((p) => p.date)).toEqual([3, 2, 1, 0].map((n) => iso(addUtcDays(today, -n))))
+      expect(own.slice(0, 3).every((p) => p.price === 20_000 && p.isActual)).toBe(true)
+      expect(own[3]).toMatchObject({ price: null, isActual: false })
+    })
+  })
+
   describe('月次レポート（F-REP-01/02）', () => {
     it('PDF と Excel をダウンロードでき、他テナントは 403', async () => {
       const pdf = await get('/api/v1/reports/monthly', tokens.operator, { hotelId: HOTEL_A, year, month, format: 'pdf' })

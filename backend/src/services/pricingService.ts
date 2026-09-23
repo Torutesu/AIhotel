@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
-import { monthRange } from '../lib/date.js'
+import { eachUtcDay, monthRange } from '../lib/date.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
 
 /**
@@ -49,29 +49,33 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     competitorByDate.set(key, list)
   }
 
-  const calendar = recommendations.map((rec) => {
-    const key = rec.date.toISOString().slice(0, 10)
+  const recommendationByDate = new Map(recommendations.map((r) => [r.date.toISOString().slice(0, 10), r]))
+
+  // 暦日を軸に推奨・実績・競合を外部結合する。推奨の無い日も実績と競合価格を出す（#90）
+  const calendar = eachUtcDay(start, end).map((day) => {
+    const key = day.toISOString().slice(0, 10)
+    const rec = recommendationByDate.get(key)
     const actual = actualByDate.get(key)
-    const rank = rec.recommendedRank != null ? rankByNumber.get(rec.recommendedRank) : undefined
+    const rank = rec?.recommendedRank != null ? rankByNumber.get(rec.recommendedRank) : undefined
     const compPrices = competitorByDate.get(key)
     return {
       date: key,
-      demandLevel: rec.demandLevel,
-      recommendedRank: rec.recommendedRank,
-      recommendedPrice: rec.recommendedPrice,
+      demandLevel: rec?.demandLevel ?? null,
+      recommendedRank: rec?.recommendedRank ?? null,
+      recommendedPrice: rec?.recommendedPrice ?? null,
       rankLabel: rank?.label ?? null,
       price1P: rank?.price1P ?? null,
       price2P: rank?.price2P ?? null,
       price3P: rank?.price3P ?? null,
-      predictedOccupancy: rec.predictedOccupancy,
-      predictedAdr: rec.predictedAdr,
+      predictedOccupancy: rec?.predictedOccupancy ?? null,
+      predictedAdr: rec?.predictedAdr ?? null,
       actualOccupancy: actual?.occupancy ?? null,
       actualAdr: actual?.adr ?? null,
       // 競合料金の代表値。1社の極端な価格に引きずられない中央値を使う（C-9）
       competitorMedianPrice: median(compPrices ?? []),
       competitorMinPrice: minOf(compPrices ?? []),
       competitorMaxPrice: maxOf(compPrices ?? []),
-      confidence: rec.confidence,
+      confidence: rec?.confidence ?? null,
     }
   })
 
