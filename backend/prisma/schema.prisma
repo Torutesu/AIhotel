@@ -67,6 +67,10 @@ model User {
   hotel       Hotel?    @relation(fields: [hotelId], references: [id])
   isActive    Boolean   @default(true)
   lastLoginAt DateTime?
+  // アカウント単位のロックアウト（#78）。連続失敗回数と、ロック解除時刻。
+  // IP 単位のレート制限だけでは IP を分散した試行を止められないため
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

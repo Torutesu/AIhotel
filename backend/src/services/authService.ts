@@ -53,6 +53,45 @@ interface AuthResult {
  */
 export const INVALID_CREDENTIALS_MESSAGE = 'メールアドレスまたはパスワードが正しくありません'
 
+/** 連続でこの回数だけ失敗するとアカウントをロックする（#78） */
+export const MAX_FAILED_LOGIN_ATTEMPTS = 5
+/** ロックの長さ（#78） */
+export const ACCOUNT_LOCK_MINUTES = 15
+
+/**
+ * パスワード不一致を数え、上限に達したらアカウントをロックする（#78）。
+ *
+ * increment で数えるので、同時に届いた失敗も取りこぼさない。ロックしたら回数は 0 に戻し、
+ * ロックが明けたら再び上限まで試せるようにする。ロックは監査ログ ACCOUNT_LOCKED に残す。
+ */
+async function registerFailedPassword(
+  user: { id: string; tenantId: string | null; email: string },
+  ctx?: RequestContext
+): Promise<void> {
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLoginCount: { increment: 1 } },
+    select: { failedLoginCount: true },
+  })
+  if (updated.failedLoginCount < MAX_FAILED_LOGIN_ATTEMPTS) return
+
+  const lockedUntil = new Date(Date.now() + ACCOUNT_LOCK_MINUTES * 60_000)
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { failedLoginCount: 0, lockedUntil },
+  })
+  await writeAuditLog({
+    tenantId: user.tenantId,
+    userId: user.id,
+    action: 'ACCOUNT_LOCKED',
+    entity: 'User',
+    entityId: user.id,
+    newValue: { email: user.email, lockedUntil: lockedUntil.toISOString() },
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
+  })
+}
+
 /**
  * ログイン失敗を監査ログに残す（S-6）。
  * ブルートフォース検知のため、失敗理由は監査ログにのみ記録し、
@@ -131,18 +170,25 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
   // 推測できないようにする。
   const isValidPassword = await verifyPasswordConstantWork(password, user?.password)
 
-  // 「存在しない」「パスワード不一致」「無効化済み」「テナント停止中」を
+  // 「存在しない」「パスワード不一致」「無効化済み」「テナント停止中」「ロック中」を
   // 同一メッセージ・同一ステータスで返す（S-8 / #78）。
-  // アカウント列挙と、有効／無効の判別を防ぐ。失敗理由は監査ログにのみ残す。
+  // アカウント列挙と、有効／無効・ロック状態の判別を防ぐ。失敗理由は監査ログにのみ残す。
+  // ロック中は正しいパスワードでも通さない（通すとロックが総当たりの妨げにならない）
   const tenantSuspended = Boolean(user?.tenant && !user.tenant.isActive)
-  if (!user || !isValidPassword || !user.isActive || tenantSuspended) {
+  const locked = Boolean(user?.lockedUntil && user.lockedUntil > new Date())
+  if (!user || locked || !isValidPassword || !user.isActive || tenantSuspended) {
     const reason = !user
       ? 'USER_NOT_FOUND'
-      : !isValidPassword
-        ? 'BAD_PASSWORD'
-        : !user.isActive
-          ? 'INACTIVE'
-          : 'TENANT_SUSPENDED'
+      : locked
+        ? 'LOCKED'
+        : !isValidPassword
+          ? 'BAD_PASSWORD'
+          : !user.isActive
+            ? 'INACTIVE'
+            : 'TENANT_SUSPENDED'
+    if (user && !locked && !isValidPassword) {
+      await registerFailedPassword(user, ctx)
+    }
     await recordLoginFailure(
       { email, reason, tenantId: user?.tenantId ?? null, userId: user?.id ?? null },
       ctx
@@ -169,9 +215,10 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     },
   })
 
+  // 成功したら連続失敗の回数とロックを解除する（#78）
   await prisma.user.update({
     where: { id: user.id },
-    data: { lastLoginAt: new Date() },
+    data: { lastLoginAt: new Date(), failedLoginCount: 0, lockedUntil: null },
   })
 
   await writeAuditLog({

@@ -14,6 +14,10 @@ export default defineConfig({
       JWT_EXPIRES_IN: '24h',
       JWT_REFRESH_EXPIRES_IN: '7d',
       NODE_ENV: 'test',
+      // 統合テストはアカウント単位のロックアウト（#78）を確かめるため同じ IP から
+      // 何度もログインに失敗する。IP 単位のレート制限（本番既定 10回/15分）に
+      // 先に当たらないよう、テストでは緩める
+      LOGIN_RATE_LIMIT_MAX: '1000',
       // 統合テストは意図的に 401/403/400 を起こすため、アプリのリクエストログが
       // 出力を埋め尽くす。テスト失敗の原因を読み取れるよう fatal だけに絞る
       LOG_LEVEL: 'fatal',

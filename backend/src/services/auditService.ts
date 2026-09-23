@@ -13,6 +13,8 @@ export interface AuditLogEntry {
     | 'LOGIN_FAILED'
     // リフレッシュトークンの再利用検知（#49-4）。全トークン失効を伴う
     | 'TOKEN_REUSE_DETECTED'
+    // 連続失敗によるアカウントのロック（#78）
+    | 'ACCOUNT_LOCKED'
   entity: string
   entityId?: string | null
   oldValue?: unknown

@@ -4,7 +4,7 @@ import type { Express } from 'express'
 import bcrypt from 'bcryptjs'
 import { PrismaClient } from '@prisma/client'
 
-// 無効化・降格・テナント停止の即時反映（#78）の統合テスト。
+// 無効化・降格・テナント停止の即時反映と、アカウント単位のロックアウト（#78）の統合テスト。
 // DATABASE_URL が無ければスキップし、専用テナント（プレフィクス rtest）で検証する。
 // 各テストの前にユーザーとテナントの状態を初期値へ戻す。
 
@@ -71,7 +71,7 @@ describeIntegration('無効化・降格・テナント停止の即時反映（#7
     await prisma.tenant.update({ where: { id: TENANT }, data: { isActive: true } })
     await prisma.user.update({
       where: { email: MANAGER_EMAIL },
-      data: { isActive: true, role: 'MANAGER' },
+      data: { isActive: true, role: 'MANAGER', failedLoginCount: 0, lockedUntil: null },
     })
   })
 
@@ -121,5 +121,48 @@ describeIntegration('無効化・降格・テナント停止の即時反映（#7
     expect(loggedIn.status).toBe(401)
     // 停止中であることは漏らさず、通常の失敗と同じ文言にする
     expect(loggedIn.body.error).toBe('メールアドレスまたはパスワードが正しくありません')
+  })
+
+  describe('アカウント単位のロックアウト', () => {
+    function attempt(password: string) {
+      return request(app).post('/api/v1/auth/login').send({ email: MANAGER_EMAIL, password })
+    }
+
+    it('5回連続で失敗するとロックされ、正しいパスワードでも同じ文言で失敗する', async () => {
+      for (let i = 0; i < 5; i++) {
+        expect((await attempt('WrongPass1')).status).toBe(401)
+      }
+
+      const res = await attempt(PASSWORD)
+      expect(res.status).toBe(401)
+      expect(res.body.error).toBe('メールアドレスまたはパスワードが正しくありません')
+
+      const user = await prisma.user.findUniqueOrThrow({ where: { email: MANAGER_EMAIL } })
+      expect(user.lockedUntil!.getTime()).toBeGreaterThan(Date.now())
+      const locked = await prisma.auditLog.findFirst({
+        where: { userId: user.id, action: 'ACCOUNT_LOCKED' },
+      })
+      expect(locked).not.toBeNull()
+    })
+
+    it('上限未満の失敗は成功ログインで数え直しになる', async () => {
+      for (let i = 0; i < 4; i++) {
+        expect((await attempt('WrongPass1')).status).toBe(401)
+      }
+      expect((await attempt(PASSWORD)).status).toBe(200)
+      for (let i = 0; i < 4; i++) {
+        expect((await attempt('WrongPass1')).status).toBe(401)
+      }
+      // 通算8回失敗しているが、成功で数え直しているのでロックされていない
+      expect((await attempt(PASSWORD)).status).toBe(200)
+    })
+
+    it('ロックの期限が過ぎれば正しいパスワードでログインできる', async () => {
+      await prisma.user.update({
+        where: { email: MANAGER_EMAIL },
+        data: { lockedUntil: new Date(Date.now() - 1_000) },
+      })
+      expect((await attempt(PASSWORD)).status).toBe(200)
+    })
   })
 })

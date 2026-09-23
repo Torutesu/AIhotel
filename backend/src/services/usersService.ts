@@ -110,11 +110,15 @@ export async function updateUserService(
       ...(input.name !== undefined && { name: input.name }),
       ...(input.role !== undefined && { role: input.role }),
       ...(input.isActive !== undefined && { isActive: input.isActive }),
+      // 有効化の操作はロックアウトの解除も兼ねる（#78）。ロック中の利用者を
+      // 管理者が 15 分待たせずに戻せるようにする
+      ...(input.isActive === true && { failedLoginCount: 0, lockedUntil: null }),
     },
   })
 
   // 無効化したユーザーのセッションは即座に断つ（リフレッシュトークンを全削除）。
-  // アクセストークンは短命なので、これで実質的にログアウトさせられる
+  // アクセストークンは authenticate が毎リクエスト isActive を確認するので（#78）、
+  // これで次のリクエストからすべての端末がログアウトされる
   if (input.isActive === false) {
     await prisma.refreshToken.deleteMany({ where: { userId: id } })
   }
