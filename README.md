@@ -408,7 +408,7 @@ pnpm build
 | ファイル | 用途 |
 | --- | --- |
 | `docker/docker-compose.dev.yml` | **開発用**。PostgreSQL 16 コンテナのみを起動する（アプリ本体はホスト側で `pnpm dev` を使う） |
-| `docker/backend.Dockerfile` | **本番用**。backend のマルチステージビルド（`prisma migrate deploy` を起動時に実行してからサーバー起動） |
+| `docker/backend.Dockerfile` | **本番用**。backend のマルチステージビルド。引数なしで API サーバー、`migrate` でマイグレーションだけ、`job daily` で日次ジョブを実行する。マイグレーションはリリース時に別ジョブで1回だけ流す（起動時の自動適用は `MIGRATE_ON_START=true` のときだけ。単一レプリカの検証環境向け）。手順は `docs/運用手順書.md` |
 | `docker/frontend.Dockerfile` | **本番用**。frontend（Next.js）のマルチステージビルド |
 
 ### 開発用DB起動（推奨）

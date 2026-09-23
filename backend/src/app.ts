@@ -44,7 +44,7 @@ const app: ReturnType<typeof express> = express()
 // レートリミットが全ユーザーで共有されてしまう（S-3）
 app.set('trust proxy', config.TRUST_PROXY)
 
-export const HEALTH_CHECK_PATHS = new Set(['/health', '/api/health'])
+export const HEALTH_CHECK_PATHS = new Set(['/health', '/api/health', '/livez', '/readyz'])
 
 /**
  * レートリミットのキー（S-3）。
@@ -142,8 +142,19 @@ const healthHandler = async (_req: express.Request, res: express.Response) => {
   })
 }
 
+// readiness（DB 込み）。ロードバランサの振り分け判定に使う。/health は従来の互換のため残す
+app.get('/readyz', healthHandler)
 app.get('/health', healthHandler)
 app.get('/api/health', healthHandler)
+
+/**
+ * liveness（#49-2）。プロセスが応答できるかだけを見て、DB には触れない。
+ * コンテナの HEALTHCHECK や liveness probe はこちらを使う。DB 込みの判定に使うと、
+ * DB が一時的に止まっただけでコンテナが再起動・入れ替えされ、障害が広がる
+ */
+app.get('/livez', (_req, res) => {
+  res.status(200).json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } })
+})
 
 // ======================================
 // API Routes

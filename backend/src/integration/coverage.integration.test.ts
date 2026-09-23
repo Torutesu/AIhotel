@@ -213,6 +213,17 @@ describeIntegration('統合テストの穴埋め（#87）', () => {
     })
   })
 
+  describe('ヘルスチェック（#49-2）', () => {
+    it('liveness は DB を見ずに 200、readiness は DB 込みで 200', async () => {
+      const live = await request(app).get('/livez')
+      expect(live.status).toBe(200)
+      expect(live.body.data).not.toHaveProperty('services')
+      const ready = await request(app).get('/readyz')
+      expect(ready.status).toBe(200)
+      expect(ready.body.data.services.database).toBe('healthy')
+    })
+  })
+
   describe('ログアウト', () => {
     it('logout はその端末のリフレッシュトークンだけを失効させる', async () => {
       const second = await request(app).post('/api/v1/auth/login').send({ email: EMAILS.operator, password: PASSWORD })

@@ -2,11 +2,16 @@
 # Backend container entrypoint.
 #
 #   （引数なし）       API サーバーを起動する
+#   migrate            マイグレーションを適用して終了する（リリース時に別ジョブで1回だけ実行 — #86）
 #   job <name>         dist/jobs/<name>.js を1回実行して終了する（例: job daily — #83）
 #
 # MIGRATE_ON_START=true のときだけ、API サーバーの起動前にマイグレーションを適用する。
 # 複数レプリカ構成では、マイグレーションは別ジョブで 1 回だけ実行し、この変数は未設定にする。
 set -eu
+
+if [ "${1:-}" = "migrate" ]; then
+  exec npx prisma migrate deploy
+fi
 
 if [ "${1:-}" = "job" ]; then
   name="${2:-}"
