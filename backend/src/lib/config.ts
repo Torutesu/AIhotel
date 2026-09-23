@@ -37,7 +37,10 @@ const envSchema = z.object({
   JWT_SECRET: z
     .string({ required_error: 'JWT_SECRET は必須です。openssl rand -base64 64 で生成してください' })
     .min(32, 'JWT_SECRET は32文字以上である必要があります'),
-  JWT_EXPIRES_IN: z.string().regex(/^\d+[dhms]$/).default('24h'),
+  // アクセストークンの有効期限。無効化・降格は authenticate が DB で即時に反映するが（#78）、
+  // 漏えいしたトークンの悪用可能時間を縮めるため既定は短くする。
+  // フロントは期限切れをリフレッシュトークンで透過的に更新する（single-flight — F-2）
+  JWT_EXPIRES_IN: z.string().regex(/^\d+[dhms]$/).default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().regex(/^\d+[dhms]$/).default('7d'),
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
@@ -45,6 +48,9 @@ const envSchema = z.object({
   // 同一拠点（NAT）からの複数ユーザーで枯渇する。既定を 1000/15分 に引き上げる（S-3）
   RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().min(1).default(1000),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(10),
+  // POST /auth/refresh の IP 単位の上限（15分あたり — #78）。
+  // 全体の上限（1000）だけでは、盗んだトークン候補の総当たりを抑えられない
+  REFRESH_RATE_LIMIT_MAX: z.coerce.number().int().min(1).default(60),
 
   // リバースプロキシ／ロードバランサ配下で X-Forwarded-For からクライアント IP を取る設定（S-3）。
   // Express の 'trust proxy' にそのまま渡す。true/false・ホップ数（例 1）・'loopback' 等の文字列を許容。

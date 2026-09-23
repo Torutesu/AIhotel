@@ -165,4 +165,21 @@ describeIntegration('無効化・降格・テナント停止の即時反映（#7
       expect((await attempt(PASSWORD)).status).toBe(200)
     })
   })
+
+  // レート制限の状態はアプリ内のメモリに残るため、このファイルの最後に置く
+  describe('トークン更新のレート制限', () => {
+    it('15分に60回を超えると 429 になる', async () => {
+      const statuses: number[] = []
+      for (let i = 0; i < 61; i++) {
+        const res = await request(app).post('/api/v1/auth/refresh').send({ refreshToken: `invalid-${i}` })
+        statuses.push(res.status)
+      }
+      // 同じファイルの前のテストでも更新を呼んでいるので、429 になる位置は厳密には決めない。
+      // 上限までは通常どおり 401 を返し、上限を超えたら 429 に切り替わることを確かめる
+      const firstLimited = statuses.indexOf(429)
+      expect(firstLimited).toBeGreaterThanOrEqual(55)
+      expect(statuses.slice(0, firstLimited).every((status) => status === 401)).toBe(true)
+      expect(statuses.slice(firstLimited).every((status) => status === 429)).toBe(true)
+    })
+  })
 })

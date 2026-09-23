@@ -33,9 +33,23 @@ const loginLimiter = rateLimit({
   skipSuccessfulRequests: true,
 })
 
+// トークン更新専用のレート制限（#78）。
+// 正規のクライアントは15分のアクセストークン期限ごとに1回程度しか呼ばないため、
+// 複数タブ・複数端末を見込んでも 60回/15分 あれば足りる
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: config.REFRESH_RATE_LIMIT_MAX,
+  message: {
+    success: false,
+    error: 'トークン更新の回数が上限に達しました。しばらくしてから再度お試しください。',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
 // 公開エンドポイント（認証不要）
 router.post('/login', loginLimiter, validate(loginSchema), login)
-router.post('/refresh', validate(refreshTokenSchema), refresh)
+router.post('/refresh', refreshLimiter, validate(refreshTokenSchema), refresh)
 
 // ユーザー登録は ADMIN と MANAGER のみ（運営 = PLATFORM_ADMIN も requireRole の上位集合として通る）。
 // 公開登録は任意テナントへの自己所属を許すため廃止。
