@@ -5,6 +5,9 @@ import {
   getMonthlyTrendService,
   getCompetitorAnalysisService,
   getReviewScoresService,
+  getChannelBreakdownService,
+  getRoomTypeBreakdownService,
+  getDayOfWeekBreakdownService,
 } from '../services/analysisService.js'
 
 /**
@@ -39,4 +42,33 @@ export const getReviewScores = asyncHandler(async (req: Request, res: Response) 
   const { hotelId } = req.query as unknown as { hotelId: string }
   const result = await getReviewScoresService(hotelId)
   sendSuccess(res, result)
+})
+
+type MonthQuery = { hotelId: string; year: number; month: number }
+
+/**
+ * チャネル別の実績（#88）
+ * GET /api/v1/analysis/channels?hotelId=&year=&month=
+ */
+export const getChannelBreakdown = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as MonthQuery
+  sendSuccess(res, await getChannelBreakdownService(hotelId, year, month))
+})
+
+/**
+ * 部屋タイプ別の実績（#88）
+ * GET /api/v1/analysis/room-types?hotelId=&year=&month=
+ */
+export const getRoomTypeBreakdown = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as MonthQuery
+  sendSuccess(res, await getRoomTypeBreakdownService(hotelId, year, month))
+})
+
+/**
+ * 曜日別の実績（#88）
+ * GET /api/v1/analysis/day-of-week?hotelId=&year=&month=
+ */
+export const getDayOfWeekBreakdown = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as MonthQuery
+  sendSuccess(res, await getDayOfWeekBreakdownService(hotelId, year, month))
 })
