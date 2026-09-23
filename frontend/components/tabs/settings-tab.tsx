@@ -34,6 +34,7 @@ import { HotelManagementSection } from "@/components/settings/hotel-management-s
 import { RoomTypeSection } from "@/components/settings/room-type-section"
 import { TenantManagementSection } from "@/components/settings/tenant-management-section"
 import { DailyDataImportSection } from "@/components/settings/daily-data-import-section"
+import { CompetitorPriceImportSection, OtbImportSection } from "@/components/settings/external-data-import-sections"
 import { AccountSecurityCard } from "@/components/settings/account-security-card"
 import { AuditLogSection } from "@/components/settings/audit-log-section"
 
@@ -144,7 +145,13 @@ export function SettingsTab() {
       {/* 日次実績の CSV 取り込み（PMS 連携までのつなぎ — #82） */}
       <DailyDataImportSection />
 
+      {/* 予約数（OTB）の取り込み（#24 E2） */}
+      <OtbImportSection />
+
       <CompetitorSection />
+
+      {/* 競合価格の取り込み（#9 の段階A） */}
+      <CompetitorPriceImportSection />
 
       {/* ユーザー管理（管理者 / マネージャー / 運営のみ。OPERATOR では何も描画されない — X-3） */}
       <UserManagementSection />

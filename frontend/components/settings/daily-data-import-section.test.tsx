@@ -18,7 +18,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 function selectFile(content: string) {
   const file = new File([content], "実績.csv", { type: "text/csv" })
-  fireEvent.change(screen.getByLabelText("取り込む CSV ファイル"), { target: { files: [file] } })
+  fireEvent.change(screen.getByLabelText("実績データの取り込みの CSV ファイル"), { target: { files: [file] } })
 }
 
 describe("DailyDataImportSection（#82）", () => {

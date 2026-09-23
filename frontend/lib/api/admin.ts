@@ -6,6 +6,7 @@ import type {
   User, HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem
 } from "@shared/types"
 import { rawRequest } from "./client"
+import type { CompetitorPriceCsvRow, OtbCsvRow } from "@/lib/import-csv"
 
 export const adminEndpoints = {
   // ---- 実績データの取り込み（#82） ----
@@ -23,6 +24,37 @@ export const adminEndpoints = {
     return rawRequest("/api/v1/imports/daily-data", {
       method: "POST",
       body: JSON.stringify({ hotelId, rows, dryRun }),
+    })
+  },
+
+  /**
+   * 競合価格の一括取り込み（#9。MANAGER 以上、1回5,000行まで）。
+   * 同じ競合・同じ日に複数の取得元があれば、人数ごとの最安値にまとめて保存される（aggregated がその件数）
+   */
+  importCompetitorPrices(
+    hotelId: string,
+    rows: CompetitorPriceCsvRow[],
+    dryRun: boolean,
+  ): Promise<{ dryRun: boolean; total: number; aggregated: number; created: number; updated: number; startDate: string; endDate: string }> {
+    return rawRequest("/api/v1/imports/competitor-prices", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, rows, dryRun }),
+    })
+  },
+
+  /**
+   * OTB（その時点の予約積上室数）の取り込み（#24 E2。MANAGER 以上、1回1,000行まで）。
+   * capturedDate を省略すると今日時点の予約数として保存される
+   */
+  importOtb(
+    hotelId: string,
+    rows: OtbCsvRow[],
+    dryRun: boolean,
+    capturedDate?: string,
+  ): Promise<{ dryRun: boolean; capturedDate: string; total: number; created: number; updated: number; startDate: string; endDate: string }> {
+    return rawRequest("/api/v1/imports/otb", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, rows, dryRun, capturedDate }),
     })
   },
 
