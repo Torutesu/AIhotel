@@ -96,7 +96,10 @@ export function CsvImportCard<Row>({
     const a = document.createElement("a")
     a.href = url
     a.download = templateFileName
+    // 文書に追加してからクリックしないと、ブラウザによってはファイル名が付かない
+    document.body.appendChild(a)
     a.click()
+    a.remove()
     URL.revokeObjectURL(url)
   }
 

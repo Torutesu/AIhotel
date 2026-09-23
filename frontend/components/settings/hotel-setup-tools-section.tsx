@@ -99,7 +99,10 @@ function SetupWorkbookPanel() {
       const a = document.createElement("a")
       a.href = url
       a.download = "初期設定シート.xlsx"
+      // 文書に追加してからクリックしないと、ブラウザによってはファイル名が付かない
+      document.body.appendChild(a)
       a.click()
+      a.remove()
       URL.revokeObjectURL(url)
     } catch (err) {
       toast.error(err instanceof ApiClientError ? err.message : "シートを出力できませんでした")
