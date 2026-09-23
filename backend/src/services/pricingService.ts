@@ -79,12 +79,24 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
 }
 
 /**
- * 価格戦略の重み付け取得（F-DP-02）
+ * 価格戦略の重み付け取得（F-DP-02）。
+ *
+ * まだ保存されていないホテル（新しく作ったホテルなど）は 404 にせず、需要予測が実際に使う
+ * 既定値（稼働率100% — strategyWeighting.ts の OCCUPANCY_ONLY_WEIGHTS）を返す。
+ * 404 だと画面がエラーになり、最初の重みを保存できなかった（#91 の作業中に判明）
  */
 export async function getStrategyService(hotelId: string) {
   const config = await prisma.pricingStrategyConfig.findUnique({ where: { hotelId } })
-  if (!config) throw new NotFoundError('価格戦略設定')
-  return config
+  if (config) return config
+  return {
+    id: null,
+    hotelId,
+    weightOccupancy: 100,
+    weightAdr: 0,
+    weightCompetitor: 0,
+    updatedByUserId: null,
+    updatedAt: null,
+  }
 }
 
 /**

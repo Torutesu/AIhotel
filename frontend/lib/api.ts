@@ -586,7 +586,8 @@ export interface RecomputeSimulationResult {
 }
 
 export interface PricingStrategy {
-  id: string
+  /** 未保存のホテルでは null（既定値の稼働率100%が返る） */
+  id: string | null
   hotelId: string
   weightOccupancy: number
   weightAdr: number

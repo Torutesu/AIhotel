@@ -141,6 +141,15 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
   })
 
   describe('価格戦略の重み（#76）', () => {
+    it('まだ保存していないホテルは 404 ではなく既定値（稼働率100%）を返す', async () => {
+      const res = await request(app)
+        .get('/api/v1/pricing/strategy')
+        .query({ hotelId: HOTEL })
+        .set('Authorization', `Bearer ${token}`)
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+      expect(res.body.data).toMatchObject({ id: null, weightOccupancy: 100, weightAdr: 0, weightCompetitor: 0 })
+    })
+
     it('重みを変えると推奨ランクが変わる', async () => {
       await setWeights(100, 0, 0)
       const byOccupancy = await recomputeAndReadRanks()
