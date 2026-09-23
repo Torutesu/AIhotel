@@ -7,6 +7,7 @@ import {
   loginSchema,
   registerSchema,
   refreshTokenSchema,
+  changePasswordSchema,
 } from '../lib/validators.js'
 import {
   login,
@@ -15,6 +16,7 @@ import {
   logout,
   logoutAll,
   getMe,
+  changePassword,
 } from '../controllers/authController.js'
 
 const router: IRouter = Router()
@@ -61,5 +63,7 @@ router.post('/register', authenticate, requireRole('ADMIN', 'MANAGER'), validate
 router.post('/logout', authenticate, validate(refreshTokenSchema), logout)
 router.post('/logout-all', authenticate, logoutAll)
 router.get('/me', authenticate, getMe)
+// 本人のパスワード変更（#89）。一時パスワードの変更待ちでも呼べる（authenticate が許可）
+router.put('/password', authenticate, validate(changePasswordSchema), changePassword)
 
 export const authRouter = router

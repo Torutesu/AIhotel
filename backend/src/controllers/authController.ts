@@ -8,8 +8,9 @@ import {
   logoutService,
   logoutAllService,
   getMeService,
+  changePasswordService,
 } from '../services/authService.js'
-import type { LoginInput, RegisterInput } from '../lib/validators.js'
+import type { ChangePasswordInput, LoginInput, RegisterInput } from '../lib/validators.js'
 
 function requestContext(req: Request) {
   return {
@@ -78,4 +79,15 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.userId
   const user = await getMeService(userId)
   sendSuccess(res, user)
+})
+
+/**
+ * 本人によるパスワード変更（#89）
+ * PUT /api/v1/auth/password
+ * 本人の全リフレッシュトークンを失効させ、この端末には新しいトークンを返す
+ */
+export const changePassword = asyncHandler(async (req: Request, res: Response) => {
+  const input = req.body as ChangePasswordInput
+  const result = await changePasswordService(req.user!.userId, input, requestContext(req))
+  sendSuccess(res, result, 200, 'パスワードを変更しました')
 })

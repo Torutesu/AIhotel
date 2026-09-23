@@ -2,6 +2,8 @@ import type { User, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { ApiError, BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
 import type { UpdateUserInput } from '../lib/validators.js'
+import { randomInt } from 'node:crypto'
+import { hashPassword } from '../lib/auth.js'
 
 // ユーザー管理（N-3 / #62）。
 //
@@ -124,4 +126,67 @@ export async function updateUserService(
   }
 
   return { before: stripPassword(before), after: stripPassword(after) }
+}
+
+/**
+ * 一時パスワードを作る（passwordSchema を満たす12文字）。
+ * 見間違えやすい文字（0/O・1/l/I）は使わない
+ */
+export function generateTemporaryPassword(): string {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
+  const lower = 'abcdefghijkmnpqrstuvwxyz'
+  const digits = '23456789'
+  const all = upper + lower + digits
+  const pick = (chars: string) => chars[randomInt(chars.length)]
+  const chars = [pick(upper), pick(lower), pick(digits)]
+  while (chars.length < 12) chars.push(pick(all))
+  // 先頭3文字の種類が固定にならないよう並べ替える
+  for (let i = chars.length - 1; i > 0; i--) {
+    const j = randomInt(i + 1)
+    ;[chars[i], chars[j]] = [chars[j], chars[i]]
+  }
+  return chars.join('')
+}
+
+/**
+ * 管理者による一時パスワードの発行（#89）。
+ *
+ * メール送信の仕組みがまだ無いため（#21 待ち）、一時パスワードはこのレスポンスで1回だけ返し、
+ * 管理者が本人に伝える。本人は次のログインでパスワードの変更を求められる。
+ * 対象の選び方は updateUserService と同じ（テナント内のみ、MANAGER は ADMIN を対象にできない、
+ * 運営ユーザーは運営だけ）。自分自身はパスワード変更画面を使うので対象外。
+ */
+export async function resetUserPasswordService(
+  id: string,
+  actor: UserActor
+): Promise<{ user: SafeUser; temporaryPassword: string }> {
+  const isPlatformAdmin = actor.role === 'PLATFORM_ADMIN'
+  const target = await prisma.user.findFirst({
+    where: { id, ...(!isPlatformAdmin && { tenantId: actor.tenantId ?? '__no_tenant__' }) },
+  })
+  if (!target) throw new NotFoundError('ユーザー')
+
+  if (id === actor.userId) {
+    throw new BadRequestError('自分のパスワードは設定タブの「パスワード変更」から変更してください')
+  }
+  if (!isPlatformAdmin && target.role === 'PLATFORM_ADMIN') {
+    throw new ApiError(403, '運営（PLATFORM_ADMIN）ユーザーのパスワードを発行できるのは運営のみです')
+  }
+  if (actor.role === 'MANAGER' && target.role === 'ADMIN') {
+    throw new ApiError(403, 'ADMIN ユーザーのパスワードを発行できるのは ADMIN のみです')
+  }
+
+  const temporaryPassword = generateTemporaryPassword()
+  const password = await hashPassword(temporaryPassword)
+  const user = await prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id },
+      // ロックアウト中の利用者を戻す手段も兼ねる（#78）
+      data: { password, mustChangePassword: true, failedLoginCount: 0, lockedUntil: null },
+    })
+    // 以前のパスワードで作られたセッションはすべて断つ
+    await tx.refreshToken.deleteMany({ where: { userId: id } })
+    return updated
+  })
+  return { user: stripPassword(user), temporaryPassword }
 }

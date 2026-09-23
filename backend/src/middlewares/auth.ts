@@ -17,6 +17,17 @@ declare global {
 }
 
 /**
+ * 一時パスワードの変更待ち（mustChangePassword）のユーザーが使える API（#89）。
+ * 本人がパスワードを変えるまで、ほかのデータには触れさせない
+ */
+const PASSWORD_CHANGE_ALLOWED_PATHS = new Set([
+  '/api/v1/auth/password',
+  '/api/v1/auth/me',
+  '/api/v1/auth/logout',
+  '/api/v1/auth/logout-all',
+])
+
+/**
  * 認証が必要なエンドポイント用ミドルウェア
  */
 export async function authenticate(req: Request, _res: Response, next: NextFunction) {
@@ -49,7 +60,13 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       throw new ApiError(401, 'このアカウントは現在利用できません')
     }
 
-    req.user = subject
+    const path = req.originalUrl.split('?')[0]
+    if (subject.mustChangePassword && !PASSWORD_CHANGE_ALLOWED_PATHS.has(path)) {
+      throw new ApiError(403, 'パスワードの変更が必要です。新しいパスワードを設定してください')
+    }
+
+    const { mustChangePassword: _mustChange, ...user } = subject
+    req.user = user
     next()
   } catch (error) {
     next(error)

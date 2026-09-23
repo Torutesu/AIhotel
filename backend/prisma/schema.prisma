@@ -71,6 +71,9 @@ model User {
   // IP 単位のレート制限だけでは IP を分散した試行を止められないため
   failedLoginCount Int       @default(0)
   lockedUntil      DateTime?
+  // 管理者が一時パスワードを発行したら true。本人が変更するまで、パスワード変更・
+  // 自分の情報の取得・ログアウト以外の API を使えない（#89）
+  mustChangePassword Boolean @default(false)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

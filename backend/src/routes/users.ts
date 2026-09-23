@@ -2,7 +2,7 @@ import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireRole, requireHotelAccess } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
 import { hotelIdQuerySchema, idParamSchema, updateUserSchema } from '../lib/validators.js'
-import { getUsers, putUser } from '../controllers/usersController.js'
+import { getUsers, putUser, resetUserPassword } from '../controllers/usersController.js'
 
 export const usersRouter: ExpressRouter = Router()
 
@@ -30,3 +30,7 @@ usersRouter.put(
   validate(updateUserSchema),
   putUser
 )
+
+// POST /api/v1/users/:id/reset-password — 一時パスワードの発行（#89、監査対象）。
+// テナント分離と対象の制約は usersService.resetUserPasswordService が担保する
+usersRouter.post('/:id/reset-password', validate(idParamSchema, 'params'), resetUserPassword)

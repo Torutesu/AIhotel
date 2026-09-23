@@ -30,14 +30,29 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'パスワードは必須です'),
 })
 
+/** パスワードの強度（登録・変更で共通 — #89） */
+export const passwordSchema = z
+  .string()
+  .min(8, 'パスワードは8文字以上である必要があります')
+  .max(128, 'パスワードは128文字以内で入力してください')
+  .regex(/[A-Z]/, '大文字を含める必要があります')
+  .regex(/[a-z]/, '小文字を含める必要があります')
+  .regex(/[0-9]/, '数字を含める必要があります')
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, '現在のパスワードを入力してください'),
+    newPassword: passwordSchema,
+  })
+  .refine((data) => data.currentPassword !== data.newPassword, {
+    path: ['newPassword'],
+    message: '現在と同じパスワードは使えません',
+  })
+
 export const registerSchema = z.object({
   // メールアドレスは大文字小文字を区別しない（#44）。検索も登録も小文字で行う
   email: z.string().trim().toLowerCase().email('有効なメールアドレスを入力してください'),
-  password: z.string()
-    .min(8, 'パスワードは8文字以上である必要があります')
-    .regex(/[A-Z]/, '大文字を含める必要があります')
-    .regex(/[a-z]/, '小文字を含める必要があります')
-    .regex(/[0-9]/, '数字を含める必要があります'),
+  password: passwordSchema,
   name: z.string().min(1, '名前は必須です').max(100),
   // 運営（PLATFORM_ADMIN）を付与できるのは運営だけ。authService.registerService が検証する（#62）
   role: z.enum(['PLATFORM_ADMIN', 'ADMIN', 'MANAGER', 'OPERATOR']).optional(),
@@ -214,6 +229,22 @@ export const createCompetitorSchema = z.object({
 })
 
 export const updateCompetitorSchema = createCompetitorSchema.omit({ hotelId: true }).partial()
+
+// ======================================
+// Audit Log Validators（#89）
+// ======================================
+
+export const auditLogQuerySchema = z
+  .object({
+    hotelId: entityIdSchema,
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '開始日は YYYY-MM-DD 形式で指定してください').optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '終了日は YYYY-MM-DD 形式で指定してください').optional(),
+    action: z.string().regex(/^[A-Z_]{1,40}$/, '操作の種類が正しくありません').optional(),
+    // 前のページの最後の行の id（カーソル方式のページネーション）
+    cursor: entityIdSchema.optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, { path: ['from'], message: '開始日は終了日以前にしてください' })
 
 // ======================================
 // Import Validators（#82）
@@ -494,6 +525,8 @@ export type BudgetMonthInput = z.infer<typeof budgetMonthSchema>
 export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>
 export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
 export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
+export type AuditLogQuery = z.infer<typeof auditLogQuerySchema>
 export type ImportDailyDataInput = z.infer<typeof importDailyDataSchema>
 export type CreateTenantInput = z.infer<typeof createTenantSchema>
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>

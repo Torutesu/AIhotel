@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import {
+  verifyPassword,
   hashPassword,
   verifyPasswordConstantWork,
   generateTokenPair,
@@ -7,7 +8,7 @@ import {
   getRefreshTokenExpiry,
   hashToken,
 } from '../lib/auth.js'
-import { ApiError } from '../middlewares/errorHandler.js'
+import { ApiError, BadRequestError } from '../middlewares/errorHandler.js'
 import { writeAuditLog } from './auditService.js'
 import { logger } from '../utils/logger.js'
 import type { User, UserRole } from '@prisma/client'
@@ -130,6 +131,8 @@ export async function resolveAuthSubjectService(userId: string): Promise<{
   role: UserRole
   tenantId: string | null
   hotelId: string | null
+  /** 一時パスワードの変更待ち（#89）。authenticate が使える API を絞る */
+  mustChangePassword: boolean
 } | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -140,6 +143,7 @@ export async function resolveAuthSubjectService(userId: string): Promise<{
       tenantId: true,
       hotelId: true,
       isActive: true,
+      mustChangePassword: true,
       tenant: { select: { isActive: true } },
     },
   })
@@ -153,6 +157,7 @@ export async function resolveAuthSubjectService(userId: string): Promise<{
     role: user.role,
     tenantId: user.tenantId,
     hotelId: user.hotelId,
+    mustChangePassword: user.mustChangePassword,
   }
 }
 
@@ -553,4 +558,58 @@ export async function purgeExpiredRefreshTokensService(): Promise<{ deleted: num
     where: { expiresAt: { lt: new Date() } },
   })
   return { deleted: count }
+}
+
+/**
+ * 本人によるパスワード変更（#89）。
+ *
+ * 現在のパスワードを確かめてから変更し、一時パスワードの変更待ちを解除する。
+ * 盗まれたセッションを残さないよう本人のリフレッシュトークンをすべて失効させ、
+ * この操作をした端末には新しいトークンを発行して返す（ログアウトさせない）。
+ */
+export async function changePasswordService(
+  userId: string,
+  input: { currentPassword: string; newPassword: string },
+  ctx?: RequestContext
+): Promise<AuthResult> {
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user || !user.isActive) throw new ApiError(401, 'このアカウントは現在利用できません')
+
+  if (!(await verifyPassword(input.currentPassword, user.password))) {
+    throw new BadRequestError('現在のパスワードが正しくありません', [
+      { field: 'currentPassword', message: '現在のパスワードが正しくありません' },
+    ])
+  }
+
+  const hashed = await hashPassword(input.newPassword)
+  const tokens = generateTokenPair(user)
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.user.update({
+      where: { id: user.id },
+      data: { password: hashed, mustChangePassword: false },
+    })
+    await tx.refreshToken.deleteMany({ where: { userId: user.id } })
+    await tx.refreshToken.create({
+      data: {
+        tokenHash: hashToken(tokens.refreshToken),
+        userId: user.id,
+        tenantId: user.tenantId,
+        expiresAt: getRefreshTokenExpiry(),
+      },
+    })
+    return next
+  })
+
+  await writeAuditLog({
+    tenantId: user.tenantId,
+    userId: user.id,
+    action: 'PASSWORD_CHANGED',
+    entity: 'User',
+    entityId: user.id,
+    ipAddress: ctx?.ipAddress,
+    userAgent: ctx?.userAgent,
+  })
+
+  const { password: _, ...userWithoutPassword } = updated
+  return { user: userWithoutPassword, tokens }
 }
