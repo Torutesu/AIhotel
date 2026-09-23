@@ -19,6 +19,20 @@ export interface UserActor {
   userId: string
   tenantId: string | null
   role: UserRole
+  /**
+   * 所属ホテル。ホテルに所属する利用者は、ユーザー管理の対象も自ホテルのユーザーに限る（#79）。
+   * データ系の API が requireHotelAccess でホテル単位の境界を守っているのと揃える
+   */
+  hotelId: string | null
+}
+
+/**
+ * ホテルに所属する利用者から見て、対象ユーザーが管理範囲の外か（#79）。
+ * 範囲外は 403 ではなく 404 にして、他ホテルにそのユーザーがいるかを判別させない。
+ * テナント全体を見るユーザー（hotelId が null）は、ホテル所属の利用者より上位なので範囲外
+ */
+function outsideActorHotel(actor: UserActor, target: { hotelId: string | null }): boolean {
+  return actor.role !== 'PLATFORM_ADMIN' && actor.hotelId !== null && target.hotelId !== actor.hotelId
 }
 
 function stripPassword(user: User): SafeUser {
@@ -34,7 +48,7 @@ function stripPassword(user: User): SafeUser {
  * テナント横断ユーザー（N-6）も一覧に含まれる。
  * ホテルへのアクセス権はルータの requireHotelAccess が検証済み。
  */
-export async function listUsersService(hotelId: string): Promise<SafeUser[]> {
+export async function listUsersService(hotelId: string, actor: UserActor): Promise<SafeUser[]> {
   const hotel = await prisma.hotel.findFirst({
     where: { id: hotelId, isActive: true },
     select: { tenantId: true },
@@ -42,7 +56,11 @@ export async function listUsersService(hotelId: string): Promise<SafeUser[]> {
   if (!hotel) throw new NotFoundError('ホテル')
 
   const users = await prisma.user.findMany({
-    where: { tenantId: hotel.tenantId },
+    where: {
+      tenantId: hotel.tenantId,
+      // ホテルに所属する利用者には自ホテルのユーザーだけを見せる（#79）
+      ...(actor.role !== 'PLATFORM_ADMIN' && actor.hotelId !== null && { hotelId: actor.hotelId }),
+    },
     orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
   })
   return users.map(stripPassword)
@@ -57,6 +75,7 @@ export async function listUsersService(hotelId: string): Promise<SafeUser[]> {
  * - 運営ユーザーの変更と運営ロールの付与は運営のみ（テナント側から運営権限が生えないようにする）
  * - MANAGER は ADMIN ユーザーを操作できず、ADMIN ロールも付与できない（権限昇格の防止）
  * - 自分自身の無効化・ロール変更はできない（最後の管理者が自分を締め出す事故の防止）
+ * - ホテルに所属する利用者は、自ホテルのユーザーしか操作できない（#79）
  */
 export async function updateUserService(
   id: string,
@@ -75,6 +94,7 @@ export async function updateUserService(
     },
   })
   if (!before) throw new NotFoundError('ユーザー')
+  if (outsideActorHotel(actor, before)) throw new NotFoundError('ユーザー')
 
   // 運営ユーザーの変更・運営ロールの付与は運営だけに許す。
   // テナント管理者（ADMIN）が自分やほかのユーザーを運営に昇格できると
@@ -165,6 +185,7 @@ export async function resetUserPasswordService(
     where: { id, ...(!isPlatformAdmin && { tenantId: actor.tenantId ?? '__no_tenant__' }) },
   })
   if (!target) throw new NotFoundError('ユーザー')
+  if (outsideActorHotel(actor, target)) throw new NotFoundError('ユーザー')
 
   if (id === actor.userId) {
     throw new BadRequestError('自分のパスワードは設定タブの「パスワード変更」から変更してください')

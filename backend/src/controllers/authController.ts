@@ -35,7 +35,12 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
  */
 export const register = asyncHandler(async (req: Request, res: Response) => {
   const input: RegisterInput = req.body
-  const createdBy = { userId: req.user!.userId, tenantId: req.user!.tenantId, role: req.user!.role }
+  const createdBy = {
+    userId: req.user!.userId,
+    tenantId: req.user!.tenantId,
+    role: req.user!.role,
+    hotelId: req.user!.hotelId,
+  }
   const result = await registerService(input, createdBy, requestContext(req))
   sendCreated(res, result, 'ユーザーを登録しました')
 })

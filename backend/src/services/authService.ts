@@ -260,10 +260,11 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
  * - PLATFORM_ADMIN（運営）: テナント横断可。PLATFORM_ADMIN を作れる唯一のロール
  * - ADMIN（テナント管理者）: 自テナント内のみ。ADMIN / MANAGER / OPERATOR を作れる
  * - MANAGER: 自テナント内のみ。hotelId 必須で、ADMIN / PLATFORM_ADMIN は付与できない
+ * - ホテルに所属する利用者（hotelId あり）: 作成先は自ホテルに限る（#79）
  */
 export async function registerService(
   input: RegisterInput,
-  createdBy: { userId: string; tenantId: string | null; role: UserRole },
+  createdBy: { userId: string; tenantId: string | null; role: UserRole; hotelId?: string | null },
   ctx?: RequestContext
 ): Promise<Omit<User, 'password'>> {
   const { email, password, name, role, hotelId, tenantId: requestedTenantId } = input
@@ -281,6 +282,12 @@ export async function registerService(
   // 運営ロールを作れるのは運営だけ（テナント側から運営権限が生えないようにする — #62）
   if (role === 'PLATFORM_ADMIN' && !isPlatformAdmin) {
     throw new ApiError(403, '運営（PLATFORM_ADMIN）ロールを付与できるのは運営のみです')
+  }
+
+  // ホテルに所属する利用者は、自ホテルにしかユーザーを作れない（#79）。
+  // テナント全体を見るユーザー（hotelId なし）も作れない（自分より広い範囲の権限になるため）
+  if (!isPlatformAdmin && createdBy.hotelId && hotelId !== createdBy.hotelId) {
+    throw new ApiError(403, '所属ホテル以外にはユーザーを作成できません')
   }
 
   if (isTenantManager) {

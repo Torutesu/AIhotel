@@ -11,7 +11,13 @@ import type { UpdateUserInput } from '../lib/validators.js'
  */
 export const getUsers = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId } = req.query as unknown as { hotelId: string }
-  const users = await listUsersService(hotelId)
+  const actor = req.user!
+  const users = await listUsersService(hotelId, {
+    userId: actor.userId,
+    tenantId: actor.tenantId,
+    role: actor.role,
+    hotelId: actor.hotelId,
+  })
   sendSuccess(res, users)
 })
 
@@ -26,6 +32,7 @@ export const putUser = asyncHandler(async (req: Request, res: Response) => {
     userId: actor.userId,
     tenantId: actor.tenantId,
     role: actor.role,
+    hotelId: actor.hotelId,
   })
 
   await writeAuditLog({
@@ -54,6 +61,7 @@ export const resetUserPassword = asyncHandler(async (req: Request, res: Response
     userId: actor.userId,
     tenantId: actor.tenantId,
     role: actor.role,
+    hotelId: actor.hotelId,
   })
 
   await writeAuditLog({

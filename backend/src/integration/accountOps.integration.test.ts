@@ -110,7 +110,8 @@ describeIntegration('アカウント運用（#89）', () => {
 
   describe('一時パスワードの発行', () => {
     it('マネージャーは管理者を、誰も自分自身を対象にできず、他テナントのユーザーは存在しない扱い', async () => {
-      expect((await request(app).post(`/api/v1/users/${ids.admin}/reset-password`).set(auth(tokens.manager))).status).toBe(403)
+      // ホテル所属のマネージャーにとって、テナント全体の管理者は管理範囲の外（#79）なので 404
+      expect((await request(app).post(`/api/v1/users/${ids.admin}/reset-password`).set(auth(tokens.manager))).status).toBe(404)
       expect((await request(app).post(`/api/v1/users/${ids.admin}/reset-password`).set(auth(tokens.admin))).status).toBe(400)
       expect((await request(app).post(`/api/v1/users/${ids.operator}/reset-password`).set(auth(tokens.otherAdmin))).status).toBe(404)
       expect((await request(app).post(`/api/v1/users/${ids.admin}/reset-password`).set(auth(tokens.operator))).status).toBe(403)
