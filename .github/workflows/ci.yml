@@ -160,7 +160,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Prepare database
+        # seed は生成済みの Prisma クライアント（enum の export）を使うので、先に generate する
         run: |
+          pnpm db:generate
           npx prisma migrate deploy
           pnpm db:seed
         working-directory: backend
