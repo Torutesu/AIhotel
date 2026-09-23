@@ -595,8 +595,45 @@ TRUST_PROXY=1
 
 ### バッチ（スケジューラから実行）
 
-- `pnpm --filter backend job:daily`（本番は `node dist/jobs/daily.js`）— 有効な全ホテルに対して
-  需要予測の再計算・着地シミュレーション更新・KPIスナップショット取得を実行する。cron / Cloud Scheduler から1日1回呼ぶ想定
+- `pnpm --filter backend job:daily`（本番コンテナは `docker run <image> job daily`）— 有効な全ホテルに対して
+  次を順に実行する（冪等。同じ日に何度実行してもよい — #83）
+  1. 需要予測の再計算（今日から90日）
+  2. 着地シミュレーションの更新（当月＋先 `DAILY_JOB_MONTHS_AHEAD` か月、既定3）
+  3. 当月の KPI スナップショット（月初比較・日付比較の比較元）
+  4. アラートの自動生成と解決（着地予測が予算の95%未満 → Level 4、90%未満 → Level 5、14日以内の高需要日 → Level 4。閾値は #19 の確定までの暫定値）
+  5. 期限切れリフレッシュトークンの削除
+- 1ホテルでも失敗すると**終了コード 1** で終わる。スケジューラ側で失敗として通知すること
+
+1日1回（JST の早朝を推奨）実行する。スケジューラはクラウドを問わない。設定例:
+
+```yaml
+# Kubernetes CronJob（JST 5:00 = UTC 20:00）
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: hotel-revenue-daily }
+spec:
+  schedule: "0 20 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: daily
+              image: <backend-image>
+              args: ["job", "daily"]
+              envFrom: [{ secretRef: { name: hotel-revenue-backend } }]
+```
+
+```sh
+# Cloud Run Jobs（GCP）: 同じイメージをジョブとして登録し、Cloud Scheduler から起動する
+gcloud run jobs create hotel-revenue-daily --image <backend-image> --args job,daily --set-secrets ...
+# ECS Scheduled Task（AWS）: タスク定義の command に ["job", "daily"] を指定し、EventBridge Scheduler で起動する
+# 単一サーバーの cron:
+0 5 * * * docker run --rm --env-file /etc/hotel-revenue/backend.env <backend-image> job daily
+```
 
 ### Health check（認証不要・`/api/v1`配下ではない）
 

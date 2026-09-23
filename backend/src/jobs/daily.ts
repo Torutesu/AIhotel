@@ -6,6 +6,8 @@ import { createKpiSnapshotService } from '../services/dashboardService.js'
 import { recomputeSimulationService } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
 import { purgeExpiredRefreshTokensService } from '../services/authService.js'
+import { evaluateAlertsService } from '../services/alertRulesService.js'
+import { config } from '../lib/config.js'
 
 // 日次バッチ（N-5）。開発時は `pnpm --filter backend job:daily`、
 // 本番コンテナ（devDependencies を含まない）では `node dist/jobs/daily.js` で実行する。
@@ -13,8 +15,10 @@ import { purgeExpiredRefreshTokensService } from '../services/authService.js'
 // cron / スケジュールタスクから1日1回呼ばれることを想定した入口で、
 // 有効な全ホテルに対して以下を順に実行する:
 //   1. 需要予測の再計算（AiPriceRecommendation）
-//   2. 月間着地シミュレーションの再計算（MonthlyLandingSimulation）
-//   3. 当日時点の KPI スナップショット（KpiSnapshot — 月初比較・日付比較の比較元）
+//   2. 月間着地シミュレーションの再計算（MonthlyLandingSimulation）。当月＋先 DAILY_JOB_MONTHS_AHEAD か月
+//   3. 当日時点の KPI スナップショット（KpiSnapshot — 月初比較・日付比較の比較元）。当月のみ
+//      （スナップショットは実績から作るため、先の月は常に空になる）
+//   4. アラートの自動生成と解決（#83）。着地予測と需要予測を使うので最後に行う
 // 最後にテナント横断の後始末として、期限切れリフレッシュトークンを削除する（#49-4）。
 //
 // 順序に意味がある: 着地シミュレーションは AI 予測を使うため、予測を先に更新する。
@@ -29,6 +33,7 @@ interface HotelJobResult {
   hotelName: string
   forecastCount?: number
   simulationActualDays?: number
+  alerts?: { created: number; updated: number; resolved: number }
   error?: string
 }
 
@@ -38,31 +43,47 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
   const year = today.getUTCFullYear()
   const month = today.getUTCMonth() + 1
 
+  // 当月から先 DAILY_JOB_MONTHS_AHEAD か月（#83）。翌月以降の着地予測と予算未達アラートを溜める
+  const months = Array.from({ length: config.DAILY_JOB_MONTHS_AHEAD + 1 }, (_, i) => {
+    const offset = month - 1 + i
+    return { year: year + Math.floor(offset / 12), month: (offset % 12) + 1 }
+  })
+
   const hotels = await listActiveHotelsForJobService()
-  logger.info({ hotels: hotels.length, targetYear: year, targetMonth: month }, '日次バッチを開始します')
+  logger.info(
+    { hotels: hotels.length, targetYear: year, targetMonth: month, monthsAhead: config.DAILY_JOB_MONTHS_AHEAD },
+    '日次バッチを開始します'
+  )
 
   const results: HotelJobResult[] = []
 
   for (const hotel of hotels) {
     try {
       const forecast = await recomputeForecastService(hotel.id)
-      const simulation = await recomputeSimulationService(hotel.id, year, month)
+      let simulation: Awaited<ReturnType<typeof recomputeSimulationService>> | null = null
+      for (const target of months) {
+        const result = await recomputeSimulationService(hotel.id, target.year, target.month)
+        if (target.year === year && target.month === month) simulation = result
+      }
       await createKpiSnapshotService(hotel.id, year, month)
+      const alerts = await evaluateAlertsService(hotel.id, months, today)
 
       results.push({
         hotelId: hotel.id,
         hotelName: hotel.name,
         forecastCount: forecast.count,
-        simulationActualDays: simulation.actualDays,
+        simulationActualDays: simulation?.actualDays,
+        alerts,
       })
       logger.info(
         {
           hotelId: hotel.id,
           forecastCount: forecast.count,
-          simulationActualDays: simulation.actualDays,
-          simulationPredictedDays: simulation.predictedDays,
+          simulationActualDays: simulation?.actualDays,
+          simulationPredictedDays: simulation?.predictedDays,
+          alerts,
         },
-        `${hotel.name}: 予測・着地・スナップショットを更新しました`
+        `${hotel.name}: 予測・着地・スナップショット・アラートを更新しました`
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

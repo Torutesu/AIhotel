@@ -43,6 +43,9 @@ const envSchema = z.object({
   JWT_EXPIRES_IN: z.string().regex(/^\d+[dhms]$/).default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().regex(/^\d+[dhms]$/).default('7d'),
 
+  // 日次バッチが着地シミュレーションとアラート判定を行う範囲。当月に加えて先の何か月か（#83）
+  DAILY_JOB_MONTHS_AHEAD: z.coerce.number().int().min(0).max(12).default(3),
+
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().min(1000).default(900000),
   // 認証済みリクエストはユーザー単位でカウントするため、IP 単位の 100 では
   // 同一拠点（NAT）からの複数ユーザーで枯渇する。既定を 1000/15分 に引き上げる（S-3）

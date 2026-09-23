@@ -456,6 +456,9 @@ model Alert {
   linkTab    String? // 遷移先タブ (dashboard/pricing/daily/analysis/reports/settings)
   targetDate DateTime?     @db.Date
   status     AlertStatus   @default(OPEN)
+  /// 自動生成したアラートの識別子（#83）。例: LANDING_BELOW_BUDGET:2026-10。
+  /// 同じ条件のアラートを重複して作らず、条件が消えたら自動で解決するために使う。手動・seed のアラートは null
+  ruleKey    String?
   detectedAt DateTime      @default(now())
   resolvedAt DateTime?
   createdAt  DateTime      @default(now())
@@ -464,6 +467,7 @@ model Alert {
   @@index([tenantId])
   @@index([hotelId, status])
   @@index([hotelId, level, status])
+  @@index([hotelId, ruleKey])
 }
 
 enum AlertSeverity {
