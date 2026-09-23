@@ -179,6 +179,21 @@ describeIntegration('統合テストの穴埋め（#87）', () => {
       })
     }
 
+    it('日付に時刻を付けたり、期間が長すぎたりすると 400（#90）', async () => {
+      const shifted = await get('/api/v1/daily/competitor-prices', tokens.operator, {
+        hotelId: HOTEL_A,
+        startDate: `${iso(today)}T00:00:00+09:00`,
+        endDate: iso(today),
+      })
+      expect(shifted.status).toBe(400)
+      const tooLong = await get('/api/v1/events', tokens.operator, {
+        hotelId: HOTEL_A,
+        startDate: iso(today),
+        endDate: iso(addUtcDays(today, 400)),
+      })
+      expect(tooLong.status).toBe(400)
+    })
+
     it('競合価格は登録した価格を返す', async () => {
       const res = await get('/api/v1/daily/competitor-prices', tokens.operator, {
         hotelId: HOTEL_A,

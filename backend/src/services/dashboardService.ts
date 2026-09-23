@@ -455,6 +455,9 @@ export async function getKpiComparisonService(
  * アラート一覧（F-DASH-05）
  * 重要度は1〜5の5段階。ダッシュボードは minLevel=4 を渡し Level 5・4 のみ表示する。
  */
+/** 未解決アラートとして返す最大件数（#90）。重要度・新しさの順に上から返す */
+export const MAX_OPEN_ALERTS = 200
+
 export async function getAlertsService(hotelId: string, minLevel?: number) {
   return prisma.alert.findMany({
     where: {
@@ -463,6 +466,7 @@ export async function getAlertsService(hotelId: string, minLevel?: number) {
       ...(minLevel != null && { level: { gte: minLevel } }),
     },
     orderBy: [{ level: 'desc' }, { detectedAt: 'desc' }],
+    take: MAX_OPEN_ALERTS,
   })
 }
 

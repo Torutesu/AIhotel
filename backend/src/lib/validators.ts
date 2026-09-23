@@ -7,6 +7,31 @@ import { dateOnly, todayJst } from './date.js'
 
 // エンティティID。cuid形式に固定しない（seedの固定ID 'demo-hotel-001' や、
 // 将来DB/BaaS変更でID形式が変わる場合に備え、不透明な文字列として扱う）
+/**
+ * 日付だけの値（"YYYY-MM-DD"）。UTC 0時の Date にして @db.Date と比較する（#90）。
+ * dateOnlyInputSchema は "2026-09-23T00:00:00+09:00" のような時刻付きの値を UTC の前日 15時に
+ * してしまい、@db.Date との等価比較が0件になっていた。時刻付きの値は受け付けない
+ */
+export const dateOnlyInputSchema = z
+  .string({ invalid_type_error: '日付は YYYY-MM-DD 形式で指定してください' })
+  .regex(/^\d{4}-\d{2}-\d{2}$/, '日付は YYYY-MM-DD 形式で指定してください')
+  .transform((value, ctx) => {
+    const date = new Date(`${value}T00:00:00Z`)
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: '存在しない日付です' })
+      return z.NEVER
+    }
+    return date
+  })
+
+/** 1回の参照で指定できる期間の上限（日）。数年分を1リクエストで返させない（#90） */
+export const MAX_QUERY_RANGE_DAYS = 366
+
+/** 開始日〜終了日が上限の日数以内か */
+function withinMaxRange(start: Date, end: Date): boolean {
+  return (end.getTime() - start.getTime()) / 86_400_000 < MAX_QUERY_RANGE_DAYS
+}
+
 export const entityIdSchema = z
   .string()
   .min(1, 'IDは必須です')
@@ -115,8 +140,8 @@ const eventBaseSchema = z.object({
   hotelId: entityIdSchema,
   name: z.string().min(1).max(200),
   type: z.string().min(1).max(50),
-  startDate: z.coerce.date(),
-  endDate: z.coerce.date(),
+  startDate: dateOnlyInputSchema,
+  endDate: dateOnlyInputSchema,
   location: z.string().max(200).optional(),
   expectedImpact: z.enum(['high', 'medium', 'low']).optional(),
   description: z.string().max(2000).optional(),
@@ -131,11 +156,14 @@ export const updateEventSchema = eventBaseSchema.omit({ hotelId: true }).partial
 // イベント一覧の検索条件（期間は任意 — F-DP-07）
 export const eventsQuerySchema = z.object({
   hotelId: entityIdSchema,
-  startDate: z.coerce.date().optional(),
-  endDate: z.coerce.date().optional(),
+  startDate: dateOnlyInputSchema.optional(),
+  endDate: dateOnlyInputSchema.optional(),
 }).refine(
   (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
   { message: '開始日は終了日以前である必要があります' }
+).refine(
+  (data) => !data.startDate || !data.endDate || withinMaxRange(data.startDate, data.endDate),
+  { message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください` }
 )
 
 // ======================================
@@ -393,7 +421,7 @@ export const monthTargetSchema = z.object({
 })
 
 export const kpiComparisonQuerySchema = monthQuerySchema.extend({
-  baseDate: z.coerce.date().optional(),
+  baseDate: dateOnlyInputSchema.optional(),
 })
 
 export const aiSummaryQuerySchema = z.object({
@@ -403,15 +431,17 @@ export const aiSummaryQuerySchema = z.object({
 
 export const bookingCurveQuerySchema = z.object({
   hotelId: entityIdSchema,
-  date: z.coerce.date(),
+  date: dateOnlyInputSchema,
 })
 
 export const competitorPricesQuerySchema = z.object({
   hotelId: entityIdSchema,
-  startDate: z.coerce.date(),
-  endDate: z.coerce.date(),
+  startDate: dateOnlyInputSchema,
+  endDate: dateOnlyInputSchema,
 }).refine(data => data.startDate <= data.endDate, {
   message: '開始日は終了日以前である必要があります',
+}).refine(data => withinMaxRange(data.startDate, data.endDate), {
+  message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください`,
 })
 
 // ======================================
@@ -435,8 +465,8 @@ export const MAX_FORECAST_RANGE_DAYS = 366
 
 export const recomputeForecastSchema = z.object({
   hotelId: entityIdSchema,
-  startDate: z.coerce.date().optional(),
-  endDate: z.coerce.date().optional(),
+  startDate: dateOnlyInputSchema.optional(),
+  endDate: dateOnlyInputSchema.optional(),
 }).superRefine((data, ctx) => {
   // 需要予測は未来の価格を決めるためのもの。過去日を指定すると確定済み実績の
   // 期間の AI 推奨を書き換えてしまうため、開始日は本日（JST）以降に限る（C-3）

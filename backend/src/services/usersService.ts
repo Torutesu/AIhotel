@@ -11,6 +11,9 @@ import { hashPassword } from '../lib/auth.js'
 // （ルータで requireRole 済み）。
 // テナント越えの参照・更新を防ぐため、運営以外は ADMIN を含めて必ず actor.tenantId で絞り込む。
 
+/** ユーザー一覧で返す最大件数（#90） */
+export const MAX_USERS_PER_LIST = 1000
+
 /** レスポンスに含めるユーザー項目（password は返さない） */
 export type SafeUser = Omit<User, 'password'>
 
@@ -62,6 +65,8 @@ export async function listUsersService(hotelId: string, actor: UserActor): Promi
       ...(actor.role !== 'PLATFORM_ADMIN' && actor.hotelId !== null && { hotelId: actor.hotelId }),
     },
     orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+    // 1テナントのユーザーは多くて数百人の想定。無制限に返さないための上限（#90）
+    take: MAX_USERS_PER_LIST,
   })
   return users.map(stripPassword)
 }
