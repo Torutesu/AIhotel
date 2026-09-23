@@ -73,15 +73,37 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   LOG_FORMAT: z.enum(['json', 'pretty']).default('json'),
 
-  // オブジェクトストレージ抽象化層（lib/storage.ts）。クラウド（S3/GCS）未確定のため
-  // 現在は 'local' のみ実装。将来 's3' / 'gcs' を追加する場合もここに列挙するだけでよい
-  STORAGE_DRIVER: z.enum(['local']).default('local'),
+  // オブジェクトストレージ抽象化層（lib/storage.ts）。
+  // 's3' は S3 互換 API（AWS S3・Cloudflare R2・GCS の相互運用 API・MinIO など）。
+  // S3 互換クライアントの利用は AGENTS.md の「クラウド固有 SDK を追加しない」の例外として認められている（#21）
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
   // 'local' 時の保存先ディレクトリ。相対パスは backend/ の実行ディレクトリ基準
   STORAGE_LOCAL_DIR: z.string().min(1).default('storage'),
+  // 's3' 時の設定。キーは必須でフォールバック値を持たない（未設定なら起動時に失敗させる）
+  S3_BUCKET: z.string().min(1).optional(),
+  // AWS 以外（R2・GCS・MinIO）はエンドポイントを指定する。AWS なら省略してリージョンだけでよい
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_REGION: z.string().min(1).default('auto'),
+  S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  // MinIO などバケット名をパスに含める方式のサービスでは true
+  S3_FORCE_PATH_STYLE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  // バケット内のキーの前に付ける接頭辞（1つのバケットを環境ごとに分ける場合など）
+  S3_KEY_PREFIX: z.string().default(''),
 })
   // 本番では DATABASE_URL 未設定のまま起動させない（S-7）。
   // 開発・テストでは型チェックや単体テストのみを回す用途があるため任意のままにする。
   .superRefine((env, ctx) => {
+    if (env.STORAGE_DRIVER === 's3') {
+      for (const key of ['S3_BUCKET', 'S3_ACCESS_KEY_ID', 'S3_SECRET_ACCESS_KEY'] as const) {
+        if (!env[key]) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `STORAGE_DRIVER=s3 では ${key} が必須です` })
+        }
+      }
+    }
     if (env.NODE_ENV === 'production' && !env.DATABASE_URL) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

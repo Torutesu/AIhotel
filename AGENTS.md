@@ -52,6 +52,7 @@ pnpm --filter backend build && pnpm --filter frontend build
 
 **ドメイン確定値**（再議論・変更しない）:
 - バックエンドは Express+TypeScript+Prisma（FastAPIへ移行しない）。クラウド固有SDKを追加しない
+  （例外は S3 互換 API のクライアント `@aws-sdk/client-s3` を `backend/src/lib/storage.ts` の中だけで使うこと — #21。ESLint が他の場所での import を止める）
 - ロールは PLATFORM_ADMIN / ADMIN / MANAGER / OPERATOR の4種。日本語表示名は 運営 / 管理者 / マネージャー / オペレーター
   （表示名の唯一の出所は `shared/types/index.ts` の `ROLE_LABELS`）
   - `PLATFORM_ADMIN`（運営）= サービス提供側。`tenantId` は null。テナントを越えられる唯一のロールで、顧客には渡さない

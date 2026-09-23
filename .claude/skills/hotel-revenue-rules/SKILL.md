@@ -12,6 +12,7 @@ description: このリポジトリ（AIレベニュー管理システム）で�
 
 - バックエンドは **Express + TypeScript + Prisma + PostgreSQL 16**。要件定義書の旧記述にあった FastAPI/Redis/Celery には移行しない。
 - クラウド非依存を維持する: DB接続は `DATABASE_URL` 環境変数のみ。AWS/GCP固有のSDK・サービスをコードに持ち込まない（AWS RDS / GCP Cloud SQL のどちらでも動くこと）。
+  例外は S3 互換 API のクライアント（`@aws-sdk/client-s3`）を `lib/storage.ts` の中だけで使うこと（#21）。ESLint の `no-restricted-imports` が他の場所での import を止める。
 - スキーマ変更は `prisma migrate dev`（マイグレーションファイルをコミット）。`db:push` を本番系フローに使わない。
 
 ## セキュリティ・テナント分離（必須・例外なし）
