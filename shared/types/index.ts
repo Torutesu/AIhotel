@@ -547,6 +547,32 @@ export interface RegisterUserRequest {
   name: string
   role?: UserRole
   hotelId?: string
+  /** 所属テナントの直接指定。運営（PLATFORM_ADMIN）だけが使える（#81） */
+  tenantId?: string
+}
+
+// ======================================
+// Platform（運営）Types（#81）
+// ======================================
+
+/** GET /api/v1/platform/tenants の1行 */
+export interface TenantSummary {
+  id: string
+  name: string
+  code: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+  hotelCount: number
+  userCount: number
+}
+
+export interface RoomTypeInput {
+  name: string
+  code: string
+  capacity: number
+  count: number
+  sortOrder?: number
 }
 
 // ======================================

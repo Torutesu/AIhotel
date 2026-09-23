@@ -21,12 +21,15 @@ import type {
   UpdateUserRequest,
   UpdateAlertStatusRequest,
   ReviewScore,
+  RoomType,
+  RoomTypeInput,
+  TenantSummary,
 } from "@shared/types"
 import { parseWeekendDays } from "@/lib/date"
 import { createSeededRandom } from "@/lib/format"
 
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
-export type { Hotel, PriceRank }
+export type { Hotel, PriceRank, RoomType, RoomTypeInput, TenantSummary }
 export type { Event as HotelEvent } from "@shared/types"
 // Wave C の画面が使う型（X-1〜X-7）。backend の契約は shared/types が唯一の出所
 export type {
@@ -1621,6 +1624,62 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     })
+  },
+
+  // ---- ホテル・部屋タイプ・テナント（#81） ----
+
+  /** ホテルの作成（ADMIN 以上）。作成先は呼び出し元のテナント。運営は tenantId を指定する */
+  createHotel(input: {
+    name: string
+    totalRooms: number
+    address?: string
+    phone?: string
+    email?: string
+    tenantId?: string
+  }): Promise<Hotel> {
+    return rawRequest("/api/v1/hotels", { method: "POST", body: JSON.stringify(input) })
+  },
+
+  /** ホテルの削除（ADMIN 以上・論理削除） */
+  deleteHotel(hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/hotels/${hotelId}`, { method: "DELETE" })
+  },
+
+  roomTypes(hotelId: string): Promise<RoomType[]> {
+    return rawRequest(`/api/v1/settings/room-types?hotelId=${hotelId}`)
+  },
+
+  /** 部屋タイプの登録（MANAGER 以上）。削除済みの同じコードは復活する */
+  createRoomType(hotelId: string, input: RoomTypeInput): Promise<RoomType> {
+    return rawRequest("/api/v1/settings/room-types", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, ...input }),
+    })
+  },
+
+  updateRoomType(id: string, hotelId: string, input: Partial<RoomTypeInput>): Promise<RoomType> {
+    return rawRequest(`/api/v1/settings/room-types/${id}?hotelId=${hotelId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    })
+  },
+
+  deleteRoomType(id: string, hotelId: string): Promise<void> {
+    return rawRequest(`/api/v1/settings/room-types/${id}?hotelId=${hotelId}`, { method: "DELETE" })
+  },
+
+  /** テナント一覧（運営のみ） */
+  tenants(): Promise<TenantSummary[]> {
+    return rawRequest("/api/v1/platform/tenants")
+  },
+
+  createTenant(input: { name: string; code: string }): Promise<TenantSummary> {
+    return rawRequest("/api/v1/platform/tenants", { method: "POST", body: JSON.stringify(input) })
+  },
+
+  /** テナントの名称変更・契約停止（isActive: false）／再開（運営のみ） */
+  updateTenant(id: string, input: { name?: string; isActive?: boolean }): Promise<TenantSummary> {
+    return rawRequest(`/api/v1/platform/tenants/${id}`, { method: "PUT", body: JSON.stringify(input) })
   },
 
   // ---- アラート操作（X-4 / N-4） ----

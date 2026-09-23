@@ -30,6 +30,7 @@ import { DemoModeBanner } from "@/components/demo-mode-banner"
 import { useAuth } from "@/components/auth-provider"
 import { useAppState } from "@/components/app-state-provider"
 import { LoginForm } from "@/components/login-form"
+import { NoHotelState } from "@/components/onboarding/no-hotel-state"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { HotelSwitcher } from "@/components/hotel-switcher"
 import type { Tab } from "@shared/types"
@@ -67,7 +68,7 @@ export function MainLayout() {
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
-  const { user, loading, logout, restoreError, retryRestore, canSwitchHotel } = useAuth()
+  const { user, loading, logout, restoreError, retryRestore, canSwitchHotel, hotels } = useAuth()
 
   // 表示中のタブをブラウザのタブ名に反映する（F-8）
   useEffect(() => {
@@ -124,6 +125,11 @@ export function MainLayout() {
 
   if (!user) {
     return <LoginForm />
+  }
+
+  // アクセスできるホテルが無いと、どのタブも表示するものが無い。初期設定の画面を出す（#81）
+  if (hotels.length === 0) {
+    return <NoHotelState />
   }
 
   return (
