@@ -538,6 +538,10 @@ export interface CompetitorOtaUrls {
   ikkyu?: string | null
   expedia?: string | null
   agoda?: string | null
+  booking?: string | null
+  tripcom?: string | null
+  /** 公式サイト（最安値保証のため取得対象 — #9） */
+  official?: string | null
 }
 
 /** GET/POST/PUT /settings/competitors が返す競合ホテル（論理削除済みは返らない） */

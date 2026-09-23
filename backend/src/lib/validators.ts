@@ -276,6 +276,10 @@ export const otaUrlsSchema = z.object({
   ikkyu: otaUrlValue,
   expedia: otaUrlValue,
   agoda: otaUrlValue,
+  // 2026-08-01 クライアントMTGで取得対象に確定したもの（#9）
+  booking: otaUrlValue,
+  tripcom: otaUrlValue,
+  official: otaUrlValue,
 })
 
 export const createCompetitorSchema = z.object({
@@ -331,6 +335,66 @@ export const importDailyDataSchema = z.object({
         soldRooms: z.number({ invalid_type_error: '販売室数は数値で入力してください' }).int('販売室数は整数で入力してください').min(0, '販売室数は0以上で入力してください'),
         totalRevenue: z.number({ invalid_type_error: '室料売上は数値で入力してください' }).min(0, '室料売上は0以上で入力してください'),
         guests: z.number().int('宿泊人数は整数で入力してください').min(0, '宿泊人数は0以上で入力してください').nullable().optional(),
+      })
+    )
+    .min(1, '取り込む行がありません')
+    .max(MAX_IMPORT_ROWS, `1回に取り込めるのは${MAX_IMPORT_ROWS}行までです`),
+})
+
+/** 競合価格の取り込みの最大行数。競合5社×90日×取得元8つを1回で入れられる（#9） */
+export const MAX_COMPETITOR_IMPORT_ROWS = 5000
+
+/** 競合価格の取得元（#9）。otaUrlsSchema のキーに、手入力・CSV を足したもの */
+export const competitorPriceSourceSchema = z.enum([
+  'rakuten', 'jalan', 'ikkyu', 'expedia', 'agoda', 'booking', 'tripcom', 'official', 'manual',
+])
+
+const importPriceSchema = z
+  .number({ invalid_type_error: '料金は数値で入力してください' })
+  .int('料金は整数（円）で入力してください')
+  .min(1, '料金は1円以上で入力してください')
+  .max(10_000_000, '料金が大きすぎます')
+  .nullable()
+  .optional()
+
+// 競合価格の取り込み（#9 の段階A）。自前の取得（クローラ）もこの形で書き込む
+export const importCompetitorPricesSchema = z.object({
+  hotelId: entityIdSchema,
+  dryRun: z.boolean().optional(),
+  rows: z
+    .array(
+      z.object({
+        // 設定タブで登録した競合ホテル名と完全一致させる
+        competitorName: z.string().trim().min(1, '競合ホテル名は必須です').max(200),
+        date: importDateSchema,
+        price1P: importPriceSchema,
+        price2P: importPriceSchema,
+        price3P: importPriceSchema,
+        // 満室・販売停止。true の行は料金を空にする
+        soldOut: z.boolean().optional(),
+        source: competitorPriceSourceSchema.optional(),
+        // 取得日時（ISO 8601）。省略時は取り込んだ時刻
+        observedAt: z.string().datetime({ offset: true, message: '取得日時は ISO 8601 形式で入力してください' }).optional(),
+      })
+    )
+    .min(1, '取り込む行がありません')
+    .max(MAX_COMPETITOR_IMPORT_ROWS, `1回に取り込めるのは${MAX_COMPETITOR_IMPORT_ROWS}行までです`),
+})
+
+// OTB（その時点の予約積上室数）の取り込み（#24 E2）。後から作れないデータなので、毎日1回入れる
+export const importOtbSchema = z.object({
+  hotelId: entityIdSchema,
+  dryRun: z.boolean().optional(),
+  // いつ時点の予約数か。省略時は今日（JST）
+  capturedDate: importDateSchema.optional(),
+  rows: z
+    .array(
+      z.object({
+        stayDate: importDateSchema,
+        roomsBooked: z
+          .number({ invalid_type_error: '予約室数は数値で入力してください' })
+          .int('予約室数は整数で入力してください')
+          .min(0, '予約室数は0以上で入力してください'),
       })
     )
     .min(1, '取り込む行がありません')
@@ -619,6 +683,8 @@ export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>
 export type AuditLogQuery = z.infer<typeof auditLogQuerySchema>
 export type ImportDailyDataInput = z.infer<typeof importDailyDataSchema>
+export type ImportCompetitorPricesInput = z.infer<typeof importCompetitorPricesSchema>
+export type ImportOtbInput = z.infer<typeof importOtbSchema>
 export type CreateTenantInput = z.infer<typeof createTenantSchema>
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>
