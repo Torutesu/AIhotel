@@ -39,6 +39,8 @@ model Tenant {
   pricingStrategyConfigs   PricingStrategyConfig[]
   pricingLockPeriods       PricingLockPeriod[]
   hotelIntegrations        HotelIntegration[]
+  competitorObservations   CompetitorRateObservation[]
+  competitorFetchRuns      CompetitorFetchRun[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -665,7 +667,8 @@ model Competitor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  priceData CompetitorPriceData[]
+  priceData    CompetitorPriceData[]
+  observations CompetitorRateObservation[]
 
   @@index([tenantId])
   @@index([hotelId])
@@ -693,6 +696,51 @@ model CompetitorPriceData {
 
   @@unique([competitorId, date])
   @@index([tenantId])
+}
+
+// 競合価格の観測値（#9 段階B）。取得元（OTA・公式サイト・CSV）ごとの生の値で、上書きせずに残す。
+// CompetitorPriceData（競合×宿泊日の代表値）はここから作り直す（最新の取得のうち48時間以内の値の、人数ごとの最安値）
+model CompetitorRateObservation {
+  id           String              @id @default(cuid())
+  tenantId     String
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  competitorId String
+  competitor   Competitor          @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+  stayDate     DateTime            @db.Date
+  // rakuten | jalan | ikkyu | expedia | agoda | booking | tripcom | official | manual
+  source       String
+  price1P      Int?
+  price2P      Int?
+  price3P      Int?
+  soldOut      Boolean             @default(false)
+  observedAt   DateTime
+  // 取得ジョブの実行（CSV 取り込みは null）
+  runId        String?
+  run          CompetitorFetchRun? @relation(fields: [runId], references: [id], onDelete: SetNull)
+  createdAt    DateTime            @default(now())
+
+  @@index([tenantId])
+  @@index([competitorId, stayDate, source, observedAt])
+}
+
+// 競合価格の取得ジョブの実行記録（#9 段階B）。取得元ごとに1行。監視（連続失敗の検知）に使う
+model CompetitorFetchRun {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId      String
+  source       String
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  // running | succeeded | failed
+  status       String    @default("running")
+  observations Int       @default(0)
+  errorMessage String?
+
+  observationRows CompetitorRateObservation[]
+
+  @@index([tenantId])
+  @@index([hotelId, source, startedAt])
 }
 
 // ======================================

@@ -86,12 +86,27 @@ describeIntegration('競合価格と OTB の取り込み（#9 / #24）', () => {
       expect(res.body.data).toMatchObject({ total: 3, aggregated: 2, created: 2, updated: 0 })
 
       const rows = await prisma.competitorPriceData.findMany({ where: { tenantId: TENANT }, orderBy: { date: 'asc' } })
-      expect(rows[0]).toMatchObject({ price1P: 11000, price2P: 20000, soldOut: false, dataSource: 'csv:jalan+rakuten' })
+      expect(rows[0]).toMatchObject({ price1P: 11000, price2P: 20000, soldOut: false, dataSource: 'jalan+rakuten' })
       expect(rows[0].observedAt).not.toBeNull()
       expect(rows[1]).toMatchObject({ price1P: null, soldOut: true })
 
       const log = await prisma.auditLog.findFirst({ where: { tenantId: TENANT, entity: 'CompetitorPriceData' } })
       expect(log?.newValue).toMatchObject({ import: 'competitor-prices', aggregated: 2 })
+    })
+
+    it('取得元を別々に取り込んでも、観測値から代表値を作り直すので最安値がまとまる（#9 段階B）', async () => {
+      const date = iso(addUtcDays(today, 20))
+      await post('/api/v1/imports/competitor-prices', 'manager', {
+        hotelId: HOTEL,
+        rows: [{ competitorName: '競合A', date, price1P: 15000, source: 'rakuten' }],
+      })
+      await post('/api/v1/imports/competitor-prices', 'manager', {
+        hotelId: HOTEL,
+        rows: [{ competitorName: '競合A', date, price1P: 14000, source: 'official' }],
+      })
+      const row = await prisma.competitorPriceData.findFirstOrThrow({ where: { tenantId: TENANT, date: new Date(`${date}T00:00:00Z`) } })
+      expect(row).toMatchObject({ price1P: 14000, dataSource: 'official+rakuten' })
+      expect(await prisma.competitorRateObservation.count({ where: { tenantId: TENANT, stayDate: new Date(`${date}T00:00:00Z`) } })).toBe(2)
     })
 
     it('未登録・論理削除済みの競合名は 400 で、1行も書き込まない', async () => {

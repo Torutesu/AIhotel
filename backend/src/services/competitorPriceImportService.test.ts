@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateCompetitorPrices, findCompetitorPriceRowErrors } from './competitorPriceImportService.js'
+import { findCompetitorPriceRowErrors } from './competitorPriceImportService.js'
+import { buildRepresentative } from './competitorRates/representative.js'
 import { findOtbRowErrors } from './otbImportService.js'
 
 const ids = new Map([
   ['競合A', 'ca'],
   ['競合B', 'cb'],
 ])
-const NOW = new Date('2026-09-23T03:00:00Z')
 
 describe('findCompetitorPriceRowErrors (#9)', () => {
   it('未登録の競合・料金と満室の矛盾・料金なし・重複を行番号つきで返す', () => {
@@ -29,34 +29,39 @@ describe('findCompetitorPriceRowErrors (#9)', () => {
   })
 })
 
-describe('aggregateCompetitorPrices (#9)', () => {
-  it('同じ競合・同じ日は人数ごとの最安値にまとめ、取得日時は最も新しいものにする', () => {
-    const [a] = aggregateCompetitorPrices(
-      [
-        { competitorName: '競合A', date: '2026-10-01', price1P: 12000, price2P: 20000, source: 'rakuten', observedAt: '2026-09-23T01:00:00+09:00' },
-        { competitorName: '競合A', date: '2026-10-01', price1P: 11000, source: 'jalan', observedAt: '2026-09-23T02:00:00+09:00' },
-      ],
-      ids,
-      NOW
-    )
-    expect(a).toMatchObject({ competitorId: 'ca', price1P: 11000, price2P: 20000, price3P: null, soldOut: false, sources: ['jalan', 'rakuten'] })
-    expect(a.observedAt.toISOString()).toBe('2026-09-22T17:00:00.000Z')
+describe('buildRepresentative (#9 段階B)', () => {
+  const at = (iso: string) => new Date(iso)
+  const obs = (source: string, observedAt: string, p: Partial<{ price1P: number; price2P: number; soldOut: boolean }> = {}) => ({
+    source,
+    price1P: p.price1P ?? null,
+    price2P: p.price2P ?? null,
+    price3P: null,
+    soldOut: p.soldOut ?? false,
+    observedAt: at(observedAt),
   })
 
-  it('全取得元が満室なら満室。1つでも料金があれば満室にしない。取得日時が無ければ取り込み時刻', () => {
-    const result = aggregateCompetitorPrices(
-      [
-        { competitorName: '競合A', date: '2026-10-01', soldOut: true, source: 'rakuten' },
-        { competitorName: '競合A', date: '2026-10-01', soldOut: true, source: 'jalan' },
-        { competitorName: '競合B', date: '2026-10-01', soldOut: true, source: 'rakuten' },
-        { competitorName: '競合B', date: '2026-10-01', price1P: 9000, source: 'official' },
-      ],
-      ids,
-      NOW
-    )
-    expect(result.find((r) => r.competitorId === 'ca')).toMatchObject({ soldOut: true, price1P: null })
-    expect(result.find((r) => r.competitorId === 'cb')).toMatchObject({ soldOut: false, price1P: 9000 })
-    expect(result[0].observedAt).toEqual(NOW)
+  it('取得元ごとの最新の値を使い、人数ごとの最安値にする', () => {
+    const rep = buildRepresentative([
+      obs('rakuten', '2026-09-22T18:00:00Z', { price1P: 13000 }), // 古い楽天の値は使わない
+      obs('rakuten', '2026-09-23T03:00:00Z', { price1P: 12000, price2P: 20000 }),
+      obs('jalan', '2026-09-23T02:00:00Z', { price1P: 11000 }),
+    ])
+    expect(rep).toMatchObject({ price1P: 11000, price2P: 20000, soldOut: false, sources: ['jalan', 'rakuten'] })
+    expect(rep!.observedAt).toEqual(at('2026-09-23T03:00:00Z'))
+  })
+
+  it('最新の観測から48時間より古い取得元は外す（取得が止まった取得元の古い最安値を残さない）', () => {
+    const rep = buildRepresentative([
+      obs('official', '2026-09-20T00:00:00Z', { price1P: 5000 }),
+      obs('rakuten', '2026-09-23T00:00:00Z', { price1P: 12000 }),
+    ])
+    expect(rep).toMatchObject({ price1P: 12000, sources: ['rakuten'] })
+  })
+
+  it('全取得元が満室なら満室、1つでも料金があれば満室にしない。観測が無ければ null', () => {
+    expect(buildRepresentative([obs('rakuten', '2026-09-23T00:00:00Z', { soldOut: true }), obs('jalan', '2026-09-23T00:00:00Z', { soldOut: true })])).toMatchObject({ soldOut: true, price1P: null })
+    expect(buildRepresentative([obs('rakuten', '2026-09-23T00:00:00Z', { soldOut: true }), obs('jalan', '2026-09-23T00:00:00Z', { price1P: 9000 })])).toMatchObject({ soldOut: false, price1P: 9000 })
+    expect(buildRepresentative([])).toBeNull()
   })
 })
 
