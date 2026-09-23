@@ -541,6 +541,7 @@ TRUST_PROXY=1
 
 - `GET /api/v1/hotels` - ホテル一覧取得（**運営は全件**、ADMIN を含むそれ以外は自テナントのみ）
 - `GET /api/v1/hotels/:id` - ホテル詳細取得（自テナントのホテル or 運営のみ）
+- `GET /api/v1/hotels/:id/setup-status` - 初期設定の進み具合（必須項目ごとの完了・未完了と理由 — #13）
 - `POST /api/v1/hotels` - ホテル作成（**ADMIN以上**。テナントは作成者のトークンから導出。`tenantId` を指定できるのは運営のみ）
 - `PUT /api/v1/hotels/:id` - ホテル更新（**ADMIN以上**。自テナントのホテルのみ）
 - `DELETE /api/v1/hotels/:id` - ホテル削除（**ADMIN以上**。自テナントのホテルのみ）
@@ -558,7 +559,9 @@ TRUST_PROXY=1
 
 - `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）
 - `GET /api/v1/pricing/strategy` - 価格戦略の重み付け取得（`hotelId`）
-- `PUT /api/v1/pricing/strategy` - 価格戦略の重み付け更新（**MANAGER以上**。重みの合計は100%必須）
+- `PUT /api/v1/pricing/strategy` - 価格戦略の更新（**MANAGER以上**）。重みは3つ揃えて送る（合計100%必須）か、送らない。
+  推奨の調整（比較人数・競合との価格差・ランクの下限/上限・1回の変動幅・ヒステリシス — #17）は送った項目だけが変わる
+- `GET /api/v1/pricing/locks` / `POST /api/v1/pricing/locks` / `DELETE /api/v1/pricing/locks/:id` - 推奨を固定する期間（変更は **MANAGER以上** — #17）
 - `GET /api/v1/pricing/simulation` - 月間着地シミュレーション取得（`hotelId`, `year`, `month`）
 - `POST /api/v1/pricing/recompute` - ルールベース需要予測の再計算（**MANAGER以上**）
 - `POST /api/v1/pricing/simulation/recompute` - 月間着地シミュレーションの再計算（**MANAGER以上**）
@@ -601,6 +604,10 @@ TRUST_PROXY=1
 ### Imports（実績の取り込み） (`backend/src/routes/imports.ts`)
 
 - `POST /api/v1/imports/daily-data` - 日次実績の一括取り込み（**MANAGER以上**、1,000行まで、`dryRun` 対応。1行でも不正なら何も書き込まない — #82）
+- `POST /api/v1/imports/competitor-prices` - 競合価格の一括取り込み（**MANAGER以上**、5,000行まで。同じ競合・同じ日は人数ごとの最安値にまとめる — #9）。
+  自前の取得（クローラ）もこの API に書き込む
+- `POST /api/v1/imports/otb` - その時点の予約積上室数（OTB）の取り込み（**MANAGER以上**、1,000行まで — #24 E2）。
+  提供側が毎日自動で呼ぶ（運営のアカウントでも実行できる）
 
 ### Platform（運営専用） (`backend/src/routes/platform.ts`)
 
