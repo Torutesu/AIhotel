@@ -18,7 +18,7 @@ import {
 } from "./client"
 import type {
   LoginResult, DashboardKpi, KpiSnapshot, AlertItem, AiSummary, PricingCalendar, PricingSimulation,
-  RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, BookingCurve,
+  RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, PricingStrategyInput, PricingLockPeriod, BookingCurve,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
   CreatePriceRankInput, UpdateHotelSettingsInput, CreateCompetitorInput, UpdateCompetitorInput,
   DashboardPreference, UserPreferences
@@ -184,20 +184,33 @@ export const api = {
     )
   },
 
-  updatePricingStrategy(
-    hotelId: string,
-    weights: { weightOccupancy: number; weightAdr: number; weightCompetitor: number }
-  ): Promise<PricingStrategy> {
+  updatePricingStrategy(hotelId: string, input: PricingStrategyInput): Promise<PricingStrategy> {
     return withDemoFallback(
       () =>
         rawRequest("/api/v1/pricing/strategy", {
           method: "PUT",
-          body: JSON.stringify({ hotelId, ...weights }),
+          body: JSON.stringify({ hotelId, ...input }),
         }),
       () => {
-        return setMockStrategy({ ...mockStrategy, hotelId, ...weights })
+        return setMockStrategy({ ...mockStrategy, hotelId, ...input })
       }
     )
+  },
+
+  /** 推奨を固定する期間（#17）。今日以降に終わるものだけが返る */
+  pricingLocks(hotelId: string): Promise<PricingLockPeriod[]> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/locks?hotelId=${hotelId}`),
+      () => []
+    )
+  },
+
+  createPricingLock(input: { hotelId: string; startDate: string; endDate: string; reason?: string }): Promise<PricingLockPeriod> {
+    return rawRequest("/api/v1/pricing/locks", { method: "POST", body: JSON.stringify(input) })
+  },
+
+  deletePricingLock(hotelId: string, id: string): Promise<void> {
+    return rawRequest(`/api/v1/pricing/locks/${id}?hotelId=${hotelId}`, { method: "DELETE" })
   },
 
   /**

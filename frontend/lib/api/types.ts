@@ -152,6 +152,8 @@ export interface PricingCalendarDay {
   competitorMaxPrice: number | null
   /** @deprecated `competitorMedianPrice` を使うこと（C-9）。バックエンド互換のため残置 */
   confidence: number | null
+  /** 推奨理由（#24 E4）。推奨の無い日と古い推奨は null */
+  rationale?: RecommendationRationale | null
 }
 
 export interface PricingCalendar {
@@ -221,6 +223,45 @@ export interface PricingStrategy {
   weightOccupancy: number
   weightAdr: number
   weightCompetitor: number
+  /** 推奨ランクの調整（#17）。競合と比べる人数。null はホテルタイプから自動（宿泊特化=1名、それ以外=2名） */
+  competitorOccupancy: 1 | 2 | null
+  /** 競合の中央値に対する狙い（-30〜+30%） */
+  competitorOffsetPct: number
+  /** 推奨ランクの下限・上限（null は制限なし） */
+  minRank: number | null
+  maxRank: number | null
+  /** 前回の推奨から1回の再計算で動かせるランク数（null は制限なし） */
+  maxDailyRankChange: number | null
+  /** 前回の推奨との差がこのランク数以内なら据え置く */
+  hysteresisRanks: number
+}
+
+/** PUT /pricing/strategy に送る値。送った項目だけが変わる（重みは3つ揃えて送るか、まったく送らない） */
+export type PricingStrategyInput = Partial<Omit<PricingStrategy, "id" | "hotelId">>
+
+/** 推奨を固定する期間（#17）。期間内の日は再計算しても推奨が変わらない */
+export interface PricingLockPeriod {
+  id: string
+  hotelId: string
+  startDate: string
+  endDate: string
+  reason: string | null
+}
+
+/** 推奨理由（#24 E4）。バックエンドの services/forecast/rationale.ts と同じ形 */
+export interface RecommendationRationale {
+  version: 1
+  modelVersion: string
+  recommendedRank: number
+  factors: Array<{
+    key: "occupancy" | "adr" | "competitor"
+    rank: number
+    weight: number
+    input: Record<string, number | string | null>
+  }>
+  adjustments: Array<{ key: "event" | "weekend"; impact: number }>
+  excluded: Array<{ key: "occupancy" | "adr" | "competitor"; reason: "no_data" | "stale" | "zero_weight" }>
+  guardrails: Array<{ key: "minRank" | "maxRank" | "maxDailyChange" | "hysteresis"; from: number; to: number }>
 }
 
 export interface BookingCurve {

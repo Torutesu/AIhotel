@@ -18,6 +18,7 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 
 import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
+import { StrategyGuardrailsCard } from "@/components/pricing/strategy-guardrails-card"
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
 import { PriceCalendarSection } from "@/components/pricing/price-calendar-section"
 import { EventListCard } from "@/components/pricing/event-list-card"
@@ -167,6 +168,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
 
       {/* 価格戦略の重み付け（U-1 — GET/PUT /pricing/strategy） */}
       <StrategyWeightsCard />
+
+      {/* 推奨ランクの調整と、推奨を固定する期間（#17） */}
+      <StrategyGuardrailsCard />
 
       <Card>
         <CardContent className="px-3 py-2.5">

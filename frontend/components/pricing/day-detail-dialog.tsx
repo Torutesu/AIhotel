@@ -22,7 +22,7 @@ import {
 } from "@/components/pricing/pricing-constants"
 import { DAY_NAMES } from "@/lib/date"
 import { formatPercent as pct, formatYen as yen } from "@/lib/format"
-import type { PricingCalendarDay } from "@/lib/api"
+import type { PricingCalendarDay, RecommendationRationale } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 
 interface DayDetailDialogProps {
@@ -73,6 +73,7 @@ export function DayDetailDialog({ day, events, onClose }: DayDetailDialogProps) 
                       {day.actualAdr != null && <div>実績ADR：{yen(day.actualAdr)}</div>}
                       {day.actualOccupancy != null && <div>実績稼働率：{pct(day.actualOccupancy)}</div>}
                     </div>
+                    {day.rationale && <RationaleSection rationale={day.rationale} />}
                   </div>
 
                   <div className="space-y-3 border-t pt-4">
@@ -112,5 +113,60 @@ export function DayDetailDialog({ day, events, onClose }: DayDetailDialogProps) 
           })()}
       </DialogContent>
     </Dialog>
+  )
+}
+
+const FACTOR_LABELS: Record<RecommendationRationale["factors"][number]["key"], string> = {
+  occupancy: "稼働率",
+  adr: "ADR",
+  competitor: "競合価格",
+}
+
+const EXCLUDED_REASONS: Record<RecommendationRationale["excluded"][number]["reason"], string> = {
+  no_data: "データが無いため使っていません",
+  stale: "取得から48時間を超えて古いため使っていません",
+  zero_weight: "重みが0%のため使っていません",
+}
+
+const GUARDRAIL_LABELS: Record<RecommendationRationale["guardrails"][number]["key"], string> = {
+  minRank: "推奨ランクの下限",
+  maxRank: "推奨ランクの上限",
+  maxDailyChange: "1回の変動幅",
+  hysteresis: "据え置き（前回との差が小さい）",
+}
+
+/** 推奨理由（#24 E4）。なぜこのランクを推奨したかを、観点ごとのランクと重みで示す */
+export function RationaleSection({ rationale }: { rationale: RecommendationRationale }) {
+  return (
+    <div className="space-y-2 border-t pt-3 text-sm">
+      <div className="font-medium">推奨の根拠</div>
+      <ul className="space-y-1">
+        {rationale.factors.map((f) => (
+          <li key={f.key} className="flex flex-wrap justify-between gap-2">
+            <span>{FACTOR_LABELS[f.key]}から見たランク：{f.rank}</span>
+            <span className="tabular-nums text-muted-foreground">重み {f.weight}%</span>
+          </li>
+        ))}
+        {rationale.excluded.map((e) => (
+          <li key={e.key} className="text-xs text-muted-foreground">
+            {FACTOR_LABELS[e.key]}：{EXCLUDED_REASONS[e.reason]}
+          </li>
+        ))}
+      </ul>
+      {rationale.adjustments.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          稼働率予測の補正：
+          {rationale.adjustments
+            .map((a) => `${a.key === "event" ? "イベント" : "週末"} ${a.impact > 0 ? "+" : ""}${Math.round(a.impact * 100)}pt`)
+            .join("、")}
+        </p>
+      )}
+      {rationale.guardrails.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          調整：
+          {rationale.guardrails.map((g) => `${GUARDRAIL_LABELS[g.key]}でランク${g.from}→${g.to}`).join("、")}
+        </p>
+      )}
+    </div>
   )
 }

@@ -520,6 +520,12 @@ export let mockStrategy: PricingStrategy = {
   weightOccupancy: 40,
   weightAdr: 40,
   weightCompetitor: 20,
+  competitorOccupancy: null,
+  competitorOffsetPct: 0,
+  minRank: null,
+  maxRank: null,
+  maxDailyRankChange: 3,
+  hysteresisRanks: 1,
 }
 
 export let mockEvents: HotelEvent[] | null = null
