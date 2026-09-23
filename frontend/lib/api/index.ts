@@ -20,7 +20,7 @@ import type {
   LoginResult, DashboardKpi, KpiSnapshot, AlertItem, AiSummary, PricingCalendar, PricingSimulation,
   RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, PricingStrategyInput, PricingLockPeriod, BookingCurve,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
-  CreatePriceRankInput, UpdateHotelSettingsInput, CreateCompetitorInput, UpdateCompetitorInput,
+  CreatePriceRankInput, UpdateHotelSettingsInput, SetupStatus, CreateCompetitorInput, UpdateCompetitorInput,
   DashboardPreference, UserPreferences
 } from "./types"
 import {
@@ -37,7 +37,7 @@ export type { Event as HotelEvent } from "@shared/types"
 // Wave C の画面が使う型（X-1〜X-7）。backend の契約は shared/types が唯一の出所
 export type {
   BudgetYear, MonthlyBudget, UpsertBudgetsRequest, CompetitorSetting, CompetitorOtaUrls,
-  RegisterUserRequest, UpdateUserRequest, ReviewScore, AlertStatus
+  RegisterUserRequest, UpdateUserRequest, ReviewScore, AlertStatus, HotelType
 } from "@shared/types"
 
 export * from "./types"
@@ -337,6 +337,14 @@ export const api = {
         Object.assign(target, data)
         return target
       }
+    )
+  },
+
+  /** 初期設定の進み具合（#13）。デモでは完了扱いにする */
+  hotelSetupStatus(hotelId: string): Promise<SetupStatus> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/hotels/${hotelId}/setup-status`),
+      () => ({ hotelId, ready: true, items: [] })
     )
   },
 

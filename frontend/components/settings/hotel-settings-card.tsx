@@ -25,7 +25,11 @@ import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type Hotel } from "@/lib/api"
 import { DAY_NAMES, DEFAULT_WEEKEND_DAYS, parseWeekendDays } from "@/lib/date"
 import { zodResolver } from "@/lib/zod-resolver"
-import { canManage as canManageRole, ROLE_LABELS } from "@shared/types"
+import { canManage as canManageRole, HOTEL_TYPE_LABELS, ROLE_LABELS, type HotelType } from "@shared/types"
+import { PREFECTURES } from "@/lib/prefectures"
+
+const SELECT_CLASS =
+  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:cursor-not-allowed disabled:opacity-60"
 
 /** 電話番号（日本の固定・携帯を想定した緩めの検証。数字・ハイフン・括弧・+ のみ） */
 const PHONE_PATTERN = /^[0-9+\-()\s]{10,20}$/
@@ -51,6 +55,17 @@ const hotelFormSchema = z.object({
     .refine((v) => v === "" || PHONE_PATTERN.test(v), {
       message: "電話番号は数字とハイフンで入力してください（例: 03-1234-5678）",
     }),
+  // ホテルタイプとマーケット（#13）。空文字は未設定
+  hotelType: z.string(),
+  prefectureCode: z.string(),
+  municipalityCode: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || /^\d{6}$/.test(v), { message: "市区町村コードは6桁の数字で入力してください" }),
+  marketArea: z.string().trim().max(100, "観光エリアは100文字以内で入力してください"),
+}).refine((v) => !v.municipalityCode || !v.prefectureCode || v.municipalityCode.startsWith(v.prefectureCode), {
+  message: "市区町村コードの先頭2桁が都道府県と一致しません",
+  path: ["municipalityCode"],
 })
 
 type HotelFormValues = z.infer<typeof hotelFormSchema>
@@ -62,6 +77,10 @@ function toFormValues(hotel: Hotel): HotelFormValues {
     totalRooms: hotel.totalRooms,
     email: hotel.email ?? "",
     phone: hotel.phone ?? "",
+    hotelType: hotel.hotelType ?? "",
+    prefectureCode: hotel.prefectureCode ?? "",
+    municipalityCode: hotel.municipalityCode ?? "",
+    marketArea: hotel.marketArea ?? "",
   }
 }
 
@@ -80,7 +99,17 @@ export function HotelSettingsCard() {
     formState: { errors },
   } = useForm<HotelFormValues>({
     resolver: zodResolver(hotelFormSchema),
-    defaultValues: { name: "", address: "", totalRooms: 1, email: "", phone: "" },
+    defaultValues: {
+      name: "",
+      address: "",
+      totalRooms: 1,
+      email: "",
+      phone: "",
+      hotelType: "",
+      prefectureCode: "",
+      municipalityCode: "",
+      marketArea: "",
+    },
     mode: "onBlur",
   })
 
@@ -133,6 +162,10 @@ export function HotelSettingsCard() {
         phone: values.phone.trim(),
         totalRooms: values.totalRooms,
         weekendDays,
+        hotelType: values.hotelType === "" ? null : (values.hotelType as HotelType),
+        prefectureCode: values.prefectureCode || null,
+        municipalityCode: values.municipalityCode.trim() || null,
+        marketArea: values.marketArea.trim() || null,
       })
       setHotel(updated)
       // 週末定義などは AuthProvider が全画面へ配っているため、保存後に差し替える（U-6）
@@ -262,6 +295,57 @@ export function HotelSettingsCard() {
                 <FormFieldError message={errors.phone?.message} />
               </div>
             </div>
+
+            <Separator />
+
+            <fieldset className="space-y-3">
+              <legend className="text-sm font-medium">ホテルタイプとマーケット</legend>
+              <p className="text-sm text-muted-foreground">
+                価格戦略の既定値（競合と比べる人数など）と、地域単位のデータの紐づけに使います
+              </p>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="hotelType">ホテルタイプ</Label>
+                  <select id="hotelType" disabled={!canManage} className={SELECT_CLASS} {...register("hotelType")}>
+                    <option value="">未設定</option>
+                    {(Object.keys(HOTEL_TYPE_LABELS) as HotelType[]).map((type) => (
+                      <option key={type} value={type}>
+                        {HOTEL_TYPE_LABELS[type]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="prefectureCode">都道府県</Label>
+                  <select id="prefectureCode" disabled={!canManage} className={SELECT_CLASS} {...register("prefectureCode")}>
+                    <option value="">未設定</option>
+                    {PREFECTURES.map((p) => (
+                      <option key={p.code} value={p.code}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="municipalityCode">市区町村コード（任意）</Label>
+                  <Input
+                    id="municipalityCode"
+                    inputMode="numeric"
+                    placeholder="131016"
+                    disabled={!canManage}
+                    aria-invalid={errors.municipalityCode ? true : undefined}
+                    {...register("municipalityCode")}
+                  />
+                  <p className="text-xs text-muted-foreground">全国地方公共団体コード（6桁）</p>
+                  <FormFieldError message={errors.municipalityCode?.message} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="marketArea">観光エリア（任意）</Label>
+                  <Input id="marketArea" placeholder="例: 箱根" disabled={!canManage} {...register("marketArea")} />
+                  <FormFieldError message={errors.marketArea?.message} />
+                </div>
+              </div>
+            </fieldset>
 
             <Separator />
 

@@ -21,6 +21,7 @@ import { TrendChartCard } from "@/components/dashboard/trend-chart-card"
 import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
 import { KpiProgressSection, ALL_KPI_KEYS } from "@/components/dashboard/kpi-progress-section"
 import { InventoryTableCard } from "@/components/dashboard/inventory-table-card"
+import { SetupChecklistCard } from "@/components/onboarding/setup-checklist-card"
 import { api, ApiClientError, type AiSummary, type AlertItem, type DashboardKpi } from "@/lib/api"
 import type { AlertLinkTarget } from "@/lib/alert-link"
 
@@ -150,6 +151,8 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
 
   return (
     <div className="space-y-4 p-4">
+      {/* 初期設定の必須項目が揃うまで出す（#13） */}
+      <SetupChecklistCard />
       <div className="space-y-4">
         {/* 対象年月選択（全タブ共有・URL同期） */}
         <div className="flex flex-wrap items-center gap-3">

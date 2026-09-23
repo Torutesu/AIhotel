@@ -4,6 +4,7 @@
 import type {
   User,
   CompetitorOtaUrls,
+  HotelType,
 } from "@shared/types"
 
 // ---- Response types (backend契約) ----
@@ -367,6 +368,25 @@ export interface UpdateHotelSettingsInput {
   email?: string
   totalRooms?: number
   weekendDays?: number[]
+  /** ホテルタイプとマーケット（#13）。null で未設定に戻す */
+  hotelType?: HotelType | null
+  prefectureCode?: string | null
+  municipalityCode?: string | null
+  marketArea?: string | null
+}
+
+/** 初期設定の進み具合（#13）。GET /hotels/:id/setup-status */
+export interface SetupStatus {
+  hotelId: string
+  /** 必須項目がすべて完了しているか */
+  ready: boolean
+  items: Array<{
+    key: "basic" | "roomTypes" | "priceRanks" | "competitors" | "actuals" | "users" | "budget"
+    label: string
+    required: boolean
+    done: boolean
+    detail: string | null
+  }>
 }
 
 /** POST /api/v1/settings/competitors のリクエスト（最大5件 — F-SET-03 / X-2） */
