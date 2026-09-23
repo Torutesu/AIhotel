@@ -562,6 +562,13 @@ export interface RecomputeForecastResult {
   endDate: string
 }
 
+/** POST /api/v1/pricing/simulation/recompute のレスポンス */
+export interface RecomputeSimulationResult {
+  simulation: MonthlyLandingSimulation
+  actualDays: number
+  predictedDays: number
+}
+
 export interface PricingStrategy {
   id: string
   hotelId: string
@@ -1363,6 +1370,18 @@ export const api = {
     return rawRequest("/api/v1/pricing/recompute", {
       method: "POST",
       body: JSON.stringify({ hotelId, ...range }),
+    })
+  },
+
+  /**
+   * 月間着地シミュレーションの再計算（F-DP-04 / N-5）。MANAGER 以上。
+   * 需要予測（recomputeForecast）を更新しただけでは着地予測は変わらないため、
+   * 「AI予測値へリセット」では予測の再計算に続けてこれを呼ぶ（#77）。
+   */
+  recomputeSimulation(hotelId: string, year: number, month: number): Promise<RecomputeSimulationResult> {
+    return rawRequest("/api/v1/pricing/simulation/recompute", {
+      method: "POST",
+      body: JSON.stringify({ hotelId, year, month }),
     })
   },
 

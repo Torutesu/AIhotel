@@ -82,9 +82,12 @@ export function LandingForecastSummary({
     if (!hotelId || !recomputeRange) return
     setRecomputing(true)
     try {
+      // 需要予測を作り直しただけでは着地予測（MonthlyLandingSimulation）は変わらないため、
+      // 続けて表示中の月の着地シミュレーションも再計算する（#77）
       const result = await api.recomputeForecast(hotelId, recomputeRange)
+      await api.recomputeSimulation(hotelId, year, month)
       toast.success("AI予測値へリセットしました", {
-        description: `${result.startDate} 〜 ${result.endDate} の${result.count}日分を再計算しました。`,
+        description: `${result.startDate} 〜 ${result.endDate} の${result.count}日分の需要予測と、${monthLabel(year, month)}の着地予測を再計算しました。`,
       })
       await load()
       await onRecomputed?.()
@@ -197,7 +200,8 @@ export function LandingForecastSummary({
             <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
               <p className="font-medium text-foreground">この月の着地予測はまだ生成されていません。</p>
               <p className="mt-1">
-                着地予測は需要予測の再計算（下記「AI予測値へリセット」）または日次バッチで生成されます。
+                着地予測は「AI予測値へリセット」（需要予測と着地予測をまとめて再計算）または日次バッチで生成されます。
+                過去の月は再計算できません。
                 実績値の平均で代用した数値は表示しません。
               </p>
               {!canRecompute && (
@@ -214,7 +218,7 @@ export function LandingForecastSummary({
         title="AI予測値へリセットしますか？"
         description={
           recomputeRange
-            ? `${recomputeRange.startDate} 〜 ${recomputeRange.endDate} のAI推奨価格・需要予測を再計算し、現在の推奨値を上書きします。この操作は取り消せません。`
+            ? `${recomputeRange.startDate} 〜 ${recomputeRange.endDate} のAI推奨価格・需要予測と、${monthLabel(year, month)}の着地予測を再計算し、現在の値を上書きします。この操作は取り消せません。`
             : undefined
         }
         confirmLabel="リセットする"
