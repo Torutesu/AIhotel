@@ -352,3 +352,55 @@ export interface UserPreferences {
   hotelId: string
   dashboard: DashboardPreference
 }
+
+/** GET /api/v1/analysis/channels（#88） */
+export interface ChannelBreakdown {
+  hotelId: string
+  year: number
+  month: number
+  channels: Array<{
+    channel: string
+    roomsSold: number
+    revenue: number
+    adr: number | null
+    /** 室料売上に占める割合（%） */
+    revenueShare: number
+    /** 前月比（%）。前月の実績が無ければ null */
+    revenueGrowth: number | null
+  }>
+}
+
+/** GET /api/v1/analysis/room-types（#88） */
+export interface RoomTypeBreakdown {
+  hotelId: string
+  year: number
+  month: number
+  actualDays: number
+  roomTypes: Array<{
+    roomTypeId: string
+    name: string
+    code: string
+    count: number
+    soldRooms: number
+    revenue: number
+    adr: number | null
+    occupancy: number | null
+  }>
+}
+
+/** GET /api/v1/analysis/day-of-week（#88） */
+export interface DayOfWeekBreakdown {
+  hotelId: string
+  year: number
+  month: number
+  days: Array<{
+    dayOfWeek: number
+    isWeekend: boolean
+    days: number
+    soldRooms: number
+    revenue: number
+    occupancy: number | null
+    adr: number | null
+    revPar: number | null
+  }>
+}

@@ -29,6 +29,7 @@ import {
   setMockStrategy, setMockEvents, getMockEvents
 } from "./demo-data"
 import { adminEndpoints } from "./admin"
+import { analysisEndpoints } from "./analysis"
 
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
 export type { Hotel, PriceRank, RoomType, RoomTypeInput, TenantSummary, AuditLogItem }
@@ -51,6 +52,8 @@ export type { BinaryDownload } from "./client"
 export const api = {
   // 運営・管理者向け（取り込み・ホテル・部屋タイプ・テナント・一時パスワード・監査ログ）は admin.ts
   ...adminEndpoints,
+  // 分析タブの内訳（チャネル別・部屋タイプ別・曜日別 — #88）は analysis.ts
+  ...analysisEndpoints,
 
   async login(email: string, password: string): Promise<LoginResult> {
     try {

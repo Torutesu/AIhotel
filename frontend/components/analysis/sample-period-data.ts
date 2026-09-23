@@ -2,118 +2,15 @@
 
 // 需要構成・予約期間分析のサンプルデータ（U-15 で analysis-tab.tsx から分割）
 //
-// PMS/OTA連携が未実装のため、チャネル・部屋タイプ・予約期間・セグメントの数値は
+// 予約明細のモデルが無いため、予約期間・セグメント・利用人数の数値は
 // すべて画面確認用のサンプル。表示側は必ず SampleDataNotice を併記すること。
 
-/** 対象期間に応じたサンプルデータ（チャネル/部屋タイプ/予約期間/セグメント）を生成する純粋関数 */
+/** 対象期間に応じたサンプルデータ（予約期間/セグメント/利用人数）を生成する純粋関数。チャネル別・部屋タイプ別は実API（#88） */
 export function buildPeriodData(targetPeriod: string) {
   const baseMultiplier =
     targetPeriod === "2025-03" ? 0.9 : targetPeriod === "2025-04" ? 1.0 : targetPeriod === "2025-05" ? 1.1 : 1.0
 
   return {
-    channelData: [
-      {
-        channel: "公式サイト",
-        bookings: Math.round(285 * baseMultiplier),
-        share: 38.5,
-        adr: Math.round(19200 * (0.95 + baseMultiplier * 0.05)),
-        revenue: Math.round(5472000 * baseMultiplier),
-        growth: 12.3 * baseMultiplier,
-        trend: "up",
-      },
-      {
-        channel: "OTA（楽天トラベル）",
-        bookings: Math.round(198 * baseMultiplier),
-        share: 26.7,
-        adr: Math.round(17800 * (0.95 + baseMultiplier * 0.05)),
-        revenue: Math.round(3524400 * baseMultiplier),
-        growth: 5.8 * baseMultiplier,
-        trend: "up",
-      },
-      {
-        channel: "OTA（じゃらん）",
-        bookings: Math.round(142 * baseMultiplier),
-        share: 19.2,
-        adr: Math.round(17200 * (0.95 + baseMultiplier * 0.05)),
-        revenue: Math.round(2442400 * baseMultiplier),
-        growth: 3.2 * baseMultiplier,
-        trend: baseMultiplier > 1 ? "up" : "stable",
-      },
-      {
-        channel: "電話直接",
-        bookings: Math.round(68 * baseMultiplier),
-        share: 9.2,
-        adr: Math.round(21450 * (0.95 + baseMultiplier * 0.05)),
-        revenue: Math.round(1458600 * baseMultiplier),
-        growth: 8.7 * baseMultiplier,
-        trend: "up",
-      },
-      {
-        channel: "公式アプリ",
-        bookings: Math.round(48 * baseMultiplier),
-        share: 6.5,
-        adr: Math.round(18900 * (0.95 + baseMultiplier * 0.05)),
-        revenue: Math.round(907200 * baseMultiplier),
-        growth: 24.8 * baseMultiplier,
-        trend: "up",
-      },
-    ],
-    roomTypeData: [
-      {
-        type: "スタンダードシングル",
-        rooms: 12,
-        sold: Math.round(892 * baseMultiplier),
-        occ: 82.4 * (0.95 + baseMultiplier * 0.05),
-        adr: Math.round(14500 * (0.95 + baseMultiplier * 0.05)),
-        revpar: Math.round(11948 * baseMultiplier),
-        share: 22.8,
-      },
-      {
-        type: "スタンダードツイン",
-        rooms: 10,
-        sold: Math.round(768 * baseMultiplier),
-        occ: 85.3 * (0.95 + baseMultiplier * 0.05),
-        adr: Math.round(18200 * (0.95 + baseMultiplier * 0.05)),
-        revpar: Math.round(15523 * baseMultiplier),
-        share: 24.6,
-      },
-      {
-        type: "デラックスツイン",
-        rooms: 5,
-        sold: Math.round(412 * baseMultiplier),
-        occ: 91.6 * (0.98 + baseMultiplier * 0.02),
-        adr: Math.round(24500 * (0.95 + baseMultiplier * 0.05)),
-        revpar: Math.round(22442 * baseMultiplier),
-        share: 17.8,
-      },
-      {
-        type: "デラックスダブル",
-        rooms: 3,
-        sold: Math.round(248 * baseMultiplier),
-        occ: 91.9 * (0.98 + baseMultiplier * 0.02),
-        adr: Math.round(26800 * (0.95 + baseMultiplier * 0.05)),
-        revpar: Math.round(24629 * baseMultiplier),
-        share: 11.7,
-      },
-      {
-        type: "スイート",
-        rooms: 2,
-        sold: Math.round(165 * baseMultiplier),
-        occ: 91.7 * (0.98 + baseMultiplier * 0.02),
-        adr: Math.round(45000 * (0.95 + baseMultiplier * 0.05)),
-        revpar: Math.round(41265 * baseMultiplier),
-        share: 13.1,
-      },
-      {
-        type: "プレミアムスイート",
-        rooms: 1,
-        sold: Math.round(82 * baseMultiplier),
-        occ: 91.1 * (0.98 + baseMultiplier * 0.02),
-        adr: Math.round(68000 * (0.95 + baseMultiplier * 0.05)),
-        revpar: Math.round(61948 * baseMultiplier),
-        share: 9.8,
-      },
-    ],
     bookingWindowData: [
       {
         window: "当日",
