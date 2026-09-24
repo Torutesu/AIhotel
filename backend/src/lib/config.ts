@@ -113,6 +113,17 @@ const envSchema = z.object({
   // 楽天トラベルの空室検索 API（競合価格の取得元 — #9）。アプリ ID を設定したときだけ取得元に登録する。
   // エンドポイントは API の版の変更に備えて差し替えられるようにする
   RAKUTEN_APPLICATION_ID: z.string().min(1).optional(),
+  // 予備のアプリ ID（カンマ区切り）。メインの ID が無効・停止になったとき（キーの失効・削除）だけ順に切り替える。
+  // 同時に使ってアクセス量を増やすためのものではない（上限に当たったときは切り替えずに止める）
+  RAKUTEN_BACKUP_APPLICATION_IDS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+    ),
   RAKUTEN_TRAVEL_API_URL: z
     .string()
     .url()

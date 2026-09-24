@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger.js'
 import type { CompetitorRateSource, FetchedRate, FetchTarget } from './types.js'
 
 // 楽天トラベルの取得元（#9 段階C）。画面の巡回ではなく、楽天ウェブサービスの公式 API（空室検索）を使う。
@@ -65,10 +66,22 @@ export function parseVacantHotelResponse(body: unknown, adultNum: number): PlanC
 
 export interface RakutenTravelOptions {
   applicationId: string
+  /**
+   * 予備のアプリ ID。メインの ID が無効（失効・削除・停止）と返されたときだけ、順に切り替える。
+   * 上限超過（429）では切り替えない — 複数の ID でアクセス量を増やすと楽天ウェブサービスの上限逃れになるため
+   */
+  backupApplicationIds?: string[]
   endpoint: string
   intervalMs: number
   fetchImpl?: typeof fetch
   sleep?: (ms: number) => Promise<void>
+}
+
+/** アプリ ID が無効・停止と返されたか（楽天ウェブサービスは 400 wrong_parameter か 401/403 で返す） */
+export function isInvalidApplicationId(status: number, body: unknown): boolean {
+  if (status === 401 || status === 403) return true
+  const description = String((body as Json | null)?.error_description ?? '')
+  return status === 400 && /applicationId/i.test(description)
 }
 
 const addDay = (date: string) => {
@@ -81,6 +94,8 @@ export function createRakutenTravelSource(options: RakutenTravelOptions): Compet
   const fetchImpl = options.fetchImpl ?? fetch
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))
   let lastRequestAt = 0
+  const applicationIds = [options.applicationId, ...(options.backupApplicationIds ?? [])]
+  let current = 0
 
   async function search(hotelNos: string[], stayDate: string, adultNum: number): Promise<PlanCharge[]> {
     const wait = lastRequestAt + options.intervalMs - Date.now()
@@ -88,7 +103,7 @@ export function createRakutenTravelSource(options: RakutenTravelOptions): Compet
     lastRequestAt = Date.now()
 
     const params = new URLSearchParams({
-      applicationId: options.applicationId,
+      applicationId: applicationIds[current],
       format: 'json',
       formatVersion: '2',
       hotelNo: hotelNos.join(','),
@@ -101,6 +116,12 @@ export function createRakutenTravelSource(options: RakutenTravelOptions): Compet
     const body: unknown = await res.json().catch(() => null)
     // 空室が1件も無いときは 404 not_found が返る（満室の扱い）
     if (res.status === 404 && (body as Json | null)?.error === 'not_found') return []
+    if (isInvalidApplicationId(res.status, body) && current < applicationIds.length - 1) {
+      // メインの ID が使えなくなった。予備に切り替えて同じ条件で問い合わせ直す（ID そのものはログに出さない）
+      current += 1
+      logger.warn({ backupIndex: current }, '楽天トラベル API のアプリ ID が無効と返されたため、予備の ID に切り替えます')
+      return search(hotelNos, stayDate, adultNum)
+    }
     if (!res.ok) {
       const error = (body as Json | null)?.error_description ?? (body as Json | null)?.error ?? res.statusText
       throw new Error(`楽天トラベル API がエラーを返しました（${res.status}: ${String(error)}）`)

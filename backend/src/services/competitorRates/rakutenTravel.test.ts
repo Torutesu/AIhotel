@@ -88,4 +88,39 @@ describe('createRakutenTravelSource', () => {
       failing.fetch({ competitorId: 'a', competitorName: 'A', url: 'https://travel.rakuten.co.jp/HOTEL/1/' }, ['2026-10-01'])
     ).rejects.toThrow('429')
   })
+
+  it('メインのアプリ ID が無効なら予備に切り替える。上限超過（429）では切り替えない', async () => {
+    const used: string[] = []
+    const fetchImpl = vi.fn(async (url: string) => {
+      const id = new URL(url).searchParams.get('applicationId')!
+      used.push(id)
+      if (id === 'main') return response(400, { error: 'wrong_parameter', error_description: 'specify valid applicationId' })
+      return response(404, { error: 'not_found' })
+    })
+    const source = createRakutenTravelSource({
+      applicationId: 'main',
+      backupApplicationIds: ['backup'],
+      endpoint: 'https://api.example.com/vacant',
+      intervalMs: 1000,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      sleep: async () => {},
+    })
+    await source.fetch({ competitorId: 'a', competitorName: 'A', url: 'https://travel.rakuten.co.jp/HOTEL/1/' }, ['2026-10-01'])
+    // 1回目だけメイン、以降は予備のまま
+    expect(used).toEqual(['main', 'backup', 'backup', 'backup'])
+
+    const limited = vi.fn(async () => response(429, { error: 'too_many_requests' }))
+    const throttled = createRakutenTravelSource({
+      applicationId: 'main',
+      backupApplicationIds: ['backup'],
+      endpoint: 'https://api.example.com/vacant',
+      intervalMs: 1000,
+      fetchImpl: limited as unknown as typeof fetch,
+      sleep: async () => {},
+    })
+    await expect(
+      throttled.fetch({ competitorId: 'a', competitorName: 'A', url: 'https://travel.rakuten.co.jp/HOTEL/1/' }, ['2026-10-01'])
+    ).rejects.toThrow('429')
+    expect(limited).toHaveBeenCalledTimes(1)
+  })
 })
