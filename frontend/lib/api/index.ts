@@ -9,7 +9,7 @@
 import type {
   User, HotelDto as Hotel, Event as HotelEvent, PriceRank, BudgetYear, UpsertBudgetsRequest,
   CompetitorSetting, RegisterUserRequest, UpdateUserRequest, UpdateAlertStatusRequest, ReviewScore,
-  RoomType, RoomTypeInput, TenantSummary, AuditLogItem
+  RoomType, RoomTypeInput, TenantSummary, AuditLogItem, RegisteredUser
 } from "@shared/types"
 import {
   ApiClientError, getRefreshToken, storeTokens, clearTokens, MOCK_HOTEL, isDemoModeEnabled,
@@ -486,7 +486,7 @@ export const api = {
   },
 
   /** ユーザーの招待（ADMIN / MANAGER）。作成先テナントは常に呼び出し元のテナント。MANAGER はホテル指定が必須 */
-  registerUser(input: RegisterUserRequest): Promise<User> {
+  registerUser(input: RegisterUserRequest): Promise<RegisteredUser> {
     return rawRequest("/api/v1/auth/register", {
       method: "POST",
       body: JSON.stringify(input),

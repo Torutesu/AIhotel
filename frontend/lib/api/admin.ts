@@ -3,7 +3,7 @@
 // index.ts の api オブジェクトに展開されるので、画面からは api.xxx で呼ぶ。
 
 import type {
-  User, HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem
+  HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem, TemporaryPasswordResult
 } from "@shared/types"
 import { rawBinaryRequest, rawRequest, type BinaryDownload } from "./client"
 import type { CompetitorPriceCsvRow, OtbCsvRow } from "@/lib/import-csv"
@@ -158,9 +158,10 @@ export const adminEndpoints = {
   },
 
   /**
-   * 一時パスワードの発行（ADMIN / MANAGER — #89）。一時パスワードはこの戻り値でしか得られない
+   * 一時パスワードの発行（ADMIN / MANAGER — #89）。メール送信が有効なら本人にメールで届き、
+   * 戻り値の temporaryPassword は null。届けられなかったときだけ、この戻り値で1回だけ得られる
    */
-  resetUserPassword(id: string): Promise<{ user: User; temporaryPassword: string }> {
+  resetUserPassword(id: string): Promise<TemporaryPasswordResult> {
     return rawRequest(`/api/v1/users/${id}/reset-password`, { method: "POST" })
   },
 
