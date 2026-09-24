@@ -3,6 +3,7 @@ import request from 'supertest'
 import type { Express } from 'express'
 import bcrypt from 'bcryptjs'
 import { PrismaClient } from '@prisma/client'
+import type { MemoryMailer } from '../lib/mailer.js'
 
 // アカウント運用（#89）の統合テスト: パスワード変更・一時パスワードの発行・監査ログの閲覧。
 // DATABASE_URL が無ければスキップし、専用テナント（プレフィクス actest）で検証する。
@@ -27,6 +28,8 @@ const EMAILS = {
 describeIntegration('アカウント運用（#89）', () => {
   let app: Express
   let prisma: PrismaClient
+  // vitest.config.ts が MAIL_DRIVER=memory にしているので、送ったメールはここに貯まる
+  let mailbox: MemoryMailer
   const tokens: Record<string, string> = {}
   const ids: Record<string, string> = {}
 
@@ -47,6 +50,7 @@ describeIntegration('アカウント運用（#89）', () => {
   beforeAll(async () => {
     const appModule = await import('../app.js')
     app = appModule.app as unknown as Express
+    mailbox = (await import('../lib/mailer.js')).mailer as MemoryMailer
     prisma = new PrismaClient()
     await cleanup()
 
@@ -120,7 +124,12 @@ describeIntegration('アカウント運用（#89）', () => {
     it('発行した一時パスワードでログインすると、変更するまでパスワード変更以外の API が使えない', async () => {
       const res = await request(app).post(`/api/v1/users/${ids.operator}/reset-password`).set(auth(tokens.manager))
       expect(res.status, JSON.stringify(res.body)).toBe(200)
-      const temporary: string = res.body.data.temporaryPassword
+      // メールで本人に届けたので、レスポンス（管理者の画面）には一時パスワードを含めない
+      expect(res.body.data.emailSent).toBe(true)
+      expect(res.body.data.temporaryPassword).toBeNull()
+      const mail = [...mailbox.sent].reverse().find((m) => m.to === EMAILS.operator)
+      expect(mail?.subject).toContain('一時パスワード')
+      const temporary = mail!.text.match(/一時パスワード: (\S+)/)![1]
       expect(temporary).toMatch(/^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9]).{12}$/)
 
       // 元のパスワードは使えない
@@ -141,6 +150,39 @@ describeIntegration('アカウント運用（#89）', () => {
       expect(changed.status).toBe(200)
       expect(changed.body.data.user.mustChangePassword).toBe(false)
       expect((await request(app).get('/api/v1/hotels').set(auth(token))).status).toBe(200)
+    })
+  })
+
+  describe('招待（パスワードを省略したユーザー登録）', () => {
+    it('一時パスワードを本人にメールで送り、初回ログインで変更を求める', async () => {
+      const email = `${PREFIX}-invited@example.com`
+      const res = await request(app)
+        .post('/api/v1/auth/register')
+        .set(auth(tokens.manager))
+        .send({ email, name: '招待者', role: 'OPERATOR', hotelId: HOTEL_A })
+      expect(res.status, JSON.stringify(res.body)).toBe(201)
+      expect(res.body.data.invitation).toEqual({ emailSent: true, temporaryPassword: null })
+      expect(res.body.data.mustChangePassword).toBe(true)
+
+      const mail = [...mailbox.sent].reverse().find((m) => m.to === email)
+      expect(mail?.subject).toContain('アカウントのご案内')
+      const temporary = mail!.text.match(/一時パスワード: (\S+)/)![1]
+      const loggedIn = await login(email, temporary)
+      expect(loggedIn.status).toBe(200)
+      expect(loggedIn.body.data.user.mustChangePassword).toBe(true)
+    })
+
+    it('パスワードを指定した登録は従来どおりで、メールは送らない', async () => {
+      const email = `${PREFIX}-direct@example.com`
+      const before = mailbox.sent.length
+      const res = await request(app)
+        .post('/api/v1/auth/register')
+        .set(auth(tokens.manager))
+        .send({ email, password: PASSWORD, name: '直接登録', role: 'OPERATOR', hotelId: HOTEL_A })
+      expect(res.status, JSON.stringify(res.body)).toBe(201)
+      expect(res.body.data.invitation).toBeNull()
+      expect(res.body.data.mustChangePassword).toBe(false)
+      expect(mailbox.sent.length).toBe(before)
     })
   })
 

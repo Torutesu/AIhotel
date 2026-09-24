@@ -579,12 +579,33 @@ export interface UpdateUserRequest {
  */
 export interface RegisterUserRequest {
   email: string
-  password: string
+  /** 省略すると招待（一時パスワードを発行し、初回ログインで変更させる — #89） */
+  password?: string
   name: string
   role?: UserRole
   hotelId?: string
   /** 所属テナントの直接指定。運営（PLATFORM_ADMIN）だけが使える（#81） */
   tenantId?: string
+}
+
+/**
+ * パスワードを省略した登録（招待）の結果（#89）。
+ * メールで本人に届けられたら temporaryPassword は null。届けられなければ作成者に1回だけ返る
+ */
+export interface UserInvitation {
+  emailSent: boolean
+  temporaryPassword: string | null
+}
+
+export interface RegisteredUser extends User {
+  invitation: UserInvitation | null
+}
+
+/** 一時パスワードの発行結果（#89）。temporaryPassword はメールで届けられなかったときだけ返る */
+export interface TemporaryPasswordResult {
+  user: User
+  emailSent: boolean
+  temporaryPassword: string | null
 }
 
 // ======================================

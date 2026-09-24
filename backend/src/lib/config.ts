@@ -93,6 +93,25 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   // バケット内のキーの前に付ける接頭辞（1つのバケットを環境ごとに分ける場合など）
   S3_KEY_PREFIX: z.string().default(''),
+
+  // メール送信の抽象化層（lib/mailer.ts — #89, #21）。
+  // 'none' は送信しない（一時パスワードは画面で管理者に1回だけ見せる）。
+  // 'memory' は送信内容をプロセス内に貯めるだけ（テスト用。本番では使えない）。
+  // 'smtp' はどのクラウドでも使える SMTP で送る（#21 の推奨）
+  MAIL_DRIVER: z.enum(['none', 'memory', 'smtp']).default('none'),
+  // 差出人（例: "AIレベニュー管理 <no-reply@example.com>"）。フォールバック値は持たない
+  MAIL_FROM: z.string().min(1).optional(),
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  // 465 番（SMTPS）なら true。587 番は STARTTLS を使うので false のまま
+  SMTP_SECURE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASS: z.string().min(1).optional(),
+  // メール本文に載せるログイン画面の URL。未設定なら FRONTEND_URL の先頭を使う
+  APP_PUBLIC_URL: z.string().url().optional(),
 })
   // 本番では DATABASE_URL 未設定のまま起動させない（S-7）。
   // 開発・テストでは型チェックや単体テストのみを回す用途があるため任意のままにする。
@@ -103,6 +122,28 @@ const envSchema = z.object({
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `STORAGE_DRIVER=s3 では ${key} が必須です` })
         }
       }
+    }
+    if (env.MAIL_DRIVER === 'smtp') {
+      for (const key of ['MAIL_FROM', 'SMTP_HOST'] as const) {
+        if (!env[key]) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: `MAIL_DRIVER=smtp では ${key} が必須です` })
+        }
+      }
+      // 認証情報は片方だけでは使えない
+      if (Boolean(env.SMTP_USER) !== Boolean(env.SMTP_PASS)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['SMTP_PASS'],
+          message: 'SMTP_USER と SMTP_PASS は両方設定するか、両方とも未設定にしてください',
+        })
+      }
+    }
+    if (env.MAIL_DRIVER === 'memory' && env.NODE_ENV === 'production') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['MAIL_DRIVER'],
+        message: 'MAIL_DRIVER=memory はテスト用です。本番では none か smtp を指定してください',
+      })
     }
     if (env.NODE_ENV === 'production' && !env.DATABASE_URL) {
       ctx.addIssue({
@@ -128,6 +169,7 @@ function loadConfig() {
     isDevelopment: env.NODE_ENV === 'development',
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
+    appPublicUrl: env.APP_PUBLIC_URL ?? env.FRONTEND_URL[0],
     // package.json 経由でのみ設定される値（検証対象外）
     appVersion: process.env.npm_package_version || '1.0.0',
   }

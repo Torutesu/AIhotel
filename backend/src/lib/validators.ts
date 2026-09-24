@@ -77,7 +77,9 @@ export const changePasswordSchema = z
 export const registerSchema = z.object({
   // メールアドレスは大文字小文字を区別しない（#44）。検索も登録も小文字で行う
   email: z.string().trim().toLowerCase().email('有効なメールアドレスを入力してください'),
-  password: passwordSchema,
+  // 省略すると招待として扱う: 一時パスワードを発行し、次回ログイン時に変更を強制する（#89）。
+  // メール送信が有効なら本人にメールで届け、無効なら作成者に画面で1回だけ見せる
+  password: passwordSchema.optional(),
   name: z.string().min(1, '名前は必須です').max(100),
   // 運営（PLATFORM_ADMIN）を付与できるのは運営だけ。authService.registerService が検証する（#62）
   role: z.enum(['PLATFORM_ADMIN', 'ADMIN', 'MANAGER', 'OPERATOR']).optional(),

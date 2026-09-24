@@ -28,6 +28,8 @@ export default defineConfig({
       // 統合テストは意図的に 401/403/400 を起こすため、アプリのリクエストログが
       // 出力を埋め尽くす。テスト失敗の原因を読み取れるよう fatal だけに絞る
       LOG_LEVEL: 'fatal',
+      // 招待・一時パスワードのメール（#89）はプロセス内に貯め、統合テストが中身を確かめる
+      MAIL_DRIVER: 'memory',
     },
     include: ['src/**/*.test.ts'],
   },
