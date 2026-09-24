@@ -55,17 +55,26 @@ export function buildRepresentative(observations: ObservationLike[]): Representa
   }
 }
 
+/** 代表値の変化（変動の監視 — monitoring.ts が使う）。前の代表値があった行だけ */
+export interface RepresentativeChange {
+  competitorId: string
+  stayDate: Date
+  before: { price1P: number | null; price2P: number | null; soldOut: boolean }
+  after: { price1P: number | null; price2P: number | null; soldOut: boolean }
+}
+
 /**
  * 指定した競合×宿泊日の代表値を作り直す（トランザクションの中で呼ぶ）。
- * 新規作成した件数と更新した件数を返す
+ * 新規作成した件数・更新した件数と、前の代表値からの変化を返す
  */
 export async function rebuildRepresentatives(
   tx: Prisma.TransactionClient,
   tenantId: string,
   keys: Array<{ competitorId: string; stayDate: Date }>
-): Promise<{ created: number; updated: number }> {
+): Promise<{ created: number; updated: number; changes: RepresentativeChange[] }> {
   let created = 0
   let updated = 0
+  const changes: RepresentativeChange[] = []
   const unique = [...new Map(keys.map((k) => [`${k.competitorId}|${k.stayDate.getTime()}`, k])).values()]
   for (const { competitorId, stayDate } of unique) {
     const observations = await tx.competitorRateObservation.findMany({
@@ -89,10 +98,16 @@ export async function rebuildRepresentatives(
     if (existing) {
       await tx.competitorPriceData.update({ where: { id: existing.id }, data: values })
       updated++
+      changes.push({
+        competitorId,
+        stayDate,
+        before: { price1P: existing.price1P, price2P: existing.price2P, soldOut: existing.soldOut },
+        after: { price1P: rep.price1P, price2P: rep.price2P, soldOut: rep.soldOut },
+      })
     } else {
       await tx.competitorPriceData.create({ data: { tenantId, competitorId, date: stayDate, ...values } })
       created++
     }
   }
-  return { created, updated }
+  return { created, updated, changes }
 }

@@ -110,6 +110,16 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   SMTP_USER: z.string().min(1).optional(),
   SMTP_PASS: z.string().min(1).optional(),
+  // 楽天トラベルの空室検索 API（競合価格の取得元 — #9）。アプリ ID を設定したときだけ取得元に登録する。
+  // エンドポイントは API の版の変更に備えて差し替えられるようにする
+  RAKUTEN_APPLICATION_ID: z.string().min(1).optional(),
+  RAKUTEN_TRAVEL_API_URL: z
+    .string()
+    .url()
+    .default('https://app.rakuten.co.jp/services/api/Travel/VacantHotelSearch/20170426'),
+  // 楽天ウェブサービスの利用条件（1秒に1回まで）に合わせた間隔
+  RAKUTEN_REQUEST_INTERVAL_MS: z.coerce.number().int().min(1000).default(1100),
+
   // メール本文に載せるログイン画面の URL。未設定なら FRONTEND_URL の先頭を使う
   APP_PUBLIC_URL: z.string().url().optional(),
 })
