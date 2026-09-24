@@ -30,6 +30,7 @@ import { HotelSetupToolsSection } from "@/components/settings/hotel-setup-tools-
 import { PriceRankSection } from "@/components/settings/price-rank-section"
 import { BudgetSection } from "@/components/settings/budget-section"
 import { CompetitorSection } from "@/components/settings/competitor-section"
+import { CompetitorFetchStatusSection } from "@/components/settings/competitor-fetch-status-section"
 import { UserManagementSection } from "@/components/settings/user-management-section"
 import { HotelManagementSection } from "@/components/settings/hotel-management-section"
 import { RoomTypeSection } from "@/components/settings/room-type-section"
@@ -153,6 +154,9 @@ export function SettingsTab() {
       <OtbImportSection />
 
       <CompetitorSection />
+
+      {/* 競合価格の取得状況（取得元ごとの最後の取得・連続失敗 — #9 段階C） */}
+      <CompetitorFetchStatusSection />
 
       {/* 競合価格の取り込み（#9 の段階A） */}
       <CompetitorPriceImportSection />

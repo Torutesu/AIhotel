@@ -21,7 +21,7 @@ import type {
   RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, PricingStrategyInput, PricingLockPeriod, BookingCurve,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
   CreatePriceRankInput, UpdateHotelSettingsInput, SetupStatus, CreateCompetitorInput, UpdateCompetitorInput,
-  DashboardPreference, UserPreferences
+  DashboardPreference, UserPreferences, CompetitorFetchSourceStatus
 } from "./types"
 import {
   mockDashboardKpi, mockAlerts, mockAiSummary, mockPricingCalendar, mockBookingCurve,
@@ -440,6 +440,11 @@ export const api = {
   /** 競合ホテル一覧（有効なもののみ。最大5件） */
   competitorSettings(hotelId: string): Promise<CompetitorSetting[]> {
     return rawRequest(`/api/v1/settings/competitors?hotelId=${hotelId}`)
+  },
+
+  /** 競合価格の取得状況（取得元ごとの最後の実行・最後の成功・連続失敗 — #9 段階C） */
+  competitorFetchStatus(hotelId: string): Promise<CompetitorFetchSourceStatus[]> {
+    return rawRequest(`/api/v1/settings/competitors/fetch-status?hotelId=${hotelId}`)
   },
 
   /** 競合ホテルの追加（MANAGER以上）。6件目は 400 になる */
