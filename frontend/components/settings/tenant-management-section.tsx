@@ -26,7 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { FormFieldError } from "@/components/form-field-error"
-import { inviteFormSchema } from "@/components/settings/user-invite-dialog"
+import { initialPasswordSchema, inviteFormSchema } from "@/components/settings/user-invite-dialog"
 import { api, ApiClientError, type TenantSummary } from "@/lib/api"
 import { zodResolver } from "@/lib/zod-resolver"
 
@@ -41,7 +41,8 @@ const tenantFormSchema = z.object({
 })
 type TenantFormValues = z.infer<typeof tenantFormSchema>
 
-const adminFormSchema = inviteFormSchema.pick({ name: true, email: true, password: true })
+// 新しいテナントの最初の管理者は、運営が初期パスワードを決めて伝える（招待の空欄は許さない）
+const adminFormSchema = inviteFormSchema.pick({ name: true, email: true }).extend({ password: initialPasswordSchema })
 type AdminFormValues = z.infer<typeof adminFormSchema>
 
 export function TenantManagementSection() {

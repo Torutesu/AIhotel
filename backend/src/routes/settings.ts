@@ -32,6 +32,7 @@ import {
   getBudgets,
   putBudgets,
   getCompetitors,
+  getCompetitorFetchStatus,
   createCompetitor,
   updateCompetitor,
   deleteCompetitor,
@@ -124,6 +125,14 @@ settingsRouter.get(
   validate(hotelIdQuerySchema, 'query'),
   requireHotelAccess((req) => req.query.hotelId),
   getCompetitors
+)
+
+// GET /api/v1/settings/competitors/fetch-status?hotelId= — 取得元ごとの取得状況（#9 段階C）
+settingsRouter.get(
+  '/competitors/fetch-status',
+  validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  getCompetitorFetchStatus
 )
 
 settingsRouter.post(

@@ -23,7 +23,7 @@ export async function runCompetitorPricesJob(
       results.push(...(await fetchCompetitorRatesForHotel(hotel.id, sources)))
     } catch (error) {
       logger.error({ hotelId: hotel.id, err: error }, '競合価格の取得でホテル単位の失敗がありました')
-      results.push({ hotelId: hotel.id, source: '*', status: 'failed', observations: 0, consecutiveFailure: false })
+      results.push({ hotelId: hotel.id, source: '*', status: 'failed', observations: 0, alerts: 0, consecutiveFailure: false })
     }
   }
 
@@ -37,6 +37,13 @@ export async function runCompetitorPricesJob(
     succeeded: results.filter((r) => r.status === 'succeeded').length,
     failed: results.filter((r) => r.status === 'failed').length,
   }
-  logger.info({ ...summary, observations: results.reduce((s, r) => s + r.observations, 0) }, '競合価格の取得を終了しました')
+  logger.info(
+    {
+      ...summary,
+      observations: results.reduce((s, r) => s + r.observations, 0),
+      priceMoveAlerts: results.reduce((s, r) => s + r.alerts, 0),
+    },
+    '競合価格の取得を終了しました'
+  )
   return summary
 }

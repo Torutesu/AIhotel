@@ -2,6 +2,7 @@ import { prisma } from '../lib/prisma.js'
 import { BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
 import type { ImportCompetitorPricesInput } from '../lib/validators.js'
 import { rebuildRepresentatives } from './competitorRates/representative.js'
+import { raisePriceMoveAlerts } from './competitorRates/monitoring.js'
 
 // 競合価格の取り込み（#9）。CSV の手動取り込みの入口。自前の取得（jobs/competitor-prices.ts）と同じく、
 // 1行を取得元ごとの観測値（CompetitorRateObservation）として残し、競合×宿泊日の代表値（CompetitorPriceData）を
@@ -52,6 +53,8 @@ export interface ImportCompetitorPricesResult {
   startDate: string
   endDate: string
   tenantId: string
+  /** 価格の変動を知らせるアラートを作った件数（#9 段階C。dryRun では 0） */
+  priceMoveAlerts: number
 }
 
 export async function importCompetitorPricesService(
@@ -87,7 +90,7 @@ export async function importCompetitorPricesService(
   })
   const dates = input.rows.map((r) => r.date).sort()
 
-  const summary = {
+  const summary: Omit<ImportCompetitorPricesResult, 'priceMoveAlerts'> = {
     dryRun: Boolean(input.dryRun),
     total: input.rows.length,
     aggregated: keys.length,
@@ -97,9 +100,9 @@ export async function importCompetitorPricesService(
     endDate: dates[dates.length - 1],
     tenantId: hotel.tenantId,
   }
-  if (input.dryRun) return summary
+  if (input.dryRun) return { ...summary, priceMoveAlerts: 0 }
 
-  await prisma.$transaction(
+  const priceMoveAlerts = await prisma.$transaction(
     async (tx) => {
       await tx.competitorRateObservation.createMany({
         data: input.rows.map((r) => ({
@@ -114,9 +117,11 @@ export async function importCompetitorPricesService(
           observedAt: r.observedAt ? new Date(r.observedAt) : now,
         })),
       })
-      await rebuildRepresentatives(tx, hotel.tenantId, keys)
+      const { changes } = await rebuildRepresentatives(tx, hotel.tenantId, keys)
+      // 取り込みで代表値が大きく動いたら、取得ジョブと同じくアラートにする（#9 段階C）
+      return raisePriceMoveAlerts(tx, { hotelId: input.hotelId, tenantId: hotel.tenantId, changes, now })
     },
     { timeout: 60_000 }
   )
-  return summary
+  return { ...summary, priceMoveAlerts }
 }

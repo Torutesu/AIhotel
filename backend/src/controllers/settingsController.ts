@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import { getCompetitorFetchStatusService } from '../services/competitorRates/statusService.js'
 import { asyncHandler } from '../middlewares/errorHandler.js'
 import { sendSuccess, sendCreated, sendDeleted } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
@@ -151,6 +152,15 @@ export const getCompetitors = asyncHandler(async (req: Request, res: Response) =
   const { hotelId } = req.query as unknown as { hotelId: string }
   const result = await getCompetitorsService(hotelId)
   sendSuccess(res, result)
+})
+
+/**
+ * 競合価格の取得状況（#9 段階C）
+ * GET /api/v1/settings/competitors/fetch-status?hotelId=
+ */
+export const getCompetitorFetchStatus = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  sendSuccess(res, await getCompetitorFetchStatusService(hotelId))
 })
 
 /**

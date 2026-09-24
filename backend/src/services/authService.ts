@@ -10,6 +10,7 @@ import {
 } from '../lib/auth.js'
 import { ApiError, BadRequestError } from '../middlewares/errorHandler.js'
 import { writeAuditLog } from './auditService.js'
+import { generateTemporaryPassword } from './usersService.js'
 import { logger } from '../utils/logger.js'
 import type { User, UserRole } from '@prisma/client'
 
@@ -24,7 +25,8 @@ interface LoginInput {
 
 interface RegisterInput {
   email: string
-  password: string
+  /** 省略すると招待（一時パスワードを発行し、初回ログインで変更させる — #89） */
+  password?: string
   name: string
   role?: UserRole
   hotelId?: string
@@ -266,7 +268,7 @@ export async function registerService(
   input: RegisterInput,
   createdBy: { userId: string; tenantId: string | null; role: UserRole; hotelId?: string | null },
   ctx?: RequestContext
-): Promise<Omit<User, 'password'>> {
+): Promise<{ user: Omit<User, 'password'>; temporaryPassword: string | null }> {
   const { email, password, name, role, hotelId, tenantId: requestedTenantId } = input
   const isPlatformAdmin = createdBy.role === 'PLATFORM_ADMIN'
 
@@ -344,7 +346,9 @@ export async function registerService(
     tenantId = hotel.tenantId
   }
 
-  const hashedPassword = await hashPassword(password)
+  // パスワードを省略したら招待（#89）: 一時パスワードを発行し、初回ログインで変更させる
+  const temporaryPassword = password === undefined ? generateTemporaryPassword() : null
+  const hashedPassword = await hashPassword(password ?? (temporaryPassword as string))
 
   const user = await prisma.user.create({
     data: {
@@ -354,6 +358,7 @@ export async function registerService(
       role,
       hotelId,
       tenantId,
+      mustChangePassword: temporaryPassword !== null,
     },
   })
 
@@ -363,14 +368,20 @@ export async function registerService(
     action: 'CREATE',
     entity: 'User',
     entityId: user.id,
-    newValue: { email: user.email, name: user.name, role: user.role, hotelId: user.hotelId },
+    newValue: {
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      hotelId: user.hotelId,
+      invited: temporaryPassword !== null,
+    },
     ipAddress: ctx?.ipAddress,
     userAgent: ctx?.userAgent,
   })
 
   const { password: _, ...userWithoutPassword } = user
 
-  return userWithoutPassword
+  return { user: userWithoutPassword, temporaryPassword }
 }
 
 /**

@@ -9,7 +9,7 @@
 import type {
   User, HotelDto as Hotel, Event as HotelEvent, PriceRank, BudgetYear, UpsertBudgetsRequest,
   CompetitorSetting, RegisterUserRequest, UpdateUserRequest, UpdateAlertStatusRequest, ReviewScore,
-  RoomType, RoomTypeInput, TenantSummary, AuditLogItem
+  RoomType, RoomTypeInput, TenantSummary, AuditLogItem, RegisteredUser
 } from "@shared/types"
 import {
   ApiClientError, getRefreshToken, storeTokens, clearTokens, MOCK_HOTEL, isDemoModeEnabled,
@@ -21,7 +21,7 @@ import type {
   RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, PricingStrategyInput, PricingLockPeriod, BookingCurve,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
   CreatePriceRankInput, UpdateHotelSettingsInput, SetupStatus, CreateCompetitorInput, UpdateCompetitorInput,
-  DashboardPreference, UserPreferences
+  DashboardPreference, UserPreferences, CompetitorFetchSourceStatus
 } from "./types"
 import {
   mockDashboardKpi, mockAlerts, mockAiSummary, mockPricingCalendar, mockBookingCurve,
@@ -442,6 +442,11 @@ export const api = {
     return rawRequest(`/api/v1/settings/competitors?hotelId=${hotelId}`)
   },
 
+  /** 競合価格の取得状況（取得元ごとの最後の実行・最後の成功・連続失敗 — #9 段階C） */
+  competitorFetchStatus(hotelId: string): Promise<CompetitorFetchSourceStatus[]> {
+    return rawRequest(`/api/v1/settings/competitors/fetch-status?hotelId=${hotelId}`)
+  },
+
   /** 競合ホテルの追加（MANAGER以上）。6件目は 400 になる */
   createCompetitor(input: CreateCompetitorInput): Promise<CompetitorSetting> {
     return rawRequest("/api/v1/settings/competitors", {
@@ -486,7 +491,7 @@ export const api = {
   },
 
   /** ユーザーの招待（ADMIN / MANAGER）。作成先テナントは常に呼び出し元のテナント。MANAGER はホテル指定が必須 */
-  registerUser(input: RegisterUserRequest): Promise<User> {
+  registerUser(input: RegisterUserRequest): Promise<RegisteredUser> {
     return rawRequest("/api/v1/auth/register", {
       method: "POST",
       body: JSON.stringify(input),

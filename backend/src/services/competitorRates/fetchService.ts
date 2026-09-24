@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma.js'
 import { addUtcDays, todayJst } from '../../lib/date.js'
 import { rebuildRepresentatives } from './representative.js'
+import { raisePriceMoveAlerts } from './monitoring.js'
 import type { CompetitorRateSource } from './types.js'
 
 // 競合価格の定期取得（#9 段階B）。登録済みの取得元（sources.ts）を、URL が登録されている競合に対して順に呼ぶ。
@@ -15,6 +16,8 @@ export interface HotelFetchResult {
   source: string
   status: 'succeeded' | 'failed'
   observations: number
+  /** 価格の変動を知らせるアラートを作った件数（monitoring.ts） */
+  alerts: number
   /** 同じ取得元が直前にも失敗していたら true（連続失敗 — 運営に通知する） */
   consecutiveFailure: boolean
   errorMessage?: string
@@ -48,7 +51,12 @@ export async function fetchCompetitorRatesForHotel(
     })
     try {
       const rows: Array<{ competitorId: string; rates: Awaited<ReturnType<CompetitorRateSource['fetch']>> }> = []
-      for (const target of targets) rows.push({ competitorId: target.competitorId, rates: await source.fetch(target, stayDates) })
+      if (source.fetchBatch) {
+        const byCompetitor = await source.fetchBatch(targets, stayDates)
+        for (const target of targets) rows.push({ competitorId: target.competitorId, rates: byCompetitor.get(target.competitorId) ?? [] })
+      } else {
+        for (const target of targets) rows.push({ competitorId: target.competitorId, rates: await source.fetch(target, stayDates) })
+      }
 
       const observations = rows.flatMap(({ competitorId, rates }) =>
         rates.map((r) => ({
@@ -64,18 +72,20 @@ export async function fetchCompetitorRatesForHotel(
           runId: run.id,
         }))
       )
-      await prisma.$transaction(
+      const alerts = await prisma.$transaction(
         async (tx) => {
           if (observations.length > 0) await tx.competitorRateObservation.createMany({ data: observations })
-          await rebuildRepresentatives(tx, hotel.tenantId, observations)
+          const { changes } = await rebuildRepresentatives(tx, hotel.tenantId, observations)
+          const raised = await raisePriceMoveAlerts(tx, { hotelId, tenantId: hotel.tenantId, changes, now })
           await tx.competitorFetchRun.update({
             where: { id: run.id },
             data: { status: 'succeeded', finishedAt: new Date(), observations: observations.length },
           })
+          return raised
         },
         { timeout: 120_000 }
       )
-      results.push({ hotelId, source: source.key, status: 'succeeded', observations: observations.length, consecutiveFailure: false })
+      results.push({ hotelId, source: source.key, status: 'succeeded', observations: observations.length, alerts, consecutiveFailure: false })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       await prisma.competitorFetchRun.update({
@@ -92,6 +102,7 @@ export async function fetchCompetitorRatesForHotel(
         source: source.key,
         status: 'failed',
         observations: 0,
+        alerts: 0,
         consecutiveFailure: previous?.status === 'failed',
         errorMessage: message,
       })

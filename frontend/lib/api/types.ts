@@ -495,3 +495,20 @@ export interface SetupWorkbookResult {
   competitors: { created: number; updated: number }
   budgets: { created: number; updated: number }
 }
+
+/** GET /settings/competitors/fetch-status の1行（取得元ごとの取得状況 — #9 段階C） */
+export interface CompetitorFetchSourceStatus {
+  source: string
+  /** 自動取得の処理が登録されているか。false なら CSV の取り込みで入れる */
+  automated: boolean
+  competitorsWithUrl: number
+  lastRun: {
+    startedAt: string
+    finishedAt: string | null
+    status: "running" | "succeeded" | "failed" | string
+    observations: number
+    errorMessage: string | null
+  } | null
+  lastSucceededAt: string | null
+  consecutiveFailures: number
+}

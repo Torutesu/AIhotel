@@ -4,6 +4,7 @@ import { sendSuccess } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
 import { listUsersService, resetUserPasswordService, updateUserService } from '../services/usersService.js'
 import type { UpdateUserInput } from '../lib/validators.js'
+import { sendTemporaryPasswordMail } from '../services/accountMailService.js'
 
 /**
  * ユーザー一覧（自テナントの ADMIN / MANAGER、および運営 — N-3 / #62）
@@ -53,7 +54,8 @@ export const putUser = asyncHandler(async (req: Request, res: Response) => {
 /**
  * 一時パスワードの発行（ADMIN / MANAGER・監査対象 — #89）
  * POST /api/v1/users/:id/reset-password
- * 一時パスワードはこのレスポンスで1回だけ返す。監査ログには残さない
+ * メール送信が有効なら本人にメールで届け、レスポンスには一時パスワードを含めない。
+ * 届けられなければこのレスポンスで1回だけ返す。いずれの場合も監査ログには残さない
  */
 export const resetUserPassword = asyncHandler(async (req: Request, res: Response) => {
   const actor = req.user!
@@ -64,16 +66,28 @@ export const resetUserPassword = asyncHandler(async (req: Request, res: Response
     hotelId: actor.hotelId,
   })
 
+  const emailSent = await sendTemporaryPasswordMail({
+    kind: 'reset',
+    to: user.email,
+    name: user.name,
+    temporaryPassword,
+  })
+
   await writeAuditLog({
     tenantId: user.tenantId,
     userId: actor.userId,
     action: 'PASSWORD_RESET',
     entity: 'User',
     entityId: user.id,
-    newValue: { email: user.email },
+    newValue: { email: user.email, emailSent },
     ipAddress: req.ip,
     userAgent: req.headers['user-agent'],
   })
 
-  sendSuccess(res, { user, temporaryPassword }, 200, '一時パスワードを発行しました')
+  sendSuccess(
+    res,
+    { user, emailSent, temporaryPassword: emailSent ? null : temporaryPassword },
+    200,
+    emailSent ? '一時パスワードを本人にメールで送信しました' : '一時パスワードを発行しました'
+  )
 })

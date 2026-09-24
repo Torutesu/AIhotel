@@ -36,6 +36,14 @@ import type { UserRole } from "@shared/types"
 /** 管理者以上が「ホテル指定なし（テナント内の全ホテルを見るユーザー）」を選ぶときの番兵値 */
 export const NO_HOTEL_VALUE = "__none__"
 
+/** backend の passwordSchema と同じ制約（backend/src/lib/validators.ts） */
+export const initialPasswordSchema = z
+  .string()
+  .min(8, "パスワードは8文字以上で入力してください")
+  .regex(/[A-Z]/, "大文字を含めてください")
+  .regex(/[a-z]/, "小文字を含めてください")
+  .regex(/[0-9]/, "数字を含めてください")
+
 /** backend の registerSchema と同じ制約（backend/src/lib/validators.ts） */
 export const inviteFormSchema = z.object({
   email: z.string().trim().email("有効なメールアドレスを入力してください"),
@@ -44,12 +52,9 @@ export const inviteFormSchema = z.object({
     .trim()
     .min(1, "名前を入力してください")
     .max(100, "名前は100文字以内で入力してください"),
-  password: z
-    .string()
-    .min(8, "パスワードは8文字以上で入力してください")
-    .regex(/[A-Z]/, "大文字を含めてください")
-    .regex(/[a-z]/, "小文字を含めてください")
-    .regex(/[0-9]/, "数字を含めてください"),
+  // 空欄なら一時パスワードを発行して招待する（#89）。
+  // メール送信が有効なら本人にメールで届き、無効なら作成後に画面で1回だけ表示する
+  password: z.union([z.literal(""), initialPasswordSchema]),
   // 運営（PLATFORM_ADMIN）を選べるのは運営だけ。選択肢は roleOptions で絞る（#62）
   role: z.enum(["PLATFORM_ADMIN", "ADMIN", "MANAGER", "OPERATOR"]),
   hotelId: z.string(),
@@ -121,7 +126,8 @@ export function UserInviteDialog({
         <DialogHeader>
           <DialogTitle>ユーザーを招待</DialogTitle>
           <DialogDescription>
-            指定したメールアドレスとパスワードでログインできるユーザーを作成します。
+            指定したメールアドレスでログインできるユーザーを作成します。初期パスワードを空欄にすると一時パスワードを発行し、
+            本人は初回ログイン時に新しいパスワードを設定します。
           </DialogDescription>
         </DialogHeader>
 
@@ -151,7 +157,7 @@ export function UserInviteDialog({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="invite-password">初期パスワード</Label>
+              <Label htmlFor="invite-password">初期パスワード（任意）</Label>
               <Input
                 id="invite-password"
                 type="password"
@@ -160,7 +166,8 @@ export function UserInviteDialog({
                 {...register("password")}
               />
               <p className="text-xs text-muted-foreground">
-                8文字以上で、大文字・小文字・数字をそれぞれ1文字以上含めてください。
+                空欄なら一時パスワードを発行します（メール送信が有効な環境では本人にメールで届きます）。
+                指定する場合は8文字以上で、大文字・小文字・数字をそれぞれ1文字以上含めてください。
               </p>
               <FormFieldError message={errors.password?.message} />
             </div>

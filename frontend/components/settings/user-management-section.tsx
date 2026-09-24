@@ -71,7 +71,12 @@ export function UserManagementSection() {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [pendingDeactivate, setPendingDeactivate] = useState<User | null>(null)
   const [pendingReset, setPendingReset] = useState<User | null>(null)
-  const [issuedPassword, setIssuedPassword] = useState<{ user: User; password: string } | null>(null)
+  // メールで届けられなかった一時パスワード（#89）。kind は発行の理由（招待 / 再発行）
+  const [issuedPassword, setIssuedPassword] = useState<{
+    kind: "invite" | "reset"
+    user: Pick<User, "name" | "email">
+    password: string
+  } | null>(null)
 
   // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
   const {
@@ -138,12 +143,19 @@ export function UserManagementSection() {
     }
   }
 
-  /** 一時パスワードの発行（#89）。発行したパスワードはダイアログで1回だけ見せる */
+  /**
+   * 一時パスワードの発行（#89）。メールで本人に届いたらその旨だけ伝え、
+   * 届けられなかったとき（メール送信が無効・失敗）はダイアログで1回だけ見せる
+   */
   const resetPassword = async (target: User) => {
     setUpdatingId(target.id)
     try {
-      const { temporaryPassword } = await api.resetUserPassword(target.id)
-      setIssuedPassword({ user: target, password: temporaryPassword })
+      const { emailSent, temporaryPassword } = await api.resetUserPassword(target.id)
+      if (emailSent || !temporaryPassword) {
+        toast.success(`${target.name} に一時パスワードをメールで送信しました`)
+      } else {
+        setIssuedPassword({ kind: "reset", user: target, password: temporaryPassword })
+      }
     } catch (err) {
       toast.error(err instanceof ApiClientError ? err.message : "一時パスワードの発行に失敗しました")
     } finally {
@@ -174,17 +186,27 @@ export function UserManagementSection() {
   const handleInvite = async (values: InviteFormValues) => {
     setInviting(true)
     try {
-      await api.registerUser({
+      const created = await api.registerUser({
         email: values.email.trim(),
         name: values.name.trim(),
-        password: values.password,
+        // 空欄なら送らない（招待として一時パスワードを発行する — #89）
+        ...(values.password !== "" && { password: values.password }),
         role: values.role,
         ...(values.hotelId !== NO_HOTEL_VALUE && { hotelId: values.hotelId }),
       })
-      toast.success("ユーザーを招待しました", {
-        description: "初期パスワードを本人に共有してください。",
-      })
       setInviteOpen(false)
+      const invitation = created.invitation
+      if (!invitation) {
+        toast.success("ユーザーを招待しました", {
+          description: "初期パスワードを本人に共有してください。",
+        })
+      } else if (invitation.emailSent || !invitation.temporaryPassword) {
+        toast.success("ユーザーを招待しました", {
+          description: `${created.email} に一時パスワードをメールで送信しました。`,
+        })
+      } else {
+        setIssuedPassword({ kind: "invite", user: created, password: invitation.temporaryPassword })
+      }
       await load()
     } catch (err) {
       toast.error(err instanceof ApiClientError ? err.message : "ユーザーの招待に失敗しました")
@@ -395,10 +417,13 @@ export function UserManagementSection() {
       <Dialog open={issuedPassword !== null} onOpenChange={(open) => !open && setIssuedPassword(null)}>
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
-            <DialogTitle>一時パスワードを発行しました</DialogTitle>
+            <DialogTitle>
+              {issuedPassword?.kind === "invite" ? "ユーザーを招待しました" : "一時パスワードを発行しました"}
+            </DialogTitle>
             <DialogDescription>
-              {issuedPassword?.user.name}（{issuedPassword?.user.email}）に、次のパスワードを安全な方法で伝えてください。
-              この画面を閉じると再表示できません。
+              {issuedPassword?.user.name}（{issuedPassword?.user.email}）に、次の一時パスワードを安全な方法で伝えてください。
+              本人は初回ログイン時に新しいパスワードを設定します。この画面を閉じると再表示できません
+              （メール送信が設定されていない、または送信に失敗したため画面に表示しています）。
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2">

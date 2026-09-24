@@ -900,6 +900,19 @@ describeIntegration('API 統合テスト', () => {
       }
     })
 
+    it('取得状況（#9 段階C）は自ホテルなら見られ、他テナントのホテルは 403', async () => {
+      const own = await request(app)
+        .get(`/api/v1/settings/competitors/fetch-status?hotelId=${HOTEL_A}`)
+        .set('Authorization', `Bearer ${tokens.operator}`)
+      expect(own.status, JSON.stringify(own.body)).toBe(200)
+      expect(Array.isArray(own.body.data)).toBe(true)
+
+      const other = await request(app)
+        .get(`/api/v1/settings/competitors/fetch-status?hotelId=${HOTEL_B}`)
+        .set('Authorization', `Bearer ${tokens.admin}`)
+      expect(other.status).toBe(403)
+    })
+
     it('OTA URL が URL 形式でなければ 400', async () => {
       const res = await request(app)
         .post('/api/v1/settings/competitors')

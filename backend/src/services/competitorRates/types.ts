@@ -39,4 +39,9 @@ export interface FetchedRate {
 export interface CompetitorRateSource {
   key: CompetitorPriceSourceKey
   fetch(target: FetchTarget, stayDates: string[]): Promise<FetchedRate[]>
+  /**
+   * 1ホテルの競合をまとめて取る（任意）。API が複数施設を1回で返す取得元（楽天の空室検索など）は
+   * これを実装するとリクエスト数を減らせる。実装があれば fetch より優先する。戻り値のキーは competitorId
+   */
+  fetchBatch?(targets: FetchTarget[], stayDates: string[]): Promise<Map<string, FetchedRate[]>>
 }

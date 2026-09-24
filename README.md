@@ -527,7 +527,9 @@ TRUST_PROXY=1
 
 - `POST /api/v1/auth/login` - ログイン（JWTアクセストークン・リフレッシュトークン発行。専用のレート制限あり）
 - `POST /api/v1/auth/refresh` - リフレッシュトークンによるアクセストークン再発行（ローテーション）
-- `POST /api/v1/auth/register` - ユーザー登録（**ADMIN / MANAGER**。作成先テナントは常に作成者のテナント。運営ロールを付与できるのは運営のみ）
+- `POST /api/v1/auth/register` - ユーザー登録（**ADMIN / MANAGER**。作成先テナントは常に作成者のテナント。運営ロールを付与できるのは運営のみ）。
+  `password` を省略すると招待になり、一時パスワードを発行して初回ログインで変更させる。メール送信（`MAIL_DRIVER=smtp`）が有効なら本人にメールで届け、
+  無効・失敗ならレスポンスの `invitation.temporaryPassword` で作成者に1回だけ返す（#89）
 - `POST /api/v1/auth/logout` - ログアウト（該当リフレッシュトークンを無効化）
 - `POST /api/v1/auth/logout-all` - 全セッションログアウト
 - `GET /api/v1/auth/me` - ログイン中ユーザー情報取得
@@ -595,7 +597,7 @@ TRUST_PROXY=1
 ユーザー管理（一覧・更新・一時パスワード・登録）は、ホテルに所属する利用者（`hotelId` あり）の場合は自ホテルのユーザーに限る。
 他ホテルのユーザーとテナント全体を見るユーザーは存在しない扱い（404）で、他ホテルへの登録は 403（#79）。
 - `PUT /api/v1/users/:id` - ユーザーの氏名・ロール・有効/無効を更新（**自テナントのADMIN / MANAGER**。運営ロールの付与は運営のみ。自分自身の無効化・ロール変更は不可）
-- `POST /api/v1/users/:id/reset-password` - 一時パスワードの発行（**自テナントのADMIN / MANAGER**。MANAGER は ADMIN を対象にできない。一時パスワードはレスポンスで1回だけ返す — #89）
+- `POST /api/v1/users/:id/reset-password` - 一時パスワードの発行（**自テナントのADMIN / MANAGER**。MANAGER は ADMIN を対象にできない。メール送信が有効なら本人にメールで届け、届けられなかったときだけレスポンスで1回だけ返す — #89）
 
 ### Audit logs (`backend/src/routes/auditLogs.ts`)
 
@@ -605,7 +607,7 @@ TRUST_PROXY=1
 
 - `POST /api/v1/imports/daily-data` - 日次実績の一括取り込み（**MANAGER以上**、1,000行まで、`dryRun` 対応。1行でも不正なら何も書き込まない — #82）
 - `POST /api/v1/imports/competitor-prices` - 競合価格の一括取り込み（**MANAGER以上**、5,000行まで。同じ競合・同じ日は人数ごとの最安値にまとめる — #9）。
-  自前の取得（クローラ）もこの API に書き込む
+  自前の取得（クローラ）もこの API に書き込む。代表値が10%以上動いた日・新たに満室になった日があれば、競合ごとにアラートを作る（#9 段階C）
 - `POST /api/v1/imports/otb` - その時点の予約積上室数（OTB）の取り込み（**MANAGER以上**、1,000行まで — #24 E2）。
   提供側が毎日自動で呼ぶ（運営のアカウントでも実行できる）
 
@@ -626,6 +628,7 @@ TRUST_PROXY=1
 - `GET /api/v1/settings/budgets` - 月次予算の取得（`hotelId`, `year`。12か月分を返す）
 - `PUT /api/v1/settings/budgets` - 月次予算の年単位一括更新（**MANAGER以上**）
 - `GET /api/v1/settings/competitors` - 競合ホテル一覧（`hotelId`）
+- `GET /api/v1/settings/competitors/fetch-status` - 競合価格の取得状況（`hotelId`。取得元ごとの最後の取得・最後の成功・連続失敗の回数 — #9 段階C）
 - `POST /api/v1/settings/competitors` - 競合ホテル登録（**MANAGER以上**、1ホテルあたり最大5件）
 - `PUT /api/v1/settings/competitors/:id` - 競合ホテル更新（**MANAGER以上**）
 - `DELETE /api/v1/settings/competitors/:id` - 競合ホテル削除（**MANAGER以上**、論理削除）
@@ -644,10 +647,13 @@ TRUST_PROXY=1
   4. アラートの自動生成と解決（着地予測が予算の95%未満 → Level 4、90%未満 → Level 5、14日以内の高需要日 → Level 4。閾値は #19 の確定までの暫定値）
   5. 期限切れリフレッシュトークンの削除
 - 1ホテルでも失敗すると**終了コード 1** で終わる。スケジューラ側で失敗として通知すること
-- `pnpm --filter backend job:competitor-prices`（本番コンテナは `job competitor-prices`）— 競合価格の定期取得（#9 段階B）。
+- `pnpm --filter backend job:competitor-prices`（本番コンテナは `job competitor-prices`）— 競合価格の定期取得と変動の監視（#9 段階B・C）。
   登録済みの取得元（`services/competitorRates/sources.ts`）を、設定タブで URL を登録した競合に対して呼び、
-  取得元ごとの観測値と代表値を保存する。**取得元はまだ登録していない**ので、今は何もせずに終わる（競合価格は CSV で取り込む）。
-  日次バッチより前（JST 3:00 目安）に実行する。取得元が1つでも失敗すると終了コード 1、同じ取得元の2回連続の失敗は「連続失敗」とログに出す
+  取得元ごとの観測値と代表値を保存する。代表値が10%以上動いた日（60日先まで）・新たに満室になった日があれば、競合ごとにアラートを作る
+  （14日以内の変化は Level 4 でダッシュボードに出る）。
+  登録済みの取得元は**楽天トラベル（公式の空室検索 API。`RAKUTEN_APPLICATION_ID` を設定したときだけ）**。ほかのサイトは CSV で取り込む。
+  監視のため1日4回（JST 3:00・9:00・15:00・21:00 目安）実行する。取得元が1つでも失敗すると終了コード 1、同じ取得元の2回連続の失敗は「連続失敗」とログに出す。
+  取得状況は設定タブの「競合価格の取得状況」で見られる
 
 1日1回（JST の早朝を推奨）実行する。スケジューラはクラウドを問わない。設定例:
 

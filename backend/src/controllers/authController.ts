@@ -11,6 +11,7 @@ import {
   changePasswordService,
 } from '../services/authService.js'
 import type { ChangePasswordInput, LoginInput, RegisterInput } from '../lib/validators.js'
+import { sendTemporaryPasswordMail } from '../services/accountMailService.js'
 
 function requestContext(req: Request) {
   return {
@@ -41,8 +42,23 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
     role: req.user!.role,
     hotelId: req.user!.hotelId,
   }
-  const result = await registerService(input, createdBy, requestContext(req))
-  sendCreated(res, result, 'ユーザーを登録しました')
+  const { user, temporaryPassword } = await registerService(input, createdBy, requestContext(req))
+  if (temporaryPassword === null) {
+    sendCreated(res, { ...user, invitation: null }, 'ユーザーを登録しました')
+    return
+  }
+  // 招待（#89）: メールで届けられたら一時パスワードは返さない。届けられなければ作成者に1回だけ見せる
+  const emailSent = await sendTemporaryPasswordMail({
+    kind: 'invite',
+    to: user.email,
+    name: user.name,
+    temporaryPassword,
+  })
+  sendCreated(
+    res,
+    { ...user, invitation: { emailSent, temporaryPassword: emailSent ? null : temporaryPassword } },
+    emailSent ? '招待メールを送信しました' : 'ユーザーを登録しました（一時パスワードを本人に伝えてください）'
+  )
 })
 
 /**
