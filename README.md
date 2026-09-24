@@ -527,7 +527,9 @@ TRUST_PROXY=1
 
 - `POST /api/v1/auth/login` - ログイン（JWTアクセストークン・リフレッシュトークン発行。専用のレート制限あり）
 - `POST /api/v1/auth/refresh` - リフレッシュトークンによるアクセストークン再発行（ローテーション）
-- `POST /api/v1/auth/register` - ユーザー登録（**ADMIN / MANAGER**。作成先テナントは常に作成者のテナント。運営ロールを付与できるのは運営のみ）
+- `POST /api/v1/auth/register` - ユーザー登録（**ADMIN / MANAGER**。作成先テナントは常に作成者のテナント。運営ロールを付与できるのは運営のみ）。
+  `password` を省略すると招待になり、一時パスワードを発行して初回ログインで変更させる。メール送信（`MAIL_DRIVER=smtp`）が有効なら本人にメールで届け、
+  無効・失敗ならレスポンスの `invitation.temporaryPassword` で作成者に1回だけ返す（#89）
 - `POST /api/v1/auth/logout` - ログアウト（該当リフレッシュトークンを無効化）
 - `POST /api/v1/auth/logout-all` - 全セッションログアウト
 - `GET /api/v1/auth/me` - ログイン中ユーザー情報取得
@@ -595,7 +597,7 @@ TRUST_PROXY=1
 ユーザー管理（一覧・更新・一時パスワード・登録）は、ホテルに所属する利用者（`hotelId` あり）の場合は自ホテルのユーザーに限る。
 他ホテルのユーザーとテナント全体を見るユーザーは存在しない扱い（404）で、他ホテルへの登録は 403（#79）。
 - `PUT /api/v1/users/:id` - ユーザーの氏名・ロール・有効/無効を更新（**自テナントのADMIN / MANAGER**。運営ロールの付与は運営のみ。自分自身の無効化・ロール変更は不可）
-- `POST /api/v1/users/:id/reset-password` - 一時パスワードの発行（**自テナントのADMIN / MANAGER**。MANAGER は ADMIN を対象にできない。一時パスワードはレスポンスで1回だけ返す — #89）
+- `POST /api/v1/users/:id/reset-password` - 一時パスワードの発行（**自テナントのADMIN / MANAGER**。MANAGER は ADMIN を対象にできない。メール送信が有効なら本人にメールで届け、届けられなかったときだけレスポンスで1回だけ返す — #89）
 
 ### Audit logs (`backend/src/routes/auditLogs.ts`)
 
