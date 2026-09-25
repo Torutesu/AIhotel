@@ -26,7 +26,9 @@ import type {
 import {
   mockDashboardKpi, mockAlerts, mockAiSummary, mockPricingCalendar, mockBookingCurve,
   mockCompetitorPrices, mockMonthlyTrend, mockCompetitorAnalysis, getMockPriceRanks, mockStrategy,
-  setMockStrategy, setMockEvents, getMockEvents
+  setMockStrategy, setMockEvents, getMockEvents, mockKpiSnapshots, mockPricingSimulation, mockBudgetYear,
+  mockCompetitorSettings, mockUsers, mockReviewScores, updateMockAlertStatus, getMockDashboardPreference,
+  setMockDashboardPreference
 } from "./demo-data"
 import { adminEndpoints } from "./admin"
 import { analysisEndpoints } from "./analysis"
@@ -148,8 +150,12 @@ export const api = {
     baseDate?: string
   ): Promise<KpiSnapshot[]> {
     const baseDateParam = baseDate ? `&baseDate=${baseDate}` : ""
-    return rawRequest(
-      `/api/v1/dashboard/kpi/comparison?hotelId=${hotelId}&year=${year}&month=${month}${baseDateParam}`
+    return withDemoFallback(
+      () =>
+        rawRequest(
+          `/api/v1/dashboard/kpi/comparison?hotelId=${hotelId}&year=${year}&month=${month}${baseDateParam}`
+        ),
+      () => mockKpiSnapshots(hotelId, year, month, baseDate)
     )
   },
 
@@ -218,7 +224,10 @@ export const api = {
    * 行が無い月は simulation が null で返る。フロントエンドで平均値を捏造しないこと。
    */
   pricingSimulation(hotelId: string, year: number, month: number): Promise<PricingSimulation> {
-    return rawRequest(`/api/v1/pricing/simulation?hotelId=${hotelId}&year=${year}&month=${month}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/simulation?hotelId=${hotelId}&year=${year}&month=${month}`),
+      () => mockPricingSimulation(hotelId, year, month)
+    )
   },
 
   /**
@@ -421,7 +430,10 @@ export const api = {
 
   /** 年単位の月次予算。未登録の月も budget: null で必ず12件返る */
   budgets(hotelId: string, year: number): Promise<BudgetYear> {
-    return rawRequest(`/api/v1/settings/budgets?hotelId=${hotelId}&year=${year}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/budgets?hotelId=${hotelId}&year=${year}`),
+      () => mockBudgetYear(hotelId, year)
+    )
   },
 
   /**
@@ -439,12 +451,18 @@ export const api = {
 
   /** 競合ホテル一覧（有効なもののみ。最大5件） */
   competitorSettings(hotelId: string): Promise<CompetitorSetting[]> {
-    return rawRequest(`/api/v1/settings/competitors?hotelId=${hotelId}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/competitors?hotelId=${hotelId}`),
+      () => mockCompetitorSettings(hotelId)
+    )
   },
 
   /** 競合価格の取得状況（取得元ごとの最後の実行・最後の成功・連続失敗 — #9 段階C） */
   competitorFetchStatus(hotelId: string): Promise<CompetitorFetchSourceStatus[]> {
-    return rawRequest(`/api/v1/settings/competitors/fetch-status?hotelId=${hotelId}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/competitors/fetch-status?hotelId=${hotelId}`),
+      () => []
+    )
   },
 
   /** 競合ホテルの追加（MANAGER以上）。6件目は 400 になる */
@@ -479,7 +497,10 @@ export const api = {
 
   /** 同一テナントのユーザー一覧（ADMIN / MANAGER のみ。OPERATOR は 403） */
   users(hotelId: string): Promise<User[]> {
-    return rawRequest(`/api/v1/users?hotelId=${hotelId}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/users?hotelId=${hotelId}`),
+      () => mockUsers(hotelId)
+    )
   },
 
   /** ユーザーの名前・ロール・有効/無効の変更（自テナント内の ADMIN / MANAGER。運営ロールの付与は運営のみ） */
@@ -509,17 +530,29 @@ export const api = {
     hotelId: string,
     status: UpdateAlertStatusRequest["status"]
   ): Promise<AlertItem> {
-    return rawRequest(`/api/v1/dashboard/alerts/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ hotelId, status }),
-    })
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/dashboard/alerts/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ hotelId, status }),
+        }),
+      () => {
+        // デモ時はメモリ上のアラートの状態を変え、確認済み・解決済みの操作を画面で確かめられるようにする
+        const updated = updateMockAlertStatus(id, status)
+        if (!updated) throw new ApiClientError(404, "アラートが見つかりません")
+        return updated
+      }
+    )
   },
 
   // ---- 口コミ評価点（X-6 / N-7 / F-ANA-04） ----
 
   /** OTA別の口コミ評価点（取得日の降順・最大50件） */
   reviewScores(hotelId: string): Promise<ReviewScore[]> {
-    return rawRequest(`/api/v1/analysis/reviews?hotelId=${hotelId}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/reviews?hotelId=${hotelId}`),
+      () => mockReviewScores(hotelId)
+    )
   },
 
   // ---- KPIスナップショット取得（X-7 / N-5） ----
@@ -539,7 +572,10 @@ export const api = {
 
   /** 自分の表示設定を取得する。未保存ならバックエンドが既定値を返す */
   getPreferences(hotelId: string): Promise<UserPreferences> {
-    return rawRequest(`/api/v1/preferences?hotelId=${hotelId}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/preferences?hotelId=${hotelId}`),
+      () => ({ hotelId, dashboard: getMockDashboardPreference() })
+    )
   },
 
   /** 自分の表示設定を保存する（ロール不問。他人の設定には影響しない） */
@@ -547,9 +583,13 @@ export const api = {
     hotelId: string,
     dashboard: DashboardPreference
   ): Promise<UserPreferences> {
-    return rawRequest("/api/v1/preferences", {
-      method: "PUT",
-      body: JSON.stringify({ hotelId, dashboard }),
-    })
+    return withDemoFallback(
+      () =>
+        rawRequest("/api/v1/preferences", {
+          method: "PUT",
+          body: JSON.stringify({ hotelId, dashboard }),
+        }),
+      () => ({ hotelId, dashboard: setMockDashboardPreference(dashboard) })
+    )
   },
 }

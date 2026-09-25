@@ -5,7 +5,8 @@
 import type {
   HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem, TemporaryPasswordResult
 } from "@shared/types"
-import { rawBinaryRequest, rawRequest, type BinaryDownload } from "./client"
+import { rawBinaryRequest, rawRequest, withDemoFallback, type BinaryDownload } from "./client"
+import { mockAuditLogs, mockRoomTypes } from "./demo-data"
 import type { CompetitorPriceCsvRow, OtbCsvRow } from "@/lib/import-csv"
 import type {
   CopyableSettingsItem, HotelIntegration, HotelIntegrationInput, IntegrationKind, SetupWorkbookResult
@@ -65,7 +66,10 @@ export const adminEndpoints = {
 
   /** 連携先（PMS・サイトコントローラー）の記録 */
   integrations(hotelId: string): Promise<HotelIntegration[]> {
-    return rawRequest(`/api/v1/settings/integrations?hotelId=${hotelId}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/integrations?hotelId=${hotelId}`),
+      () => []
+    )
   },
 
   saveIntegration(input: HotelIntegrationInput & { hotelId: string }): Promise<HotelIntegration> {
@@ -121,7 +125,10 @@ export const adminEndpoints = {
   },
 
   roomTypes(hotelId: string): Promise<RoomType[]> {
-    return rawRequest(`/api/v1/settings/room-types?hotelId=${hotelId}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/settings/room-types?hotelId=${hotelId}`),
+      () => mockRoomTypes(hotelId)
+    )
   },
 
   /** 部屋タイプの登録（MANAGER 以上）。削除済みの同じコードは復活する */
@@ -175,6 +182,9 @@ export const adminEndpoints = {
   }): Promise<{ items: AuditLogItem[]; nextCursor: string | null }> {
     const query = new URLSearchParams()
     for (const [key, value] of Object.entries(params)) if (value) query.set(key, value)
-    return rawRequest(`/api/v1/audit-logs?${query.toString()}`)
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/audit-logs?${query.toString()}`),
+      () => mockAuditLogs(params.action)
+    )
   },
 }

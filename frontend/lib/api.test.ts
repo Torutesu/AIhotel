@@ -265,3 +265,84 @@ describe("エラー変換", () => {
     await expect(api.hotels()).rejects.toThrow("このホテルへのアクセス権がありません")
   })
 })
+
+describe("デモモード（バックエンド未接続）", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true")
+    vi.stubGlobal("fetch", vi.fn(async () => proxyUnreachable()))
+  })
+
+  it("画面が読み込む API はすべてサンプルで返り、エラーにならない", async () => {
+    const hotelId = "demo-hotel-001"
+    const reads: Array<[string, () => Promise<unknown>]> = [
+      ["hotels", () => api.hotels()],
+      ["dashboardKpi", () => api.dashboardKpi(hotelId, 2026, 9)],
+      ["kpiComparison", () => api.kpiComparison(hotelId, 2026, 9)],
+      ["alerts", () => api.alerts(hotelId, 4)],
+      ["aiSummary", () => api.aiSummary(hotelId)],
+      ["pricingCalendar", () => api.pricingCalendar(hotelId, 2026, 9)],
+      ["pricingStrategy", () => api.pricingStrategy(hotelId)],
+      ["pricingLocks", () => api.pricingLocks(hotelId)],
+      ["pricingSimulation", () => api.pricingSimulation(hotelId, 2026, 9)],
+      ["events", () => api.events(hotelId)],
+      ["bookingCurve", () => api.bookingCurve(hotelId, "2026-09-10")],
+      ["competitorPrices", () => api.competitorPrices(hotelId, "2026-09-01", "2026-09-30")],
+      ["monthlyTrend", () => api.monthlyTrend(hotelId, 2026)],
+      ["competitorAnalysis", () => api.competitorAnalysis(hotelId, "2026-09-01", "2026-09-30")],
+      ["channelBreakdown", () => api.channelBreakdown(hotelId, 2026, 9)],
+      ["roomTypeBreakdown", () => api.roomTypeBreakdown(hotelId, 2026, 9)],
+      ["dayOfWeekBreakdown", () => api.dayOfWeekBreakdown(hotelId, 2026, 9)],
+      ["reviewScores", () => api.reviewScores(hotelId)],
+      ["priceRanks", () => api.priceRanks(hotelId)],
+      ["hotelSetupStatus", () => api.hotelSetupStatus(hotelId)],
+      ["budgets", () => api.budgets(hotelId, 2026)],
+      ["competitorSettings", () => api.competitorSettings(hotelId)],
+      ["competitorFetchStatus", () => api.competitorFetchStatus(hotelId)],
+      ["users", () => api.users(hotelId)],
+      ["integrations", () => api.integrations(hotelId)],
+      ["roomTypes", () => api.roomTypes(hotelId)],
+      ["auditLogs", () => api.auditLogs({ hotelId })],
+      ["getPreferences", () => api.getPreferences(hotelId)],
+    ]
+    for (const [name, read] of reads) {
+      await expect(read(), name).resolves.toBeDefined()
+    }
+  })
+
+  it("サンプルの内訳は月の実績と合う（曜日別の販売室数の合計＝月の販売室数）", async () => {
+    const kpi = await api.dashboardKpi("demo-hotel-001", 2026, 8)
+    const byDay = await api.dayOfWeekBreakdown("demo-hotel-001", 2026, 8)
+    expect(byDay.days).toHaveLength(7)
+    expect(byDay.days.reduce((sum, d) => sum + d.soldRooms, 0)).toBe(kpi.summary.soldRooms)
+    const budgets = await api.budgets("demo-hotel-001", 2026)
+    expect(budgets.months).toHaveLength(12)
+  })
+
+  it("アラートを解決済みにすると一覧から外れる", async () => {
+    const before = await api.alerts("demo-hotel-001", 4)
+    const target = before[0]
+    const updated = await api.updateAlertStatus(target.id, "demo-hotel-001", "RESOLVED")
+    expect(updated.status).toBe("RESOLVED")
+    const after = await api.alerts("demo-hotel-001", 4)
+    expect(after.map((a) => a.id)).not.toContain(target.id)
+  })
+
+  it("サンプルを用意していない保存は、デモ表示中で保存できないことを伝える", async () => {
+    await expect(api.saveBudgets({ hotelId: "demo-hotel-001", year: 2026, months: [] })).rejects.toThrow(
+      "デモ表示中のため保存できません"
+    )
+  })
+
+  it("ファイル出力は、デモ表示中で出力できないことを伝える", async () => {
+    await expect(api.monthlyReport("demo-hotel-001", 2026, 9, "pdf")).rejects.toThrow(
+      "デモ表示中のためファイルを出力できません"
+    )
+  })
+
+  it("デモモードが無効なら保存の失敗は従来どおり「バックエンドに接続できません」", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "")
+    await expect(api.saveBudgets({ hotelId: "demo-hotel-001", year: 2026, months: [] })).rejects.toThrow(
+      "バックエンドに接続できません"
+    )
+  })
+})

@@ -177,6 +177,24 @@ export function mockLogin(email: string, password: string): LoginResult {
   }
 }
 
+const BACKEND_UNREACHABLE_MESSAGE = "バックエンドに接続できません"
+/** デモ表示中（バックエンド未接続）に保存・出力しようとしたときの案内 */
+export const DEMO_WRITE_MESSAGE = "デモ表示中のため保存できません（画面のデータはサンプルです）"
+export const DEMO_DOWNLOAD_MESSAGE = "デモ表示中のためファイルを出力できません（画面のデータはサンプルです）"
+
+/**
+ * バックエンドに到達できなかったときの例外。
+ * デモ表示中は、サンプルを用意していない保存・出力で「接続できません」と出すと故障に見えるため、理由を伝える文言にする。
+ * デモ用の代わりの処理（withDemoFallback）がある操作は isBackendUnreachable を見てそちらに切り替わる
+ */
+function backendUnreachableError(demoMessage: string | null): ApiClientError {
+  return new ApiClientError(
+    0,
+    isDemoModeEnabled() && demoMessage ? demoMessage : BACKEND_UNREACHABLE_MESSAGE,
+    true
+  )
+}
+
 export async function withDemoFallback<T>(request: () => Promise<T>, fallback: () => T): Promise<T> {
   try {
     return await request()
@@ -190,6 +208,10 @@ export async function withDemoFallback<T>(request: () => Promise<T>, fallback: (
 }
 
 // ---- Core request ----
+
+function isWriteMethod(method: string | undefined): boolean {
+  return method != null && method.toUpperCase() !== "GET" && method.toUpperCase() !== "HEAD"
+}
 
 export async function rawRequest<T>(
   path: string,
@@ -208,11 +230,11 @@ export async function rawRequest<T>(
       },
     })
   } catch {
-    throw new ApiClientError(0, "バックエンドに接続できません", true)
+    throw backendUnreachableError(isWriteMethod(options.method) ? DEMO_WRITE_MESSAGE : null)
   }
   // 中継（app/api/[...path]/route.ts）は到達できないときも JSON の 502 を返すので、目印のヘッダーで判定する
   if (isBackendUnreachableResponse(res)) {
-    throw new ApiClientError(0, "バックエンドに接続できません", true)
+    throw backendUnreachableError(isWriteMethod(options.method) ? DEMO_WRITE_MESSAGE : null)
   }
 
   // ログイン自体の 401（認証情報の誤り）はリフレッシュ対象外
@@ -262,11 +284,11 @@ export async function rawBinaryRequest(path: string, retryOn401 = true): Promise
       headers: { ...(token && { Authorization: `Bearer ${token}` }) },
     })
   } catch {
-    throw new ApiClientError(0, "バックエンドに接続できません", true)
+    throw backendUnreachableError(DEMO_DOWNLOAD_MESSAGE)
   }
   // 中継（app/api/[...path]/route.ts）は到達できないときも JSON の 502 を返すので、目印のヘッダーで判定する
   if (isBackendUnreachableResponse(res)) {
-    throw new ApiClientError(0, "バックエンドに接続できません", true)
+    throw backendUnreachableError(DEMO_DOWNLOAD_MESSAGE)
   }
 
   if (res.status === 401 && retryOn401) {
