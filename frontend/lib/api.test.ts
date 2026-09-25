@@ -16,17 +16,24 @@ function ok(data: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: new Headers(),
     json: async () => ({ success: true, data }),
   } as Response
 }
 
 /** `{success: false, error}` のエンベロープを返す Response */
-function fail(status: number, error = "エラー"): Response {
+function fail(status: number, error = "エラー", headers: HeadersInit = {}): Response {
   return {
     ok: false,
     status,
+    headers: new Headers(headers),
     json: async () => ({ success: false, error }),
   } as Response
+}
+
+/** API 中継（app/api/[...path]/route.ts）がバックエンドに到達できなかったときの Response */
+function proxyUnreachable(): Response {
+  return fail(502, "バックエンドに接続できません", { "x-backend-unreachable": "1" })
 }
 
 const TOKENS = { accessToken: "new-access", refreshToken: "new-refresh" }
@@ -168,6 +175,20 @@ describe("アクセストークンのリフレッシュ（single-flight — F-2�
     window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
   })
 
+  it("中継がバックエンド到達不能を返したリフレッシュでもトークンを破棄しない", async () => {
+    const onExpired = vi.fn()
+    window.addEventListener(AUTH_EXPIRED_EVENT, onExpired)
+    fetchMock.mockImplementation(async (url: string) =>
+      url.includes("/auth/refresh") ? proxyUnreachable() : fail(401)
+    )
+
+    await expect(api.hotels()).rejects.toBeInstanceOf(ApiClientError)
+
+    expect(onExpired).not.toHaveBeenCalled()
+    expect(getRefreshToken()).toBe("valid-refresh")
+    window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
+  })
+
   it("ログイン自体の 401 はリフレッシュせずそのまま失敗させる", async () => {
     const paths: string[] = []
     fetchMock.mockImplementation(async (url: string) => {
@@ -195,6 +216,37 @@ describe("エラー変換", () => {
     expect(error).toBeInstanceOf(ApiClientError)
     expect((error as ApiClientError).isBackendUnreachable).toBe(true)
     expect((error as ApiClientError).status).toBe(0)
+  })
+
+  it("中継がバックエンド到達不能を返した場合も isBackendUnreachable を立てる", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => proxyUnreachable()))
+    const error = await api.hotels().catch((e) => e)
+    expect(error).toBeInstanceOf(ApiClientError)
+    expect((error as ApiClientError).isBackendUnreachable).toBe(true)
+  })
+
+  it("バックエンド自身が返した 502 は到達不能として扱わない", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => fail(502, "上流のエラー")))
+    const error = await api.hotels().catch((e) => e)
+    expect(error).toBeInstanceOf(ApiClientError)
+    expect((error as ApiClientError).isBackendUnreachable).toBe(false)
+    expect((error as ApiClientError).message).toBe("上流のエラー")
+  })
+
+  it("デモモードでは中継がバックエンド到達不能を返したときにデモのログインへ切り替える", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true")
+    vi.stubGlobal("fetch", vi.fn(async () => proxyUnreachable()))
+    const result = await api.login("admin@demo-hotel.example.com", "Admin1234")
+    expect(result.user.role).toBe("ADMIN")
+    await expect(api.hotels()).resolves.toEqual([expect.objectContaining({ id: "demo-hotel-001" })])
+  })
+
+  it("デモモードが無効なら中継の到達不能はそのままエラーにする", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "")
+    vi.stubGlobal("fetch", vi.fn(async () => proxyUnreachable()))
+    await expect(api.login("admin@demo-hotel.example.com", "Admin1234")).rejects.toThrow(
+      "バックエンドに接続できません"
+    )
   })
 
   it("デモモードが無効ならモックへフォールバックせずエラーを投げる", async () => {

@@ -11,6 +11,7 @@ import type {
   UserRole,
   HotelDto as Hotel,
 } from "@shared/types"
+import { isBackendUnreachableResponse } from "../backend-unreachable"
 import {
   LoginResult,
 } from "./types"
@@ -24,7 +25,7 @@ export const BASE_URL = ""
 
 export class ApiClientError extends Error {
   status: number
-  /** バックエンド自体に到達できなかった（接続失敗/非JSON応答）場合のみ true。開発用モックログインの発火条件に使う。 */
+  /** バックエンド自体に到達できなかった（接続失敗/中継が到達不能を返した/非JSON応答）場合のみ true。デモモードのフォールバックの発火条件に使う。 */
   isBackendUnreachable: boolean
   /** 項目ごとのエラー（バリデーションエラー時の `errors`）。取り込みの行番号表示などに使う（#82） */
   fieldErrors: Array<{ field: string; message: string }>
@@ -209,6 +210,10 @@ export async function rawRequest<T>(
   } catch {
     throw new ApiClientError(0, "バックエンドに接続できません", true)
   }
+  // 中継（app/api/[...path]/route.ts）は到達できないときも JSON の 502 を返すので、目印のヘッダーで判定する
+  if (isBackendUnreachableResponse(res)) {
+    throw new ApiClientError(0, "バックエンドに接続できません", true)
+  }
 
   // ログイン自体の 401（認証情報の誤り）はリフレッシュ対象外
   if (res.status === 401 && retryOn401 && !path.startsWith("/api/v1/auth/login")) {
@@ -257,6 +262,10 @@ export async function rawBinaryRequest(path: string, retryOn401 = true): Promise
       headers: { ...(token && { Authorization: `Bearer ${token}` }) },
     })
   } catch {
+    throw new ApiClientError(0, "バックエンドに接続できません", true)
+  }
+  // 中継（app/api/[...path]/route.ts）は到達できないときも JSON の 502 を返すので、目印のヘッダーで判定する
+  if (isBackendUnreachableResponse(res)) {
     throw new ApiClientError(0, "バックエンドに接続できません", true)
   }
 
@@ -324,6 +333,8 @@ export async function performRefresh(refreshToken: string): Promise<boolean> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
     })
+    // 中継がバックエンドに到達できなかっただけなら、下の catch と同じくトークンを破棄しない
+    if (isBackendUnreachableResponse(res)) return false
     const body = await res.json()
     if (res.ok && body.success && body.data?.tokens) {
       storeTokens(body.data.tokens.accessToken, body.data.tokens.refreshToken)
