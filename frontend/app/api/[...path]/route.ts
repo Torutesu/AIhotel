@@ -12,6 +12,7 @@
 
 import { type NextRequest } from 'next/server'
 
+import { BACKEND_UNREACHABLE_HEADER } from '@/lib/backend-unreachable'
 import { clientIpOptionsFromEnv, resolveClientIp } from '@/lib/client-ip'
 
 export const dynamic = 'force-dynamic'
@@ -43,7 +44,9 @@ const CLIENT_FORWARDING = new Set(['x-forwarded-for', 'x-real-ip', 'forwarded'])
 function filterHeaders(source: Headers): Headers {
   const out = new Headers()
   source.forEach((value, key) => {
-    if (!HOP_BY_HOP.has(key.toLowerCase())) out.append(key, value)
+    const lower = key.toLowerCase()
+    // 到達不能の目印はこの中継だけが付ける。上流の同名ヘッダーは中継しない
+    if (!HOP_BY_HOP.has(lower) && lower !== BACKEND_UNREACHABLE_HEADER) out.append(key, value)
   })
   return out
 }
@@ -83,9 +86,10 @@ async function proxy(request: NextRequest, path: string[]): Promise<Response> {
   } catch {
     // バックエンドに到達できない場合も API 契約どおりの JSON を返す。
     // これによりクライアント側は「サーバーエラー(502)」ではなく通常のエラー表示ができる。
+    // バックエンド自身のエラーと区別できるよう目印のヘッダーを付ける（デモモードの発動条件）
     return Response.json(
       { success: false, error: 'バックエンドに接続できません' },
-      { status: 502 }
+      { status: 502, headers: { [BACKEND_UNREACHABLE_HEADER]: '1' } }
     )
   }
 
