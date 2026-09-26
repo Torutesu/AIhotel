@@ -74,6 +74,21 @@ export const changePasswordSchema = z
     message: '現在と同じパスワードは使えません',
   })
 
+/**
+ * 最初の運営（PLATFORM_ADMIN）を作るジョブの入力（R-2-5 — `job create-platform-admin`）。
+ * 運営を作れるのは運営だけなので、本番に最初の1人を置く手段がこのジョブしか無い
+ */
+export const createPlatformAdminSchema = z.object({
+  email: z
+    .string({ required_error: 'メールアドレスは必須です' })
+    .trim()
+    .toLowerCase()
+    .email('有効なメールアドレスを入力してください'),
+  name: z.string({ required_error: '名前は必須です' }).trim().min(1, '名前は必須です').max(100),
+})
+
+export type CreatePlatformAdminInput = z.infer<typeof createPlatformAdminSchema>
+
 export const registerSchema = z.object({
   // メールアドレスは大文字小文字を区別しない（#44）。検索も登録も小文字で行う
   email: z.string().trim().toLowerCase().email('有効なメールアドレスを入力してください'),

@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "job:daily": "tsx src/jobs/daily.ts",
     "job:competitor-prices": "tsx src/jobs/competitor-prices.ts",
+    "job:create-platform-admin": "tsx src/jobs/create-platform-admin.ts",
     "type-check": "tsc --noEmit",
     "lint": "eslint src prisma",
     "test": "vitest run",

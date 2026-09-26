@@ -385,6 +385,49 @@ export async function registerService(
 }
 
 /**
+ * 最初の運営（PLATFORM_ADMIN）を作る（R-2-5）。`job create-platform-admin` から呼ぶ。
+ *
+ * 運営を作れるのは運営だけ（registerService）なので、本番には seed 以外に最初の1人を置く手段が無かった。
+ * seed は共通パスワードのデモアカウントも作るため本番では使えない（R-2-6）。
+ * 一時パスワードを発行して mustChangePassword を立て、初回ログインで本人に変えさせる。
+ * テナントにもホテルにも所属させない（運営 ⇔ tenantId が null）。
+ */
+export async function createPlatformAdminService(
+  input: { email: string; name: string }
+): Promise<{ user: Omit<User, 'password'>; temporaryPassword: string }> {
+  const existing = await prisma.user.findUnique({ where: { email: input.email } })
+  if (existing) {
+    throw new ApiError(409, 'このメールアドレスは既に登録されています')
+  }
+
+  const temporaryPassword = generateTemporaryPassword()
+  const user = await prisma.user.create({
+    data: {
+      email: input.email,
+      password: await hashPassword(temporaryPassword),
+      name: input.name,
+      role: 'PLATFORM_ADMIN',
+      tenantId: null,
+      hotelId: null,
+      mustChangePassword: true,
+    },
+  })
+
+  // 操作した人はいない（コンテナでジョブを実行した運用者）。userId は null で残す
+  await writeAuditLog({
+    tenantId: null,
+    userId: null,
+    action: 'CREATE',
+    entity: 'User',
+    entityId: user.id,
+    newValue: { email: user.email, name: user.name, role: user.role, invited: true, via: 'job:create-platform-admin' },
+  })
+
+  const { password: _, ...userWithoutPassword } = user
+  return { user: userWithoutPassword, temporaryPassword }
+}
+
+/**
  * 回転直後の再提示を「盗用」ではなく「正規利用者の競合」とみなす猶予時間（#49-4）。
  * フロントエンドはリフレッシュを単一化しているため、これを超える再提示は通常発生しない。
  */
