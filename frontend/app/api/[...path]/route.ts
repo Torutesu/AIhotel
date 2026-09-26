@@ -14,6 +14,7 @@ import { type NextRequest } from 'next/server'
 
 import { BACKEND_UNREACHABLE_HEADER } from '@/lib/backend-unreachable'
 import { clientIpOptionsFromEnv, resolveClientIp } from '@/lib/client-ip'
+import { applyProxyAuth } from '@/lib/proxy-auth'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -67,6 +68,8 @@ function upstreamRequestHeaders(request: NextRequest): Headers {
     clientIpOptionsFromEnv(process.env)
   )
   if (clientIp) out.set('x-forwarded-for', clientIp)
+  // バックエンドと共有する秘密の値（R-2-3）。クライアントが送った同名ヘッダーはここで捨てる
+  applyProxyAuth(out, process.env.PROXY_SHARED_SECRET)
   return out
 }
 

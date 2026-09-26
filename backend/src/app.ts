@@ -25,6 +25,7 @@ import { auditLogsRouter } from './routes/auditLogs.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
+import { requireProxySecret } from './middlewares/proxyAuth.js'
 import { notFoundHandler } from './middlewares/notFoundHandler.js'
 
 // Import utilities
@@ -100,6 +101,10 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }))
+
+// 中継（フロントエンド）を通った要求だけを受け付ける（R-2-3。PROXY_SHARED_SECRET 未設定なら何もしない）。
+// レートリミットより前に置き、直接の呼び出しがリミットの枠を消費しないようにする
+app.use('/api/', requireProxySecret(config.PROXY_SHARED_SECRET, HEALTH_CHECK_PATHS))
 
 // Rate limiting
 app.use('/api/', limiter)
