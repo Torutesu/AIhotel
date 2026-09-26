@@ -5,6 +5,7 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 ## 📋 目次
 
 - [プロジェクト概要](#プロジェクト概要)
+- [デモサイト](#デモサイト)
 - [主な機能](#主な機能)
 - [アーキテクチャ](#アーキテクチャ)
 - [前提条件](#前提条件)
@@ -20,6 +21,24 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 ## プロジェクト概要
 
 このプロジェクトは、ホテルの収益を最大化するためのAI分析システムです。リアルタイムの需要予測、競合ホテルとの価格比較、動的な価格最適化を実現します。
+
+## デモサイト
+
+**https://a-ihotel-frontend.vercel.app** （`main` へのマージで自動更新）
+
+| ロール | メールアドレス | パスワード |
+|---|---|---|
+| 管理者 | `admin@demo-hotel.example.com` | `Admin1234` |
+| マネージャー | `manager@demo-hotel.example.com` | `Admin1234` |
+| オペレーター | `operator@demo-hotel.example.com` | `Admin1234` |
+
+- フロントエンドだけを Vercel に置き、バックエンドにはつないでいない。画面のデータはすべてサンプルで、上部に「デモモードで表示しています」と出る
+  （デモモードの仕組みは `frontend/lib/api/client.ts` と `frontend/lib/api/demo-data.ts`）
+- アラートの確認済み・解決済みと画面表示設定は画面上で反映されるが、再読み込みで元に戻る。ほかの保存と PDF/Excel 出力は
+  「デモ表示中のため保存できません」等と表示される
+- Vercel の設定: プロジェクト `a-ihotel-frontend`（Root Directory は `frontend`）に `NEXT_PUBLIC_DEMO_MODE=true` を **Config** 型で設定し、
+  `BACKEND_URL` は設定しない。`NEXT_PUBLIC_` で始まる変数は Secret 型だとビルドに渡らない。値を変えたら再デプロイが必要
+- `hotel-price.vercel.app` はログイン機能を入れる前の旧モックで、最新のコードではない
 
 ## 主な機能
 
@@ -438,6 +457,9 @@ docker build -f docker/frontend.Dockerfile -t hotel-revenue-frontend .
 
 ## デプロイ
 
+> 本番リリースの前に確認すること（インフラ・設定・テナント周り・実データの前提）は、
+> [`docs/改善計画.md` の「本番リリース準備」](docs/改善計画.md#本番リリース準備2026-09-26-棚卸し) にまとめている。
+
 ### Vercel (Frontend)
 
 #### セットアップ手順
@@ -464,6 +486,10 @@ docker build -f docker/frontend.Dockerfile -t hotel-revenue-frontend .
      BACKEND_URL=<your-backend-url>        # /api/* の中継先（サーバー側のみ。app/api/[...path]/route.ts が毎リクエスト読む）
      NEXT_PUBLIC_DEMO_MODE=true           # クライアント向けデモ環境のときだけ。実運用では設定しない
      ```
+   - `NEXT_PUBLIC_` で始まる変数はブラウザに公開される値なので、Type は **Config** にする（Secret 型ではビルドに渡らない）。
+     ビルド時に埋め込まれるため、変更後は Redeploy が必要
+   - Vercel で設定が要るのは上の2つだけ（`TRUSTED_PROXY_HOPS` は Vercel 以外で動かすときに使う）。`DATABASE_URL` や `JWT_SECRET` など
+     バックエンドの変数はフロントエンドが読まないので、Vercel のプロジェクトに置かない
 
 4. **デプロイ**
    - Git にプッシュすると自動デプロイされます
