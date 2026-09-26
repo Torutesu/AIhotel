@@ -457,6 +457,9 @@ docker build -f docker/frontend.Dockerfile -t hotel-revenue-frontend .
 
 ## デプロイ
 
+> 本番リリースの前に確認すること（インフラ・設定・テナント周り・実データの前提）は、
+> [`docs/改善計画.md` の「本番リリース準備」](docs/改善計画.md#本番リリース準備2026-09-26-棚卸し) にまとめている。
+
 ### Vercel (Frontend)
 
 #### セットアップ手順
