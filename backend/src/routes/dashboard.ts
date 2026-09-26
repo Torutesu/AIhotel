@@ -23,23 +23,30 @@ export const dashboardRouter: ExpressRouter = Router()
 
 // 全エンドポイント認証必須 + hotelId のテナント分離（C-2/C-3）
 dashboardRouter.use(authenticate)
-// 参照系は hotelId をクエリで、操作系（PATCH/POST）はボディで受け取るため両方を見る
-dashboardRouter.use(
-  requireHotelAccess((req) => req.query.hotelId ?? req.body?.hotelId)
-)
+
+// 参照系は hotelId をクエリで、操作系（PATCH/POST）はボディで受け取る。
+// 権限の確認は、処理が実際に使う方だけを見ること。両方を見ると
+// 「クエリに自ホテル・ボディに他テナントのホテル」で確認をすり抜けられる
+const requireQueryHotelAccess = requireHotelAccess((req) => req.query.hotelId)
+const requireBodyHotelAccess = requireHotelAccess((req) => req.body?.hotelId)
 
 // GET /api/v1/dashboard/kpi?hotelId=&year=&month=
-dashboardRouter.get('/kpi', validate(monthQuerySchema, 'query'), getKpi)
+dashboardRouter.get('/kpi', requireQueryHotelAccess, validate(monthQuerySchema, 'query'), getKpi)
 
 // GET /api/v1/dashboard/kpi/comparison?hotelId=&year=&month=&baseDate=
-dashboardRouter.get('/kpi/comparison', validate(kpiComparisonQuerySchema, 'query'), getKpiComparison)
+dashboardRouter.get(
+  '/kpi/comparison',
+  requireQueryHotelAccess,
+  validate(kpiComparisonQuerySchema, 'query'),
+  getKpiComparison
+)
 
 // GET /api/v1/dashboard/alerts?hotelId=&minLevel=
 // minLevel を省略すると全レベルを返す。ダッシュボードは minLevel=4（Level 5・4のみ）
-dashboardRouter.get('/alerts', validate(alertsQuerySchema, 'query'), getAlerts)
+dashboardRouter.get('/alerts', requireQueryHotelAccess, validate(alertsQuerySchema, 'query'), getAlerts)
 
 // GET /api/v1/dashboard/ai-summary?hotelId=&section=
-dashboardRouter.get('/ai-summary', validate(aiSummaryQuerySchema, 'query'), getAiSummary)
+dashboardRouter.get('/ai-summary', requireQueryHotelAccess, validate(aiSummaryQuerySchema, 'query'), getAiSummary)
 
 /**
  * アラート操作のロール判定（N-4）。
@@ -59,6 +66,7 @@ function requireAlertStatusRole(req: Request, res: Response, next: NextFunction)
 // PATCH /api/v1/dashboard/alerts/:id — 状態遷移（監査対象）
 dashboardRouter.patch(
   '/alerts/:id',
+  requireBodyHotelAccess,
   validate(idParamSchema, 'params'),
   validate(updateAlertStatusSchema),
   requireAlertStatusRole,
@@ -69,6 +77,7 @@ dashboardRouter.patch(
 // 月初比較・日付比較（F-DASH-04）の比較元になる。同日・同対象月に対して冪等
 dashboardRouter.post(
   '/kpi/snapshot',
+  requireBodyHotelAccess,
   requireRole('ADMIN', 'MANAGER'),
   validate(monthTargetSchema),
   postKpiSnapshot

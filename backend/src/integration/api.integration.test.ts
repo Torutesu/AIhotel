@@ -346,6 +346,33 @@ describeIntegration('API 統合テスト', () => {
   // ======================================
 
   describe('テナント分離とロール', () => {
+    // 操作系は hotelId をボディで受け取る。クエリに自ホテルを付けてボディに他テナントのホテルを入れても、
+    // 権限の確認と処理の対象が食い違ってはいけない
+    it('アラート操作: クエリに自ホテル・ボディに他テナントのホテルを入れても 403 で、状態は変わらない', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/dashboard/alerts/${ALERT_ID}?hotelId=${HOTEL_B}`)
+        .set('Authorization', `Bearer ${tokens.otherManager}`)
+        .send({ hotelId: HOTEL_A, status: 'ACKNOWLEDGED' })
+
+      expect(res.status).toBe(403)
+      const alert = await prisma.alert.findUnique({ where: { id: ALERT_ID } })
+      expect(alert?.status).toBe('OPEN')
+    })
+
+    it('KPI スナップショット: クエリに自ホテル・ボディに他テナントのホテルを入れても 403 で、作られない', async () => {
+      const res = await request(app)
+        .post(`/api/v1/dashboard/kpi/snapshot?hotelId=${HOTEL_B}`)
+        .set('Authorization', `Bearer ${tokens.otherManager}`)
+        .send({ hotelId: HOTEL_A, year: 2031, month: 2 })
+
+      expect(res.status).toBe(403)
+      expect(res.body.data).toBeUndefined()
+      const count = await prisma.kpiSnapshot.count({
+        where: { hotelId: HOTEL_A, targetYear: 2031, targetMonth: 2 },
+      })
+      expect(count).toBe(0)
+    })
+
     it('他テナントのホテルへのアクセスは 403', async () => {
       const res = await request(app)
         .get(`/api/v1/dashboard/kpi?hotelId=${HOTEL_B}&year=2030&month=1`)
