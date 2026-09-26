@@ -23,6 +23,18 @@ const PRICE_RANK_COUNT = 40 // F-SET-02: 最大40段階
 const addDays = addUtcDays
 
 async function main() {
+  // 本番 DB に投入させない（R-2-6）。デモ用アカウント（admin@demo-hotel.example.com ほか、
+  // platform@example.com の運営も含む）はパスワード共通で README に公開されている。
+  // バックエンド付きのデモ環境のように、本番設定で意図的に入れるときだけ ALLOW_SEED_IN_PRODUCTION=true を付ける。
+  // 本番の最初の運営は `job create-platform-admin` で作る（R-2-5）
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_SEED_IN_PRODUCTION !== 'true') {
+    throw new Error(
+      'NODE_ENV=production では seed を実行しません（公開済みのパスワードのデモアカウントが入るため）。' +
+        'デモ環境で意図的に入れる場合だけ ALLOW_SEED_IN_PRODUCTION=true を付けてください。' +
+        '本番の最初の運営は job create-platform-admin で作成します'
+    )
+  }
+
   console.log('🌱 Seeding database...')
 
   // 1. Tenant
