@@ -131,6 +131,10 @@ const envSchema = z.object({
   // 楽天ウェブサービスの利用条件（1秒に1回まで）に合わせた間隔
   RAKUTEN_REQUEST_INTERVAL_MS: z.coerce.number().int().min(1000).default(1100),
 
+  // 監査ログの保持日数（#49-5 / #21 D2-2）。設定すると日次バッチがこれより古い行を削除する。
+  // 未設定なら削除しない（保持期間はクライアント確認中のため、既定では消さない）
+  AUDIT_LOG_RETENTION_DAYS: z.coerce.number().int().min(30, '監査ログの保持は30日以上にしてください').optional(),
+
   // トライアル（デモ）のログイン ID のドメイン。ID は trial-xxxxxx@<このドメイン> で自動発行する
   TRIAL_LOGIN_DOMAIN: z
     .string()

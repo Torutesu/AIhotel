@@ -22,18 +22,22 @@ enum TrialKind {
 }
 
 model Tenant {
-  id             String     @id @default(cuid())
-  name           String // 例: 藤田観光
-  code           String     @unique // 例: fujita-kanko
-  isActive       Boolean    @default(true)
+  id                   String     @id @default(cuid())
+  name                 String // 例: 藤田観光
+  code                 String     @unique // 例: fujita-kanko
+  isActive             Boolean    @default(true)
   // トライアル（デモ）用のテナント。販売店・営業先ホテルに期限つきで渡す。null なら通常の契約テナント
-  trialKind      TrialKind?
+  trialKind            TrialKind?
   // この日時を過ぎたら所属ユーザーはログイン・API 利用ができない（isActive=false と同じ扱い）
-  trialExpiresAt DateTime?
+  trialExpiresAt       DateTime?
   // 運営のメモ（渡した先の担当者など）
-  trialNote      String?
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  trialNote            String?
+  // IP 制限（#12）。有効なら、所属ユーザーは ipAllowlist のアドレス・範囲からしか使えない。
+  // ipAllowlist は [{ cidr: "203.0.113.0/24", label: "本社" }] の配列（lib/ipAllowlist.ts が検証する）
+  ipRestrictionEnabled Boolean    @default(false)
+  ipAllowlist          Json       @default("[]")
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
 
   users                    User[]
   hotels                   Hotel[]

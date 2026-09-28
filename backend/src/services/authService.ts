@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js'
+import { IP_NOT_ALLOWED_MESSAGE, isBlockedByIpRestriction } from '../lib/ipAllowlist.js'
 import {
   verifyPassword,
   hashPassword,
@@ -139,7 +140,7 @@ export const TRIAL_EXPIRED_MESSAGE =
  * ロール・所属は常にこの戻り値（DB の値）を正とし、トークンの中身は信用しない。
  * 主キー検索＋テナントの結合1回なので、1リクエストあたりのコストは小さい。
  */
-export async function resolveAuthSubjectService(userId: string): Promise<{
+export async function resolveAuthSubjectService(userId: string, clientIp?: string): Promise<{
   userId: string
   email: string
   role: UserRole
@@ -147,6 +148,8 @@ export async function resolveAuthSubjectService(userId: string): Promise<{
   hotelId: string | null
   /** 一時パスワードの変更待ち（#89）。authenticate が使える API を絞る */
   mustChangePassword: boolean
+  /** テナントの IP 制限（#12）の許可リスト外からのアクセス。authenticate が 403 にする */
+  networkBlocked: boolean
 } | null> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -158,7 +161,9 @@ export async function resolveAuthSubjectService(userId: string): Promise<{
       hotelId: true,
       isActive: true,
       mustChangePassword: true,
-      tenant: { select: { isActive: true, trialExpiresAt: true } },
+      tenant: {
+        select: { isActive: true, trialExpiresAt: true, ipRestrictionEnabled: true, ipAllowlist: true },
+      },
     },
   })
   if (!user || !user.isActive) return null
@@ -174,6 +179,7 @@ export async function resolveAuthSubjectService(userId: string): Promise<{
     tenantId: user.tenantId,
     hotelId: user.hotelId,
     mustChangePassword: user.mustChangePassword,
+    networkBlocked: isBlockedByIpRestriction(user.tenant, clientIp),
   }
 }
 
@@ -185,7 +191,11 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 
   const user = await prisma.user.findUnique({
     where: { email },
-    include: { tenant: { select: { isActive: true, trialExpiresAt: true } } },
+    include: {
+      tenant: {
+        select: { isActive: true, trialExpiresAt: true, ipRestrictionEnabled: true, ipAllowlist: true },
+      },
+    },
   })
 
   // ユーザーが存在しない場合もダミーハッシュと比較して同じ計算量を消費する（S-8）。
@@ -226,6 +236,15 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
       ctx
     )
     throw new ApiError(401, TRIAL_EXPIRED_MESSAGE)
+  }
+
+  // IP 制限（#12）: 許可リスト外からは、パスワードが正しくてもログインさせない（理由はパスワードが正しいときだけ伝える）
+  if (isBlockedByIpRestriction(user.tenant, ctx?.ipAddress)) {
+    await recordLoginFailure(
+      { email, reason: 'IP_NOT_ALLOWED', tenantId: user.tenantId, userId: user.id },
+      ctx
+    )
+    throw new ApiError(403, IP_NOT_ALLOWED_MESSAGE)
   }
 
   const tokens = generateTokenPair(user)
@@ -423,7 +442,7 @@ const REFRESH_REUSE_GRACE_MS = 10_000
  * 失効と新規発行は1トランザクションで行う。分けて実行すると、削除と作成の間で
  * 落ちた場合にセッションだけが消える（ユーザーが理由なくログアウトされる）。
  */
-export async function refreshTokenService(refreshToken: string): Promise<AuthResult> {
+export async function refreshTokenService(refreshToken: string, clientIp?: string): Promise<AuthResult> {
   // 署名不正・期限切れ・アクセストークンの流用（type クレーム違い）はすべて 401 にする。
   // verifyRefreshToken は素の Error を投げるため、そのままだと errorHandler が 500 にしてしまい、
   // クライアントが「再ログインが必要」を判別できなかった
@@ -435,7 +454,15 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 
   const storedToken = await prisma.refreshToken.findUnique({
     where: { tokenHash: hashToken(refreshToken) },
-    include: { user: { include: { tenant: { select: { isActive: true, trialExpiresAt: true } } } } },
+    include: {
+      user: {
+        include: {
+          tenant: {
+            select: { isActive: true, trialExpiresAt: true, ipRestrictionEnabled: true, ipAllowlist: true },
+          },
+        },
+      },
+    },
   })
 
   if (!storedToken) {
@@ -487,6 +514,10 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
   }
   if (isTrialExpired(storedToken.user.tenant)) {
     throw new ApiError(401, TRIAL_EXPIRED_MESSAGE)
+  }
+  // IP 制限（#12）: 許可リスト外ではトークンを更新させない
+  if (isBlockedByIpRestriction(storedToken.user.tenant, clientIp)) {
+    throw new ApiError(403, IP_NOT_ALLOWED_MESSAGE)
   }
 
   const tokens = await prisma.$transaction(async (tx) => {

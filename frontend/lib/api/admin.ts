@@ -4,7 +4,7 @@
 
 import type {
   HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem, TemporaryPasswordResult,
-  TrialSummary, CreateTrialRequest, UpdateTrialRequest, TrialCredentials
+  TrialSummary, CreateTrialRequest, UpdateTrialRequest, TrialCredentials, IpAllowEntry, IpRestrictionSettings
 } from "@shared/types"
 import { rawBinaryRequest, rawRequest, withDemoFallback, type BinaryDownload } from "./client"
 import { mockAuditLogs, mockRoomTypes } from "./demo-data"
@@ -163,6 +163,23 @@ export const adminEndpoints = {
   /** テナントの名称変更・契約停止（isActive: false）／再開（運営のみ） */
   updateTenant(id: string, input: { name?: string; isActive?: boolean }): Promise<TenantSummary> {
     return rawRequest(`/api/v1/platform/tenants/${id}`, { method: "PUT", body: JSON.stringify(input) })
+  },
+
+  /** IP 制限で締め出されたテナントの復旧（運営のみ — #12）。許可リストは残し、制限だけを無効にする */
+  disableTenantIpRestriction(id: string): Promise<void> {
+    return rawRequest(`/api/v1/platform/tenants/${id}/disable-ip-restriction`, { method: "POST" })
+  },
+
+  // ---- IP 制限（テナントの管理者 — #12） ----
+
+  /** 自テナントの IP 制限の設定と、呼び出した本人のアクセス元 IP */
+  ipRestriction(): Promise<IpRestrictionSettings> {
+    return rawRequest("/api/v1/settings/ip-restriction")
+  },
+
+  /** IP 制限の保存。有効にするとき、自分のアクセス元が許可リストに無ければ 400（締め出し防止） */
+  updateIpRestriction(input: { enabled: boolean; entries: IpAllowEntry[] }): Promise<IpRestrictionSettings> {
+    return rawRequest("/api/v1/settings/ip-restriction", { method: "PUT", body: JSON.stringify(input) })
   },
 
   // ---- トライアル（デモ）アカウント（運営のみ） ----

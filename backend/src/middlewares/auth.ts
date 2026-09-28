@@ -4,6 +4,7 @@ import { verifyAccessToken, JWTPayload } from '../lib/auth.js'
 import { ApiError, NotFoundError } from './errorHandler.js'
 import { findActiveHotelService } from '../services/hotelsService.js'
 import { resolveAuthSubjectService } from '../services/authService.js'
+import { IP_NOT_ALLOWED_MESSAGE } from '../lib/ipAllowlist.js'
 
 // Express Requestの拡張
 declare global {
@@ -55,9 +56,13 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
     // 署名が正しくても、無効化・削除されたユーザーや契約停止中のテナントは通さない。
     // ロール・所属はトークン発行時の値ではなく DB の現在値を使い、降格や異動を
     // 次のリクエストから反映する（#78）
-    const subject = await resolveAuthSubjectService(payload.userId)
+    const subject = await resolveAuthSubjectService(payload.userId, req.ip)
     if (!subject) {
       throw new ApiError(401, 'このアカウントは現在利用できません')
+    }
+    // テナントの IP 制限（#12）。許可リスト外からは、ログイン済みでも使わせない
+    if (subject.networkBlocked) {
+      throw new ApiError(403, IP_NOT_ALLOWED_MESSAGE)
     }
 
     const path = req.originalUrl.split('?')[0]
@@ -65,7 +70,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       throw new ApiError(403, 'パスワードの変更が必要です。新しいパスワードを設定してください')
     }
 
-    const { mustChangePassword: _mustChange, ...user } = subject
+    const { mustChangePassword: _mustChange, networkBlocked: _blocked, ...user } = subject
     req.user = user
     next()
   } catch (error) {

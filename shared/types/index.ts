@@ -620,10 +620,30 @@ export interface TenantSummary {
   name: string
   code: string
   isActive: boolean
+  /** IP 制限（#12）が有効か */
+  ipRestrictionEnabled: boolean
   createdAt: string
   updatedAt: string
   hotelCount: number
   userCount: number
+}
+
+// ======================================
+// IP 制限（#12）
+// ======================================
+
+export interface IpAllowEntry {
+  /** 単一アドレス（203.0.113.10）か範囲（203.0.113.0/24） */
+  cidr: string
+  label: string | null
+}
+
+/** GET /api/v1/settings/ip-restriction */
+export interface IpRestrictionSettings {
+  enabled: boolean
+  entries: IpAllowEntry[]
+  /** 呼び出した本人のアクセス元 IP */
+  currentIp: string | null
 }
 
 // ======================================

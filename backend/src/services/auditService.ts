@@ -106,3 +106,12 @@ export async function listAuditLogsService(query: AuditLogQuery) {
   const items = hasMore ? rows.slice(0, query.limit) : rows
   return { items, nextCursor: hasMore ? items[items.length - 1].id : null }
 }
+
+/**
+ * 保持期間を過ぎた監査ログの削除（#49-5）。日次バッチから、AUDIT_LOG_RETENTION_DAYS を設定したときだけ呼ぶ
+ */
+export async function purgeOldAuditLogsService(retentionDays: number, now: Date = new Date()): Promise<{ deleted: number }> {
+  const threshold = new Date(now.getTime() - retentionDays * 86_400_000)
+  const { count } = await prisma.auditLog.deleteMany({ where: { createdAt: { lt: threshold } } })
+  return { deleted: count }
+}

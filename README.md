@@ -643,6 +643,7 @@ TRUST_PROXY=1
 - `POST /api/v1/platform/tenants` - テナント作成
 - `PUT /api/v1/platform/tenants/:id` - 名称変更・契約停止／再開（停止すると所属ユーザーは即時に使えなくなる）
 - 最初の管理者は `POST /api/v1/auth/register` に `tenantId` を指定して作る（`tenantId` を指定できるのは運営のみ — #81）
+- `POST /api/v1/platform/tenants/:id/disable-ip-restriction` - IP 制限で締め出されたテナントの復旧（制限だけを無効にし、許可リストは残す — #12）
 - トライアル（デモ）アカウント — 販売店・営業先ホテルに期限つきで渡す。1件ごとに専用のテナントとデモデータ入りのホテルを作る。
   期限を過ぎると所属ユーザーはログイン・API 利用ができなくなり（利用中でも次のリクエストから 401）、期限から30日で日次バッチが削除する
   - `GET /api/v1/platform/trials` - 一覧（期限・状態・残り日数・ログイン ID・最終ログイン）
@@ -662,6 +663,9 @@ TRUST_PROXY=1
 - `GET /api/v1/settings/budgets` - 月次予算の取得（`hotelId`, `year`。12か月分を返す）
 - `PUT /api/v1/settings/budgets` - 月次予算の年単位一括更新（**MANAGER以上**）
 - `GET /api/v1/settings/competitors` - 競合ホテル一覧（`hotelId`）
+- `GET /api/v1/settings/ip-restriction` - IP 制限の設定と、呼び出した本人のアクセス元 IP（**ADMIN**。自テナント — #12）
+- `PUT /api/v1/settings/ip-restriction` - IP 制限の保存（**ADMIN**・監査対象。`enabled`, `entries: [{cidr, label}]`（50件まで）。
+  有効にするとき、自分のアクセス元が許可リストに無ければ 400（締め出し防止）。許可リスト外からはログイン・API・トークン更新がすべて 403）
 - `GET /api/v1/settings/competitors/fetch-status` - 競合価格の取得状況（`hotelId`。取得元ごとの最後の取得・最後の成功・連続失敗の回数 — #9 段階C）
 - `POST /api/v1/settings/competitors` - 競合ホテル登録（**MANAGER以上**、1ホテルあたり最大5件）
 - `PUT /api/v1/settings/competitors/:id` - 競合ホテル更新（**MANAGER以上**）

@@ -67,7 +67,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
  */
 export const refresh = asyncHandler(async (req: Request, res: Response) => {
   const { refreshToken } = req.body
-  const result = await refreshTokenService(refreshToken)
+  const result = await refreshTokenService(refreshToken, req.ip)
   sendSuccess(res, result, 200, 'トークンを更新しました')
 })
 
