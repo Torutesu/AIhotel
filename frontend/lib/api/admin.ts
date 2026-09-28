@@ -3,7 +3,8 @@
 // index.ts の api オブジェクトに展開されるので、画面からは api.xxx で呼ぶ。
 
 import type {
-  HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem, TemporaryPasswordResult
+  HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem, TemporaryPasswordResult,
+  TrialSummary, CreateTrialRequest, UpdateTrialRequest, TrialCredentials
 } from "@shared/types"
 import { rawBinaryRequest, rawRequest, withDemoFallback, type BinaryDownload } from "./client"
 import { mockAuditLogs, mockRoomTypes } from "./demo-data"
@@ -162,6 +163,33 @@ export const adminEndpoints = {
   /** テナントの名称変更・契約停止（isActive: false）／再開（運営のみ） */
   updateTenant(id: string, input: { name?: string; isActive?: boolean }): Promise<TenantSummary> {
     return rawRequest(`/api/v1/platform/tenants/${id}`, { method: "PUT", body: JSON.stringify(input) })
+  },
+
+  // ---- トライアル（デモ）アカウント（運営のみ） ----
+
+  /** トライアルの一覧（期限の近い順） */
+  trials(): Promise<TrialSummary[]> {
+    return rawRequest("/api/v1/platform/trials")
+  },
+
+  /** トライアルの発行。デモデータ入りの専用ホテルとログイン ID を作る。パスワードはこの戻り値でしか得られない */
+  createTrial(input: CreateTrialRequest): Promise<TrialCredentials> {
+    return rawRequest("/api/v1/platform/trials", { method: "POST", body: JSON.stringify(input) })
+  },
+
+  /** 名前・メモの変更、停止／再開、期限の延長 */
+  updateTrial(id: string, input: UpdateTrialRequest): Promise<TrialSummary> {
+    return rawRequest(`/api/v1/platform/trials/${id}`, { method: "PUT", body: JSON.stringify(input) })
+  },
+
+  /** ログイン用パスワードの再発行。新しいパスワードはこの戻り値でしか得られない */
+  resetTrialPassword(id: string): Promise<TrialCredentials> {
+    return rawRequest(`/api/v1/platform/trials/${id}/reset-password`, { method: "POST" })
+  },
+
+  /** トライアルの削除（デモデータごと消す） */
+  deleteTrial(id: string): Promise<void> {
+    return rawRequest(`/api/v1/platform/trials/${id}`, { method: "DELETE" })
   },
 
   /**

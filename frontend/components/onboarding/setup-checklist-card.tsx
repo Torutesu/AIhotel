@@ -2,6 +2,7 @@
 
 // 初期設定のチェックリスト（#13）。必須項目が揃うまでダッシュボードの上部に出す。
 // すべて揃ったら何も表示しない（任意項目だけが残っていても出さない）。
+// トライアル（デモ）のユーザーには出さない（デモデータは実績が90日分しかなく、常に未完了になるため）。
 
 import { CheckCircle2, Circle, ClipboardList } from "lucide-react"
 
@@ -14,15 +15,17 @@ import { useApiQuery } from "@/hooks/use-api-query"
 import { api, type SetupStatus } from "@/lib/api"
 
 export function SetupChecklistCard() {
-  const { hotelId } = useAuth()
+  const { hotelId, user } = useAuth()
   const { setTab } = useAppState()
+  const isTrial = Boolean(user?.trial)
 
   const { data: status, error, reload } = useApiQuery<SetupStatus>(
-    hotelId ? () => api.hotelSetupStatus(hotelId) : null,
-    [hotelId],
+    hotelId && !isTrial ? () => api.hotelSetupStatus(hotelId) : null,
+    [hotelId, isTrial],
     "初期設定の状況を取得できませんでした",
   )
 
+  if (isTrial) return null
   if (error) return <ErrorState message={error} onRetry={reload} />
   if (!status || status.ready) return null
 
