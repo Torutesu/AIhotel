@@ -643,6 +643,14 @@ TRUST_PROXY=1
 - `POST /api/v1/platform/tenants` - テナント作成
 - `PUT /api/v1/platform/tenants/:id` - 名称変更・契約停止／再開（停止すると所属ユーザーは即時に使えなくなる）
 - 最初の管理者は `POST /api/v1/auth/register` に `tenantId` を指定して作る（`tenantId` を指定できるのは運営のみ — #81）
+- トライアル（デモ）アカウント — 販売店・営業先ホテルに期限つきで渡す。1件ごとに専用のテナントとデモデータ入りのホテルを作る。
+  期限を過ぎると所属ユーザーはログイン・API 利用ができなくなり（利用中でも次のリクエストから 401）、期限から30日で日次バッチが削除する
+  - `GET /api/v1/platform/trials` - 一覧（期限・状態・残り日数・ログイン ID・最終ログイン）
+  - `POST /api/v1/platform/trials` - 発行（`name`, `kind`: `DEALER`=販売店 / `PROSPECT_HOTEL`=営業先ホテル, `days`: 1〜90・既定30, `note`, `loginEmail`: 省略時は `trial-xxxxxxxx@TRIAL_LOGIN_DOMAIN`）。パスワードはレスポンスで1回だけ返す
+  - `PUT /api/v1/platform/trials/:id` - 名前・メモの変更、停止／再開（`isActive`）、期限の延長（`extendDays`。期限切れなら今日から数える。今日から90日まで）
+  - `POST /api/v1/platform/trials/:id/reset-password` - パスワードの再発行
+  - `DELETE /api/v1/platform/trials/:id` - 削除（デモデータごと）
+  - 通常のテナント一覧（`/platform/tenants`）には出ない。操作は監査ログに `entity: Trial` で残る（テナントを削除しても消えない）
 
 ### Settings (`backend/src/routes/settings.ts`)
 
