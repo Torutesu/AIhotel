@@ -28,6 +28,9 @@ const nextConfig = {
     // （scripts/verify-demo-mode.mjs --expect-disabled で検証できる）。
     // クライアントへのUI確認・デモ用ビルドでのみ NEXT_PUBLIC_DEMO_MODE=true を設定する。
     NEXT_PUBLIC_DEMO_MODE: process.env.NEXT_PUBLIC_DEMO_MODE ?? '',
+    // デモの運営ログイン（テナント管理・トライアル管理）を出すか。配布用のデモ URL では設定せず、
+    // 運営用の別 URL（別の Vercel プロジェクト）でだけ "true" にする。デモモードが無効なら意味を持たない
+    NEXT_PUBLIC_DEMO_ADMIN_CONSOLE: process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE ?? '',
   },
   images: {
     unoptimized: true,

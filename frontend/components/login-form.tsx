@@ -91,7 +91,9 @@ export function LoginForm() {
             <div className="mt-4 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
               <p className="font-medium">デモアカウント</p>
               <p>メール: admin@demo-hotel.example.com（管理者）</p>
-              <p>メール: platform@example.com（運営。テナント管理・トライアル管理を試せます）</p>
+              {process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true" && (
+                <p>メール: platform@example.com（運営。テナント管理・トライアル管理を試せます）</p>
+              )}
               <p>パスワード: Admin1234</p>
             </div>
           )}

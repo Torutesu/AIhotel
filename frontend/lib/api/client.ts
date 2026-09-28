@@ -80,7 +80,7 @@ export const MOCK_ACCOUNTS: Record<string, { name: string; role: UserRole }> = {
   "admin@demo-hotel.example.com": { name: "管理者", role: "ADMIN" },
   "manager@demo-hotel.example.com": { name: "レベニューマネージャー", role: "MANAGER" },
   "operator@demo-hotel.example.com": { name: "フロント担当", role: "OPERATOR" },
-  // 運営（テナントを持たない）。デモでテナント管理・トライアル管理の画面を試すため
+  // 運営（テナントを持たない）。運営用のデモ URL（NEXT_PUBLIC_DEMO_ADMIN_CONSOLE=true）でだけログインできる
   "platform@example.com": { name: "運営", role: "PLATFORM_ADMIN" },
 }
 
@@ -115,6 +115,14 @@ export function isDemoModeEnabled(): boolean {
   // `process.env.NEXT_PUBLIC_DEMO_MODE === "true"` をそのモジュール内で直接評価すること
   // （login-form.tsx 参照。verify-demo-mode.mjs で検証している）。
   return process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+}
+
+/**
+ * デモの運営ログインを許すか（NEXT_PUBLIC_DEMO_ADMIN_CONSOLE=true のビルドだけ）。
+ * 配布用のデモ URL では運営の管理画面に入れないようにし、運営は別の URL から使う
+ */
+export function isDemoAdminConsole(): boolean {
+  return process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true"
 }
 
 // ---- デモデータ表示状態（バナー通知用） ----
@@ -157,7 +165,8 @@ export function getMockUser(): User | null {
 
 export function mockLogin(email: string, password: string): LoginResult {
   const account = MOCK_ACCOUNTS[email]
-  if (!account || password !== MOCK_PASSWORD) {
+  const hidden = account?.role === "PLATFORM_ADMIN" && !isDemoAdminConsole()
+  if (!account || hidden || password !== MOCK_PASSWORD) {
     throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
   }
   const now = new Date()
