@@ -7,6 +7,7 @@ import { recomputeSimulationService } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
 import { purgeExpiredRefreshTokensService } from '../services/authService.js'
 import { purgeExpiredTrialsService } from '../services/trialsService.js'
+import { purgeOldAuditLogsService } from '../services/auditService.js'
 import { evaluateAlertsService } from '../services/alertRulesService.js'
 import { config } from '../lib/config.js'
 
@@ -110,6 +111,16 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
     logger.error({ err: error }, '期限切れトライアルの削除に失敗しました')
   }
 
+  // 保持期間を過ぎた監査ログの削除（AUDIT_LOG_RETENTION_DAYS を設定したときだけ — #49-5）
+  let purgedAuditLogs = 0
+  if (config.AUDIT_LOG_RETENTION_DAYS !== undefined) {
+    try {
+      purgedAuditLogs = (await purgeOldAuditLogsService(config.AUDIT_LOG_RETENTION_DAYS)).deleted
+    } catch (error) {
+      logger.error({ err: error }, '保持期間を過ぎた監査ログの削除に失敗しました')
+    }
+  }
+
   const failed = results.filter((r) => r.error).length
   const succeeded = results.length - failed
 
@@ -120,6 +131,7 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
       durationMs: Date.now() - startedAt,
       purgedRefreshTokens,
       purgedTrials,
+      purgedAuditLogs,
       failures: results.filter((r) => r.error).map((r) => ({ hotelId: r.hotelId, error: r.error })),
     },
     `日次バッチが完了しました（成功 ${succeeded} / 失敗 ${failed}）`

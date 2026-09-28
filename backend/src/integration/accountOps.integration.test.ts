@@ -186,6 +186,21 @@ describeIntegration('アカウント運用（#89）', () => {
     })
   })
 
+  describe('監査ログの保持期間（#49-5）', () => {
+    it('保持日数より古い行だけを削除する', async () => {
+      const { purgeOldAuditLogsService } = await import('../services/auditService.js')
+      const old = await prisma.auditLog.create({
+        data: { tenantId: TENANT_A, action: 'UPDATE', entity: 'Test', createdAt: new Date(Date.now() - 400 * 86_400_000) },
+      })
+      const recent = await prisma.auditLog.create({ data: { tenantId: TENANT_A, action: 'UPDATE', entity: 'Test' } })
+      const { deleted } = await purgeOldAuditLogsService(365)
+      expect(deleted).toBeGreaterThanOrEqual(1)
+      expect(await prisma.auditLog.findUnique({ where: { id: old.id } })).toBeNull()
+      expect(await prisma.auditLog.findUnique({ where: { id: recent.id } })).not.toBeNull()
+      await prisma.auditLog.delete({ where: { id: recent.id } })
+    })
+  })
+
   describe('監査ログの閲覧', () => {
     it('管理者は自テナントのログを新しい順に見られ、パスワードそのものは記録されていない', async () => {
       const res = await request(app).get('/api/v1/audit-logs').query({ hotelId: HOTEL_A }).set(auth(tokens.admin))
