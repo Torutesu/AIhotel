@@ -28,6 +28,9 @@ param(
   [Parameter(ParameterSetName = 'Run', Mandatory = $true)][string]$HotelId,
   # TL-リンカーンのログインID。パスワードは $TlCredentialPath から読む
   [Parameter(ParameterSetName = 'Run')][string]$TlUser,
+  # 決定論的な取得（run.cmd）が失敗したときだけ、エージェントに肩代わりさせる
+  [Parameter(ParameterSetName = 'Run')][switch]$AgentFallback,
+  [Parameter(ParameterSetName = 'Run')][string]$AgentKitPath,
   [string]$TlCredentialPath = (Join-Path $PSScriptRoot 'tl-cred.txt'),
   [string]$SenderPath = (Join-Path $PSScriptRoot '..\field-test\Send-ReservationCsv.ps1'),
   [string]$CredentialPath = (Join-Path $PSScriptRoot 'cred.txt'),
@@ -101,12 +104,36 @@ try {
   $env:TL_PASSWORD = $null
 }
 
+$usedAgent = $false
+
 if ($exportExit -ne 0) {
   $detail = if (Test-Path -LiteralPath (Join-Path $outDir 'last-error.txt')) {
     (Get-Content -LiteralPath (Join-Path $outDir 'last-error.txt') -Raw).Split("`n")[1]
   } else { '（詳細なし）' }
   Write-Log 'error' "取得に失敗しました: $detail"
-  exit 1
+
+  # 画面が変わってセレクタが効かなくなった場合の自動復旧。
+  # 毎日ここを通るなら selectors.json を直すべきで、通った回数がそのまま
+  # 「エージェントに払っている額」になる（result_*.json の usage で確認する）
+  if (-not $AgentFallback) { exit 1 }
+
+  # 三項演算子は PowerShell 7 以降なので使わない（業務PCは 5.1 のことが多い）
+  $agentRoot = if ($AgentKitPath) { $AgentKitPath } else { Join-Path $PSScriptRoot 'agent' }
+  $agentCmd = Join-Path $agentRoot 'agent.cmd'
+  if (-not (Test-Path -LiteralPath $agentCmd)) {
+    Write-Log 'error' "エージェントのキットが見つかりません: $agentCmd"
+    exit 1
+  }
+
+  Write-Log 'warn' 'エージェントで取得を試みます（決定論的な取得が失敗したため）'
+  & $agentCmd '--days' $Days
+  if ($LASTEXITCODE -ne 0) {
+    Write-Log 'error' "エージェントでも取得できませんでした（終了コード $LASTEXITCODE）"
+    exit 1
+  }
+  $usedAgent = $true
+  # エージェントの出力先も探索対象に加える
+  $outDir = Join-Path (Split-Path -Parent $agentCmd) 'out'
 }
 
 $after = @(Get-ChildItem -LiteralPath $outDir -Filter '*.csv' -File |
@@ -117,7 +144,10 @@ if ($fresh.Count -eq 0) {
   exit 1
 }
 $csv = $fresh[0]
-Write-Log 'info' "取得しました: $($csv.Name)（$($csv.Length) bytes）"
+Write-Log 'info' "取得しました: $($csv.Name)（$($csv.Length) bytes / 経路: $(if ($usedAgent) { 'エージェント' } else { '決定論' })）"
+if ($usedAgent) {
+  Write-Log 'warn' 'エージェント経由で取得した。画面が変わった可能性が高いので selectors.json を見直すこと'
+}
 
 # ------------------------------------------------------------
 # 2. 送信
