@@ -31,6 +31,7 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 | 管理者 | `admin@demo-hotel.example.com` | `Admin1234` |
 | マネージャー | `manager@demo-hotel.example.com` | `Admin1234` |
 | オペレーター | `operator@demo-hotel.example.com` | `Admin1234` |
+| 運営 | `platform@example.com` | `Admin1234` |
 
 - フロントエンドだけを Vercel に置き、バックエンドにはつないでいない。画面のデータはすべてサンプルで、上部に「デモモードで表示しています」と出る
   （デモモードの仕組みは `frontend/lib/api/client.ts` と `frontend/lib/api/demo-data.ts`）
@@ -39,8 +40,11 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 - Vercel の設定: プロジェクト `a-ihotel-frontend`（Root Directory は `frontend`）に `NEXT_PUBLIC_DEMO_MODE=true` を **Config** 型で設定し、
   `BACKEND_URL` は設定しない。`NEXT_PUBLIC_` で始まる変数は Secret 型だとビルドに渡らない。値を変えたら再デプロイが必要
 - `hotel-price.vercel.app` はログイン機能を入れる前の旧モックで、最新のコードではない
-- 運営の管理画面（テナント管理・トライアル管理）や IP 制限、データの保存まで触れる検証環境は、バックエンドと DB を置いてつなぐ。
-  手順は [`docs/検証環境の立ち上げ.md`](docs/検証環境の立ち上げ.md)（Render の Blueprint `render.yaml` ＋ `job seed-demo` / `job create-platform-admin`）
+- 運営（`platform@example.com` / `Admin1234`）でもログインでき、テナント管理・トライアル管理を試せる。管理者では IP 制限も試せる。
+  操作はブラウザのタブの中だけで再現する（`frontend/lib/api/demo-admin.ts`。サーバーには保存せず、タブを閉じると元に戻る）。
+  デモで発行したトライアルの ID は、同じタブのデモでだけログインできる
+- 実際に保存される環境をバックエンドと DB で立ち上げるときは、運営アカウントを `job create-platform-admin`、デモデータを `job seed-demo` で作る
+  （開発用の `platform@example.com / Admin1234` は公開環境に入れない）
 
 ## 主な機能
 
