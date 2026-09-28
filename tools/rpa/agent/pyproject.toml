@@ -1,0 +1,10 @@
+# エージェント実行用の依存。現地で挙動が変わらないようバージョンを固定する。
+# browser-use は版によってAPIが変わるため、上げるときは run_agent.py の
+# Browser(cdp_url=..., is_local=...) と history の扱いを確認すること。
+[project]
+name = "tl-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "browser-use==0.13.10",
+]
