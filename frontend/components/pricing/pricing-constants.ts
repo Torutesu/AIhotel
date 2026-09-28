@@ -131,11 +131,11 @@ export function specialDayNameOf(date: Date): string | null {
 export const AI_PRICING_PROPOSALS: Array<{ level: "high" | "medium" | "low"; text: string }> = [
   {
     level: "high",
-    text: "週末の需要が高まる見込みです。金曜日から日曜日にかけて段階的な価格引き上げを推奨します（平均+12%の増収見込み）。",
+    text: "週末の需要が高まる見込みです。週末（既定は金・土曜日）にかけて段階的な価格引き上げを推奨します（平均+12%の増収見込み）。",
   },
   {
     level: "medium",
-    text: "平日の稼働率向上のため、月曜日から木曜日の価格を5%引き下げることで、稼働率を15%向上できる見込みです。",
+    text: "平日の稼働率向上のため、週末以外の日の価格を5%引き下げることで、稼働率を15%向上できる見込みです。",
   },
   {
     level: "low",
