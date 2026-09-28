@@ -1,0 +1,31 @@
+@echo off
+rem 決定論的な取得が失敗したときだけ呼ばれるフォールバック（Codex版のひな形）。
+rem
+rem 使い方:
+rem   1. このファイルを codex-fallback.cmd にコピーする
+rem   2. 下の codex 実行行を、実際の非対話実行の書式に直す
+rem      （版によってサブコマンドが違う。現地で `codex --help` を見て確認する）
+rem   3. Invoke-Pipeline.ps1 に -AgentFallback -FallbackCommand <このファイルのパス> を渡す
+rem
+rem 前提:
+rem   - この自動化専用のCodexアカウントでサインイン済みであること（codex login）
+rem   - Chrome が --remote-debugging-port=9222 で起動し、TL-リンカーンにログイン済みであること
+rem   - CSVは %~dp0out\ に落ちること（Invoke-Pipeline.ps1 がそこを見る）
+rem
+rem 禁止事項は docs/ハンドオフ_取得自動化.md §5 と同じものを指示文に必ず入れること。
+rem とくに「在庫・料金・プランの更新系に触らない」「迷ったら止めて報告する」。
+
+setlocal
+if not exist "%~dp0out" mkdir "%~dp0out"
+
+set PROMPT_FILE=%~dp0codex-prompt.txt
+if not exist "%PROMPT_FILE%" (
+  echo 指示文がありません: %PROMPT_FILE%
+  exit /b 1
+)
+
+rem ここを実際の書式に直す。非対話で実行し、終了コードを返すこと
+rem 例) codex exec --cd "%~dp0" --file "%PROMPT_FILE%"
+codex exec --cd "%~dp0" --file "%PROMPT_FILE%"
+
+exit /b %ERRORLEVEL%

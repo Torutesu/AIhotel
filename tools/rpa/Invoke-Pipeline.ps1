@@ -31,6 +31,9 @@ param(
   # 決定論的な取得（run.cmd）が失敗したときだけ、エージェントに肩代わりさせる
   [Parameter(ParameterSetName = 'Run')][switch]$AgentFallback,
   [Parameter(ParameterSetName = 'Run')][string]$AgentKitPath,
+  # フォールバックに使うコマンド。既定は browser-use のキット（agent.cmd）。
+  # Codex を使うなら codex-fallback.cmd のパスを渡す
+  [Parameter(ParameterSetName = 'Run')][string]$FallbackCommand,
   [string]$TlCredentialPath = (Join-Path $PSScriptRoot 'tl-cred.txt'),
   [string]$SenderPath = (Join-Path $PSScriptRoot '..\field-test\Send-ReservationCsv.ps1'),
   [string]$CredentialPath = (Join-Path $PSScriptRoot 'cred.txt'),
@@ -119,9 +122,9 @@ if ($exportExit -ne 0) {
 
   # 三項演算子は PowerShell 7 以降なので使わない（業務PCは 5.1 のことが多い）
   $agentRoot = if ($AgentKitPath) { $AgentKitPath } else { Join-Path $PSScriptRoot 'agent' }
-  $agentCmd = Join-Path $agentRoot 'agent.cmd'
+  $agentCmd = if ($FallbackCommand) { $FallbackCommand } else { Join-Path $agentRoot 'agent.cmd' }
   if (-not (Test-Path -LiteralPath $agentCmd)) {
-    Write-Log 'error' "エージェントのキットが見つかりません: $agentCmd"
+    Write-Log 'error' "フォールバックのコマンドが見つかりません: $agentCmd"
     exit 1
   }
 
@@ -132,7 +135,7 @@ if ($exportExit -ne 0) {
     exit 1
   }
   $usedAgent = $true
-  # エージェントの出力先も探索対象に加える
+  # フォールバック側の出力先に切り替える（CSVはそちらに落ちる）
   $outDir = Join-Path (Split-Path -Parent $agentCmd) 'out'
 }
 
