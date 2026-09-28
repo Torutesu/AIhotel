@@ -36,7 +36,8 @@ import { analysisEndpoints } from "./analysis"
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
 export type { Hotel, PriceRank, RoomType, RoomTypeInput, TenantSummary, AuditLogItem }
 export type {
-  TrialSummary, TrialKind, TrialStatus, CreateTrialRequest, UpdateTrialRequest, TrialCredentials
+  TrialSummary, TrialKind, TrialStatus, CreateTrialRequest, UpdateTrialRequest, TrialCredentials,
+  IpAllowEntry, IpRestrictionSettings
 } from "@shared/types"
 export type { Event as HotelEvent } from "@shared/types"
 // Wave C の画面が使う型（X-1〜X-7）。backend の契約は shared/types が唯一の出所

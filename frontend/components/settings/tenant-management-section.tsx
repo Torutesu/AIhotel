@@ -5,7 +5,7 @@
 // 停止すると所属ユーザーは次のリクエストからログアウトされる（#78）。
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, Pause, Play, Plus, UserPlus } from "lucide-react"
+import { Loader2, Pause, Play, Plus, ShieldOff, UserPlus } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -52,6 +52,7 @@ export function TenantManagementSection() {
   const [createOpen, setCreateOpen] = useState(false)
   const [adminTarget, setAdminTarget] = useState<TenantSummary | null>(null)
   const [toggleTarget, setToggleTarget] = useState<TenantSummary | null>(null)
+  const [unlockTarget, setUnlockTarget] = useState<TenantSummary | null>(null)
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
@@ -126,6 +127,17 @@ export function TenantManagementSection() {
     }
   }
 
+  /** IP 制限で締め出されたテナントの復旧（#12） */
+  const handleUnlock = async (tenant: TenantSummary) => {
+    try {
+      await api.disableTenantIpRestriction(tenant.id)
+      toast.success(`「${tenant.name}」の IP 制限を解除しました`)
+      await load()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "IP 制限の解除に失敗しました")
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
@@ -154,12 +166,19 @@ export function TenantManagementSection() {
                     <span className="text-sm font-medium">{tenant.name}</span>
                     <span className="text-xs text-muted-foreground">{tenant.code}</span>
                     {!tenant.isActive && <Badge variant="destructive">停止中</Badge>}
+                    {tenant.ipRestrictionEnabled && <Badge variant="outline">IP 制限中</Badge>}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     ホテル {tenant.hotelCount}件 ・ 有効なユーザー {tenant.userCount}人
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  {tenant.ipRestrictionEnabled && (
+                    <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setUnlockTarget(tenant)}>
+                      <ShieldOff className="h-4 w-4" aria-hidden />
+                      IP 制限を解除
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAdminTarget(tenant)}>
                     <UserPlus className="h-4 w-4" aria-hidden />
                     管理者を作成
@@ -235,6 +254,23 @@ export function TenantManagementSection() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={unlockTarget !== null}
+        onOpenChange={(open) => !open && setUnlockTarget(null)}
+        title="IP 制限を解除しますか？"
+        description={
+          unlockTarget
+            ? `「${unlockTarget.name}」の全ユーザーが、どのネットワークからでも使えるようになります（許可リストは残ります）。締め出されたときの復旧に使ってください。`
+            : undefined
+        }
+        confirmLabel="解除する"
+        onConfirm={() => {
+          const target = unlockTarget
+          setUnlockTarget(null)
+          if (target) void handleUnlock(target)
+        }}
+      />
 
       <ConfirmDialog
         open={toggleTarget !== null}

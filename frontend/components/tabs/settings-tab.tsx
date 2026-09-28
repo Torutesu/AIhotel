@@ -40,6 +40,7 @@ import { DailyDataImportSection } from "@/components/settings/daily-data-import-
 import { CompetitorPriceImportSection, OtbImportSection } from "@/components/settings/external-data-import-sections"
 import { AccountSecurityCard } from "@/components/settings/account-security-card"
 import { AuditLogSection } from "@/components/settings/audit-log-section"
+import { IpRestrictionSection } from "@/components/settings/ip-restriction-section"
 
 // ダッシュボードKPI進捗表に表示する指標（施設ごとに選択可能。F-DASH-01）
 const DASHBOARD_KPI_ITEMS = [
@@ -167,6 +168,9 @@ export function SettingsTab() {
 
       {/* 監査ログ（管理者・運営のみ — #89） */}
       {(user?.role === "ADMIN" || user?.role === "PLATFORM_ADMIN") && <AuditLogSection />}
+
+      {/* IP 制限（テナントの管理者のみ — #12）。運営はテナント管理から解除だけを行う */}
+      {user?.role === "ADMIN" && <IpRestrictionSection />}
 
       {/* パスワード変更・全端末ログアウト（全ロール — #89） */}
       <AccountSecurityCard />
