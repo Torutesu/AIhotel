@@ -10,7 +10,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         // Dark Pill Button — #000 fill, the only significant mass on screen
-        default: 'rounded-full bg-primary text-primary-foreground hover:bg-primary/90',
+        default: 'rounded-lg bg-primary text-primary-foreground hover:bg-primary/90',
         destructive:
           'bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60',
         // Ghost nav button — transparent fill, hairline border, 8px radius
@@ -23,12 +23,12 @@ const buttonVariants = cva(
         link: 'rounded-none text-primary underline-offset-4 hover:underline',
       },
       size: {
-        default: 'h-9 px-4 py-2 has-[>svg]:px-3.5',
-        sm: 'h-8 gap-1.5 px-3 has-[>svg]:px-2.5',
-        lg: 'h-10 px-6 has-[>svg]:px-5',
-        icon: 'size-9',
-        'icon-sm': 'size-8',
-        'icon-lg': 'size-10',
+        default: 'h-12 px-4 py-2 has-[>svg]:px-3.5',
+        sm: 'h-11 gap-1.5 px-3 has-[>svg]:px-2.5',
+        lg: 'h-12 px-6 has-[>svg]:px-5',
+        icon: 'size-11',
+        'icon-sm': 'size-11',
+        'icon-lg': 'size-12',
       },
     },
     defaultVariants: {

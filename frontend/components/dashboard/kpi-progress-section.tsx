@@ -381,7 +381,7 @@ export function KpiProgressSection({
       ) : kpi ? (
         <Card>
           <CardContent className="p-0 pt-2 pb-2">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="KPI比較表（横にスクロールできます）">
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="border-b bg-muted/30">
@@ -445,7 +445,7 @@ export function KpiProgressSection({
             ) : spanError ? (
               <ErrorState message={spanError} onRetry={retrySpan} />
             ) : multiMonthTable ? (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="KPI比較表（横にスクロールできます）">
                 <table className="w-full text-xs border-collapse">
                   <thead>
                     <tr className="border-b bg-muted/30">

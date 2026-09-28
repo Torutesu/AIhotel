@@ -104,7 +104,7 @@ function buildRows(summary: DashboardKpi["summary"], snapshot: KpiSnapshot): Com
 
 function ComparisonTable({ rows, beforeLabel }: { rows: ComparisonRow[]; beforeLabel: string }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="KPI比較表（横にスクロールできます）">
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr className="border-b bg-muted/30">

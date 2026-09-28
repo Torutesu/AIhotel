@@ -5,7 +5,7 @@ import type React from "react"
 import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Send, X, Sparkles } from "lucide-react"
 import { SampleDataNotice } from "@/components/sample-data-notice"
 import { cn } from "@/lib/utils"
@@ -14,9 +14,10 @@ import type { Message } from "@shared/types"
 type ChatInterfaceProps = {
   isOpen: boolean
   onClose: () => void
+  returnFocusRef?: React.RefObject<HTMLButtonElement | null>
 }
 
-export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
+export function ChatInterface({ isOpen, onClose, returnFocusRef }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -30,6 +31,9 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
   const [isTyping, setIsTyping] = useState(false)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const replyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => () => { if (replyTimer.current) clearTimeout(replyTimer.current) }, [])
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -44,7 +48,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
   }, [messages])
 
   const handleSend = async () => {
-    if (!input.trim()) return
+    if (!input.trim() || isTyping) return
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -58,7 +62,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
     setIsTyping(true)
 
     // Simulate AI response
-    setTimeout(() => {
+    replyTimer.current = setTimeout(() => {
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
@@ -106,7 +110,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
 
   // onKeyPress は非推奨（React 17+ / DOM 仕様）のため onKeyDown を使う
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.keyCode !== 229) {
       e.preventDefault()
       handleSend()
     }
@@ -122,7 +126,8 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 md:inset-auto md:bottom-24 md:right-6 w-full md:w-[420px] h-full md:h-[600px] bg-card border-0 md:border border-border rounded-none md:rounded-lg shadow-xs flex flex-col overflow-hidden z-30">
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose() }}>
+    <DialogContent onCloseAutoFocus={(event) => { if (returnFocusRef) { event.preventDefault(); returnFocusRef.current?.focus() } }} showCloseButton={false} aria-describedby={undefined} onOpenAutoFocus={(event) => { event.preventDefault(); inputRef.current?.focus() }} className="inset-0 flex h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-card p-0 sm:inset-auto sm:bottom-6 sm:right-6 sm:left-auto sm:top-auto sm:h-[min(720px,calc(100dvh-3rem))] sm:w-[420px] sm:max-w-[calc(100vw-3rem)] sm:rounded-lg sm:border">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border bg-muted/50">
         <div className="flex items-center gap-3">
@@ -130,7 +135,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
             <Sparkles className="w-5 h-5 text-foreground" />
           </div>
           <div>
-            <h3 className="font-heading font-medium tracking-tight">AIアシスタント</h3>
+            <DialogTitle className="font-heading font-bold tracking-tight">AIアシスタント</DialogTitle>
             <p className="text-xs text-muted-foreground">収益管理をサポート</p>
           </div>
         </div>
@@ -144,13 +149,13 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
       </div>
 
       {/* Messages */}
-      <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4" ref={scrollAreaRef} role="log" aria-label="会話履歴" aria-live="polite">
         <div className="space-y-4">
           {messages.map((message) => (
             <div key={message.id} className={cn("flex", message.role === "user" ? "justify-end" : "justify-start")}>
               <div
                 className={cn(
-                  "max-w-[85%] rounded-lg px-4 py-3 text-sm leading-relaxed",
+                  "max-w-[85%] break-words rounded-lg px-4 py-3 text-sm leading-relaxed",
                   message.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
                 )}
               >
@@ -180,18 +185,18 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Suggested Questions */}
       {messages.length === 1 && (
-        <div className="px-4 pb-3">
+        <div className="max-h-[28dvh] shrink-0 overflow-y-auto px-4 pb-3">
           <p className="text-xs text-muted-foreground mb-2">よくある質問:</p>
           <div className="flex flex-wrap gap-2">
             {suggestedQuestions.map((question, index) => (
               <button
                 key={index}
                 onClick={() => setInput(question)}
-                className="text-xs px-3 py-1.5 rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                className="min-h-11 text-sm px-3 py-2 rounded-full bg-muted hover:bg-muted/80 transition-colors"
               >
                 {question}
               </button>
@@ -201,13 +206,14 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
       )}
 
       {/* Input */}
-      <div className="p-4 border-t border-border bg-background">
+      <div className="shrink-0 border-t border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <div className="flex gap-2">
           <Input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            aria-label="AIアシスタントへの質問"
             placeholder="質問を入力してください..."
             className="flex-1"
           />
@@ -221,6 +227,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
           </Button>
         </div>
       </div>
-    </div>
+    </DialogContent>
+    </Dialog>
   )
 }
