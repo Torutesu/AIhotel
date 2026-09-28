@@ -87,7 +87,7 @@ export function ReportsTab() {
     <div className="p-4 space-y-3">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-heading font-medium tracking-tight text-balance">レポート</h2>
+        <h1 className="text-2xl font-heading font-medium tracking-tight text-balance">レポート</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           対象月の実績・予算・日別明細をPDFまたはExcelで出力します
         </p>

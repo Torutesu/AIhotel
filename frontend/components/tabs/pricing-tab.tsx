@@ -134,7 +134,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   return (
     <div className="space-y-4 p-4">
       <div>
-        <h2 className="text-balance text-2xl font-semibold">ダイナミックプライシング</h2>
+        <h1 className="text-balance text-2xl font-semibold">ダイナミックプライシング</h1>
         <p className="mt-1 text-sm text-muted-foreground">需要予測に基づく最適価格設定</p>
       </div>
 

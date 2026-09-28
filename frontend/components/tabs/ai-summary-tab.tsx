@@ -294,13 +294,13 @@ export function AISummaryTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            AI総合予測コメント
+            AI総合予測コメント（固定サンプル）
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4 text-sm leading-relaxed">
             <p>
-              <strong>【先6ヶ月の総合見通し】</strong><br />
+              <strong>【記載例：2026年2月〜7月】</strong><br />
               2026年2月〜7月の期間は、<span className="brand-highlight">3月下旬〜5月上旬が最大の需要期</span>となる見込みです。
               中国春節（2月上旬）のインバウンド需要に始まり、桜シーズン・ゴールデンウィークと続く高需要期間では、
               価格戦略の最適化が収益最大化の鍵となります。
@@ -327,7 +327,7 @@ export function AISummaryTab() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <TrendingUp className="w-5 h-5" />
-            月別需要指数予測（2026年2月〜7月）
+            月別需要指数予測（{upcomingPeriodLabel()}）
           </CardTitle>
           <CardDescription>
             外部要因を加味した総合需要指数の推移予測（100が通常の需要）
