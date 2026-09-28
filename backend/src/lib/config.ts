@@ -131,6 +131,12 @@ const envSchema = z.object({
   // 楽天ウェブサービスの利用条件（1秒に1回まで）に合わせた間隔
   RAKUTEN_REQUEST_INTERVAL_MS: z.coerce.number().int().min(1000).default(1100),
 
+  // トライアル（デモ）のログイン ID のドメイン。ID は trial-xxxxxx@<このドメイン> で自動発行する
+  TRIAL_LOGIN_DOMAIN: z
+    .string()
+    .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, 'TRIAL_LOGIN_DOMAIN はドメイン名（例: trial.example.com）で指定してください')
+    .default('trial.example.com'),
+
   // メール本文に載せるログイン画面の URL。未設定なら FRONTEND_URL の先頭を使う
   APP_PUBLIC_URL: z.string().url().optional(),
 })

@@ -71,7 +71,14 @@ export async function listActiveHotelsForJobService(): Promise<
   Array<{ id: string; name: string; tenantId: string }>
 > {
   return prisma.hotel.findMany({
-    where: { isActive: true },
+    // 契約停止中・期限切れのトライアルのテナントは対象外（誰も使えないホテルの予測を作らない）
+    where: {
+      isActive: true,
+      tenant: {
+        isActive: true,
+        OR: [{ trialExpiresAt: null }, { trialExpiresAt: { gt: new Date() } }],
+      },
+    },
     select: { id: true, name: true, tenantId: true },
     orderBy: { createdAt: 'asc' },
   })

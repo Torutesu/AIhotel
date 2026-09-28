@@ -40,7 +40,8 @@ interface RequestContext {
 }
 
 interface AuthResult {
-  user: Omit<User, 'password'>
+  /** trial はトライアルのユーザーだけに付く（画面上部に残り日数を出す）。ログイン以外では付けない */
+  user: Omit<User, 'password'> & { trial?: { expiresAt: Date } | null }
   tokens: {
     accessToken: string
     refreshToken: string
@@ -118,6 +119,17 @@ async function recordLoginFailure(
   })
 }
 
+/** トライアルの期限切れ（トライアル — 期限を過ぎたテナントは契約停止と同じく使えない） */
+export function isTrialExpired(
+  tenant: { trialExpiresAt: Date | null } | null | undefined,
+  now: Date = new Date()
+): boolean {
+  return Boolean(tenant?.trialExpiresAt && tenant.trialExpiresAt <= now)
+}
+
+export const TRIAL_EXPIRED_MESSAGE =
+  'トライアル期間が終了しました。延長をご希望の場合は担当者にお問い合わせください'
+
 /**
  * アクセストークンの主体を DB の現在の状態で解決する（#78）。
  *
@@ -146,12 +158,14 @@ export async function resolveAuthSubjectService(userId: string): Promise<{
       hotelId: true,
       isActive: true,
       mustChangePassword: true,
-      tenant: { select: { isActive: true } },
+      tenant: { select: { isActive: true, trialExpiresAt: true } },
     },
   })
   if (!user || !user.isActive) return null
   // テナントに属するユーザーは、テナントが停止されていれば使えない（運営は tenant を持たない）
   if (user.tenant && !user.tenant.isActive) return null
+  // トライアルの期限を過ぎたテナントも同じ扱い（利用中でも次のリクエストから 401 になる）
+  if (isTrialExpired(user.tenant)) return null
 
   return {
     userId: user.id,
@@ -171,7 +185,7 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
 
   const user = await prisma.user.findUnique({
     where: { email },
-    include: { tenant: { select: { isActive: true } } },
+    include: { tenant: { select: { isActive: true, trialExpiresAt: true } } },
   })
 
   // ユーザーが存在しない場合もダミーハッシュと比較して同じ計算量を消費する（S-8）。
@@ -203,6 +217,15 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
       ctx
     )
     throw new ApiError(401, INVALID_CREDENTIALS_MESSAGE)
+  }
+
+  // トライアルの期限切れは、パスワードが正しいときだけ理由を伝える（アカウントの有無は漏らさない）
+  if (isTrialExpired(user.tenant)) {
+    await recordLoginFailure(
+      { email, reason: 'TRIAL_EXPIRED', tenantId: user.tenantId, userId: user.id },
+      ctx
+    )
+    throw new ApiError(401, TRIAL_EXPIRED_MESSAGE)
   }
 
   const tokens = generateTokenPair(user)
@@ -240,10 +263,10 @@ export async function loginService(input: LoginInput, ctx?: RequestContext): Pro
     userAgent: ctx?.userAgent,
   })
 
-  const { password: _, tenant: _tenant, ...userWithoutPassword } = user
+  const { password: _, tenant, ...userWithoutPassword } = user
 
   return {
-    user: userWithoutPassword,
+    user: { ...userWithoutPassword, trial: tenant?.trialExpiresAt ? { expiresAt: tenant.trialExpiresAt } : null },
     tokens,
   }
 }
@@ -412,7 +435,7 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
 
   const storedToken = await prisma.refreshToken.findUnique({
     where: { tokenHash: hashToken(refreshToken) },
-    include: { user: { include: { tenant: { select: { isActive: true } } } } },
+    include: { user: { include: { tenant: { select: { isActive: true, trialExpiresAt: true } } } } },
   })
 
   if (!storedToken) {
@@ -461,6 +484,9 @@ export async function refreshTokenService(refreshToken: string): Promise<AuthRes
   // テナントの契約停止中はトークンを更新させない（#78）
   if (storedToken.user.tenant && !storedToken.user.tenant.isActive) {
     throw new ApiError(401, 'このアカウントは現在利用できません')
+  }
+  if (isTrialExpired(storedToken.user.tenant)) {
+    throw new ApiError(401, TRIAL_EXPIRED_MESSAGE)
   }
 
   const tokens = await prisma.$transaction(async (tx) => {
@@ -547,11 +573,14 @@ export async function logoutAllService(
 /**
  * 現在のユーザー情報を取得
  */
-export async function getMeService(userId: string): Promise<Omit<User, 'password'>> {
+export async function getMeService(
+  userId: string
+): Promise<Omit<User, 'password'> & { trial: { expiresAt: Date } | null }> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: {
       hotel: true,
+      tenant: { select: { trialKind: true, trialExpiresAt: true } },
     },
   })
 
@@ -559,9 +588,11 @@ export async function getMeService(userId: string): Promise<Omit<User, 'password
     throw new ApiError(404, 'ユーザーが見つかりません')
   }
 
-  const { password: _, ...userWithoutPassword } = user
+  const { password: _, tenant, ...userWithoutPassword } = user
 
-  return userWithoutPassword
+  // トライアルのユーザーには期限を返す（画面上部に残り日数を出す）
+  const trial = tenant?.trialKind && tenant.trialExpiresAt ? { expiresAt: tenant.trialExpiresAt } : null
+  return { ...userWithoutPassword, trial }
 }
 
 /**
