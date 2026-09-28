@@ -12,14 +12,15 @@ export const runtime = "nodejs"
 
 export async function POST(request: NextRequest) {
   return handle(request, {}, async (kv) => {
-    const { email, password } = await readJson(request)
-    if (typeof email !== "string" || typeof password !== "string" || email.length > 254 || password.length > 200) {
+    const { email, password, trialId } = await readJson(request)
+    if (typeof email !== "string" || typeof password !== "string" || email.length > 254 || password.length > 200 ||
+      (trialId !== undefined && (typeof trialId !== "string" || !/^demo-trial-[a-f0-9]{8,64}$/.test(trialId)))) {
       throw new DemoTrialError(400, "入力が正しくありません")
     }
-    const result = await trialLogin(kv, email, password, clientIp(request))
-    // 該当するトライアルが無いときは data: null（画面はデモの固定アカウントを試す）
+    const result = await trialLogin(kv, email, password, clientIp(request), Date.now(), trialId as string | undefined)
+    // 該当するトライアルが無いときは data: null（画面は一般的な認証エラーを表示）
     if (!result) return ok(null)
-    const response = ok({ name: result.name, expiresAt: result.expiresAt })
+    const response = ok({ email: result.email, name: result.name, expiresAt: result.expiresAt })
     setSessionCookie(response, request, TRIAL_COOKIE, result.cookie, TRIAL_SESSION_SECONDS)
     return response
   })
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   return handle(request, {}, async (kv) => {
-    const session = await trialSession(kv, request.cookies.get(TRIAL_COOKIE)?.value)
+    const session = await trialSession(kv, request.cookies.get(TRIAL_COOKIE)?.value, Date.now(), request.nextUrl.searchParams.get("trial") ?? undefined)
     const response = ok(session)
     if (!session.active) clearSessionCookie(response, TRIAL_COOKIE)
     return response

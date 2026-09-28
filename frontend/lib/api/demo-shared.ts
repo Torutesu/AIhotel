@@ -3,7 +3,7 @@
 // 共有保存（Upstash Redis）が設定されていれば、運営用 URL で発行したトライアルの ID が
 // 配布用 URL や他の人の端末でも使える。未設定ならブラウザ内の保存（demo-admin.ts）に戻る。
 
-import type { CreateTrialRequest, TrialCredentials, TrialSummary, UpdateTrialRequest } from "@shared/types"
+import type { CreateTrialRequest, TrialCredentials, TrialLoginInfo, TrialSummary, UpdateTrialRequest } from "@shared/types"
 import { ApiClientError } from "./client"
 
 export interface DemoSharedStatus {
@@ -20,6 +20,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     res = await fetch(path, {
       ...init,
       credentials: "same-origin",
+      cache: "no-store",
       headers: { "Content-Type": "application/json", ...init.headers },
     })
   } catch {
@@ -58,6 +59,9 @@ export const demoShared = {
   trials(): Promise<TrialSummary[]> {
     return call("/api/demo/trials")
   },
+  trialLoginInfo(id: string): Promise<TrialLoginInfo> {
+    return call(`/api/demo/trials/${encodeURIComponent(id)}`)
+  },
   createTrial(input: CreateTrialRequest): Promise<TrialCredentials> {
     return call("/api/demo/trials", { method: "POST", body: JSON.stringify(input) })
   },
@@ -71,11 +75,11 @@ export const demoShared = {
     await call(`/api/demo/trials/${encodeURIComponent(id)}`, { method: "DELETE" })
   },
   /** 該当するトライアルが無ければ null */
-  trialLogin(email: string, password: string): Promise<{ name: string; expiresAt: string } | null> {
-    return call("/api/demo/trial-session", { method: "POST", body: JSON.stringify({ email, password }) })
+  trialLogin(email: string, password: string, trialId?: string): Promise<{ email: string; name: string; expiresAt: string } | null> {
+    return call("/api/demo/trial-session", { method: "POST", body: JSON.stringify({ email, password, trialId }) })
   },
-  trialSession(): Promise<{ active: true; name: string; expiresAt: string } | { active: false; message: string }> {
-    return call("/api/demo/trial-session")
+  trialSession(trialId?: string): Promise<{ active: true; name: string; expiresAt: string } | { active: false; message: string }> {
+    return call(`/api/demo/trial-session${trialId ? `?trial=${encodeURIComponent(trialId)}` : ""}`)
   },
   async trialLogout(): Promise<void> {
     await call("/api/demo/trial-session", { method: "DELETE" }).catch(() => undefined)

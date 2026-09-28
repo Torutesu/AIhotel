@@ -5,6 +5,8 @@ import type { ReactNode } from "react"
 import { ApiClientError, AUTH_EXPIRED_EVENT, type Hotel } from "@/lib/api"
 import { AuthProvider, useAuth } from "@/components/auth-provider"
 
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }))
+
 // URL 同期（next/navigation 依存）は認証の関心事ではないので差し替える
 vi.mock("@/components/app-state-provider", () => ({
   useAppState: () => ({ hotelParam: null, setHotelParam: vi.fn() }),

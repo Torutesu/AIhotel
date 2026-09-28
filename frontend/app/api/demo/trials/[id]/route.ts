@@ -4,12 +4,19 @@ import { type NextRequest } from "next/server"
 
 import type { UpdateTrialRequest } from "@shared/types"
 import { handle, ok, readJson } from "@/lib/demo-trials/server/http"
-import { deleteTrial, updateTrial } from "@/lib/demo-trials/server/service"
+import { deleteTrial, trialLoginInfo, updateTrial } from "@/lib/demo-trials/server/service"
 
 export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 type Context = { params: Promise<{ id: string }> }
+
+export async function GET(request: NextRequest, context: Context) {
+  return handle(request, { admin: true }, async (kv) => {
+    const { id } = await context.params
+    return ok(await trialLoginInfo(kv, id))
+  })
+}
 
 export async function PUT(request: NextRequest, context: Context) {
   return handle(request, { admin: true }, async (kv) => {

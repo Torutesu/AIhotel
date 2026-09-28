@@ -2,19 +2,20 @@
 //
 // - 運営のパスワード: 運営用 URL で最初にログインしたときのパスワードを登録する（環境変数の設定は要らない）。
 //   ハッシュだけを保存し、登録し直すときは Upstash の画面で demo:admin を消す
-// - トライアルのパスワード: ハッシュだけを保存する。発行・再発行のときに1回だけ返す
+// - トライアルのパスワード: 認証用ハッシュと、運営の再表示用の暗号文を保存する
 // - ログインの状態: 署名した Cookie で持つ。署名の鍵は運営の初回登録のときに作って保存する
 // - ログインの失敗が続いたアクセス元は15分止める
 
 import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto"
 import { promisify } from "node:util"
 
-import type { CreateTrialRequest, TrialCredentials, TrialSummary, UpdateTrialRequest } from "@shared/types"
+import type { CreateTrialRequest, TrialCredentials, TrialLoginInfo, TrialSummary, UpdateTrialRequest } from "@shared/types"
 import {
   DemoTrialError, LOGIN_FAILED_MESSAGE, applyTrialUpdate, assertCanLogin, newTrialRecord, randomPassword, sortTrials,
   summarize, type DemoTrialRecord,
 } from "../core"
 import type { DemoKv } from "./kv"
+import { encryptTrialPassword, decryptTrialPassword, trialLoginUrl } from "./credentials"
 
 const scrypt = promisify(scryptCallback) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>
 
@@ -140,8 +141,10 @@ export async function listTrials(kv: DemoKv, now = Date.now()): Promise<TrialSum
 export async function createTrial(kv: DemoKv, input: CreateTrialRequest, now = Date.now()): Promise<TrialCredentials> {
   const password = randomPassword()
   const record = newTrialRecord(input, await readTrials(kv), await hashPassword(password), now)
+  record.encryptedPassword = encryptTrialPassword(record.id, password)
+  const loginUrl = trialLoginUrl(record.id)
   await writeTrial(kv, record)
-  return { trial: summarize(record, now), password }
+  return { trial: summarize(record, now), password, loginUrl, redisplayable: true }
 }
 
 export async function updateTrial(kv: DemoKv, id: string, input: UpdateTrialRequest, now = Date.now()): Promise<TrialSummary> {
@@ -154,8 +157,21 @@ export async function updateTrial(kv: DemoKv, id: string, input: UpdateTrialRequ
 export async function resetTrialPassword(kv: DemoKv, id: string, now = Date.now()): Promise<TrialCredentials> {
   const password = randomPassword()
   const record = { ...(await findTrial(kv, id)), secret: await hashPassword(password) }
+  record.encryptedPassword = encryptTrialPassword(record.id, password)
+  const loginUrl = trialLoginUrl(record.id)
   await writeTrial(kv, record)
-  return { trial: summarize(record, now), password }
+  return { trial: summarize(record, now), password, loginUrl, redisplayable: true }
+}
+
+/** 呼び出し側で運営セッション必須。旧レコードはパスワードを変えずに null を返す */
+export async function trialLoginInfo(kv: DemoKv, id: string, now = Date.now()): Promise<TrialLoginInfo> {
+  const record = await findTrial(kv, id)
+  return {
+    trial: summarize(record, now),
+    password: record.encryptedPassword ? decryptTrialPassword(record.id, record.encryptedPassword) : null,
+    loginUrl: trialLoginUrl(record.id),
+    redisplayable: Boolean(record.encryptedPassword),
+  }
 }
 
 export async function deleteTrial(kv: DemoKv, id: string): Promise<void> {
@@ -176,11 +192,15 @@ export async function trialLogin(
   password: string,
   ip: string | null,
   now = Date.now(),
-): Promise<{ name: string; expiresAt: string; cookie: string } | null> {
+  trialId?: string,
+): Promise<{ name: string; expiresAt: string; cookie: string; email: string } | null> {
   const loginEmail = email.trim().toLowerCase()
-  const record = (await readTrials(kv)).find((t) => t.loginEmail === loginEmail)
-  if (!record) return null
   await guardFailures(kv, "trial", ip)
+  const record = (await readTrials(kv)).find((t) => trialId ? t.id === trialId : t.loginEmail === loginEmail)
+  if (!record) {
+    await recordFailure(kv, "trial", ip)
+    return null
+  }
   if (!(await verifyPassword(password, record.secret))) {
     await recordFailure(kv, "trial", ip)
     throw new DemoTrialError(401, LOGIN_FAILED_MESSAGE)
@@ -190,7 +210,7 @@ export async function trialLogin(
   if (!admin) throw new DemoTrialError(401, LOGIN_FAILED_MESSAGE)
   await writeTrial(kv, { ...record, lastLoginAt: new Date(now).toISOString() })
   const exp = Math.floor(now / 1000) + TRIAL_SESSION_SECONDS
-  return { name: record.name, expiresAt: record.expiresAt, cookie: `${record.id}.${exp}.${trialSignature(admin, record, exp)}` }
+  return { email: record.loginEmail!, name: record.name, expiresAt: record.expiresAt, cookie: `${record.id}.${exp}.${trialSignature(admin, record, exp)}` }
 }
 
 /**
@@ -201,10 +221,12 @@ export async function trialSession(
   kv: DemoKv,
   cookie: string | undefined,
   now = Date.now(),
+  expectedTrialId?: string,
 ): Promise<{ active: true; name: string; expiresAt: string } | { active: false; message: string }> {
   const ended = { active: false as const, message: "トライアルのログインが無効になりました。もう一度ログインしてください" }
   if (!cookie) return ended
   const [id, expRaw, signature] = cookie.split(".")
+  if (expectedTrialId && id !== expectedTrialId) return ended
   const exp = Number(expRaw)
   if (!id || !signature || !Number.isFinite(exp) || exp * 1000 <= now) return ended
   const [admin, record] = await Promise.all([readAdmin(kv), readTrials(kv).then((all) => all.find((t) => t.id === id))])

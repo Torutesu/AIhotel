@@ -1,10 +1,10 @@
-import { describe, it, expect } from "vitest"
+import { beforeEach, describe, it, expect, vi } from "vitest"
 
 import { DAY_MS } from "../core"
 import { memoryKv } from "./kv"
 import {
   adminConfigured, adminLogin, createTrial, deleteTrial, listTrials, resetTrialPassword, trialLogin, trialSession,
-  updateTrial, verifyAdminSession,
+  updateTrial, verifyAdminSession, trialLoginInfo,
 } from "./service"
 
 // デモのトライアルの共有保存（運営用 URL で発行した ID を、配布用 URL や他の端末でも使う）
@@ -36,13 +36,17 @@ describe("運営のログイン", () => {
 })
 
 describe("トライアル", () => {
+  beforeEach(() => {
+    vi.stubEnv("DEMO_TRIAL_CREDENTIALS_KEY", "a".repeat(64))
+    vi.stubEnv("DEMO_PUBLIC_URL", "https://public.example.test")
+  })
   async function setup() {
     const kv = memoryKv()
     await adminLogin(kv, "operator-pass-1", null)
     return kv
   }
 
-  it("発行した ID は別の端末でもログインでき、パスワードは保存しない", async () => {
+  it("発行した ID は別の端末でもログインでき、パスワードを平文保存しない", async () => {
     const kv = await setup()
     const { trial, password } = await createTrial(kv, { name: "○○販売店", kind: "DEALER", days: 30 })
     expect(trial).toMatchObject({ status: "ACTIVE", daysLeft: 30 })
@@ -79,6 +83,41 @@ describe("トライアル", () => {
     await deleteTrial(kv, trial.id)
     expect(await trialSession(kv, again.cookie)).toMatchObject({ active: false })
     expect(await listTrials(kv)).toHaveLength(0)
+  })
+
+  it("個別URLと暗号化パスワードを再取得でき、一覧には秘密を含めない", async () => {
+    const kv = await setup()
+    const first = await createTrial(kv, { name: "A", kind: "DEALER" })
+    const second = await createTrial(kv, { name: "B", kind: "PROSPECT_HOTEL" })
+    expect(first.loginUrl).not.toEqual(second.loginUrl)
+    expect(new URL(first.loginUrl!).origin).toBe("https://public.example.test")
+    expect(new URL(first.loginUrl!).searchParams.get("trial")).toBe(first.trial.id)
+    expect(await trialLoginInfo(kv, first.trial.id)).toEqual(first)
+    expect((await listTrials(kv))[0]).not.toHaveProperty("encryptedPassword")
+    expect((await listTrials(kv))[0]).not.toHaveProperty("secret")
+    const login = await trialLogin(kv, "", first.password, null, Date.now(), first.trial.id)
+    expect(login?.email).toBe(first.trial.loginEmail)
+    await expect(trialLogin(kv, "", first.password, null, Date.now(), second.trial.id)).rejects.toThrow()
+    expect(await trialSession(kv, login!.cookie, Date.now(), second.trial.id)).toMatchObject({ active: false })
+    expect(await trialSession(kv, login!.cookie, Date.now(), first.trial.id)).toMatchObject({ active: true })
+    const reset = await resetTrialPassword(kv, first.trial.id)
+    expect((await trialLoginInfo(kv, first.trial.id)).password).toBe(reset.password)
+    expect(await trialSession(kv, login!.cookie)).toMatchObject({ active: false })
+  })
+
+  it("旧データは勝手に再発行せず、暗号化設定なしでは新規保存しない", async () => {
+    const kv = await setup()
+    const issued = await createTrial(kv, { name: "Legacy", kind: "DEALER" })
+    const record = JSON.parse((await kv.hgetall("demo:trials"))[issued.trial.id])
+    delete record.encryptedPassword
+    await kv.hset("demo:trials", issued.trial.id, JSON.stringify(record))
+    expect((await trialLoginInfo(kv, issued.trial.id)).password).toBeNull()
+    expect(await trialLogin(kv, "", issued.password, null, Date.now(), issued.trial.id)).toBeTruthy()
+    const before = await kv.hgetall("demo:trials")
+    vi.stubEnv("DEMO_TRIAL_CREDENTIALS_KEY", "")
+    await expect(createTrial(kv, { name: "No key", kind: "DEALER" })).rejects.toMatchObject({ status: 503 })
+    await expect(resetTrialPassword(kv, issued.trial.id)).rejects.toMatchObject({ status: 503 })
+    expect(await kv.hgetall("demo:trials")).toEqual(before)
   })
 
   it("期限は今日から90日まで", async () => {

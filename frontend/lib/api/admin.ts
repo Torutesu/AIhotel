@@ -4,9 +4,11 @@
 
 import type {
   HotelDto as Hotel, RoomType, RoomTypeInput, TenantSummary, AuditLogItem, TemporaryPasswordResult,
-  TrialSummary, CreateTrialRequest, UpdateTrialRequest, TrialCredentials, IpAllowEntry, IpRestrictionSettings
+  TrialSummary, TrialLoginInfo, CreateTrialRequest, UpdateTrialRequest, TrialCredentials, IpAllowEntry, IpRestrictionSettings
 } from "@shared/types"
 import { rawBinaryRequest, rawRequest, withDemoFallback, type BinaryDownload } from "./client"
+import { ApiClientError } from "./client"
+import { demoShared, demoSharedStatus } from "./demo-shared"
 import { demoAdmin, demoTrials } from "./demo-admin"
 import { mockAuditLogs, mockRoomTypes } from "./demo-data"
 import type { CompetitorPriceCsvRow, OtbCsvRow } from "@/lib/import-csv"
@@ -196,6 +198,11 @@ export const adminEndpoints = {
   },
 
   // ---- トライアル（デモ）アカウント（運営のみ） ----
+
+  async trialLoginInfo(id: string): Promise<TrialLoginInfo> {
+    if ((await demoSharedStatus()).shared) return demoShared.trialLoginInfo(id)
+    throw new ApiClientError(400, "ログイン情報の再表示にはデモの共有保存が必要です")
+  },
 
   /** トライアルの一覧（期限の近い順） */
   trials(): Promise<TrialSummary[]> {

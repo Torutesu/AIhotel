@@ -17,7 +17,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError } from "@/lib/api"
-import { TRIAL_KIND_LABELS, type TrialCredentials, type TrialSummary } from "@shared/types"
+import { TRIAL_KIND_LABELS, type TrialLoginInfo, type TrialSummary } from "@shared/types"
 import { TrialCreateDialog, toCreateTrialRequest, type TrialFormValues } from "./trial-create-dialog"
 import { TrialCredentialsDialog } from "./trial-credentials-dialog"
 import { TrialCommandBox } from "./trial-command-box"
@@ -50,7 +50,7 @@ export function TrialManagementSection() {
   const [createOpen, setCreateOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [credentials, setCredentials] = useState<TrialCredentials | null>(null)
+  const [credentials, setCredentials] = useState<TrialLoginInfo | null>(null)
   const [pending, setPending] = useState<PendingAction | null>(null)
 
   const run = async (id: string | null, action: () => Promise<void>, failure: string) => {
@@ -203,6 +203,12 @@ export function TrialManagementSection() {
                       </td>
                       <td className="py-2">
                         <div className="flex flex-wrap gap-1">
+                          <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={busy}
+                            onClick={() => void run(trial.id, async () => {
+                              setCredentials(await api.trialLoginInfo(trial.id))
+                            }, "ログイン情報を取得できませんでした")}>
+                            ログイン情報
+                          </Button>
                           <Button variant="outline" size="sm" className="h-7 gap-1 px-2 text-xs" disabled={busy} onClick={() => void extend(trial)}>
                             <Timer className="h-3.5 w-3.5" aria-hidden />
                             {EXTEND_DAYS}日延長

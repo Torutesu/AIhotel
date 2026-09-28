@@ -10,6 +10,7 @@ import type { TrialSummary } from "@shared/types"
 
 const mocks = vi.hoisted(() => ({
   trials: vi.fn(),
+  trialLoginInfo: vi.fn(),
   createTrial: vi.fn(),
   updateTrial: vi.fn(),
   resetTrialPassword: vi.fn(),
@@ -48,7 +49,7 @@ describe("trialStatusBadge", () => {
 
 describe("発行フォームと案内文", () => {
   it("空欄のメモ・ログイン ID は送らない", () => {
-    expect(toCreateTrialRequest({ name: " △△ホテル ", kind: "PROSPECT_HOTEL", days: 14, note: " ", loginEmail: "" })).toEqual({
+    expect(toCreateTrialRequest({ name: " △△ホテル ", kind: "PROSPECT_HOTEL", days: 14, note: " " })).toEqual({
       name: "△△ホテル",
       kind: "PROSPECT_HOTEL",
       days: 14,
@@ -87,6 +88,19 @@ describe("TrialManagementSection", () => {
     await waitFor(() => expect(mocks.resetTrialPassword).toHaveBeenCalledWith("t1"))
     // 新しいパスワードはダイアログで1回だけ見せる
     expect(await screen.findByText(/Newpass23456/)).toBeTruthy()
+  })
+
+  it("一覧から同じログイン情報を再表示し、閉じるとパスワードを消す", async () => {
+    mocks.trials.mockResolvedValue([trial()])
+    mocks.trialLoginInfo.mockResolvedValue({ trial: trial(), password: "Test-only-pass", loginUrl: "https://public.example.test/?trial=t1", redisplayable: true })
+    render(<TrialManagementSection />)
+    fireEvent.click(await screen.findByRole("button", { name: "ログイン情報" }))
+    expect(await screen.findByText(/Test-only-pass/)).toHaveTextContent("https://public.example.test/?trial=t1")
+    fireEvent.click(screen.getByRole("button", { name: "閉じる" }))
+    expect(screen.queryByText(/Test-only-pass/)).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "ログイン情報" }))
+    expect(await screen.findByText(/Test-only-pass/)).toBeTruthy()
+    expect(mocks.resetTrialPassword).not.toHaveBeenCalled()
   })
 
   it("取得に失敗したらエラーと再試行を出す", async () => {
