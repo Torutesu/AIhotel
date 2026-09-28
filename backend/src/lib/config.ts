@@ -135,6 +135,9 @@ const envSchema = z.object({
   // 未設定なら削除しない（保持期間はクライアント確認中のため、既定では消さない）
   AUDIT_LOG_RETENTION_DAYS: z.coerce.number().int().min(30, '監査ログの保持は30日以上にしてください').optional(),
 
+  // `job create-platform-admin` で作る運営アカウントのメールアドレス（検証・本番環境の立ち上げ用）
+  BOOTSTRAP_ADMIN_EMAIL: z.string().trim().toLowerCase().email('BOOTSTRAP_ADMIN_EMAIL はメールアドレスで指定してください').optional(),
+
   // トライアル（デモ）のログイン ID のドメイン。ID は trial-xxxxxx@<このドメイン> で自動発行する
   TRIAL_LOGIN_DOMAIN: z
     .string()

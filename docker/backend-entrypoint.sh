@@ -9,6 +9,12 @@
 # 複数レプリカ構成では、マイグレーションは別ジョブで 1 回だけ実行し、この変数は未設定にする。
 set -eu
 
+# 「sh /app/backend/entrypoint.sh job daily」のようにコマンド全体を渡すスケジューラ（Render の Cron Job など）でも
+# 「job daily」だけを渡すスケジューラでも同じに動くよう、先頭のスクリプト呼び出しを読み飛ばす
+if [ "${1:-}" = "sh" ] && [ "${2:-}" = "/app/backend/entrypoint.sh" ]; then
+  shift 2
+fi
+
 if [ "${1:-}" = "migrate" ]; then
   exec npx prisma migrate deploy
 fi
