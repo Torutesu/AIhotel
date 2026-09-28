@@ -26,11 +26,7 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 
 **https://a-ihotel-frontend.vercel.app** （`main` へのマージで自動更新）
 
-| ロール | メールアドレス | パスワード |
-|---|---|---|
-| 管理者 | `admin@demo-hotel.example.com` | `Admin1234` |
-| マネージャー | `manager@demo-hotel.example.com` | `Admin1234` |
-| オペレーター | `operator@demo-hotel.example.com` | `Admin1234` |
+運営から個別に発行されたトライアル ID とパスワードでログインします。共通アカウントの認証情報は公開しません。
 
 - フロントエンドだけを Vercel に置き、バックエンドにはつないでいない。画面のデータはすべてサンプルで、上部に「デモモードで表示しています」と出る
   （デモモードの仕組みは `frontend/lib/api/client.ts` と `frontend/lib/api/demo-data.ts`）
