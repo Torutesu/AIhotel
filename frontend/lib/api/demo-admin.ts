@@ -2,6 +2,7 @@
 //
 // テナント管理・トライアル管理・IP 制限の操作をタブ内（sessionStorage）で再現する。
 // サーバーには何も保存しないので、タブを閉じると元に戻る。発行したトライアルの ID はこのタブのデモでだけログインできる。
+// デモの共有保存（demo-shared.ts）が設定されていれば、トライアルはそちらを使う（demoTrials）。
 
 import type {
   CreateTrialRequest,
@@ -12,21 +13,21 @@ import type {
   TrialSummary,
   UpdateTrialRequest,
 } from "@shared/types"
+import {
+  DemoTrialError, applyTrialUpdate, assertCanLogin, newTrialRecord, randomHex, randomPassword, sortTrials, summarize,
+  type DemoTrialRecord,
+} from "@/lib/demo-trials/core"
 import { ApiClientError, MOCK_TENANT_ID } from "./client"
+import { demoShared, demoSharedStatus } from "./demo-shared"
 
 const STORAGE_KEY = "demo-admin-state"
-const DAY_MS = 86_400_000
 /** デモでの「あなたの今のアクセス元」（文書用の IP アドレス） */
 export const DEMO_CURRENT_IP = "203.0.113.10"
 
-interface DemoTrial extends TrialSummary {
-  password: string
-  isActive: boolean
-}
-
 interface DemoAdminState {
   tenants: TenantSummary[]
-  trials: DemoTrial[]
+  /** secret はパスワードそのもの（タブの中だけのデモのため） */
+  trials: DemoTrialRecord[]
   ip: { enabled: boolean; entries: IpAllowEntry[] }
 }
 
@@ -70,36 +71,24 @@ function save(state: DemoAdminState) {
   }
 }
 
-function randomHex(length: number): string {
-  let out = ""
-  while (out.length < length) out += Math.floor(Math.random() * 16).toString(16)
-  return out
-}
-
-function randomPassword(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
-  let out = "Aa2"
-  while (out.length < 12) out += chars[Math.floor(Math.random() * chars.length)]
-  return out
-}
-
-/** 保存しているトライアルに、今の時刻から状態・残り日数を付け直す */
-function summarize(trial: DemoTrial, now = Date.now()): TrialSummary {
-  const expiresAt = new Date(trial.expiresAt).getTime()
-  const expired = expiresAt <= now
-  const { password: _password, isActive, ...rest } = trial
-  return {
-    ...rest,
-    status: !isActive ? "SUSPENDED" : expired ? "EXPIRED" : "ACTIVE",
-    daysLeft: expired ? 0 : Math.ceil((expiresAt - now) / DAY_MS),
-    purgeAt: expired ? new Date(expiresAt + 30 * DAY_MS).toISOString() : null,
+/** デモの規則のエラーを画面の API エラーに直す */
+function asApiError<T>(run: () => T): T {
+  try {
+    return run()
+  } catch (err) {
+    if (err instanceof DemoTrialError) throw new ApiClientError(err.status, err.message)
+    throw err
   }
 }
 
-function findTrial(state: DemoAdminState, id: string): DemoTrial {
+function findTrial(state: DemoAdminState, id: string): DemoTrialRecord {
   const trial = state.trials.find((t) => t.id === id)
   if (!trial) throw new ApiClientError(404, "トライアルが見つかりません")
   return trial
+}
+
+function replaceTrial(state: DemoAdminState, record: DemoTrialRecord) {
+  state.trials = state.trials.map((t) => (t.id === record.id ? record : t))
 }
 
 export const demoAdmin = {
@@ -149,62 +138,33 @@ export const demoAdmin = {
 
   trials(): TrialSummary[] {
     const now = Date.now()
-    return load()
-      .trials.map((t) => summarize(t, now))
-      .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))
+    return sortTrials(load().trials.map((t) => summarize(t, now)))
   },
 
   createTrial(input: CreateTrialRequest): TrialCredentials {
     const state = load()
-    const suffix = randomHex(8)
-    const loginEmail = input.loginEmail ?? `trial-${suffix}@trial.example.com`
-    if (state.trials.some((t) => t.loginEmail === loginEmail)) {
-      throw new ApiClientError(409, "このログイン ID は既に使われています")
-    }
-    const now = Date.now()
-    const trial: DemoTrial = {
-      id: `demo-trial-${suffix}`,
-      name: input.name,
-      kind: input.kind,
-      note: input.note ?? null,
-      status: "ACTIVE",
-      expiresAt: new Date(now + (input.days ?? 30) * DAY_MS).toISOString(),
-      daysLeft: input.days ?? 30,
-      purgeAt: null,
-      loginEmail,
-      lastLoginAt: null,
-      createdAt: new Date(now).toISOString(),
-      password: randomPassword(),
-      isActive: true,
-    }
-    state.trials.push(trial)
+    const password = randomPassword()
+    const record = asApiError(() => newTrialRecord(input, state.trials, password))
+    state.trials.push(record)
     save(state)
-    return { trial: summarize(trial, now), password: trial.password }
+    return { trial: summarize(record), password }
   },
 
   updateTrial(id: string, input: UpdateTrialRequest): TrialSummary {
     const state = load()
-    const trial = findTrial(state, id)
-    const now = Date.now()
-    if (input.extendDays !== undefined) {
-      const base = Math.max(now, new Date(trial.expiresAt).getTime())
-      const next = base + input.extendDays * DAY_MS
-      if (next - now > 90 * DAY_MS) throw new ApiClientError(400, "期限は今日から90日以内にしてください")
-      trial.expiresAt = new Date(next).toISOString()
-    }
-    if (input.name !== undefined) trial.name = input.name
-    if (input.note !== undefined) trial.note = input.note
-    if (input.isActive !== undefined) trial.isActive = input.isActive
+    const record = asApiError(() => applyTrialUpdate(findTrial(state, id), input))
+    replaceTrial(state, record)
     save(state)
-    return summarize(trial, now)
+    return summarize(record)
   },
 
   resetTrialPassword(id: string): TrialCredentials {
     const state = load()
-    const trial = findTrial(state, id)
-    trial.password = randomPassword()
+    const password = randomPassword()
+    const record = { ...findTrial(state, id), secret: password }
+    replaceTrial(state, record)
     save(state)
-    return { trial: summarize(trial), password: trial.password }
+    return { trial: summarize(record), password }
   },
 
   deleteTrial(id: string): void {
@@ -220,13 +180,11 @@ export const demoAdmin = {
    */
   trialLogin(email: string, password: string): { name: string; expiresAt: string } | null {
     const state = load()
-    const trial = state.trials.find((t) => t.loginEmail === email && t.password === password)
+    const loginEmail = email.trim().toLowerCase()
+    const trial = state.trials.find((t) => t.loginEmail === loginEmail && t.secret === password)
     if (!trial) return null
-    if (!trial.isActive) throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
-    if (new Date(trial.expiresAt).getTime() <= Date.now()) {
-      throw new ApiClientError(401, "トライアル期間が終了しました。延長をご希望の場合は担当者にお問い合わせください")
-    }
-    trial.lastLoginAt = new Date().toISOString()
+    asApiError(() => assertCanLogin(trial))
+    replaceTrial(state, { ...trial, lastLoginAt: new Date().toISOString() })
     save(state)
     return { name: trial.name, expiresAt: trial.expiresAt }
   },
@@ -253,5 +211,27 @@ export const demoAdmin = {
     if (tenant) tenant.ipRestrictionEnabled = input.enabled
     save(state)
     return { ...state.ip, currentIp: DEMO_CURRENT_IP }
+  },
+}
+
+/**
+ * デモのトライアル管理。共有保存が設定されていればそちら（どの端末・URL でも同じ一覧）、
+ * 無ければこのタブの中だけで再現する
+ */
+export const demoTrials = {
+  async trials(): Promise<TrialSummary[]> {
+    return (await demoSharedStatus()).shared ? demoShared.trials() : demoAdmin.trials()
+  },
+  async createTrial(input: CreateTrialRequest): Promise<TrialCredentials> {
+    return (await demoSharedStatus()).shared ? demoShared.createTrial(input) : demoAdmin.createTrial(input)
+  },
+  async updateTrial(id: string, input: UpdateTrialRequest): Promise<TrialSummary> {
+    return (await demoSharedStatus()).shared ? demoShared.updateTrial(id, input) : demoAdmin.updateTrial(id, input)
+  },
+  async resetTrialPassword(id: string): Promise<TrialCredentials> {
+    return (await demoSharedStatus()).shared ? demoShared.resetTrialPassword(id) : demoAdmin.resetTrialPassword(id)
+  },
+  async deleteTrial(id: string): Promise<void> {
+    return (await demoSharedStatus()).shared ? demoShared.deleteTrial(id) : demoAdmin.deleteTrial(id)
   },
 }

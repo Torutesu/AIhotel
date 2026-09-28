@@ -7,7 +7,7 @@ import type {
   TrialSummary, CreateTrialRequest, UpdateTrialRequest, TrialCredentials, IpAllowEntry, IpRestrictionSettings
 } from "@shared/types"
 import { rawBinaryRequest, rawRequest, withDemoFallback, type BinaryDownload } from "./client"
-import { demoAdmin } from "./demo-admin"
+import { demoAdmin, demoTrials } from "./demo-admin"
 import { mockAuditLogs, mockRoomTypes } from "./demo-data"
 import type { CompetitorPriceCsvRow, OtbCsvRow } from "@/lib/import-csv"
 import type {
@@ -199,14 +199,14 @@ export const adminEndpoints = {
 
   /** トライアルの一覧（期限の近い順） */
   trials(): Promise<TrialSummary[]> {
-    return withDemoFallback(() => rawRequest("/api/v1/platform/trials"), () => demoAdmin.trials())
+    return withDemoFallback(() => rawRequest("/api/v1/platform/trials"), () => demoTrials.trials())
   },
 
   /** トライアルの発行。デモデータ入りの専用ホテルとログイン ID を作る。パスワードはこの戻り値でしか得られない */
   createTrial(input: CreateTrialRequest): Promise<TrialCredentials> {
     return withDemoFallback(
       () => rawRequest("/api/v1/platform/trials", { method: "POST", body: JSON.stringify(input) }),
-      () => demoAdmin.createTrial(input),
+      () => demoTrials.createTrial(input),
     )
   },
 
@@ -214,7 +214,7 @@ export const adminEndpoints = {
   updateTrial(id: string, input: UpdateTrialRequest): Promise<TrialSummary> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/platform/trials/${id}`, { method: "PUT", body: JSON.stringify(input) }),
-      () => demoAdmin.updateTrial(id, input),
+      () => demoTrials.updateTrial(id, input),
     )
   },
 
@@ -222,7 +222,7 @@ export const adminEndpoints = {
   resetTrialPassword(id: string): Promise<TrialCredentials> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/platform/trials/${id}/reset-password`, { method: "POST" }),
-      () => demoAdmin.resetTrialPassword(id),
+      () => demoTrials.resetTrialPassword(id),
     )
   },
 
@@ -230,7 +230,7 @@ export const adminEndpoints = {
   deleteTrial(id: string): Promise<void> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/platform/trials/${id}`, { method: "DELETE" }),
-      () => demoAdmin.deleteTrial(id),
+      () => demoTrials.deleteTrial(id),
     )
   },
 

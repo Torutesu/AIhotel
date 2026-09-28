@@ -163,12 +163,21 @@ export function getMockUser(): User | null {
   }
 }
 
+export const DEMO_PLATFORM_EMAIL = "platform@example.com"
+
 export function mockLogin(email: string, password: string): LoginResult {
   const account = MOCK_ACCOUNTS[email]
   const hidden = account?.role === "PLATFORM_ADMIN" && !isDemoAdminConsole()
   if (!account || hidden || password !== MOCK_PASSWORD) {
     throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
   }
+  return mockLoginAs(email)
+}
+
+/** パスワードを確認済みのデモアカウントでログインした状態を作る（共有保存で運営を確認したとき等） */
+export function mockLoginAs(email: string): LoginResult {
+  const account = MOCK_ACCOUNTS[email]
+  if (!account) throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
   const now = new Date()
   const isPlatform = account.role === "PLATFORM_ADMIN"
   const user: User = {
@@ -207,13 +216,13 @@ function backendUnreachableError(demoMessage: string | null): ApiClientError {
   )
 }
 
-export async function withDemoFallback<T>(request: () => Promise<T>, fallback: () => T): Promise<T> {
+export async function withDemoFallback<T>(request: () => Promise<T>, fallback: () => T | Promise<T>): Promise<T> {
   try {
     return await request()
   } catch (err) {
     if (isDemoModeEnabled() && err instanceof ApiClientError && err.isBackendUnreachable) {
       markDemoDataInUse()
-      return fallback()
+      return await fallback()
     }
     throw err
   }
