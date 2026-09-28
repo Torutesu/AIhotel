@@ -68,7 +68,7 @@ try {
 # ------------------------------------------------------------
 # 3. 取得スクリプトと起動用バッチ
 # ------------------------------------------------------------
-foreach ($file in @('export-tl.mjs', 'selectors.example.json', 'README.md')) {
+foreach ($file in @('export-tl.mjs', 'selectors.example.json', 'cdp-relay.mjs', 'README.md')) {
   $src = Join-Path $scriptDir $file
   if (Test-Path $src) { Copy-Item -LiteralPath $src -Destination $KitPath -Force }
 }
