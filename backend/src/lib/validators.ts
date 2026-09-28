@@ -462,6 +462,34 @@ export const updateTenantSchema = z
   .refine((data) => Object.keys(data).length > 0, { message: '更新する項目を指定してください' })
 
 // ======================================
+// Trial Validators（トライアル — 運営専用）
+// ======================================
+
+// トライアルの期限は1〜90日（services/trialsService.ts の TRIAL_MAX_DAYS と同じ）
+const trialDaysSchema = z.number().int().min(1, '1日以上にしてください').max(90, '90日以内にしてください')
+
+export const createTrialSchema = z.object({
+  // 渡し先（販売店名・ホテル名）。テナント名とログインユーザー名に使う
+  name: z.string().trim().min(1, '名前は必須です').max(100),
+  kind: z.enum(['DEALER', 'PROSPECT_HOTEL']),
+  days: trialDaysSchema.default(30),
+  note: z.string().trim().max(500).nullable().optional(),
+  // 省略すると trial-xxxxxx@TRIAL_LOGIN_DOMAIN を自動で作る
+  loginEmail: z.string().trim().toLowerCase().email('有効なメールアドレスを入力してください').optional(),
+})
+
+export const updateTrialSchema = z
+  .object({
+    name: z.string().trim().min(1, '名前は必須です').max(100).optional(),
+    note: z.string().trim().max(500).nullable().optional(),
+    // false で停止（期限内でも使えなくする）、true で再開
+    isActive: z.boolean().optional(),
+    // 期限を延ばす日数。期限切れなら今日から数える
+    extendDays: trialDaysSchema.optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目を指定してください' })
+
+// ======================================
 // Room Type Validators（#81）
 // ======================================
 
@@ -728,6 +756,8 @@ export type CopyHotelSettingsInput = z.infer<typeof copyHotelSettingsSchema>
 export type ImportSetupWorkbookInput = z.infer<typeof importSetupWorkbookSchema>
 export type CreateTenantInput = z.infer<typeof createTenantSchema>
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>
+export type CreateTrialInputBody = z.infer<typeof createTrialSchema>
+export type UpdateTrialInputBody = z.infer<typeof updateTrialSchema>
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>
 export type UpdateRoomTypeInput = z.infer<typeof updateRoomTypeSchema>
 export type UpdateUserInput = z.infer<typeof updateUserSchema>

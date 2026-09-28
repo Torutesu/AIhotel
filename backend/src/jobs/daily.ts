@@ -6,6 +6,7 @@ import { createKpiSnapshotService } from '../services/dashboardService.js'
 import { recomputeSimulationService } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
 import { purgeExpiredRefreshTokensService } from '../services/authService.js'
+import { purgeExpiredTrialsService } from '../services/trialsService.js'
 import { evaluateAlertsService } from '../services/alertRulesService.js'
 import { config } from '../lib/config.js'
 
@@ -19,7 +20,7 @@ import { config } from '../lib/config.js'
 //   3. 当日時点の KPI スナップショット（KpiSnapshot — 月初比較・日付比較の比較元）。当月のみ
 //      （スナップショットは実績から作るため、先の月は常に空になる）
 //   4. アラートの自動生成と解決（#83）。着地予測と需要予測を使うので最後に行う
-// 最後にテナント横断の後始末として、期限切れリフレッシュトークンを削除する（#49-4）。
+// 最後にテナント横断の後始末として、期限切れリフレッシュトークン（#49-4）と、期限から30日たったトライアルを削除する。
 //
 // 順序に意味がある: 着地シミュレーションは AI 予測を使うため、予測を先に更新する。
 // いずれも冪等なので、同じ日に複数回実行しても行は増えない。
@@ -101,6 +102,14 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
     logger.error({ err: error }, '期限切れリフレッシュトークンの削除に失敗しました')
   }
 
+  // 期限から30日たったトライアル（デモ）のテナントを削除する
+  let purgedTrials = 0
+  try {
+    purgedTrials = (await purgeExpiredTrialsService()).deleted
+  } catch (error) {
+    logger.error({ err: error }, '期限切れトライアルの削除に失敗しました')
+  }
+
   const failed = results.filter((r) => r.error).length
   const succeeded = results.length - failed
 
@@ -110,6 +119,7 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
       failed,
       durationMs: Date.now() - startedAt,
       purgedRefreshTokens,
+      purgedTrials,
       failures: results.filter((r) => r.error).map((r) => ({ hotelId: r.hotelId, error: r.error })),
     },
     `日次バッチが完了しました（成功 ${succeeded} / 失敗 ${failed}）`

@@ -3,19 +3,31 @@ import { fireEvent, render, screen } from "@testing-library/react"
 
 import { SetupChecklistCard } from "@/components/onboarding/setup-checklist-card"
 
-const mocks = vi.hoisted(() => ({ hotelSetupStatus: vi.fn(), setTab: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  hotelSetupStatus: vi.fn(),
+  setTab: vi.fn(),
+  auth: { hotelId: "h1", user: null as null | { trial: { expiresAt: string } | null } },
+}))
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>()
   return { ...actual, api: { hotelSetupStatus: mocks.hotelSetupStatus } }
 })
-vi.mock("@/components/auth-provider", () => ({ useAuth: () => ({ hotelId: "h1" }) }))
+vi.mock("@/components/auth-provider", () => ({ useAuth: () => mocks.auth }))
 vi.mock("@/components/app-state-provider", () => ({ useAppState: () => ({ setTab: mocks.setTab }) }))
 
 describe("SetupChecklistCard（#13）", () => {
   beforeEach(() => {
     mocks.hotelSetupStatus.mockReset()
     mocks.setTab.mockReset()
+    mocks.auth.user = null
+  })
+
+  it("トライアル（デモ）のユーザーには出さず、状況も取りに行かない", () => {
+    mocks.auth.user = { trial: { expiresAt: "2026-10-28T00:00:00.000Z" } }
+    const { container } = render(<SetupChecklistCard />)
+    expect(container.textContent).toBe("")
+    expect(mocks.hotelSetupStatus).not.toHaveBeenCalled()
   })
 
   it("必須項目が未完了なら進み具合と未完了の理由を出し、設定タブへ移動できる", async () => {

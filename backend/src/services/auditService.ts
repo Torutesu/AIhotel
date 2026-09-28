@@ -32,6 +32,8 @@ export interface AuditLogEntry {
  * 監査ログを書き込む（要件定義書 §6 監査性）。
  * 監査ログの失敗で本処理を失敗させないため、エラーはログ出力に留める。
  */
+export type AuditAction = AuditLogEntry['action']
+
 export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
   try {
     await prisma.auditLog.create({

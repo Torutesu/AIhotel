@@ -48,6 +48,8 @@ export interface User {
   isActive: boolean
   /** 管理者が一時パスワードを発行した後、本人が変更するまで true（#89） */
   mustChangePassword?: boolean
+  /** トライアル（デモ）のユーザーだけに付く期限。ログインと /auth/me が返す */
+  trial?: { expiresAt: string } | null
   lastLoginAt: Date | null
   createdAt: Date
   updatedAt: Date
@@ -622,6 +624,57 @@ export interface TenantSummary {
   updatedAt: string
   hotelCount: number
   userCount: number
+}
+
+// ======================================
+// Trial（トライアル — 運営専用）
+// ======================================
+
+export type TrialKind = 'DEALER' | 'PROSPECT_HOTEL'
+
+export const TRIAL_KIND_LABELS: Record<TrialKind, string> = {
+  DEALER: '販売店',
+  PROSPECT_HOTEL: '営業先ホテル',
+}
+
+export type TrialStatus = 'ACTIVE' | 'EXPIRED' | 'SUSPENDED'
+
+/** GET /api/v1/platform/trials の1行 */
+export interface TrialSummary {
+  id: string
+  name: string
+  kind: TrialKind
+  note: string | null
+  status: TrialStatus
+  expiresAt: string
+  /** 残り日数（切り上げ）。期限切れなら 0 */
+  daysLeft: number
+  /** 期限切れのとき、自動削除される日時 */
+  purgeAt: string | null
+  loginEmail: string | null
+  lastLoginAt: string | null
+  createdAt: string
+}
+
+export interface CreateTrialRequest {
+  name: string
+  kind: TrialKind
+  days?: number
+  note?: string | null
+  loginEmail?: string
+}
+
+export interface UpdateTrialRequest {
+  name?: string
+  note?: string | null
+  isActive?: boolean
+  extendDays?: number
+}
+
+/** 発行・パスワード再発行の結果。password はこのレスポンスでしか得られない */
+export interface TrialCredentials {
+  trial: TrialSummary
+  password: string
 }
 
 export interface RoomTypeInput {

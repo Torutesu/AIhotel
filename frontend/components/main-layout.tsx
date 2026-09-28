@@ -27,6 +27,7 @@ import { SettingsTab } from "@/components/tabs/settings-tab"
 import { AISummaryTab } from "@/components/tabs/ai-summary-tab"
 import { ChatInterface } from "@/components/chat-interface"
 import { DemoModeBanner } from "@/components/demo-mode-banner"
+import { TrialBanner } from "@/components/trial-banner"
 import { useAuth } from "@/components/auth-provider"
 import { useAppState } from "@/components/app-state-provider"
 import { LoginForm } from "@/components/login-form"
@@ -300,6 +301,7 @@ export function MainLayout() {
         </div>
 
         <DemoModeBanner />
+        <TrialBanner />
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-auto">

@@ -16,9 +16,10 @@ export interface TenantSummary {
   userCount: number
 }
 
-/** テナント一覧（有効なホテル数・ユーザー数つき） */
+/** テナント一覧（有効なホテル数・ユーザー数つき）。トライアルはトライアルの管理画面で扱うので含めない */
 export async function listTenantsService(): Promise<TenantSummary[]> {
   const tenants = await prisma.tenant.findMany({
+    where: { trialKind: null },
     orderBy: { createdAt: 'asc' },
     include: {
       _count: {
@@ -48,7 +49,8 @@ export async function createTenantService(input: CreateTenantInput) {
  * authenticate がテナントの状態を毎リクエスト確認するので、次のリクエストから 401 になる — #78）
  */
 export async function updateTenantService(id: string, input: UpdateTenantInput) {
-  const before = await prisma.tenant.findUnique({ where: { id } })
+  // トライアルは期限の管理があるので、トライアルの API（/platform/trials）で扱う
+  const before = await prisma.tenant.findFirst({ where: { id, trialKind: null } })
   if (!before) throw new NotFoundError('テナント')
 
   const after = await prisma.$transaction(async (tx) => {
