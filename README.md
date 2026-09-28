@@ -39,6 +39,8 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 - Vercel の設定: プロジェクト `a-ihotel-frontend`（Root Directory は `frontend`）に `NEXT_PUBLIC_DEMO_MODE=true` を **Config** 型で設定し、
   `BACKEND_URL` は設定しない。`NEXT_PUBLIC_` で始まる変数は Secret 型だとビルドに渡らない。値を変えたら再デプロイが必要
 - `hotel-price.vercel.app` はログイン機能を入れる前の旧モックで、最新のコードではない
+- 運営の管理画面（テナント管理・トライアル管理）や IP 制限、データの保存まで触れる検証環境は、バックエンドと DB を置いてつなぐ。
+  手順は [`docs/検証環境の立ち上げ.md`](docs/検証環境の立ち上げ.md)（Render の Blueprint `render.yaml` ＋ `job seed-demo` / `job create-platform-admin`）
 
 ## 主な機能
 

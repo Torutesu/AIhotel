@@ -1,0 +1,89 @@
+# Render の Blueprint（検証環境 — バックエンド・DB・定期ジョブ）。
+# Render のダッシュボードで「New → Blueprint」からこのリポジトリを選ぶと、以下がまとめて作られる。
+# 手順・費用・フロントエンド（Vercel）との接続は docs/検証環境の立ち上げ.md を参照。
+#
+# 本番（#21 でクラウドが決まったあと）は、同じコンテナイメージを選んだクラウドで動かす。これは検証環境用。
+# Render に東京リージョンは無いため、最も近いシンガポールに置く（本番のデータ保存場所の要件 #21 D2-2 とは別に扱う）。
+
+envVarGroups:
+  - name: aihotel-shared
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # 32文字以上のランダム値を Render が生成する（コードにフォールバック値は持たない）
+      - key: JWT_SECRET
+        generateValue: true
+      # Vercel の API 中継（1段）＋ Render のロードバランサ（1段）の内側にいるため 2
+      - key: TRUST_PROXY
+        value: "2"
+      # 運営アカウントのメールアドレス（job create-platform-admin で使う）。作成時に入力する
+      - key: BOOTSTRAP_ADMIN_EMAIL
+        sync: false
+
+databases:
+  - name: aihotel-db
+    databaseName: aihotel
+    postgresMajorVersion: "16"
+    region: singapore
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: aihotel-backend
+    runtime: docker
+    dockerfilePath: ./docker/backend.Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: starter
+    healthCheckPath: /readyz
+    autoDeploy: true
+    envVars:
+      - fromGroup: aihotel-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aihotel-db
+          property: connectionString
+      # レプリカ1台なので、起動時にマイグレーションを適用する
+      - key: MIGRATE_ON_START
+        value: "true"
+      # フロントエンド（Vercel）の URL。CORS の許可に使う
+      - key: FRONTEND_URL
+        value: https://a-ihotel-frontend.vercel.app
+
+  # 日次バッチ（04:00 JST = 19:00 UTC）。予測・着地・KPI スナップショット・アラート・期限切れトライアルの削除
+  - type: cron
+    name: aihotel-daily
+    runtime: docker
+    dockerfilePath: ./docker/backend.Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: starter
+    schedule: "0 19 * * *"
+    dockerCommand: job daily
+    envVars:
+      - fromGroup: aihotel-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aihotel-db
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://a-ihotel-frontend.vercel.app
+
+  # 競合価格の取得と変動の監視（1日4回: 03:00・09:00・15:00・21:00 JST）。取得元が未登録のあいだは何もせずに終わる
+  - type: cron
+    name: aihotel-competitor-prices
+    runtime: docker
+    dockerfilePath: ./docker/backend.Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: starter
+    schedule: "0 0,6,12,18 * * *"
+    dockerCommand: job competitor-prices
+    envVars:
+      - fromGroup: aihotel-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: aihotel-db
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://a-ihotel-frontend.vercel.app
