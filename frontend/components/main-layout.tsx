@@ -216,7 +216,9 @@ export function MainLayout() {
                 )}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" aria-hidden />
-                <span className={cn("min-w-0 text-left leading-6", collapsed && "lg:hidden")}>{tab.label}</span>
+                <span className={cn("min-w-0 text-left leading-6", collapsed && "lg:hidden")}>
+                  {tab.id === "pricing" ? <><span className="block">ダイナミック</span><span className="block">プライシング</span></> : tab.label}
+                </span>
               </button>
             )
           })}
