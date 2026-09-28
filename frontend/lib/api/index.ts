@@ -13,8 +13,8 @@ import type {
 } from "@shared/types"
 import {
   ApiClientError, getRefreshToken, storeTokens, clearTokens, MOCK_HOTEL, isDemoModeEnabled,
-  markDemoDataInUse, storeMockUser, getMockUser, mockLogin, mockLoginAs, withDemoFallback, rawRequest,
-  isDemoAdminConsole, DEMO_PLATFORM_EMAIL,
+  markDemoDataInUse, storeMockUser, getMockUser, mockLoginAs, withDemoFallback, rawRequest,
+  isDemoAdminConsole,
   rawBinaryRequest, type BinaryDownload
 } from "./client"
 import type {
@@ -70,14 +70,14 @@ function demoTrialResult(email: string, trial: { name: string; expiresAt: string
 /**
  * デモモードのログイン（バックエンド未接続のとき）。
  * 共有保存が設定されていれば、運営（運営用 URL だけ）とトライアルの ID はサーバーで確認する。
- * 無ければこのタブの中で発行したトライアルと、デモの固定アカウントで入る
+ * 無ければこのタブの中で発行したトライアルだけを使う。固定の共通パスワードは使わない
  */
 async function demoLogin(email: string, password: string): Promise<LoginResult> {
   const loginEmail = email.trim().toLowerCase()
   if ((await demoSharedStatus()).shared) {
-    if (loginEmail === DEMO_PLATFORM_EMAIL && isDemoAdminConsole()) {
-      await demoShared.adminLogin(password)
-      return mockLoginAs(DEMO_PLATFORM_EMAIL)
+    if (isDemoAdminConsole()) {
+      const result = await demoShared.adminLogin(loginEmail, password)
+      if (result.loggedIn) return mockLoginAs(loginEmail, { name: "運営", role: "PLATFORM_ADMIN" })
     }
     const trial = await demoShared.trialLogin(loginEmail, password)
     if (trial) return demoTrialResult(loginEmail, trial)
@@ -85,7 +85,7 @@ async function demoLogin(email: string, password: string): Promise<LoginResult> 
     const trial = demoAdmin.trialLogin(loginEmail, password)
     if (trial) return demoTrialResult(loginEmail, trial)
   }
-  return mockLogin(email, password)
+  throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
 }
 
 /**

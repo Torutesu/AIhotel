@@ -12,11 +12,10 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { FormFieldError } from "@/components/form-field-error"
 import { zodResolver } from "@/lib/zod-resolver"
-import { TRIAL_KIND_LABELS, type CreateTrialRequest, type TrialKind } from "@shared/types"
+import { TRIAL_KIND_LABELS, type CreateTrialRequest } from "@shared/types"
 
 export const trialFormSchema = z.object({
   name: z.string().trim().min(1, "名前を入力してください").max(100, "100文字以内で入力してください"),
@@ -56,16 +55,12 @@ export function TrialCreateDialog({ open, onOpenChange, saving, onSubmit }: Prop
     register,
     handleSubmit,
     reset,
-    setValue,
-    watch,
     formState: { errors },
   } = useForm<TrialFormValues>({ resolver: zodResolver(trialFormSchema), defaultValues: DEFAULTS, mode: "onBlur" })
 
   useEffect(() => {
     if (open) reset(DEFAULTS)
   }, [open, reset])
-
-  const kind = watch("kind")
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -82,22 +77,21 @@ export function TrialCreateDialog({ open, onOpenChange, saving, onSubmit }: Prop
             <Input id="trial-name" placeholder="例: ○○販売店、△△ホテル様" maxLength={100} {...register("name")} />
             <FormFieldError message={errors.name?.message} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="trial-kind">種別</Label>
-              <Select value={kind} onValueChange={(v) => setValue("kind", v as TrialKind, { shouldValidate: true })}>
-                <SelectTrigger id="trial-kind">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(TRIAL_KIND_LABELS) as TrialKind[]).map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {TRIAL_KIND_LABELS[k]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <fieldset className="space-y-2" disabled={saving}>
+            <legend className="text-sm font-medium">種別</legend>
+            <div className="grid grid-cols-2 gap-1 rounded-lg border bg-muted p-1">
+              {(["PROSPECT_HOTEL", "DEALER"] as const).map((kind) => (
+                <label key={kind} className="relative cursor-pointer">
+                  <input type="radio" value={kind} className="peer sr-only" {...register("kind")} />
+                  <span className="flex min-h-10 items-center justify-center rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2 peer-disabled:cursor-not-allowed peer-disabled:opacity-50">
+                    {TRIAL_KIND_LABELS[kind]}
+                  </span>
+                </label>
+              ))}
             </div>
+            <FormFieldError message={errors.kind?.message} />
+          </fieldset>
+          <div>
             <div className="space-y-2">
               <Label htmlFor="trial-days">期間（日）</Label>
               <Input id="trial-days" type="number" min={1} max={90} {...register("days")} />

@@ -653,8 +653,8 @@ export interface IpRestrictionSettings {
 export type TrialKind = 'DEALER' | 'PROSPECT_HOTEL'
 
 export const TRIAL_KIND_LABELS: Record<TrialKind, string> = {
-  DEALER: '販売店',
-  PROSPECT_HOTEL: '営業先ホテル',
+  DEALER: '販売店様',
+  PROSPECT_HOTEL: 'お客様',
 }
 
 export type TrialStatus = 'ACTIVE' | 'EXPIRED' | 'SUSPENDED'
