@@ -34,11 +34,11 @@ export function clientIp(request: NextRequest): string | null {
 }
 
 export function ok<T>(data: T, status = 200): NextResponse {
-  return NextResponse.json({ success: true, data }, { status })
+  return NextResponse.json({ success: true, data }, { status, headers: { "Cache-Control": "private, no-store" } })
 }
 
 function fail(status: number, error: string): NextResponse {
-  return NextResponse.json({ success: false, error }, { status })
+  return NextResponse.json({ success: false, error }, { status, headers: { "Cache-Control": "private, no-store" } })
 }
 
 export function setSessionCookie(response: NextResponse, request: NextRequest, name: string, value: string, maxAge: number) {

@@ -1,6 +1,6 @@
 "use client"
 
-// トライアルの発行ダイアログ（運営）。名前・種別・期間・メモ・ログイン ID（任意）を入れる。
+// トライアルの発行ダイアログ（運営）。名前・種別・期間・メモを入れる。
 // backend の createTrialSchema と同じ制約で検証する。
 
 import { useEffect } from "react"
@@ -26,12 +26,10 @@ export const trialFormSchema = z.object({
     .min(1, "1日以上にしてください")
     .max(90, "90日以内にしてください"),
   note: z.string().trim().max(500, "500文字以内で入力してください"),
-  // 空欄なら自動で作る
-  loginEmail: z.union([z.literal(""), z.string().trim().email("有効なメールアドレスを入力してください")]),
 })
 export type TrialFormValues = z.infer<typeof trialFormSchema>
 
-const DEFAULTS: TrialFormValues = { name: "", kind: "DEALER", days: 30, note: "", loginEmail: "" }
+const DEFAULTS: TrialFormValues = { name: "", kind: "DEALER", days: 30, note: "" }
 
 export function toCreateTrialRequest(values: TrialFormValues): CreateTrialRequest {
   return {
@@ -39,7 +37,6 @@ export function toCreateTrialRequest(values: TrialFormValues): CreateTrialReques
     kind: values.kind,
     days: values.days,
     ...(values.note.trim() !== "" && { note: values.note.trim() }),
-    ...(values.loginEmail.trim() !== "" && { loginEmail: values.loginEmail.trim().toLowerCase() }),
   }
 }
 
@@ -68,7 +65,7 @@ export function TrialCreateDialog({ open, onOpenChange, saving, onSubmit }: Prop
         <DialogHeader>
           <DialogTitle>トライアルを発行</DialogTitle>
           <DialogDescription>
-            デモデータ入りの専用ホテルとログイン ID を作ります。ほかのトライアルや本番の顧客のデータには影響しません。
+            配布用の個別 URL・ログイン ID・パスワードを自動発行します。ほかのトライアルや本番の顧客のデータには影響しません。
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
@@ -97,11 +94,6 @@ export function TrialCreateDialog({ open, onOpenChange, saving, onSubmit }: Prop
               <Input id="trial-days" type="number" min={1} max={90} {...register("days")} />
               <FormFieldError message={errors.days?.message} />
             </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="trial-login">ログイン ID（任意）</Label>
-            <Input id="trial-login" type="email" autoComplete="off" placeholder="空欄なら自動で作ります" {...register("loginEmail")} />
-            <FormFieldError message={errors.loginEmail?.message} />
           </div>
           <div className="space-y-2">
             <Label htmlFor="trial-note">メモ（任意）</Label>

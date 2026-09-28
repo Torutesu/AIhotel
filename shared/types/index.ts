@@ -691,9 +691,15 @@ export interface UpdateTrialRequest {
   extendDays?: number
 }
 
-/** 発行・パスワード再発行の結果。password はこのレスポンスでしか得られない */
-export interface TrialCredentials {
+/** 運営だけが取得できる配布用情報。旧データのパスワードは復元できない */
+export interface TrialLoginInfo {
   trial: TrialSummary
+  password: string | null
+  loginUrl?: string
+  redisplayable?: boolean
+}
+
+export interface TrialCredentials extends TrialLoginInfo {
   password: string
 }
 

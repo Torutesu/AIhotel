@@ -8,6 +8,7 @@ export interface DemoKv {
   get(key: string): Promise<string | null>
   /** 無ければ保存して true。既にあれば何もせず false */
   setIfAbsent(key: string, value: string): Promise<boolean>
+  compareAndSet(key: string, expected: string, value: string): Promise<boolean>
   hgetall(key: string): Promise<Record<string, string>>
   hset(key: string, field: string, value: string): Promise<void>
   hdel(key: string, field: string): Promise<void>
@@ -45,6 +46,10 @@ export function upstashKv(config: { url: string; token: string }): DemoKv {
     async setIfAbsent(key, value) {
       return (await command<string | null>("SET", key, value, "NX")) === "OK"
     },
+    async compareAndSet(key, expected, value) {
+      const lua = "if redis.call('GET',KEYS[1]) ~= ARGV[1] then return 0 end redis.call('SET',KEYS[1],ARGV[2]); return 1"
+      return (await command<number>("EVAL", lua, 1, key, expected, value)) === 1
+    },
     async hgetall(key) {
       const flat = (await command<string[] | null>("HGETALL", key)) ?? []
       const out: Record<string, string> = {}
@@ -78,6 +83,11 @@ export function memoryKv(): DemoKv {
     get: async (key) => strings.get(key) ?? (counters.has(key) ? String(counters.get(key)) : null),
     async setIfAbsent(key, value) {
       if (strings.has(key)) return false
+      strings.set(key, value)
+      return true
+    },
+    async compareAndSet(key, expected, value) {
+      if (strings.get(key) !== expected) return false
       strings.set(key, value)
       return true
     },

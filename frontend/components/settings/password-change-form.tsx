@@ -10,7 +10,7 @@ import { toast } from "sonner"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { FormFieldError } from "@/components/form-field-error"
 import { useAuth } from "@/components/auth-provider"
@@ -77,18 +77,18 @@ export function PasswordChangeForm({ currentLabel = "現在のパスワード" }
     <form onSubmit={handleSubmit(onSubmit)} noValidate className="max-w-md space-y-4">
       <div className="space-y-2">
         <Label htmlFor="current-password">{currentLabel}</Label>
-        <Input id="current-password" type="password" autoComplete="current-password" {...register("currentPassword")} />
+        <PasswordInput id="current-password" visibilityLabel={currentLabel} autoComplete="current-password" {...register("currentPassword")} />
         <FormFieldError message={errors.currentPassword?.message} />
       </div>
       <div className="space-y-2">
         <Label htmlFor="new-password">新しいパスワード</Label>
-        <Input id="new-password" type="password" autoComplete="new-password" {...register("newPassword")} />
+        <PasswordInput id="new-password" visibilityLabel="新しいパスワード" autoComplete="new-password" {...register("newPassword")} />
         <p className="text-xs text-muted-foreground">8文字以上で、大文字・小文字・数字をそれぞれ1文字以上含めてください。</p>
         <FormFieldError message={errors.newPassword?.message} />
       </div>
       <div className="space-y-2">
         <Label htmlFor="confirm-password">新しいパスワード（確認）</Label>
-        <Input id="confirm-password" type="password" autoComplete="new-password" {...register("confirmPassword")} />
+        <PasswordInput id="confirm-password" visibilityLabel="確認用のパスワード" autoComplete="new-password" {...register("confirmPassword")} />
         <FormFieldError message={errors.confirmPassword?.message} />
       </div>
       <Button type="submit" disabled={saving} className="gap-2">

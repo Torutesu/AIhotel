@@ -7,6 +7,7 @@
 // 複数ホテルにアクセスできるユーザー（hotelId が null のユーザー、および運営）は
 // ヘッダーのホテル切替で対象を変えられる。選択は URL の ?hotel= に載せて全タブで共有する（X-5）。
 
+import { useSearchParams } from "next/navigation"
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react"
 import { api, getAccessToken, ApiClientError, AUTH_EXPIRED_EVENT, type Hotel } from "@/lib/api"
 import { useAppState } from "@/components/app-state-provider"
@@ -79,6 +80,7 @@ async function hotelsFor(user: User & { hotel?: Hotel | null }): Promise<Hotel[]
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { hotelParam, setHotelParam } = useAppState()
+  const trialParam = useSearchParams().get("trial")
   const [user, setUser] = useState<User | null>(null)
   const [hotels, setHotels] = useState<Hotel[]>([])
   const [loading, setLoading] = useState(true)
@@ -95,7 +97,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let cancelled = false
 
     async function restore() {
+      setLoading(true)
       if (!getAccessToken()) {
+        setUser(null)
+        setHotels([])
         setLoading(false)
         return
       }
@@ -131,7 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [restoreAttempt])
+  }, [restoreAttempt, trialParam])
 
   // リフレッシュトークンも失効した場合、lib/api/ から通知を受けてログイン画面へ戻す（F-2）
   useEffect(() => {

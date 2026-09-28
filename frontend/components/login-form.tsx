@@ -2,9 +2,11 @@
 
 // ログイン画面（C-6）
 
+import { useSearchParams } from "next/navigation"
 import { useState, type FormEvent } from "react"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Loader2, AlertCircle } from "lucide-react"
@@ -14,6 +16,8 @@ import { ApiClientError } from "@/lib/api"
 
 export function LoginForm() {
   const { login } = useAuth()
+  const params = useSearchParams()
+  const personalTrial = process.env.NEXT_PUBLIC_DEMO_MODE === "true" && params.has("trial")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -43,11 +47,11 @@ export function LoginForm() {
         <CardHeader>
           <BrandLogo className="mb-4" />
           <h1 className="text-2xl font-bold">ログイン</h1>
-          <CardDescription>ホテル収益管理システムにログインしてください</CardDescription>
+          <CardDescription>{personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
-            <div className="space-y-2">
+            {!personalTrial && <div className="space-y-2">
               <Label htmlFor="login-email">メールアドレス</Label>
               <Input
                 id="login-email"
@@ -58,12 +62,11 @@ export function LoginForm() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
-            </div>
+            </div>}
             <div className="space-y-2">
               <Label htmlFor="login-password">パスワード</Label>
-              <Input
+              <PasswordInput
                 id="login-password"
-                type="password"
                 autoComplete="current-password"
                 placeholder="••••••••"
                 value={password}

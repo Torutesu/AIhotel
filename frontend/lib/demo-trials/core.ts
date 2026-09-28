@@ -20,6 +20,7 @@ export const LOGIN_FAILED_MESSAGE = "メールアドレスまたはパスワー�
 export interface DemoTrialRecord extends Omit<TrialSummary, "status" | "daysLeft" | "purgeAt"> {
   isActive: boolean
   secret: string
+  encryptedPassword?: string
 }
 
 export class DemoTrialError extends Error {
@@ -62,7 +63,7 @@ function checkDays(days: number) {
 export function summarize(record: DemoTrialRecord, now = Date.now()): TrialSummary {
   const expiresAt = new Date(record.expiresAt).getTime()
   const expired = expiresAt <= now
-  const { secret: _secret, isActive, ...rest } = record
+  const { secret: _secret, encryptedPassword: _encryptedPassword, isActive, ...rest } = record
   return {
     ...rest,
     status: !isActive ? "SUSPENDED" : expired ? "EXPIRED" : "ACTIVE",

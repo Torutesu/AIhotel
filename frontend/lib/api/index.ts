@@ -34,6 +34,7 @@ import {
 import { adminEndpoints } from "./admin"
 import { demoAdmin } from "./demo-admin"
 import { demoShared, demoSharedStatus } from "./demo-shared"
+import { currentTrialId } from "@/lib/demo-trials/link"
 import { analysisEndpoints } from "./analysis"
 
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
@@ -74,14 +75,16 @@ function demoTrialResult(email: string, trial: { name: string; expiresAt: string
  */
 async function demoLogin(email: string, password: string): Promise<LoginResult> {
   const loginEmail = email.trim().toLowerCase()
+  const trialId = currentTrialId()
   if ((await demoSharedStatus()).shared) {
-    if (isDemoAdminConsole()) {
+    if (isDemoAdminConsole() && !trialId) {
       const result = await demoShared.adminLogin(loginEmail, password)
       if (result.loggedIn) return mockLoginAs(loginEmail, { name: "運営", role: "PLATFORM_ADMIN" })
     }
-    const trial = await demoShared.trialLogin(loginEmail, password)
-    if (trial) return demoTrialResult(loginEmail, trial)
+    const trial = await demoShared.trialLogin(loginEmail, password, trialId ?? undefined)
+    if (trial) return demoTrialResult(trial.email, trial)
   } else {
+    if (trialId) throw new ApiClientError(503, "トライアルの共有保存に接続できません。時間をおいて再度お試しください")
     const trial = demoAdmin.trialLogin(loginEmail, password)
     if (trial) return demoTrialResult(loginEmail, trial)
   }
@@ -93,8 +96,15 @@ async function demoLogin(email: string, password: string): Promise<LoginResult> 
  * 使えなくなっていないかをサーバーに確かめ、使えなければログアウトさせる（401）
  */
 async function restoreDemoUser(user: User): Promise<User & { hotel?: Hotel | null }> {
-  if (user.trial && (await demoSharedStatus()).shared) {
-    const session = await demoShared.trialSession()
+  const trialId = currentTrialId()
+  if (trialId && !user.trial) {
+    clearTokens()
+    throw new ApiClientError(401, "このトライアルのパスワードでログインしてください")
+  }
+  const shared = user.trial ? (await demoSharedStatus()).shared : false
+  if (trialId && !shared) throw new ApiClientError(503, "トライアルの共有保存に接続できません。再試行してください")
+  if (user.trial && shared) {
+    const session = await demoShared.trialSession(trialId ?? undefined)
     if (!session.active) {
       clearTokens()
       throw new ApiClientError(401, session.message)
@@ -111,6 +121,13 @@ export const api = {
   ...analysisEndpoints,
 
   async login(email: string, password: string): Promise<LoginResult> {
+    if (isDemoModeEnabled() && currentTrialId()) {
+      const result = await demoLogin("", password)
+      markDemoDataInUse()
+      storeTokens(result.tokens.accessToken, result.tokens.refreshToken)
+      storeMockUser(result.user)
+      return result
+    }
     try {
       const result = await rawRequest<LoginResult>("/api/v1/auth/login", {
         method: "POST",
