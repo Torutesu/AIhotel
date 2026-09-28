@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_IP_ALLOW_ENTRIES, parseCidr } from './ipAllowlist.js'
 import { dateOnly, todayJst } from './date.js'
 
 // ======================================
@@ -462,6 +463,23 @@ export const updateTenantSchema = z
   .refine((data) => Object.keys(data).length > 0, { message: '更新する項目を指定してください' })
 
 // ======================================
+// IP Restriction Validators（#12）
+// ======================================
+
+const ipAllowEntrySchema = z.object({
+  cidr: z
+    .string()
+    .trim()
+    .refine((v) => parseCidr(v) !== null, 'IP アドレスか範囲（例: 203.0.113.10、203.0.113.0/24）で入力してください'),
+  label: z.string().trim().max(50).nullable().optional().transform((v) => (v ? v : null)),
+})
+
+export const updateIpRestrictionSchema = z.object({
+  enabled: z.boolean(),
+  entries: z.array(ipAllowEntrySchema).max(MAX_IP_ALLOW_ENTRIES, `登録できるのは${MAX_IP_ALLOW_ENTRIES}件までです`),
+})
+
+// ======================================
 // Trial Validators（トライアル — 運営専用）
 // ======================================
 
@@ -756,6 +774,7 @@ export type CopyHotelSettingsInput = z.infer<typeof copyHotelSettingsSchema>
 export type ImportSetupWorkbookInput = z.infer<typeof importSetupWorkbookSchema>
 export type CreateTenantInput = z.infer<typeof createTenantSchema>
 export type UpdateTenantInput = z.infer<typeof updateTenantSchema>
+export type UpdateIpRestrictionInput = z.infer<typeof updateIpRestrictionSchema>
 export type CreateTrialInputBody = z.infer<typeof createTrialSchema>
 export type UpdateTrialInputBody = z.infer<typeof updateTrialSchema>
 export type CreateRoomTypeInput = z.infer<typeof createRoomTypeSchema>

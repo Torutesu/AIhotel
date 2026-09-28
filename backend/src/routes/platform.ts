@@ -9,6 +9,7 @@ import {
   updateTrialSchema,
 } from '../lib/validators.js'
 import { createTenant, getTenants, updateTenant } from '../controllers/platformController.js'
+import { disableIpRestrictionByPlatform } from '../controllers/ipRestrictionController.js'
 import {
   createTrial,
   deleteTrial,
@@ -36,6 +37,13 @@ platformRouter.put(
   validate(idParamSchema, 'params'),
   validate(updateTenantSchema),
   updateTenant
+)
+
+// POST /api/v1/platform/tenants/:id/disable-ip-restriction — IP 制限で締め出されたテナントの復旧（#12）
+platformRouter.post(
+  '/tenants/:id/disable-ip-restriction',
+  validate(idParamSchema, 'params'),
+  disableIpRestrictionByPlatform
 )
 
 // ======================================

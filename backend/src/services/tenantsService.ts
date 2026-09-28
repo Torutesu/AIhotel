@@ -10,6 +10,8 @@ export interface TenantSummary {
   name: string
   code: string
   isActive: boolean
+  /** IP 制限（#12）が有効か。締め出されたときに運営が解除する */
+  ipRestrictionEnabled: boolean
   createdAt: Date
   updatedAt: Date
   hotelCount: number
@@ -30,8 +32,14 @@ export async function listTenantsService(): Promise<TenantSummary[]> {
       },
     },
   })
-  return tenants.map(({ _count, ...tenant }) => ({
-    ...tenant,
+  return tenants.map(({ _count, id, name, code, isActive, ipRestrictionEnabled, createdAt, updatedAt }) => ({
+    id,
+    name,
+    code,
+    isActive,
+    ipRestrictionEnabled,
+    createdAt,
+    updatedAt,
     hotelCount: _count.hotels,
     userCount: _count.users,
   }))

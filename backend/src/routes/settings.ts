@@ -16,7 +16,9 @@ import {
   upsertIntegrationSchema,
   integrationKindParamSchema,
   copyHotelSettingsSchema,
+  updateIpRestrictionSchema,
 } from '../lib/validators.js'
+import { getIpRestriction, updateIpRestriction } from '../controllers/ipRestrictionController.js'
 import {
   getIntegrations,
   upsertIntegration,
@@ -239,3 +241,13 @@ settingsRouter.post(
   requireHotelAccess((req) => req.body?.sourceHotelId),
   copyHotelSettings
 )
+
+// ======================================
+// IP 制限（#12）— テナント単位。テナントの管理者だけが読み書きする
+// ======================================
+
+// GET /api/v1/settings/ip-restriction
+settingsRouter.get('/ip-restriction', requireRole('ADMIN'), getIpRestriction)
+
+// PUT /api/v1/settings/ip-restriction
+settingsRouter.put('/ip-restriction', requireRole('ADMIN'), validate(updateIpRestrictionSchema), updateIpRestriction)
