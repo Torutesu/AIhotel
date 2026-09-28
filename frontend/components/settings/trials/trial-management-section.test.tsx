@@ -74,7 +74,7 @@ describe("TrialManagementSection", () => {
     render(<TrialManagementSection />)
 
     await waitFor(() => expect(screen.getByText("○○販売店")).toBeTruthy())
-    expect(screen.getByText("営業先ホテル")).toBeTruthy()
+    expect(screen.getByText("お客様")).toBeTruthy()
     expect(screen.getByText("期限切れ")).toBeTruthy()
     expect(screen.getByText(/自動削除/)).toBeTruthy()
 
