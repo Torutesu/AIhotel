@@ -34,7 +34,10 @@ export function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div
+      className="flex min-h-screen items-center justify-center bg-background p-4"
+      data-demo-mode={process.env.NEXT_PUBLIC_DEMO_MODE === "true" ? "demo-mode-enabled" : undefined}
+    >
       <Card className="w-full max-w-sm">
         <CardHeader>
           <div className="mb-1 flex items-center gap-2">

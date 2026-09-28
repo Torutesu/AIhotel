@@ -13,11 +13,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
-// いずれもデモ分岐の内側にしか現れない文字列
-const DEMO_ONLY_MARKERS = [
-  'メールアドレスまたはパスワードが正しくありません', // mockLogin
-  'コンペティターホテルA', // 競合モック
-]
+// login-form.tsx のビルド時に畳み込まれる分岐を確認する。
+// モック関数内の文字列は未使用でも残る場合があるため、判定には使わない。
+const DEMO_ONLY_MARKERS = ['demo-mode-enabled']
 
 const CHUNK_DIR = join(process.cwd(), '.next', 'static', 'chunks')
 const expectDisabled = process.argv.includes('--expect-disabled')
