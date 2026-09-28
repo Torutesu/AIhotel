@@ -143,6 +143,21 @@ async def main() -> int:
     except Exception:  # 版により save_to_file が無い場合のフォールバック
         history_path.write_text(json.dumps(str(history), ensure_ascii=False, indent=2), encoding="utf-8")
 
+    # トークン使用量（= 実行コスト）を必ず残す。1回の実測があれば、
+    # 「毎日×ホテル数」に伸ばしたときの月額をその場で計算できる
+    usage = getattr(history, "usage", None)
+    usage_summary = None
+    if usage is not None:
+        usage_summary = {
+            "prompt_tokens": getattr(usage, "total_prompt_tokens", None),
+            "prompt_cached_tokens": getattr(usage, "total_prompt_cached_tokens", None),
+            "completion_tokens": getattr(usage, "total_completion_tokens", None),
+            "total_tokens": getattr(usage, "total_tokens", None),
+            # 単価が登録されているモデルなら概算額も入る（入らなければ None）
+            "estimated_cost_usd": getattr(usage, "total_cost", None),
+            "llm_calls": getattr(usage, "entry_count", None),
+        }
+
     result = {
         "finished_at": datetime.now().isoformat(),
         "final_result": history.final_result(),
@@ -150,6 +165,10 @@ async def main() -> int:
         "urls": [str(u) for u in history.urls()],
         "downloads": [p.name for p in out_dir.glob("*.csv")],
         "steps": history.number_of_steps() if hasattr(history, "number_of_steps") else None,
+        "duration_seconds": getattr(history, "total_duration_seconds", lambda: None)()
+        if callable(getattr(history, "total_duration_seconds", None))
+        else None,
+        "usage": usage_summary,
     }
     (out_dir / f"result_{stamp}.json").write_text(
         json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
