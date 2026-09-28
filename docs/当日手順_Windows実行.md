@@ -270,7 +270,7 @@ Get-Content E:\tl-kit\logs\pipeline-*.log -Tail 5
 
 ---
 
-## フェーズ4-alt: エージェント型で取る（browser-use / jev-ultrafast）
+## フェーズ4-alt: エージェント型で取る（Codex優先 / browser-use は保険）
 
 `codegen` でセレクタを拾うかわりに、エージェントに操作させて手順を見つける場合。
 **クラウド実行（browser-use Cloud・Codexのブラウザ）はIP制限で弾かれる**ので、必ずこの端末でローカル実行する。

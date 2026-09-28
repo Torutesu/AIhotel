@@ -1,0 +1,59 @@
+# 現地での探索用（明日これを使う）。日次フォールバック用の codex-prompt.txt とは別物。
+#
+# 目的は「CSVを1回落とすこと」ではなく、**翌日から人もエージェントも要らない状態を作ること**。
+# つまり selectors.json を埋めて、run.cmd（エージェント無し）で同じ結果が出るところまで持っていく。
+
+あなたはホテルの業務用PC上で作業します。Chrome は --remote-debugging-port=9222 で起動済みで、
+サイトコントローラー「TL-リンカーン」に**手動でログイン済み**です。
+
+## 絶対に守ること
+
+1. 参照とエクスポートのみ行う。在庫・料金・プラン・予約内容を変更する操作は一切しない。
+   「更新」「登録」「反映」「送信」「削除」「設定変更」に類するボタンは押さない
+   （CSV出力・検索・ダウンロードのためのボタンは除く）。
+   このサービスは実際に販売中の在庫と料金を握っており、誤操作がOTAの販売価格に反映される。
+2. ログアウトしない。パスワード変更・アカウント設定に触らない。
+3. 判断に迷ったら操作を止め、画面の状態を説明して指示を仰ぐ。勝手に別の経路を試さない。
+4. 新しいタブでサイト外へ移動しない。
+5. 個人情報（宿泊者名・連絡先）を報告やコードに書き写さない。列が存在することだけを報告する。
+
+## やること
+
+### 1. 予約明細CSVをエクスポートする
+
+- 予約検索の画面を開く
+- 期間を「今日から30日前」〜「今日」に設定する
+- 検索してCSVエクスポートを実行し、ダウンロードされたことを確認する
+
+### 2. 手順を再現可能な形に落とす（ここが本題）
+
+リポジトリの `tools/rpa/selectors.example.json` と同じ構造で `tools/rpa/selectors.json` を作る。
+`tools/rpa/export-tl.mjs` がそれを読んで同じ操作を再現する実装になっているので、
+**コードは変えず、JSONだけで通るようにする**こと。
+
+埋める項目: loginUrl / login.userInput / login.passwordInput / login.submitButton /
+login.successLocator / export.navigation[] / export.dateFromInput / export.dateToInput /
+export.dateFormat / export.searchButton / export.exportButton / export.confirmButton /
+expected.minColumns / expected.requiredHeaders[]
+
+セレクタは**実際にDOMに存在するもの**を使う（推測で書かない）。
+CDP経由でDOMを読めるので、対象要素の id / name / class / aria 属性を確認してから書く。
+
+### 3. エージェント無しで再現できることを確認する
+
+```
+set TL_USER=<ログインID>
+set TL_PASSWORD=<パスワード>
+E:\tl-kit\run.cmd --days 30 --headed
+```
+
+成功（`{"status":"success", ...}` が出てCSVが落ちる）するまで selectors.json を直す。
+**ここが通って初めて完了**。通らなければ、何が原因でどこまで直したかを報告する。
+
+### 4. 報告
+
+- 通ったセレクタと、その根拠（どの属性を見て決めたか）
+- 日付の入力書式、ページングの有無、出力完了の判定方法
+- 出たダイアログ・警告の文言（そのまま）
+- ログイン周りで気づいたこと（MFA・同時ログイン・パスワード期限の警告など）
+- 再現確認の結果（run.cmd の出力）
