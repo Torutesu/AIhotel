@@ -56,7 +56,7 @@ export function TrialCreateDialog({ open, onOpenChange, saving, onSubmit }: Prop
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<TrialFormValues>({ resolver: zodResolver(trialFormSchema), defaultValues: DEFAULTS, mode: "onBlur" })
+  } = useForm<TrialFormValues>({ resolver: zodResolver(trialFormSchema), defaultValues: DEFAULTS, mode: "onTouched" })
 
   useEffect(() => {
     if (open) reset(DEFAULTS)
