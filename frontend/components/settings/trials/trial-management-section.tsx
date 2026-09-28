@@ -20,6 +20,8 @@ import { api, ApiClientError } from "@/lib/api"
 import { TRIAL_KIND_LABELS, type TrialCredentials, type TrialSummary } from "@shared/types"
 import { TrialCreateDialog, toCreateTrialRequest, type TrialFormValues } from "./trial-create-dialog"
 import { TrialCredentialsDialog } from "./trial-credentials-dialog"
+import { TrialCommandBox } from "./trial-command-box"
+import type { TrialCommand } from "@/lib/trial-command"
 
 /** 延長ボタンで足す日数 */
 const EXTEND_DAYS = 30
@@ -90,6 +92,38 @@ export function TrialManagementSection() {
       toast.success(suspend ? `「${trial.name}」を停止しました` : `「${trial.name}」を再開しました`)
     }, "トライアルの更新に失敗しました")
 
+  /** 「文章で指示」の実行。失敗はトーストで出し、入力を残すために投げ直す */
+  const runCommand = async (command: TrialCommand) => {
+    try {
+      switch (command.type) {
+        case "create":
+          setCredentials(await api.createTrial({ name: command.name, kind: command.kind, days: command.days }))
+          break
+        case "extend": {
+          const updated = await api.updateTrial(command.trial.id, { extendDays: command.days })
+          toast.success(`「${command.trial.name}」の期限を${formatDate(updated.expiresAt)}まで延長しました`)
+          break
+        }
+        case "suspend":
+        case "resume":
+          await api.updateTrial(command.trial.id, { isActive: command.type === "resume" })
+          toast.success(`「${command.trial.name}」を${command.type === "resume" ? "再開" : "停止"}しました`)
+          break
+        case "reset":
+          setCredentials(await api.resetTrialPassword(command.trial.id))
+          break
+        case "delete":
+          await api.deleteTrial(command.trial.id)
+          toast.success(`「${command.trial.name}」を削除しました`)
+          break
+      }
+      reload()
+    } catch (err) {
+      toast.error(err instanceof ApiClientError ? err.message : "実行に失敗しました")
+      throw err
+    }
+  }
+
   const confirmPending = () => {
     const action = pending
     setPending(null)
@@ -122,6 +156,7 @@ export function TrialManagementSection() {
         </Button>
       </CardHeader>
       <CardContent>
+        {!loading && !error && <TrialCommandBox trials={trials} onRun={runCommand} />}
         {loading ? (
           <Skeleton className="h-32 w-full" />
         ) : error ? (

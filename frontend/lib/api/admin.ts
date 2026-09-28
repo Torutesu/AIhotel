@@ -7,6 +7,7 @@ import type {
   TrialSummary, CreateTrialRequest, UpdateTrialRequest, TrialCredentials, IpAllowEntry, IpRestrictionSettings
 } from "@shared/types"
 import { rawBinaryRequest, rawRequest, withDemoFallback, type BinaryDownload } from "./client"
+import { demoAdmin, demoTrials } from "./demo-admin"
 import { mockAuditLogs, mockRoomTypes } from "./demo-data"
 import type { CompetitorPriceCsvRow, OtbCsvRow } from "@/lib/import-csv"
 import type {
@@ -153,60 +154,84 @@ export const adminEndpoints = {
 
   /** テナント一覧（運営のみ） */
   tenants(): Promise<TenantSummary[]> {
-    return rawRequest("/api/v1/platform/tenants")
+    return withDemoFallback(() => rawRequest("/api/v1/platform/tenants"), () => demoAdmin.tenants())
   },
 
   createTenant(input: { name: string; code: string }): Promise<TenantSummary> {
-    return rawRequest("/api/v1/platform/tenants", { method: "POST", body: JSON.stringify(input) })
+    return withDemoFallback(
+      () => rawRequest("/api/v1/platform/tenants", { method: "POST", body: JSON.stringify(input) }),
+      () => demoAdmin.createTenant(input),
+    )
   },
 
   /** テナントの名称変更・契約停止（isActive: false）／再開（運営のみ） */
   updateTenant(id: string, input: { name?: string; isActive?: boolean }): Promise<TenantSummary> {
-    return rawRequest(`/api/v1/platform/tenants/${id}`, { method: "PUT", body: JSON.stringify(input) })
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/platform/tenants/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+      () => demoAdmin.updateTenant(id, input),
+    )
   },
 
   /** IP 制限で締め出されたテナントの復旧（運営のみ — #12）。許可リストは残し、制限だけを無効にする */
   disableTenantIpRestriction(id: string): Promise<void> {
-    return rawRequest(`/api/v1/platform/tenants/${id}/disable-ip-restriction`, { method: "POST" })
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/platform/tenants/${id}/disable-ip-restriction`, { method: "POST" }),
+      () => demoAdmin.disableTenantIpRestriction(id),
+    )
   },
 
   // ---- IP 制限（テナントの管理者 — #12） ----
 
   /** 自テナントの IP 制限の設定と、呼び出した本人のアクセス元 IP */
   ipRestriction(): Promise<IpRestrictionSettings> {
-    return rawRequest("/api/v1/settings/ip-restriction")
+    return withDemoFallback(() => rawRequest("/api/v1/settings/ip-restriction"), () => demoAdmin.ipRestriction())
   },
 
   /** IP 制限の保存。有効にするとき、自分のアクセス元が許可リストに無ければ 400（締め出し防止） */
   updateIpRestriction(input: { enabled: boolean; entries: IpAllowEntry[] }): Promise<IpRestrictionSettings> {
-    return rawRequest("/api/v1/settings/ip-restriction", { method: "PUT", body: JSON.stringify(input) })
+    return withDemoFallback(
+      () => rawRequest("/api/v1/settings/ip-restriction", { method: "PUT", body: JSON.stringify(input) }),
+      () => demoAdmin.updateIpRestriction(input),
+    )
   },
 
   // ---- トライアル（デモ）アカウント（運営のみ） ----
 
   /** トライアルの一覧（期限の近い順） */
   trials(): Promise<TrialSummary[]> {
-    return rawRequest("/api/v1/platform/trials")
+    return withDemoFallback(() => rawRequest("/api/v1/platform/trials"), () => demoTrials.trials())
   },
 
   /** トライアルの発行。デモデータ入りの専用ホテルとログイン ID を作る。パスワードはこの戻り値でしか得られない */
   createTrial(input: CreateTrialRequest): Promise<TrialCredentials> {
-    return rawRequest("/api/v1/platform/trials", { method: "POST", body: JSON.stringify(input) })
+    return withDemoFallback(
+      () => rawRequest("/api/v1/platform/trials", { method: "POST", body: JSON.stringify(input) }),
+      () => demoTrials.createTrial(input),
+    )
   },
 
   /** 名前・メモの変更、停止／再開、期限の延長 */
   updateTrial(id: string, input: UpdateTrialRequest): Promise<TrialSummary> {
-    return rawRequest(`/api/v1/platform/trials/${id}`, { method: "PUT", body: JSON.stringify(input) })
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/platform/trials/${id}`, { method: "PUT", body: JSON.stringify(input) }),
+      () => demoTrials.updateTrial(id, input),
+    )
   },
 
   /** ログイン用パスワードの再発行。新しいパスワードはこの戻り値でしか得られない */
   resetTrialPassword(id: string): Promise<TrialCredentials> {
-    return rawRequest(`/api/v1/platform/trials/${id}/reset-password`, { method: "POST" })
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/platform/trials/${id}/reset-password`, { method: "POST" }),
+      () => demoTrials.resetTrialPassword(id),
+    )
   },
 
   /** トライアルの削除（デモデータごと消す） */
   deleteTrial(id: string): Promise<void> {
-    return rawRequest(`/api/v1/platform/trials/${id}`, { method: "DELETE" })
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/platform/trials/${id}`, { method: "DELETE" }),
+      () => demoTrials.deleteTrial(id),
+    )
   },
 
   /**

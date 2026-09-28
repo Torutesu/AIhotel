@@ -241,6 +241,18 @@ describe("エラー変換", () => {
     await expect(api.hotels()).resolves.toEqual([expect.objectContaining({ id: "demo-hotel-001" })])
   })
 
+  it("デモの運営ログインは運営用の URL（NEXT_PUBLIC_DEMO_ADMIN_CONSOLE=true）でだけ通る", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true")
+    vi.stubGlobal("fetch", vi.fn(async () => proxyUnreachable()))
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "")
+    await expect(api.login("platform@example.com", "Admin1234")).rejects.toThrow(
+      "メールアドレスまたはパスワードが正しくありません"
+    )
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "true")
+    const result = await api.login("platform@example.com", "Admin1234")
+    expect(result.user.role).toBe("PLATFORM_ADMIN")
+  })
+
   it("デモモードが無効なら中継の到達不能はそのままエラーにする", async () => {
     vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "")
     vi.stubGlobal("fetch", vi.fn(async () => proxyUnreachable()))

@@ -39,6 +39,30 @@ AIを活用したホテルの収益管理・価格最適化システムです。
 - Vercel の設定: プロジェクト `a-ihotel-frontend`（Root Directory は `frontend`）に `NEXT_PUBLIC_DEMO_MODE=true` を **Config** 型で設定し、
   `BACKEND_URL` は設定しない。`NEXT_PUBLIC_` で始まる変数は Secret 型だとビルドに渡らない。値を変えたら再デプロイが必要
 - `hotel-price.vercel.app` はログイン機能を入れる前の旧モックで、最新のコードではない
+- 運営の管理画面（テナント管理・トライアル管理）は、配布用の上記 URL では使えない（運営アカウントでログインできず、ログイン画面にも出ない）。
+  運営用には **別の Vercel プロジェクト**（同じリポジトリ・Root Directory `frontend`）を作り、`NEXT_PUBLIC_DEMO_MODE=true` に加えて
+  `NEXT_PUBLIC_DEMO_ADMIN_CONSOLE=true`（Config 型）を設定する。その URL でだけ運営（`platform@example.com`）でログインできる。
+  管理者では、どちらの URL でも IP 制限を試せる
+
+### デモのトライアル ID を配る（共有保存）
+
+運営用 URL で発行したトライアルの ID を、配布用 URL や相手の端末でも使えるようにするには、無料の Upstash Redis を共有保存としてつなぐ。
+バックエンドや DB は要らない（`frontend/app/api/demo/` のルートが Vercel 上で動く）。
+
+1. Vercel の Storage（Marketplace）で **Upstash Redis** を Free プランで作り、配布用と運営用の **両方の** プロジェクトに接続する
+   （`KV_REST_API_URL` / `KV_REST_API_TOKEN` が自動で入る）。接続したら両方を再デプロイする
+2. 運営用 URL に `platform@example.com` と **10文字以上の好きなパスワード** でログインする。最初のログインのパスワードが運営のパスワードとして登録される
+   （ハッシュだけを保存。忘れたら Upstash の Data Browser でキー `demo:admin` を消して登録し直す）
+3. 設定タブの「トライアル管理（運営）」で発行・延長・停止・パスワード再発行・削除する。欄に「○○販売店に30日のIDを発行」
+   「△△ホテルを2週間延長」「○○販売店を停止」のように文章で書いても操作できる（決まった言い回しの読み取りで、実行前に内容を確認する。AI の API は使わない）
+4. 発行した ID とパスワードを相手に渡す。配布用 URL でログインするとサンプルデータの画面と残り日数が出て、期限切れ・停止・再発行・削除のあとは
+   ログインできなくなる（開き直したときに確認する）
+
+- 保存するのはトライアルの名前・期限・ログイン ID・パスワードのハッシュ・最終ログイン日時だけ。ログインの失敗が続いたアクセス元は15分止める
+- 共有保存をつながない場合は、トライアルの操作はブラウザのタブの中だけで再現する（`frontend/lib/api/demo-admin.ts`。タブを閉じると元に戻り、
+  発行した ID は同じタブでだけ使える）。運営のパスワードは `Admin1234`
+- 実際に保存される環境をバックエンドと DB で立ち上げるときは、運営アカウントを `job create-platform-admin`、デモデータを `job seed-demo` で作る
+  （開発用の `platform@example.com / Admin1234` は公開環境に入れない）
 
 ## 主な機能
 

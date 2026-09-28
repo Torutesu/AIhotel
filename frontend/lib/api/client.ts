@@ -80,6 +80,8 @@ export const MOCK_ACCOUNTS: Record<string, { name: string; role: UserRole }> = {
   "admin@demo-hotel.example.com": { name: "管理者", role: "ADMIN" },
   "manager@demo-hotel.example.com": { name: "レベニューマネージャー", role: "MANAGER" },
   "operator@demo-hotel.example.com": { name: "フロント担当", role: "OPERATOR" },
+  // 運営（テナントを持たない）。運営用のデモ URL（NEXT_PUBLIC_DEMO_ADMIN_CONSOLE=true）でだけログインできる
+  "platform@example.com": { name: "運営", role: "PLATFORM_ADMIN" },
 }
 
 export const MOCK_HOTEL: Hotel = {
@@ -113,6 +115,14 @@ export function isDemoModeEnabled(): boolean {
   // `process.env.NEXT_PUBLIC_DEMO_MODE === "true"` をそのモジュール内で直接評価すること
   // （login-form.tsx 参照。verify-demo-mode.mjs で検証している）。
   return process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+}
+
+/**
+ * デモの運営ログインを許すか（NEXT_PUBLIC_DEMO_ADMIN_CONSOLE=true のビルドだけ）。
+ * 配布用のデモ URL では運営の管理画面に入れないようにし、運営は別の URL から使う
+ */
+export function isDemoAdminConsole(): boolean {
+  return process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true"
 }
 
 // ---- デモデータ表示状態（バナー通知用） ----
@@ -153,19 +163,30 @@ export function getMockUser(): User | null {
   }
 }
 
+export const DEMO_PLATFORM_EMAIL = "platform@example.com"
+
 export function mockLogin(email: string, password: string): LoginResult {
   const account = MOCK_ACCOUNTS[email]
-  if (!account || password !== MOCK_PASSWORD) {
+  const hidden = account?.role === "PLATFORM_ADMIN" && !isDemoAdminConsole()
+  if (!account || hidden || password !== MOCK_PASSWORD) {
     throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
   }
+  return mockLoginAs(email)
+}
+
+/** パスワードを確認済みのデモアカウントでログインした状態を作る（共有保存で運営を確認したとき等） */
+export function mockLoginAs(email: string): LoginResult {
+  const account = MOCK_ACCOUNTS[email]
+  if (!account) throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
   const now = new Date()
+  const isPlatform = account.role === "PLATFORM_ADMIN"
   const user: User = {
     id: `mock-${account.role.toLowerCase()}`,
-    tenantId: MOCK_TENANT_ID,
+    tenantId: isPlatform ? null : MOCK_TENANT_ID,
     email,
     name: account.name,
     role: account.role,
-    hotelId: MOCK_HOTEL_ID,
+    hotelId: isPlatform ? null : MOCK_HOTEL_ID,
     isActive: true,
     lastLoginAt: now,
     createdAt: now,
@@ -195,13 +216,13 @@ function backendUnreachableError(demoMessage: string | null): ApiClientError {
   )
 }
 
-export async function withDemoFallback<T>(request: () => Promise<T>, fallback: () => T): Promise<T> {
+export async function withDemoFallback<T>(request: () => Promise<T>, fallback: () => T | Promise<T>): Promise<T> {
   try {
     return await request()
   } catch (err) {
     if (isDemoModeEnabled() && err instanceof ApiClientError && err.isBackendUnreachable) {
       markDemoDataInUse()
-      return fallback()
+      return await fallback()
     }
     throw err
   }

@@ -13,7 +13,8 @@ import type {
 } from "@shared/types"
 import {
   ApiClientError, getRefreshToken, storeTokens, clearTokens, MOCK_HOTEL, isDemoModeEnabled,
-  markDemoDataInUse, storeMockUser, getMockUser, mockLogin, withDemoFallback, rawRequest,
+  markDemoDataInUse, storeMockUser, getMockUser, mockLogin, mockLoginAs, withDemoFallback, rawRequest,
+  isDemoAdminConsole, DEMO_PLATFORM_EMAIL,
   rawBinaryRequest, type BinaryDownload
 } from "./client"
 import type {
@@ -31,6 +32,8 @@ import {
   setMockDashboardPreference
 } from "./demo-data"
 import { adminEndpoints } from "./admin"
+import { demoAdmin } from "./demo-admin"
+import { demoShared, demoSharedStatus } from "./demo-shared"
 import { analysisEndpoints } from "./analysis"
 
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
@@ -55,6 +58,52 @@ export type { BinaryDownload } from "./client"
 
 // ---- API surface ----
 
+/** デモのトライアルの ID でログインした状態（画面はデモの管理者と同じサンプルデータ） */
+function demoTrialResult(email: string, trial: { name: string; expiresAt: string }): LoginResult {
+  const base = mockLoginAs("admin@demo-hotel.example.com")
+  return {
+    ...base,
+    user: { ...base.user, id: `mock-trial-${email}`, email, name: trial.name, trial: { expiresAt: trial.expiresAt } },
+  }
+}
+
+/**
+ * デモモードのログイン（バックエンド未接続のとき）。
+ * 共有保存が設定されていれば、運営（運営用 URL だけ）とトライアルの ID はサーバーで確認する。
+ * 無ければこのタブの中で発行したトライアルと、デモの固定アカウントで入る
+ */
+async function demoLogin(email: string, password: string): Promise<LoginResult> {
+  const loginEmail = email.trim().toLowerCase()
+  if ((await demoSharedStatus()).shared) {
+    if (loginEmail === DEMO_PLATFORM_EMAIL && isDemoAdminConsole()) {
+      await demoShared.adminLogin(password)
+      return mockLoginAs(DEMO_PLATFORM_EMAIL)
+    }
+    const trial = await demoShared.trialLogin(loginEmail, password)
+    if (trial) return demoTrialResult(loginEmail, trial)
+  } else {
+    const trial = demoAdmin.trialLogin(loginEmail, password)
+    if (trial) return demoTrialResult(loginEmail, trial)
+  }
+  return mockLogin(email, password)
+}
+
+/**
+ * リロード後にデモのユーザーを戻す。共有保存のトライアルは、停止・期限切れ・パスワード再発行・削除で
+ * 使えなくなっていないかをサーバーに確かめ、使えなければログアウトさせる（401）
+ */
+async function restoreDemoUser(user: User): Promise<User & { hotel?: Hotel | null }> {
+  if (user.trial && (await demoSharedStatus()).shared) {
+    const session = await demoShared.trialSession()
+    if (!session.active) {
+      clearTokens()
+      throw new ApiClientError(401, session.message)
+    }
+    return { ...user, name: session.name, trial: { expiresAt: session.expiresAt }, hotel: MOCK_HOTEL }
+  }
+  return { ...user, hotel: MOCK_HOTEL }
+}
+
 export const api = {
   // 運営・管理者向け（取り込み・ホテル・部屋タイプ・テナント・一時パスワード・監査ログ）は admin.ts
   ...adminEndpoints,
@@ -72,7 +121,7 @@ export const api = {
     } catch (err) {
       if (isDemoModeEnabled() && err instanceof ApiClientError && err.isBackendUnreachable) {
         markDemoDataInUse()
-        const result = mockLogin(email, password)
+        const result = await demoLogin(email, password)
         storeTokens(result.tokens.accessToken, result.tokens.refreshToken)
         storeMockUser(result.user)
         return result
@@ -82,6 +131,9 @@ export const api = {
   },
 
   async logout(): Promise<void> {
+    if (isDemoModeEnabled() && getMockUser() && (await demoSharedStatus()).shared) {
+      await Promise.all([demoShared.adminLogout(), demoShared.trialLogout()])
+    }
     const refreshToken = getRefreshToken()
     if (refreshToken && !getMockUser()) {
       try {
@@ -123,7 +175,7 @@ export const api = {
       if (mockUser) {
         // リロード後にデモユーザーを復元した場合もデモ表示バナーを出す
         markDemoDataInUse()
-        return Promise.resolve({ ...mockUser, hotel: MOCK_HOTEL })
+        return restoreDemoUser(mockUser)
       }
     }
     return rawRequest("/api/v1/auth/me")
