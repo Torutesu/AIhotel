@@ -96,12 +96,12 @@ export function ReportsTab() {
       <Card>
         <CardContent className="py-3 px-4">
           <div className="flex items-end gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-col items-start gap-2 sm:w-auto sm:flex-row sm:items-center">
               <Label htmlFor="report-type" className="text-xs whitespace-nowrap">
                 レポートタイプ
               </Label>
               <Select value={reportType} onValueChange={setReportType}>
-                <SelectTrigger id="report-type" className="h-9 w-44 text-sm">
+                <SelectTrigger id="report-type" className="w-full text-sm sm:w-44">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -122,7 +122,7 @@ export function ReportsTab() {
               onChange={setPeriodMonth}
             />
 
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-col items-start gap-2 sm:w-auto sm:flex-row sm:items-center">
               <Label htmlFor="report-format" className="text-xs whitespace-nowrap">
                 出力形式
               </Label>
@@ -130,7 +130,7 @@ export function ReportsTab() {
                 value={reportFormat}
                 onValueChange={(value: ReportFormat) => setReportFormat(value)}
               >
-                <SelectTrigger id="report-format" className="h-9 w-32 text-sm">
+                <SelectTrigger id="report-format" className="w-full text-sm sm:w-32">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
