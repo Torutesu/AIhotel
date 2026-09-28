@@ -1,6 +1,6 @@
 # 当日手順（Windows・現地端末での実行）
 
-2026-09-15 / NEHOPS × TL-リンカーン。IP制限があるため取得はホテルの端末上で行う。
+実施日 2026-09-29 / NEHOPS × TL-リンカーン。IP制限があるため取得はホテルの端末上で行う。
 コマンドはすべて**管理者権限なし**で動く想定。インストーラは使わない。
 
 所要の目安: 出発前20分 → 現地フェーズ1（環境確認）10分 → フェーズ2（手動1サイクル＋記録）30分
@@ -43,7 +43,8 @@ E:\tl-kit\run.cmd
 - `tools\field-test\Send-ReservationCsv.ps1`、`Inspect-ReservationCsv.ps1`
 - `tools\rpa\Invoke-Pipeline.ps1`
 - 空フォルダ `E:\capture\`（HAR・HTML・録画・CSVの置き場）
-- この手順書と `docs\現地テスト_2026-09-15_NEHOPS_TLリンカーン.md`（記録欄）
+- この手順書と `docs\現地テスト_NEHOPS_TLリンカーン.md`（記録欄）
+- （エージェント型を試すなら）`uv` の携帯構成と browser-use 一式。**自分のPCで1回動かしてから持ち込む**
 
 ### 5. 送信先を起動しておく（持参PC）
 
@@ -72,6 +73,9 @@ Get-ExecutionPolicy -List
 
 # 3. 自社APIへ到達できるか ← 最重要。出られないと継続送信が成立しない
 Invoke-RestMethod http://<持参PCのIP>:3001/health | ConvertTo-Json -Compress
+
+# 3b. 外部LLM APIへ出られるか（エージェント型=browser-useを使う場合の前提）
+curl.exe -sS -o NUL -w "%{http_code}`n" https://openrouter.ai/api/v1/models
 
 # 4. プロキシ設定（3が失敗したとき、何が要るかを特定する）
 netsh winhttp show proxy
@@ -266,6 +270,39 @@ Get-Content E:\tl-kit\logs\pipeline-*.log -Tail 5
 
 ---
 
+## フェーズ4-alt: エージェント型で取る（browser-use / jev-ultrafast）
+
+`codegen` でセレクタを拾うかわりに、エージェントに操作させて手順を見つける場合。
+**クラウド実行（browser-use Cloud・Codexのブラウザ）はIP制限で弾かれる**ので、必ずこの端末でローカル実行する。
+前提と使い分けは `tools/rpa/README.md` §5 を参照。
+
+```powershell
+# 1. Chromeをデバッグポート付きで起動（CDPは127.0.0.1からのみ受け付ける＝同じ端末で動かす）
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+  --remote-debugging-port=9222 --user-data-dir="C:\hotel-import\chrome-profile"
+
+# 2. 開いたChromeで手動でTL-リンカーンにログインしておく
+#    （エージェントにログインさせない。MFA・同時ログイン制限を避けられる）
+
+# 3. APIキーを環境変数に（このセッション限り。スクリプトにも端末にも残さない）
+$env:OPENROUTER_API_KEY = '<キー>'
+
+# 4. エージェントを ws://127.0.0.1:9222 に接続して実行
+#    指示文は docs/ハンドオフ_取得自動化.md §5（禁止事項つき）をそのまま使う
+```
+
+**必ずやること**:
+
+- エージェントの**行動履歴（どの要素をどう操作したか）を保存する** ← `selectors.json` の材料になる
+- 動いたら、その履歴から `selectors.json` を埋め、`run.cmd` で**エージェント無しで**同じ結果になるか確認する
+- 画面のDOMとスクリーンショットがLLMプロバイダに送られる。**宿泊者名が写る画面を扱う前に合意を取る**
+- 更新系ボタンには触らせない（指示文に明記済み。迷う画面が出たら止めて報告させる）
+
+日々の実行はエージェントに任せず、決定論的スクリプト（`export-tl.mjs` か HARからのPowerShell再現）に移す。
+理由: 1回ごとのモデル代、実行時間が読めない、同じ経路を通る保証がない、失敗時の再現が難しい。
+
+---
+
 ## 撤収（10分）
 
 ```powershell
@@ -278,7 +315,7 @@ schtasks /Query /TN "HotelImport" /V /FO LIST | Out-File E:\capture\タスク設
 - 持ち帰り物の確認: HAR・画面HTML・録画・個人情報除去済みCSV・`out\` のtrace・調査レポート
 - **持ち出す前に中身を確認**: HAR・storage.json・traceにはセッショントークンが、CSV・スクショには宿泊者名が入りうる
 - `cred.txt` / `tl-cred.txt` は端末に残す（DPAPIで他端末では復号できない）。運用しないなら削除する
-- 記録欄（`docs/現地テスト_2026-09-15_NEHOPS_TLリンカーン.md`）を埋める
+- 記録欄（`docs/現地テスト_NEHOPS_TLリンカーン.md`）を埋める
 
 ---
 
