@@ -31,6 +31,7 @@ import {
   setMockDashboardPreference
 } from "./demo-data"
 import { adminEndpoints } from "./admin"
+import { demoAdmin } from "./demo-admin"
 import { analysisEndpoints } from "./analysis"
 
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
@@ -55,6 +56,17 @@ export type { BinaryDownload } from "./client"
 
 // ---- API surface ----
 
+/** デモで発行したトライアルの ID でのログイン（デモモードのみ）。該当しなければ null */
+function demoTrialLogin(email: string, password: string): LoginResult | null {
+  const trial = demoAdmin.trialLogin(email, password)
+  if (!trial) return null
+  const base = mockLogin("admin@demo-hotel.example.com", "Admin1234")
+  return {
+    ...base,
+    user: { ...base.user, id: `mock-trial-${email}`, email, name: trial.name, trial: { expiresAt: trial.expiresAt } },
+  }
+}
+
 export const api = {
   // 運営・管理者向け（取り込み・ホテル・部屋タイプ・テナント・一時パスワード・監査ログ）は admin.ts
   ...adminEndpoints,
@@ -72,7 +84,7 @@ export const api = {
     } catch (err) {
       if (isDemoModeEnabled() && err instanceof ApiClientError && err.isBackendUnreachable) {
         markDemoDataInUse()
-        const result = mockLogin(email, password)
+        const result = demoTrialLogin(email, password) ?? mockLogin(email, password)
         storeTokens(result.tokens.accessToken, result.tokens.refreshToken)
         storeMockUser(result.user)
         return result

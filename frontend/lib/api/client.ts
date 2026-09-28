@@ -80,6 +80,8 @@ export const MOCK_ACCOUNTS: Record<string, { name: string; role: UserRole }> = {
   "admin@demo-hotel.example.com": { name: "管理者", role: "ADMIN" },
   "manager@demo-hotel.example.com": { name: "レベニューマネージャー", role: "MANAGER" },
   "operator@demo-hotel.example.com": { name: "フロント担当", role: "OPERATOR" },
+  // 運営（テナントを持たない）。デモでテナント管理・トライアル管理の画面を試すため
+  "platform@example.com": { name: "運営", role: "PLATFORM_ADMIN" },
 }
 
 export const MOCK_HOTEL: Hotel = {
@@ -159,13 +161,14 @@ export function mockLogin(email: string, password: string): LoginResult {
     throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
   }
   const now = new Date()
+  const isPlatform = account.role === "PLATFORM_ADMIN"
   const user: User = {
     id: `mock-${account.role.toLowerCase()}`,
-    tenantId: MOCK_TENANT_ID,
+    tenantId: isPlatform ? null : MOCK_TENANT_ID,
     email,
     name: account.name,
     role: account.role,
-    hotelId: MOCK_HOTEL_ID,
+    hotelId: isPlatform ? null : MOCK_HOTEL_ID,
     isActive: true,
     lastLoginAt: now,
     createdAt: now,

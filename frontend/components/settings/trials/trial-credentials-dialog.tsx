@@ -2,6 +2,7 @@
 
 // 発行・再発行したトライアルのログイン情報を1回だけ見せる。先方にそのまま送れる文面でコピーできる。
 
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -31,13 +32,18 @@ interface Props {
 
 export function TrialCredentialsDialog({ credentials, onClose }: Props) {
   const loginUrl = typeof window === "undefined" ? "" : window.location.origin
-  const text = credentials ? credentialsText(credentials, loginUrl) : ""
+  // 閉じるアニメーションの間も中身を出し続ける（null になった瞬間に空の見出しが見えないように）
+  const [shown, setShown] = useState<TrialCredentials | null>(credentials)
+  useEffect(() => {
+    if (credentials) setShown(credentials)
+  }, [credentials])
+  const text = shown ? credentialsText(shown, loginUrl) : ""
 
   return (
     <Dialog open={credentials !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>「{credentials?.trial.name}」のログイン情報</DialogTitle>
+          <DialogTitle>「{shown?.trial.name}」のログイン情報</DialogTitle>
           <DialogDescription>
             パスワードはこの画面を閉じると再表示できません。先方に安全な方法で伝えてください（忘れた場合は再発行できます）。
           </DialogDescription>
