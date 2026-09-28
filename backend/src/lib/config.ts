@@ -19,16 +19,20 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   // CORS で許可するオリジン。カンマ区切りで複数指定できる（S-10）。
   // Vercel の Preview URL など、本番以外のオリジンを追加で許可するために使う。
+  // CORS とメール内のリンクに使うので、本番では必須（未設定で localhost に黙って倒れないようにする — R-2-2）。
+  // 開発・テストで未設定なら http://localhost:3000（loadConfig）
   FRONTEND_URL: z
     .string()
-    .default('http://localhost:3000')
+    .optional()
     .transform((v) =>
-      v
-        .split(',')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0)
+      v === undefined
+        ? undefined
+        : v
+            .split(',')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0)
     )
-    .pipe(z.array(z.string().url()).nonempty('FRONTEND_URL には少なくとも1つのURLが必要です')),
+    .pipe(z.array(z.string().url()).nonempty('FRONTEND_URL には少なくとも1つのURLが必要です').optional()),
 
   // DATABASE_URL は Prisma が直接参照する。型チェックのみの環境では未設定を許すが、
   // NODE_ENV=production では必須にする（下の superRefine — S-7）
@@ -179,6 +183,13 @@ const envSchema = z.object({
         message: 'MAIL_DRIVER=memory はテスト用です。本番では none か smtp を指定してください',
       })
     }
+    if (env.NODE_ENV === 'production' && !env.FRONTEND_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['FRONTEND_URL'],
+        message: 'NODE_ENV=production では FRONTEND_URL（画面の URL。カンマ区切りで複数可）が必須です',
+      })
+    }
     if (env.NODE_ENV === 'production' && !env.DATABASE_URL) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -198,12 +209,14 @@ function loadConfig() {
     throw new Error(`環境変数の検証に失敗しました:\n  ${details}`)
   }
   const env = parsed.data
+  const frontendUrls: [string, ...string[]] = env.FRONTEND_URL ?? ['http://localhost:3000']
   return {
     ...env,
+    FRONTEND_URL: frontendUrls,
     isDevelopment: env.NODE_ENV === 'development',
     isProduction: env.NODE_ENV === 'production',
     isTest: env.NODE_ENV === 'test',
-    appPublicUrl: env.APP_PUBLIC_URL ?? env.FRONTEND_URL[0],
+    appPublicUrl: env.APP_PUBLIC_URL ?? frontendUrls[0],
     // package.json 経由でのみ設定される値（検証対象外）
     appVersion: process.env.npm_package_version || '1.0.0',
   }

@@ -8,7 +8,21 @@ const prisma = new PrismaClient()
 const TENANT_CODE = 'demo-tenant'
 const HOTEL_ID = 'demo-hotel-001'
 
+/**
+ * 本番では走らせない（R-2-6）。seed は全員共通のパスワード（Admin1234）のデモアカウントを作るため、
+ * 本番の DB に入ると誰でもログインできてしまう。本番のデモデータは `job seed-demo`（推測できないパスワード）で作る
+ */
+function refuseInProduction() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'NODE_ENV=production では seed を実行できません（共通パスワードのデモアカウントが作られるため）。' +
+        'デモデータは `job seed-demo`、運営アカウントは `job create-platform-admin` で作ってください'
+    )
+  }
+}
+
 async function main() {
+  refuseInProduction()
   console.log('🌱 Seeding database...')
 
   // 1. Tenant

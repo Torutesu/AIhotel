@@ -247,8 +247,8 @@ export function KpiComparisonSection({ year, month, summary }: KpiComparisonSect
         </div>
         {canTakeSnapshot && (
           <p className="text-xs text-muted-foreground">
-            通常は日次バッチが記録する処理です（バッチは未実装のため、ここから当日時点の
-            {year}年{month}月のKPIを手動で記録できます。同じ日に何度実行しても記録は1件のままです）。
+            通常は日次バッチが毎日記録します。バッチの実行前や記録が抜けた日は、ここから当日時点の
+            {year}年{month}月のKPIを手動で記録できます（同じ日に何度実行しても記録は1件のままです）。
           </p>
         )}
       </CardHeader>

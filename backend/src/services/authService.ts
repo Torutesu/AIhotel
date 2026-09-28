@@ -327,6 +327,10 @@ export async function registerService(
   if (role === 'PLATFORM_ADMIN' && !isPlatformAdmin) {
     throw new ApiError(403, '運営（PLATFORM_ADMIN）ロールを付与できるのは運営のみです')
   }
+  // 運営はホテルにも属さない（「運営 ⇔ tenantId が null」— R-3-5）
+  if (role === 'PLATFORM_ADMIN' && hotelId) {
+    throw new ApiError(400, '運営（PLATFORM_ADMIN）ユーザーはホテルに所属させられません')
+  }
 
   // ホテルに所属する利用者は、自ホテルにしかユーザーを作れない（#79）。
   // テナント全体を見るユーザー（hotelId なし）も作れない（自分より広い範囲の権限になるため）
@@ -386,6 +390,14 @@ export async function registerService(
     }
 
     tenantId = hotel.tenantId
+  }
+
+  // 契約停止中のテナントにはユーザーを増やさない（運営も含む — R-3-7）
+  if (tenantId) {
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { isActive: true } })
+    if (!tenant?.isActive) {
+      throw new ApiError(400, '契約停止中のテナントにはユーザーを作成できません')
+    }
   }
 
   // パスワードを省略したら招待（#89）: 一時パスワードを発行し、初回ログインで変更させる

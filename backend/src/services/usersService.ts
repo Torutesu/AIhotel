@@ -113,6 +113,17 @@ export async function updateUserService(
     }
   }
 
+  // 運営とテナントのユーザーは行き来させない（「運営 ⇔ tenantId が null」— R-3-5）。
+  // テナントのユーザーを運営にすると tenantId が残り、運営をテナントのロールにするとテナントの無い利用者になる
+  if (input.role !== undefined && input.role !== before.role) {
+    if (input.role === 'PLATFORM_ADMIN') {
+      throw new BadRequestError('テナントのユーザーは運営（PLATFORM_ADMIN）にできません。運営は新しく作成してください')
+    }
+    if (before.role === 'PLATFORM_ADMIN') {
+      throw new BadRequestError('運営（PLATFORM_ADMIN）ユーザーのロールは変更できません')
+    }
+  }
+
   if (actor.role !== 'ADMIN' && !isPlatformAdmin) {
     if (before.role === 'ADMIN') {
       throw new ApiError(403, 'ADMIN ユーザーを変更できるのは ADMIN のみです')

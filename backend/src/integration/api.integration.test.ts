@@ -719,6 +719,42 @@ describeIntegration('API 統合テスト', () => {
         expect(res.body.data.tenantId).toBeNull()
       })
 
+      it('運営はホテルに所属させられず、テナントのユーザーとは行き来させない（R-3-5）', async () => {
+        const withHotel = await request(app)
+          .post('/api/v1/auth/register')
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+          .send({ email: `${PREFIX}-platform-hotel@example.com`, password: 'Created1234', name: '運営', role: 'PLATFORM_ADMIN', hotelId: HOTEL_A })
+        expect(withHotel.status).toBe(400)
+
+        const manager = await prisma.user.findUnique({ where: { email: EMAILS.otherTenantManager } })
+        const promote = await request(app)
+          .put(`/api/v1/users/${manager!.id}`)
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+          .send({ role: 'PLATFORM_ADMIN' })
+        expect(promote.status).toBe(400)
+
+        const platform = await prisma.user.findUnique({ where: { email: `${PREFIX}-platform-created@example.com` } })
+        const demote = await request(app)
+          .put(`/api/v1/users/${platform!.id}`)
+          .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+          .send({ role: 'ADMIN' })
+        expect(demote.status).toBe(400)
+      })
+
+      it('契約停止中のテナントにはユーザーを作成できない（R-3-7）', async () => {
+        await prisma.tenant.update({ where: { id: TENANT_B }, data: { isActive: false } })
+        try {
+          const res = await request(app)
+            .post('/api/v1/auth/register')
+            .set('Authorization', `Bearer ${tokens.platformAdmin}`)
+            .send({ email: `${PREFIX}-suspended-tenant@example.com`, password: 'Created1234', name: '停止中', role: 'ADMIN', tenantId: TENANT_B })
+          expect(res.status).toBe(400)
+          expect(res.body.error).toContain('契約停止中')
+        } finally {
+          await prisma.tenant.update({ where: { id: TENANT_B }, data: { isActive: true } })
+        }
+      })
+
       it('ADMIN ユーザーのロールを変更できる（テナント条件なしで到達できる）', async () => {
         const other = await prisma.user.findUnique({
           where: { email: EMAILS.otherTenantManager },
