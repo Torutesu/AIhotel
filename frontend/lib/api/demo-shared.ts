@@ -49,8 +49,8 @@ export function resetDemoSharedStatus() {
 }
 
 export const demoShared = {
-  adminLogin(password: string): Promise<{ loggedIn: true }> {
-    return call("/api/demo/admin/session", { method: "POST", body: JSON.stringify({ password }) })
+  adminLogin(email: string, password: string): Promise<{ loggedIn: boolean }> {
+    return call("/api/demo/admin/session", { method: "POST", body: JSON.stringify({ email, password }) })
   },
   async adminLogout(): Promise<void> {
     await call("/api/demo/admin/session", { method: "DELETE" }).catch(() => undefined)

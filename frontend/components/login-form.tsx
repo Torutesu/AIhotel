@@ -51,7 +51,7 @@ export function LoginForm() {
                 id="login-email"
                 type="email"
                 autoComplete="email"
-                placeholder="admin@demo-hotel.example.com"
+                placeholder="メールアドレスを入力"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -83,23 +83,7 @@ export function LoginForm() {
             </Button>
           </form>
 
-          {/* デモ認証情報はデモモード（NEXT_PUBLIC_DEMO_MODE=true）のビルドでのみ表示する。
-              本番ビルドでは JSX ごと成果物から除去されるよう、lib/api/ の関数経由ではなく
-              ビルド時にインライン化される環境変数をこのモジュール内で直接比較する
-              （scripts/verify-demo-mode.mjs --expect-disabled で検証） */}
-          {process.env.NEXT_PUBLIC_DEMO_MODE === "true" && (
-            <div className="mt-4 rounded-lg border border-border bg-muted/50 p-3 text-xs text-muted-foreground">
-              <p className="font-medium">デモアカウント</p>
-              <p>メール: admin@demo-hotel.example.com（管理者）</p>
-              {process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true" && (
-                <p>
-                  メール: platform@example.com（運営。テナント管理・トライアル管理）。共有保存を設定している場合、
-                  パスワードは最初にログインしたときに登録したもの（10文字以上）
-                </p>
-              )}
-              <p>パスワード: Admin1234</p>
-            </div>
-          )}
+
         </CardContent>
       </Card>
     </div>

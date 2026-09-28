@@ -259,7 +259,7 @@ export function MainLayout() {
           >
             <div className={cn("min-w-0", collapsed && "md:hidden")}>
               <p className="truncate text-sm font-medium text-sidebar-foreground">{user.name}</p>
-              <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+              {user.role !== "PLATFORM_ADMIN" && <p className="truncate text-xs text-muted-foreground">{user.email}</p>}
             </div>
             <Button
               variant="ghost"

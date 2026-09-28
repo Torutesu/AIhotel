@@ -17,7 +17,6 @@ import { join } from 'node:path'
 const DEMO_ONLY_MARKERS = [
   'メールアドレスまたはパスワードが正しくありません', // mockLogin
   'コンペティターホテルA', // 競合モック
-  'デモアカウント', // ログイン画面のデモ認証情報（login-form.tsx）
 ]
 
 const CHUNK_DIR = join(process.cwd(), '.next', 'static', 'chunks')
@@ -43,6 +42,11 @@ try {
 }
 
 const bundle = files.map((f) => readFileSync(f, 'utf8')).join('\n')
+const exposedCredentials = ['platform@example.com', 'Admin1234', 'デモアカウント'].filter((value) => bundle.includes(value))
+if (exposedCredentials.length > 0) {
+  console.error('✖ 公開 JavaScript に認証情報または認証情報の案内が含まれています')
+  process.exit(1)
+}
 const missing = DEMO_ONLY_MARKERS.filter((m) => !bundle.includes(m))
 const enabled = missing.length === 0
 

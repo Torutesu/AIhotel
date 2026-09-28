@@ -72,7 +72,6 @@ export function clearTokens() {
 // 「モックへのサイレントフォールバック禁止」の規約には抵触しない。
 // 本番ビルドではこの変数を設定しないこと（デモ分岐はツリーシェイクで成果物から消える）。
 
-export const MOCK_PASSWORD = "Admin1234"
 export const MOCK_HOTEL_ID = "demo-hotel-001"
 export const MOCK_TENANT_ID = "mock-tenant"
 
@@ -80,8 +79,6 @@ export const MOCK_ACCOUNTS: Record<string, { name: string; role: UserRole }> = {
   "admin@demo-hotel.example.com": { name: "管理者", role: "ADMIN" },
   "manager@demo-hotel.example.com": { name: "レベニューマネージャー", role: "MANAGER" },
   "operator@demo-hotel.example.com": { name: "フロント担当", role: "OPERATOR" },
-  // 運営（テナントを持たない）。運営用のデモ URL（NEXT_PUBLIC_DEMO_ADMIN_CONSOLE=true）でだけログインできる
-  "platform@example.com": { name: "運営", role: "PLATFORM_ADMIN" },
 }
 
 export const MOCK_HOTEL: Hotel = {
@@ -163,20 +160,11 @@ export function getMockUser(): User | null {
   }
 }
 
-export const DEMO_PLATFORM_EMAIL = "platform@example.com"
-
-export function mockLogin(email: string, password: string): LoginResult {
-  const account = MOCK_ACCOUNTS[email]
-  const hidden = account?.role === "PLATFORM_ADMIN" && !isDemoAdminConsole()
-  if (!account || hidden || password !== MOCK_PASSWORD) {
-    throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
-  }
-  return mockLoginAs(email)
-}
-
 /** パスワードを確認済みのデモアカウントでログインした状態を作る（共有保存で運営を確認したとき等） */
-export function mockLoginAs(email: string): LoginResult {
-  const account = MOCK_ACCOUNTS[email]
+export function mockLoginAs(
+  email: string,
+  account = MOCK_ACCOUNTS[email],
+): LoginResult {
   if (!account) throw new ApiClientError(401, "メールアドレスまたはパスワードが正しくありません")
   const now = new Date()
   const isPlatform = account.role === "PLATFORM_ADMIN"

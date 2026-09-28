@@ -233,24 +233,21 @@ describe("エラー変換", () => {
     expect((error as ApiClientError).message).toBe("上流のエラー")
   })
 
-  it("デモモードでは中継がバックエンド到達不能を返したときにデモのログインへ切り替える", async () => {
+  it("共通のデモパスワードではログインできない", async () => {
     vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true")
     vi.stubGlobal("fetch", vi.fn(async () => proxyUnreachable()))
-    const result = await api.login("admin@demo-hotel.example.com", "Admin1234")
-    expect(result.user.role).toBe("ADMIN")
-    await expect(api.hotels()).resolves.toEqual([expect.objectContaining({ id: "demo-hotel-001" })])
+    await expect(api.login("admin@demo-hotel.example.com", "Admin1234")).rejects.toThrow(
+      "メールアドレスまたはパスワードが正しくありません"
+    )
   })
 
-  it("デモの運営ログインは運営用の URL（NEXT_PUBLIC_DEMO_ADMIN_CONSOLE=true）でだけ通る", async () => {
+  it("共有保存が使えなければ運営ログインは失敗する", async () => {
     vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true")
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "true")
     vi.stubGlobal("fetch", vi.fn(async () => proxyUnreachable()))
-    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "")
     await expect(api.login("platform@example.com", "Admin1234")).rejects.toThrow(
       "メールアドレスまたはパスワードが正しくありません"
     )
-    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "true")
-    const result = await api.login("platform@example.com", "Admin1234")
-    expect(result.user.role).toBe("PLATFORM_ADMIN")
   })
 
   it("デモモードが無効なら中継の到達不能はそのままエラーにする", async () => {
@@ -356,5 +353,43 @@ describe("デモモード（バックエンド未接続）", () => {
     await expect(api.saveBudgets({ hotelId: "demo-hotel-001", year: 2026, months: [] })).rejects.toThrow(
       "バックエンドに接続できません"
     )
+  })
+})
+
+
+describe("共有保存のログイン", () => {
+  beforeEach(async () => {
+    const { resetDemoSharedStatus } = await import("./api/demo-shared")
+    resetDemoSharedStatus()
+    vi.stubEnv("NEXT_PUBLIC_DEMO_MODE", "true")
+  })
+
+  it("運営用 URL ではサーバーが認証した場合だけ運営になる", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "true")
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "/api/demo/status") return ok({ shared: true })
+      if (url === "/api/demo/admin/session") return ok({ loggedIn: true })
+      return proxyUnreachable()
+    })
+    vi.stubGlobal("fetch", fetcher)
+    const result = await api.login("owner@example.test", "test-only-password")
+    expect(result.user.role).toBe("PLATFORM_ADMIN")
+    expect(fetcher).toHaveBeenCalledWith("/api/demo/admin/session", expect.objectContaining({
+      body: JSON.stringify({ email: "owner@example.test", password: "test-only-password" }),
+    }))
+  })
+
+  it("配布用 URL では運営 API を呼ばずトライアルを認証する", async () => {
+    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "")
+    const fetcher = vi.fn(async (url: string) => {
+      if (url === "/api/demo/status") return ok({ shared: true })
+      if (url === "/api/demo/trial-session") return ok({ name: "お客様", expiresAt: "2026-10-28" })
+      return proxyUnreachable()
+    })
+    vi.stubGlobal("fetch", fetcher)
+    const result = await api.login("trial@example.test", "test-only-password")
+    expect(result.user.role).toBe("ADMIN")
+    expect(result.user.trial?.expiresAt).toBe("2026-10-28")
+    expect(fetcher.mock.calls.some(([url]) => url === "/api/demo/admin/session")).toBe(false)
   })
 })

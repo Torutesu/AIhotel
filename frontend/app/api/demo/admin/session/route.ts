@@ -14,7 +14,13 @@ export const runtime = "nodejs"
 export async function POST(request: NextRequest) {
   return handle(request, {}, async (kv) => {
     if (!isAdminConsole()) throw new DemoTrialError(403, "この URL では運営としてログインできません")
-    const { password } = await readJson(request)
+    const { email, password } = await readJson(request)
+    // 運営 ID はサーバー専用の環境変数で管理する。公開コードには含めない。
+    const adminEmail = process.env.DEMO_ADMIN_EMAIL?.trim().toLowerCase()
+    if (!adminEmail) throw new DemoTrialError(503, "運営ログインが設定されていません")
+    if (typeof email !== "string" || email.trim().toLowerCase() !== adminEmail) {
+      return ok({ loggedIn: false })
+    }
     if (typeof password !== "string" || password.length === 0 || password.length > 200) {
       throw new DemoTrialError(400, "パスワードを入力してください")
     }
