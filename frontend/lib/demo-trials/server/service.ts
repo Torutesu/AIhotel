@@ -6,7 +6,7 @@
 // - ログインの状態: 署名した Cookie で持つ。署名の鍵は運営の初回登録のときに作って保存する
 // - ログインの失敗が続いたアクセス元は15分止める
 
-import { createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto"
+import { createHash, createHmac, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto"
 import { promisify } from "node:util"
 
 import type { CreateTrialRequest, TrialCredentials, TrialLoginInfo, TrialSummary, UpdateTrialRequest } from "@shared/types"
@@ -33,6 +33,7 @@ interface AdminRecord {
   signingKey: string
   /** 運営の再設定時にだけ更新。トライアル用の署名鍵は維持する */
   adminSigningKey?: string
+  passwordResetId?: string
 }
 
 // ---- パスワードと署名 ----
@@ -93,6 +94,17 @@ async function recordFailure(kv: DemoKv, scope: string, ip: string | null) {
   await kv.incrWithTtl(`demo:fail:${scope}:${ip ?? "unknown"}`, FAIL_WINDOW_SECONDS)
 }
 
+/** Vercelの運用担当者だけが設定する一度限りの再設定ハッシュ。平文は設定しない */
+function pendingAdminPasswordReset(admin: AdminRecord): { hash: string; id: string } | null {
+  const hash = process.env.DEMO_ADMIN_PASSWORD_RESET_HASH
+  if (!hash) return null
+  if (!/^s1\$[a-f0-9]{32}\$[a-f0-9]{64}$/.test(hash)) {
+    throw new DemoTrialError(503, "運営のパスワード再設定が正しく構成されていません")
+  }
+  const id = createHash("sha256").update(hash).digest("hex")
+  return admin.passwordResetId === id ? null : { hash, id }
+}
+
 // ---- 運営 ----
 
 export async function adminConfigured(kv: DemoKv): Promise<boolean> {
@@ -105,7 +117,8 @@ export async function adminConfigured(kv: DemoKv): Promise<boolean> {
  */
 export async function adminLogin(kv: DemoKv, password: string, ip: string | null, now = Date.now()): Promise<string> {
   await guardFailures(kv, "admin", ip)
-  let admin = await readAdmin(kv)
+  let rawAdmin = await kv.get(KEY_ADMIN)
+  let admin = rawAdmin ? JSON.parse(rawAdmin) as AdminRecord : null
   if (!admin) {
     if (password.length < ADMIN_PASSWORD_MIN_LENGTH) {
       throw new DemoTrialError(
@@ -116,11 +129,23 @@ export async function adminLogin(kv: DemoKv, password: string, ip: string | null
     const record: AdminRecord = { passwordHash: await hashPassword(password), signingKey: randomBytes(32).toString("hex") }
     // 同時に登録されたら先に保存した方を使う
     await kv.setIfAbsent(KEY_ADMIN, JSON.stringify(record))
-    admin = (await readAdmin(kv))!
+    rawAdmin = (await kv.get(KEY_ADMIN))!
+    admin = JSON.parse(rawAdmin) as AdminRecord
   }
-  if (!(await verifyPassword(password, admin.passwordHash))) {
+  const recovery = pendingAdminPasswordReset(admin)
+  if (!(await verifyPassword(password, recovery?.hash ?? admin.passwordHash))) {
     await recordFailure(kv, "admin", ip)
     throw new DemoTrialError(401, LOGIN_FAILED_MESSAGE)
+  }
+  if (recovery) {
+    const updated: AdminRecord = {
+      ...admin, passwordHash: recovery.hash, passwordResetId: recovery.id,
+      adminSigningKey: randomBytes(32).toString("hex"),
+    }
+    if (!(await kv.compareAndSet(KEY_ADMIN, rawAdmin!, JSON.stringify(updated)))) {
+      throw new DemoTrialError(409, "認証情報が更新されました。もう一度ログインしてください")
+    }
+    admin = updated
   }
   const exp = Math.floor(now / 1000) + ADMIN_SESSION_SECONDS
   return `${exp}.${sign(admin.adminSigningKey ?? admin.signingKey, `admin:${exp}`)}`
@@ -131,7 +156,7 @@ export async function verifyAdminSession(kv: DemoKv, cookie: string | undefined,
   const [exp, signature] = cookie.split(".")
   if (!exp || !signature || Number(exp) * 1000 <= now) return false
   const admin = await readAdmin(kv)
-  return admin !== null && sameSignature(signature, sign(admin.adminSigningKey ?? admin.signingKey, `admin:${exp}`))
+  return admin !== null && !pendingAdminPasswordReset(admin) && sameSignature(signature, sign(admin.adminSigningKey ?? admin.signingKey, `admin:${exp}`))
 }
 
 // ---- トライアルの管理（運営） ----
