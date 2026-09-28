@@ -119,6 +119,7 @@ model RefreshToken {
   revokedAt DateTime?
   createdAt DateTime  @default(now())
 
+  @@index([tenantId])
   @@index([userId])
   // ログイン時・日次バッチの期限切れトークン一括削除で使う（S-9 / #49-4）
   @@index([expiresAt])
@@ -204,6 +205,7 @@ model Hotel {
   reviewScores             ReviewScore[]
   groupBookings            GroupBooking[]
   userPreferences          UserPreference[]
+  competitorFetchRuns      CompetitorFetchRun[]
 
   @@index([tenantId])
 }
@@ -745,6 +747,7 @@ model CompetitorFetchRun {
   tenantId     String
   tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   hotelId      String
+  hotel        Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   source       String
   startedAt    DateTime  @default(now())
   finishedAt   DateTime?
