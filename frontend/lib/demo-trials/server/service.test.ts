@@ -4,7 +4,7 @@ import { DAY_MS } from "../core"
 import { memoryKv } from "./kv"
 import {
   adminConfigured, adminLogin, createTrial, deleteTrial, listTrials, resetTrialPassword, trialLogin, trialSession,
-  updateTrial, verifyAdminSession, trialLoginInfo,
+  updateTrial, verifyAdminSession, trialLoginInfo, hashPassword,
 } from "./service"
 
 // デモのトライアルの共有保存（運営用 URL で発行した ID を、配布用 URL や他の端末でも使う）
@@ -118,6 +118,24 @@ describe("トライアル", () => {
     await expect(createTrial(kv, { name: "No key", kind: "DEALER" })).rejects.toMatchObject({ status: 503 })
     await expect(resetTrialPassword(kv, issued.trial.id)).rejects.toMatchObject({ status: 503 })
     expect(await kv.hgetall("demo:trials")).toEqual(before)
+  })
+
+  it("運営のパスワード再設定では運営セッションだけ失効しトライアルは維持する", async () => {
+    const kv = await setup()
+    const oldAdminCookie = await adminLogin(kv, "operator-pass-1", null)
+    const issued = await createTrial(kv, { name: "Customer", kind: "DEALER" })
+    const trial = await trialLogin(kv, "", issued.password, null, Date.now(), issued.trial.id)
+    const before = await kv.hgetall("demo:trials")
+    const admin = JSON.parse((await kv.get("demo:admin"))!)
+    // 運用時はRedisのCASで置換する。memoryKvのセットアップだけ削除＋登録。
+    await kv.del("demo:admin")
+    await kv.setIfAbsent("demo:admin", JSON.stringify({ ...admin, passwordHash: await hashPassword("new-test-password"), adminSigningKey: "rotated-test-key" }))
+    expect(await verifyAdminSession(kv, oldAdminCookie)).toBe(false)
+    await expect(adminLogin(kv, "operator-pass-1", null)).rejects.toThrow()
+    expect(await verifyAdminSession(kv, await adminLogin(kv, "new-test-password", null))).toBe(true)
+    expect(await trialSession(kv, trial!.cookie)).toMatchObject({ active: true })
+    expect(await kv.hgetall("demo:trials")).toEqual(before)
+    expect((await trialLoginInfo(kv, issued.trial.id)).password).toBe(issued.password)
   })
 
   it("期限は今日から90日まで", async () => {

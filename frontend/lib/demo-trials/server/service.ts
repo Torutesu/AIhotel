@@ -1,7 +1,7 @@
 // デモのトライアルの共有保存（サーバー専用）。app/api/demo/ のルートから呼ぶ。
 //
 // - 運営のパスワード: 運営用 URL で最初にログインしたときのパスワードを登録する（環境変数の設定は要らない）。
-//   ハッシュだけを保存し、登録し直すときは Upstash の画面で demo:admin を消す
+//   ハッシュだけを保存する。再設定は運用環境で passwordHash と adminSigningKey を置換し、signingKey を維持する
 // - トライアルのパスワード: 認証用ハッシュと、運営の再表示用の暗号文を保存する
 // - ログインの状態: 署名した Cookie で持つ。署名の鍵は運営の初回登録のときに作って保存する
 // - ログインの失敗が続いたアクセス元は15分止める
@@ -31,6 +31,8 @@ interface AdminRecord {
   passwordHash: string
   /** Cookie の署名鍵 */
   signingKey: string
+  /** 運営の再設定時にだけ更新。トライアル用の署名鍵は維持する */
+  adminSigningKey?: string
 }
 
 // ---- パスワードと署名 ----
@@ -121,7 +123,7 @@ export async function adminLogin(kv: DemoKv, password: string, ip: string | null
     throw new DemoTrialError(401, LOGIN_FAILED_MESSAGE)
   }
   const exp = Math.floor(now / 1000) + ADMIN_SESSION_SECONDS
-  return `${exp}.${sign(admin.signingKey, `admin:${exp}`)}`
+  return `${exp}.${sign(admin.adminSigningKey ?? admin.signingKey, `admin:${exp}`)}`
 }
 
 export async function verifyAdminSession(kv: DemoKv, cookie: string | undefined, now = Date.now()): Promise<boolean> {
@@ -129,7 +131,7 @@ export async function verifyAdminSession(kv: DemoKv, cookie: string | undefined,
   const [exp, signature] = cookie.split(".")
   if (!exp || !signature || Number(exp) * 1000 <= now) return false
   const admin = await readAdmin(kv)
-  return admin !== null && sameSignature(signature, sign(admin.signingKey, `admin:${exp}`))
+  return admin !== null && sameSignature(signature, sign(admin.adminSigningKey ?? admin.signingKey, `admin:${exp}`))
 }
 
 // ---- トライアルの管理（運営） ----

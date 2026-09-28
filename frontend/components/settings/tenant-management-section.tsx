@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -238,9 +239,9 @@ export function TenantManagementSection() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="tenant-admin-password">初期パスワード</Label>
-              <Input
+              <PasswordInput
                 id="tenant-admin-password"
-                type="password"
+
                 autoComplete="new-password"
                 {...adminForm.register("password")}
               />

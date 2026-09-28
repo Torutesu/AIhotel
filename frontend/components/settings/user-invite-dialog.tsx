@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -158,9 +159,9 @@ export function UserInviteDialog({
 
             <div className="space-y-2">
               <Label htmlFor="invite-password">初期パスワード（任意）</Label>
-              <Input
+              <PasswordInput
                 id="invite-password"
-                type="password"
+
                 autoComplete="new-password"
                 aria-invalid={errors.password ? true : undefined}
                 {...register("password")}

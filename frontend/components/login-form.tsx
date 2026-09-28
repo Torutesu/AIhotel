@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation"
 import { useState, type FormEvent } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Loader2, AlertCircle } from "lucide-react"
@@ -65,9 +66,8 @@ export function LoginForm() {
             </div>}
             <div className="space-y-2">
               <Label htmlFor="login-password">パスワード</Label>
-              <Input
+              <PasswordInput
                 id="login-password"
-                type="password"
                 autoComplete="current-password"
                 placeholder="••••••••"
                 value={password}

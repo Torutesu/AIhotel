@@ -11,7 +11,7 @@ export const DEMO_PASSWORD = "Admin1234"
 export async function login(page: Page, email: string, password = DEMO_PASSWORD) {
   await page.goto("/")
   await page.getByLabel("メールアドレス").fill(email)
-  await page.getByLabel("パスワード").fill(password)
+  await page.getByLabel("パスワード", { exact: true }).fill(password)
   await page.getByRole("button", { name: "ログイン" }).click()
   await expect(page.getByRole("button", { name: "ダッシュボード" })).toBeVisible()
 }
