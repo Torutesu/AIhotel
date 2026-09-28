@@ -215,13 +215,15 @@ export function TrendChartCard({ kpi, loading, year, month }: TrendChartCardProp
               </div>
             </div>
 
-            <div ref={chartWrapperRef}>
+            <p className="text-xs text-muted-foreground sm:hidden">グラフは左右にスクロールして確認できます</p>
+            <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="稼働率とADRの日別推移">
+            <div ref={chartWrapperRef} className="min-w-[640px]">
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={trendChartData} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
                 <XAxis
                   dataKey="date"
-                  tick={{ fontSize: 11 }}
+                  tick={{ fontSize: 14 }}
                   interval={2}
                   stroke="currentColor"
                   opacity={0.6}
@@ -251,7 +253,7 @@ export function TrendChartCard({ kpi, loading, year, month }: TrendChartCardProp
                     stroke="#666"
                     strokeDasharray="5 5"
                     strokeWidth={1.5}
-                    label={{ value: `本日 ${trendChartData.find((d) => d.isToday)?.date}`, position: "top", fill: "#666", fontSize: 11 }}
+                    label={{ value: `本日 ${trendChartData.find((d) => d.isToday)?.date}`, position: "top", fill: "#666", fontSize: 14 }}
                   />
                 )}
                 <Line
@@ -342,7 +344,7 @@ export function TrendChartCard({ kpi, loading, year, month }: TrendChartCardProp
                       value: `予算稼働率 ${budgetOccupancyLine.toFixed(1)}%`,
                       position: "insideTopLeft",
                       fill: "var(--chart-4)",
-                      fontSize: 10,
+                      fontSize: 14,
                     }}
                   />
                 )}
@@ -357,12 +359,13 @@ export function TrendChartCard({ kpi, loading, year, month }: TrendChartCardProp
                       value: `予算ADR ¥${Math.round(budgetAdrLine).toLocaleString()}`,
                       position: "insideBottomRight",
                       fill: "var(--chart-4)",
-                      fontSize: 10,
+                      fontSize: 14,
                     }}
                   />
                 )}
               </LineChart>
             </ResponsiveContainer>
+            </div>
             </div>
           </div>
         )}
