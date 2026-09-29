@@ -153,6 +153,11 @@ powershell -ExecutionPolicy Bypass -File E:\tl-kit\Inspect-ReservationCsv.ps1 `
 ```powershell
 $body = @{
   hotelId = '<hotelId>'; source = 'tl-lincoln'; encoding = 'cp932'; delimiter = ','
+  # 施設の照合（必ず設定する）: CSVのどの列にこのホテルの施設コードが入っているか
+  facilityColumn = '施設コード'; facilityValues = @('<このホテルの施設コード>')
+  # 書き込み先。NEHOPS も繋ぐなら担当を分ける（例: TL=channel,curve / NEHOPS=daily,roomType）
+  # 省略すると、同じホテルの他の取得元が担当していない先をすべて受け持つ
+  # targets = @('channel', 'curve')
   mapping = @{
     checkInDate = 'チェックイン'; nights = '泊数'; rooms = '室数'; guests = '人数'
     revenue = '合計金額'; revenueScope = 'per-stay'; bookedAt = '予約受付日'
@@ -169,7 +174,12 @@ Invoke-RestMethod -Uri 'http://localhost:3001/api/v1/import/mapping' -Method Put
   -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' -Body $body
 ```
 
-列名はフェーズ2の調査結果に合わせて直す。手元で確かめるだけなら DB不要のCLIも使える:
+列名はフェーズ2の調査結果に合わせて直す。
+
+**取込用アカウントは、このホテルに固定したもの（hotelId あり）を使う。** テナント全体を扱うアカウントでは
+`POST /import/reservations` が 403 になる（端末の設定ミスで別の施設に書き込ませないため）。
+
+手元で確かめるだけなら DB不要のCLIも使える:
 
 ```bash
 pnpm --filter backend import:reservations -- --file ./予約明細.csv --inspect
@@ -344,7 +354,10 @@ schtasks /Query /TN "HotelImport" /V /FO LIST | Out-File E:\capture\タスク設
 | APIへ到達できない | プロキシ設定を確認。`Invoke-RestMethod -Proxy http://<proxy>:<port>` で通るならプロキシ経由。通らなければ許可申請の対象を記録して持ち帰る |
 | CSVの日本語が化ける | 既定は Shift_JIS(CP932)。UTF-8なら `Inspect-ReservationCsv.ps1 -Utf8`、取込側はマッピングの `encoding` を `utf8` に |
 | 取込APIが404を返す | 列マッピングが未登録。`PUT /import/mapping` を先に実行する（`source` の綴りも確認） |
-| 取込APIが403を返す | 取込用アカウントの権限不足（MANAGER以上が必要）、または他テナントのhotelIdを指定している |
+| 取込APIが403を返す | 取込用アカウントの権限不足（MANAGER以上が必要）／ホテルに固定されていないアカウント（hotelId が無い）／他テナントのhotelIdを指定している |
+| 取込APIが400「このホテル以外の施設のデータが含まれている」 | 別施設のCSV、または複数施設が混ざったCSV。出力条件で施設を絞って出し直す。ファイルは1行も取り込まれていない |
+| 取込APIが400「施設照合の列がCSVにありません」 | 別の画面・別の出力のCSVを送っている可能性。`facilityColumn` の列名も確認 |
+| 列マッピングの保存が409 | 同じホテルの別の取得元と書き込み先が重なっている。先に一方の `targets` を減らす |
 | `run.cmd` が selectors未設定で止まる | 正常な動作。`codegen.cmd` で拾ってから `selectors.json` を埋める |
 | ダウンロードが完了しない・タイムアウト | `--headed` で画面を見ながら実行し、完了の目印（画面の文言・通知）を特定して報告する |
 | 何を押すか迷う画面が出た | **更新系（更新・登録・反映・送信・削除）は押さない。** 画面を撮って持ち帰り、判断してから進める |
