@@ -1,5 +1,10 @@
 import express, { Router, type Router as ExpressRouter } from 'express'
-import { authenticate, requireRole, requireHotelAccess } from '../middlewares/auth.js'
+import {
+  authenticate,
+  requireHotelAccess,
+  requireHotelBoundAccount,
+  requireRole,
+} from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
 import {
   importMappingQuerySchema,
@@ -40,13 +45,15 @@ importRouter.put(
 //
 // 本文はCSVそのもの。アプリ全体の JSON 上限は 1mb なので、CSV だけこのルートで
 // raw パーサを通して 20mb まで許可する（3年分の予約明細を一括で送る場合を見込む）。
-// 実績の書き込みを伴うため MANAGER 以上。取込端末には専用アカウントを払い出す運用とする。
+// 実績の書き込みを伴うため MANAGER 以上。さらにホテルに固定されたアカウントに限る
+// （端末の設定ミスで別の施設に書き込めないようにするため。requireHotelBoundAccount 参照）。
 importRouter.post(
   '/reservations',
   requireRole('ADMIN', 'MANAGER'),
   express.raw({ type: ['text/csv', 'text/plain', 'application/octet-stream'], limit: '20mb' }),
   validate(importReservationsQuerySchema, 'query'),
   requireHotelAccess((req) => req.query.hotelId),
+  requireHotelBoundAccount(),
   importReservations
 )
 

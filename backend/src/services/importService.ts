@@ -4,11 +4,17 @@
 // すべて upsert（DailyData=hotelId+date、OtaChannelData=hotelId+date+channel、
 // BookingCurveData=hotelId+stayDate+daysBefore、DailyRoomData=dailyDataId+roomTypeId）なので
 // 同じCSVを何度取り込んでも行は増えない（冪等）。
+//
+// 施設の分離（他の施設の実績と混ざらないため）:
+//   1. 書き込み先ホテルは認可済みの hotelId に固定し、tenantId はホテルから導出する（端末の申告を使わない）
+//   2. 取込エンドポイントはホテルに固定されたアカウントからしか呼べない（routes/import.ts）
+//   3. 列マッピングに施設コードの照合を設定でき、1行でも他施設の値があればファイルごと取り込まない
+//   4. 同じホテルに複数の取得元（TL-リンカーン / NEHOPS）を繋ぐ場合、書き込み先を取得元ごとに排他にする
 
 import { createHash } from 'node:crypto'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
-import { BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
+import { BadRequestError, ConflictError, NotFoundError } from '../middlewares/errorHandler.js'
 import { logger } from '../utils/logger.js'
 import { addUtcDays, todayJst } from '../lib/date.js'
 import { decodeCsv, parseCsv, toRecords } from '../lib/csv.js'
@@ -17,10 +23,15 @@ import {
   aggregateByChannel,
   aggregateByRoomType,
   aggregateDaily,
+  checkFacility,
+  IMPORT_TARGETS,
+  ImportTargetConflictError,
   normalizeReservations,
   parseCalendarDate,
   reconstructBookingCurve,
   reservationMappingSchema,
+  resolveImportTargets,
+  type ImportTarget,
   type ReservationRecord,
 } from '../lib/reservationImport.js'
 import type {
@@ -42,6 +53,8 @@ export interface ImportSummary {
   channels: string[]
   /** RoomType.code に一致しなかった室タイプコード（取り込まずに報告する） */
   unknownRoomTypeCodes: string[]
+  /** この取込が書き込む先（取得元ごとに排他） */
+  targets: ImportTarget[]
   /** 実際に書き込んだか */
   written: boolean
 }
@@ -58,8 +71,11 @@ export async function importReservationDataService(params: {
   asOf: Date
   maxDaysBefore?: number
   dryRun: boolean
+  /** 書き込む先。省略時はすべて（手元のCLIからの取込用）。APIからは取得元の担当分だけを渡す */
+  targets?: readonly ImportTarget[]
 }): Promise<ImportSummary> {
   const { hotelId, records, asOf, maxDaysBefore, dryRun } = params
+  const targets = new Set<ImportTarget>(params.targets ?? IMPORT_TARGETS)
 
   const hotel = await prisma.hotel.findFirst({
     where: { id: hotelId, isActive: true },
@@ -91,6 +107,7 @@ export async function importReservationDataService(params: {
     stayDateTo: daily.at(-1)?.date.toISOString().slice(0, 10) ?? null,
     channels: [...new Set(channels.map((c) => c.channel))].sort(),
     unknownRoomTypeCodes,
+    targets: IMPORT_TARGETS.filter((t) => targets.has(t)),
     written: false,
   }
 
@@ -99,8 +116,9 @@ export async function importReservationDataService(params: {
   const tenantId = hotel.tenantId
   const dailyDataIdByDate = new Map<string, string>()
 
-  // 日別実績（DailyData）。イベント情報や祝日フラグは既存値を壊さないよう更新対象に含めない
-  for (const row of daily) {
+  // 日別実績（DailyData）。イベント情報や祝日フラグは既存値を壊さないよう更新対象に含めない。
+  // この取得元が daily を担当しない場合は実績値を一切書かない（担当の取得元の値を上書きしないため）
+  for (const row of targets.has('daily') ? daily : []) {
     const saved = await prisma.dailyData.upsert({
       where: { hotelId_date: { hotelId, date: row.date } },
       update: {
@@ -127,11 +145,24 @@ export async function importReservationDataService(params: {
     dailyDataIdByDate.set(saved.date.toISOString().slice(0, 10), saved.id)
   }
 
-  // 客室タイプ別（DailyRoomData）。マスタに無いコードは取り込まない
-  for (const row of roomTypes) {
+  // 客室タイプ別（DailyRoomData）。マスタに無いコードは取り込まない。
+  // DailyRoomData は DailyData にぶら下がるため、daily を担当しない取得元でも親の行は要る。
+  // その場合は実績値を持たない空の親行だけを用意し、既存の値には触れない（update は空）
+  for (const row of targets.has('roomType') ? roomTypes : []) {
     const roomTypeId = roomTypeIdByCode.get(row.roomTypeCode)
-    const dailyDataId = dailyDataIdByDate.get(row.date.toISOString().slice(0, 10))
-    if (!roomTypeId || !dailyDataId) continue
+    const dateKey = row.date.toISOString().slice(0, 10)
+    let dailyDataId = dailyDataIdByDate.get(dateKey)
+    if (!dailyDataId) {
+      const parent = await prisma.dailyData.upsert({
+        where: { hotelId_date: { hotelId, date: row.date } },
+        update: {},
+        create: { tenantId, hotelId, date: row.date },
+        select: { id: true },
+      })
+      dailyDataId = parent.id
+      dailyDataIdByDate.set(dateKey, dailyDataId)
+    }
+    if (!roomTypeId) continue
     await prisma.dailyRoomData.upsert({
       where: { dailyDataId_roomTypeId: { dailyDataId, roomTypeId } },
       update: { soldRooms: row.soldRooms, revenue: row.revenue },
@@ -140,7 +171,7 @@ export async function importReservationDataService(params: {
   }
 
   // チャネル別（OtaChannelData）。campaignFlag は運用側で立てる値なので触らない
-  for (const row of channels) {
+  for (const row of targets.has('channel') ? channels : []) {
     await prisma.otaChannelData.upsert({
       where: { hotelId_date_channel: { hotelId, date: row.date, channel: row.channel } },
       update: { roomsSold: row.roomsSold, revenue: row.revenue, adr: row.adr },
@@ -157,7 +188,7 @@ export async function importReservationDataService(params: {
   }
 
   // ブッキングカーブ（BookingCurveData）
-  for (const point of curve) {
+  for (const point of targets.has('curve') ? curve : []) {
     await prisma.bookingCurveData.upsert({
       where: {
         hotelId_stayDate_daysBefore: { hotelId, stayDate: point.stayDate, daysBefore: point.daysBefore },
@@ -187,10 +218,60 @@ export interface StoredImportMapping {
   encoding: string
   delimiter: string
   mapping: unknown
+  targets: ImportTarget[]
+  facilityColumn: string | null
+  facilityValues: string[] | null
   updatedAt: Date
 }
 
-/** ホテル（＋取得元）の列マッピングを保存する。同じ組み合わせは上書きする */
+const mappingSelect = {
+  hotelId: true,
+  source: true,
+  encoding: true,
+  delimiter: true,
+  mapping: true,
+  targets: true,
+  facilityColumn: true,
+  facilityValues: true,
+  updatedAt: true,
+} as const
+
+/** DBの Json 列を書き込み先の配列として読む（想定外の値は捨てる） */
+function toTargets(value: unknown): ImportTarget[] {
+  if (!Array.isArray(value)) return []
+  return IMPORT_TARGETS.filter((t) => value.includes(t))
+}
+
+function toStringList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const list = value.filter((v): v is string => typeof v === 'string')
+  return list.length > 0 ? list : null
+}
+
+function toStoredMapping(row: {
+  hotelId: string
+  source: string
+  encoding: string
+  delimiter: string
+  mapping: unknown
+  targets: unknown
+  facilityColumn: string | null
+  facilityValues: unknown
+  updatedAt: Date
+}): StoredImportMapping {
+  return {
+    ...row,
+    targets: toTargets(row.targets),
+    facilityValues: toStringList(row.facilityValues),
+  }
+}
+
+/**
+ * ホテル（＋取得元）の列マッピングを保存する。同じ組み合わせは上書きする。
+ *
+ * 書き込み先（targets）は同じホテルの他の取得元と重ならないように決める。
+ * 重なる指定は 409 にし、どちらの取得元を正とするかを人に決めさせる。
+ */
 export async function upsertImportMappingService(
   input: UpsertImportMappingInput,
   userId: string
@@ -201,27 +282,40 @@ export async function upsertImportMappingService(
   })
   if (!hotel) throw new NotFoundError('ホテル')
 
-  const saved = await prisma.importMapping.upsert({
-    where: { hotelId_source: { hotelId: input.hotelId, source: input.source } },
-    update: {
-      encoding: input.encoding,
-      delimiter: input.delimiter,
-      mapping: input.mapping as Prisma.InputJsonValue,
-      updatedByUserId: userId,
-    },
-    create: {
-      tenantId: hotel.tenantId,
-      hotelId: input.hotelId,
-      source: input.source,
-      encoding: input.encoding,
-      delimiter: input.delimiter,
-      mapping: input.mapping as Prisma.InputJsonValue,
-      updatedByUserId: userId,
-    },
-    select: { hotelId: true, source: true, encoding: true, delimiter: true, mapping: true, updatedAt: true },
+  const others = await prisma.importMapping.findMany({
+    where: { hotelId: input.hotelId, source: { not: input.source } },
+    select: { source: true, targets: true },
   })
 
-  return saved
+  let targets: ImportTarget[]
+  try {
+    targets = resolveImportTargets(
+      input.targets,
+      others.map((o) => ({ source: o.source, targets: toTargets(o.targets) }))
+    )
+  } catch (error) {
+    if (error instanceof ImportTargetConflictError) throw new ConflictError(error.message)
+    throw error
+  }
+
+  const data = {
+    encoding: input.encoding,
+    delimiter: input.delimiter,
+    mapping: input.mapping as Prisma.InputJsonValue,
+    targets: targets as Prisma.InputJsonValue,
+    facilityColumn: input.facilityColumn ?? null,
+    facilityValues: input.facilityValues ? (input.facilityValues as Prisma.InputJsonValue) : Prisma.DbNull,
+    updatedByUserId: userId,
+  }
+
+  const saved = await prisma.importMapping.upsert({
+    where: { hotelId_source: { hotelId: input.hotelId, source: input.source } },
+    update: data,
+    create: { tenantId: hotel.tenantId, hotelId: input.hotelId, source: input.source, ...data },
+    select: mappingSelect,
+  })
+
+  return toStoredMapping(saved)
 }
 
 /** 保存済みの列マッピングを返す（source 未指定なら全件） */
@@ -229,11 +323,12 @@ export async function listImportMappingsService(
   hotelId: string,
   source?: string
 ): Promise<StoredImportMapping[]> {
-  return prisma.importMapping.findMany({
+  const rows = await prisma.importMapping.findMany({
     where: { hotelId, ...(source ? { source } : {}) },
     orderBy: { source: 'asc' },
-    select: { hotelId: true, source: true, encoding: true, delimiter: true, mapping: true, updatedAt: true },
+    select: mappingSelect,
   })
+  return rows.map(toStoredMapping)
 }
 
 // ======================================
@@ -319,6 +414,40 @@ export async function importReservationCsvService(params: {
       )
     }
 
+    const storedMapping = toStoredMapping(stored)
+
+    // 書き込み先が未設定のマッピング（分離の導入前に保存されたもの）は取り込まない。
+    // 未設定のまま全部に書くと、同じホテルの別の取得元の実績を上書きしうるため
+    if (storedMapping.targets.length === 0) {
+      throw new BadRequestError(
+        `取得元 ${query.source} の書き込み先が未設定です。PUT /api/v1/import/mapping で保存し直してください`
+      )
+    }
+
+    // 施設の照合。1行でも他施設の値があればファイルごと取り込まない（混ざるより取り込めない方が安全）
+    const warnings: string[] = []
+    if (storedMapping.facilityColumn && storedMapping.facilityValues) {
+      const check = checkFacility(records, storedMapping.facilityColumn, storedMapping.facilityValues)
+      if (check.missingColumn) {
+        throw new BadRequestError(
+          `施設照合の列「${storedMapping.facilityColumn}」がCSVにありません。別の画面・別の施設の出力の可能性があります`
+        )
+      }
+      if (!check.ok) {
+        const detail = check.unexpected
+          .slice(0, 5)
+          .map((u) => `${u.value}（${u.rows}行）`)
+          .join(', ')
+        throw new BadRequestError(
+          `このホテル以外の施設のデータが含まれているため取り込みませんでした: ${detail}`
+        )
+      }
+    } else {
+      warnings.push(
+        '施設の照合が未設定です。別の施設のCSVを送っても検知できません（列マッピングに facilityColumn / facilityValues を設定してください）'
+      )
+    }
+
     const normalized = normalizeReservations(records, mapping)
     const asOf = query.asOf ? parseCalendarDate(query.asOf) : todayJst()
     if (!asOf) throw new BadRequestError('asOf の形式が不正です')
@@ -329,9 +458,9 @@ export async function importReservationCsvService(params: {
       asOf,
       maxDaysBefore: query.maxDaysBefore,
       dryRun: query.dryRun,
+      targets: storedMapping.targets,
     })
 
-    const warnings: string[] = []
     if (!mapping.bookedAt) {
       warnings.push('予約受付日の列が未設定のため、ブッキングカーブは作成されません（A2）')
     }

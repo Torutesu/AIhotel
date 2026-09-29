@@ -25,6 +25,8 @@ const EMAILS = {
   operator: `${PREFIX}-operator@example.com`,
   manager: `${PREFIX}-manager@example.com`,
   otherTenantManager: `${PREFIX}-manager-b@example.com`,
+  // 同じテナントの全ホテルに触れるアカウント。取込には使えないことを確かめる
+  tenantWideManager: `${PREFIX}-tenant-manager@example.com`,
 }
 
 const MAPPING = {
@@ -141,12 +143,21 @@ describeIntegration('予約明細CSV取込 API（#6 / #18）', () => {
           tenantId: TENANT_B,
           hotelId: HOTEL_B,
         },
+        {
+          email: EMAILS.tenantWideManager,
+          password,
+          name: 'テナント統括マネージャー',
+          role: 'MANAGER',
+          tenantId: TENANT_A,
+          hotelId: null,
+        },
       ],
     })
 
     tokens.operator = await login(EMAILS.operator)
     tokens.manager = await login(EMAILS.manager)
     tokens.otherTenantManager = await login(EMAILS.otherTenantManager)
+    tokens.tenantWideManager = await login(EMAILS.tenantWideManager)
 
     // 列マッピングは UTF-8 のCSVで検証する（Shift_JIS の復号は lib/csv.test.ts で固定）
     const saved = await request(app)
@@ -291,5 +302,133 @@ describeIntegration('予約明細CSV取込 API（#6 / #18）', () => {
       .get(`/api/v1/import/runs?hotelId=${HOTEL_A}`)
       .set('Authorization', `Bearer ${tokens.otherTenantManager}`)
     expect(other.status).toBe(403)
+  })
+
+  // ======================================
+  // 施設・取得元の分離（他の施設の実績と混ざらないこと）
+  // ======================================
+
+  it('テナント全体を扱うアカウントでは投入できない（端末の設定ミスで別施設に書き込ませない）', async () => {
+    const res = await postCsv(tokens.tenantWideManager, `hotelId=${HOTEL_A}`)
+    expect(res.status).toBe(403)
+    expect(res.body.error).toContain('ホテルに固定された取込用アカウント')
+  })
+
+  it('2つ目の取得元は、既存の取得元と書き込み先が重なると保存できない', async () => {
+    // tl-lincoln が全書き込み先を担当している状態で nehops を足そうとする
+    const res = await request(app)
+      .put('/api/v1/import/mapping')
+      .set('Authorization', `Bearer ${tokens.manager}`)
+      .send({ hotelId: HOTEL_A, source: 'nehops', encoding: 'utf8', mapping: MAPPING })
+    expect(res.status).toBe(409)
+  })
+
+  it('書き込み先を分ければ両方の取得元を繋げられ、互いの実績を上書きしない', async () => {
+    // TL は チャネル別・カーブ だけを担当する
+    const tl = await request(app)
+      .put('/api/v1/import/mapping')
+      .set('Authorization', `Bearer ${tokens.manager}`)
+      .send({
+        hotelId: HOTEL_A,
+        source: 'tl-lincoln',
+        encoding: 'utf8',
+        mapping: MAPPING,
+        targets: ['channel', 'curve'],
+      })
+    expect(tl.status, JSON.stringify(tl.body)).toBe(200)
+    expect(tl.body.data.targets).toEqual(['channel', 'curve'])
+
+    // NEHOPS は 日別・客室タイプ別 を担当し、施設コードで照合する
+    const nehops = await request(app)
+      .put('/api/v1/import/mapping')
+      .set('Authorization', `Bearer ${tokens.manager}`)
+      .send({
+        hotelId: HOTEL_A,
+        source: 'nehops',
+        encoding: 'utf8',
+        mapping: MAPPING,
+        facilityColumn: '施設コード',
+        facilityValues: ['H-A'],
+      })
+    expect(nehops.status, JSON.stringify(nehops.body)).toBe(200)
+    expect(nehops.body.data.targets).toEqual(['daily', 'roomType'])
+
+    // TLが既に書いた 9/10 の実績（3室）を、NEHOPS の値（5室）で上書きする
+    const nehopsCsv = Buffer.from(
+      [
+        `施設コード,${CSV_ROWS[0]}`,
+        `H-A,N001,直販,2026/09/10,1,5,8,"75,000",2026/08/30,,確定,${ROOM_TYPE_CODE}`,
+      ].join('\r\n') + '\r\n',
+      'utf8'
+    )
+    const byNehops = await postCsv(tokens.manager, `hotelId=${HOTEL_A}&source=nehops&asOf=2026-09-14`, nehopsCsv)
+    expect(byNehops.status, JSON.stringify(byNehops.body)).toBe(200)
+    expect(byNehops.body.data.summary.targets).toEqual(['daily', 'roomType'])
+
+    const dailyAfterNehops = await prisma.dailyData.findFirst({
+      where: { hotelId: HOTEL_A, date: new Date('2026-09-10T00:00:00.000Z') },
+    })
+    expect(dailyAfterNehops?.soldRooms).toBe(5)
+
+    // その後 TL を取り込み直しても、担当外の日別実績は書き換わらない
+    const byTl = await postCsv(tokens.manager, `hotelId=${HOTEL_A}&source=tl-lincoln&asOf=2026-09-14`)
+    expect(byTl.status, JSON.stringify(byTl.body)).toBe(200)
+    expect(byTl.body.data.summary.targets).toEqual(['channel', 'curve'])
+
+    const dailyAfterTl = await prisma.dailyData.findFirst({
+      where: { hotelId: HOTEL_A, date: new Date('2026-09-10T00:00:00.000Z') },
+    })
+    expect(dailyAfterTl?.soldRooms).toBe(5)
+
+    // 担当を取り合う指定は拒否される
+    const steal = await request(app)
+      .put('/api/v1/import/mapping')
+      .set('Authorization', `Bearer ${tokens.manager}`)
+      .send({ hotelId: HOTEL_A, source: 'nehops', encoding: 'utf8', mapping: MAPPING, targets: ['channel'] })
+    expect(steal.status).toBe(409)
+  })
+
+  it('他施設の行が1行でも混ざったCSVはファイルごと取り込まず、失敗として記録する', async () => {
+    const before = await prisma.dailyData.findFirst({
+      where: { hotelId: HOTEL_A, date: new Date('2026-09-11T00:00:00.000Z') },
+      select: { soldRooms: true },
+    })
+
+    const mixed = Buffer.from(
+      [
+        `施設コード,${CSV_ROWS[0]}`,
+        `H-A,N101,直販,2026/09/11,1,1,1,"10,000",2026/09/01,,確定,${ROOM_TYPE_CODE}`,
+        `H-B,N102,直販,2026/09/11,1,9,9,"90,000",2026/09/01,,確定,${ROOM_TYPE_CODE}`,
+      ].join('\r\n') + '\r\n',
+      'utf8'
+    )
+    const res = await postCsv(tokens.manager, `hotelId=${HOTEL_A}&source=nehops&fileName=mixed.csv`, mixed)
+    expect(res.status).toBe(400)
+    expect(res.body.error).toContain('このホテル以外の施設のデータが含まれている')
+    expect(res.body.error).toContain('H-B（1行）')
+
+    // H-A の行も含めて何も書かれていない
+    const after = await prisma.dailyData.findFirst({
+      where: { hotelId: HOTEL_A, date: new Date('2026-09-11T00:00:00.000Z') },
+      select: { soldRooms: true },
+    })
+    expect(after?.soldRooms).toBe(before?.soldRooms)
+
+    const run = await prisma.importRun.findFirst({
+      where: { hotelId: HOTEL_A, source: 'nehops', fileName: 'mixed.csv' },
+    })
+    expect(run?.status).toBe('failed')
+  })
+
+  it('施設照合の列が無いCSV（別の画面・別の出力）は取り込まない', async () => {
+    const res = await postCsv(tokens.manager, `hotelId=${HOTEL_A}&source=nehops`)
+    expect(res.status).toBe(400)
+    expect(res.body.error).toContain('施設照合の列「施設コード」がCSVにありません')
+  })
+
+  it('施設照合が未設定の取得元は、取り込めるが警告を返す', async () => {
+    const res = await postCsv(tokens.manager, `hotelId=${HOTEL_A}&source=tl-lincoln&dryRun=true`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.warnings.join('\n')).toContain('施設の照合が未設定です')
   })
 })

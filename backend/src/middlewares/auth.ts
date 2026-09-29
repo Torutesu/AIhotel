@@ -151,3 +151,34 @@ export function requireHotelAccess(hotelIdExtractor: (req: Request) => unknown) 
   }
 }
 
+
+/**
+ * ホテルに固定されたアカウント（hotelId を持つユーザー）だけを通すミドルウェア。
+ * authenticate と requireHotelAccess の後に使う。
+ *
+ * 用途は取込端末からのデータ投入（#6）。テナント内の全ホテルに触れるアカウント（hotelId が null）で
+ * 端末を動かすと、端末側の設定ミス一つで別の施設に実績を書き込めてしまう。
+ * 投入を「そのホテル専用のアカウント」に限れば、requireHotelAccess が自ホテル以外を 403 にするため、
+ * 端末が申告する hotelId を間違えても他の施設には書き込めない。
+ *
+ * PLATFORM_ADMIN（運営）は障害対応のために通す（テナント境界を越えられる唯一のロール — #62）。
+ */
+export function requireHotelBoundAccount() {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return next(new ApiError(401, '認証が必要です'))
+    }
+    if (req.user.role === 'PLATFORM_ADMIN') {
+      return next()
+    }
+    if (!req.user.hotelId) {
+      return next(
+        new ApiError(
+          403,
+          'データ投入はホテルに固定された取込用アカウントから行ってください（テナント全体を扱うアカウントでは投入できません）'
+        )
+      )
+    }
+    next()
+  }
+}

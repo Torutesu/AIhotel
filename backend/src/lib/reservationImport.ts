@@ -407,3 +407,105 @@ export function reconstructBookingCurve(
     (a, b) => a.stayDate.getTime() - b.stayDate.getTime() || b.daysBefore - a.daysBefore
   )
 }
+
+// ======================================
+// 施設・取得元の分離（同じテナント内の施設取り違えと、取得元同士の上書きを防ぐ）
+// ======================================
+
+/** 取込が書き込む先。DailyData / DailyRoomData / OtaChannelData / BookingCurveData に対応 */
+export const IMPORT_TARGETS = ['daily', 'roomType', 'channel', 'curve'] as const
+export type ImportTarget = (typeof IMPORT_TARGETS)[number]
+
+export class ImportTargetConflictError extends Error {
+  constructor(public readonly conflicts: { target: ImportTarget; source: string }[]) {
+    super(
+      `書き込み先が他の取得元と重なっています: ${conflicts
+        .map((c) => `${c.target}（${c.source} が担当）`)
+        .join(', ')}`
+    )
+  }
+}
+
+/**
+ * 取得元の書き込み先を決める。
+ *
+ * 同じホテルに TL-リンカーン と NEHOPS の両方を繋ぐと、どちらも同じ日別実績を
+ * 書こうとして後勝ちになる。そこで「1つの書き込み先を担当する取得元は1つだけ」とし、
+ * 重なる指定は保存時に拒否する。
+ *
+ * - requested を省略した場合は、他の取得元が担当していない書き込み先をすべて受け持つ
+ *   （TLだけ先に繋いだ段階ではTLが全部を担当し、画面が実データで埋まる）
+ * - 2つ目の取得元を足すときは、先に1つ目の担当を減らしてから割り当てる必要がある
+ *   ＝どちらを正とするかを必ず人が決める
+ */
+export function resolveImportTargets(
+  requested: readonly ImportTarget[] | undefined,
+  claimedByOthers: { source: string; targets: readonly ImportTarget[] }[]
+): ImportTarget[] {
+  const owner = new Map<ImportTarget, string>()
+  for (const other of claimedByOthers) {
+    for (const target of other.targets) owner.set(target, other.source)
+  }
+
+  if (!requested) {
+    const free = IMPORT_TARGETS.filter((t) => !owner.has(t))
+    if (free.length === 0) {
+      throw new ImportTargetConflictError(
+        IMPORT_TARGETS.map((t) => ({ target: t, source: owner.get(t) as string }))
+      )
+    }
+    return [...free]
+  }
+
+  const conflicts = requested
+    .filter((t) => owner.has(t))
+    .map((t) => ({ target: t, source: owner.get(t) as string }))
+  if (conflicts.length > 0) throw new ImportTargetConflictError(conflicts)
+
+  // 並びを固定しておく（保存値の比較・表示を安定させる）
+  return IMPORT_TARGETS.filter((t) => requested.includes(t))
+}
+
+export interface FacilityCheckResult {
+  ok: boolean
+  /** 照合列そのものがCSVに無い */
+  missingColumn: boolean
+  /** 許可されていない値と、その行数 */
+  unexpected: { value: string; rows: number }[]
+  /** 照合した行数 */
+  checkedRows: number
+}
+
+/**
+ * CSVが「このホテルの」データかを施設コード（または施設名）の列で照合する。
+ *
+ * 1行でも許可外の値があればファイルごと不合格にする（fail closed）。
+ * 他施設の実績が混ざる事故は、取り込めない事故より取り返しがつかないため。
+ * 取り込めなかった場合は取込履歴に失敗として残り、欠損検知のアラートで気づける。
+ *
+ * チェーンで1つのTLアカウントが複数施設を管理していると、1本のCSVに複数施設の
+ * 行が入ることがある。その場合も許可外の施設が1行でもあれば取り込まない。
+ */
+export function checkFacility(
+  rows: Record<string, string>[],
+  column: string,
+  allowedValues: readonly string[]
+): FacilityCheckResult {
+  if (rows.length > 0 && !(column in rows[0])) {
+    return { ok: false, missingColumn: true, unexpected: [], checkedRows: 0 }
+  }
+
+  const allowed = new Set(allowedValues.map((v) => v.trim()))
+  const counts = new Map<string, number>()
+  for (const row of rows) {
+    const value = (row[column] ?? '').trim()
+    if (allowed.has(value)) continue
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  }
+
+  const unexpected = [...counts.entries()]
+    .map(([value, count]) => ({ value: value === '' ? '（空欄）' : value, rows: count }))
+    .sort((a, b) => b.rows - a.rows)
+
+  return { ok: unexpected.length === 0, missingColumn: false, unexpected, checkedRows: rows.length }
+}

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { reservationMappingSchema } from './reservationImport.js'
+import { IMPORT_TARGETS, reservationMappingSchema } from './reservationImport.js'
 import { dateOnly, todayJst } from './date.js'
 
 // ======================================
@@ -417,13 +417,31 @@ const importDelimiterSchema = z.enum([',', 'tab'])
  * mapping の中身は lib/reservationImport.ts の reservationMappingSchema で検証する
  * （列名の対応表そのものはドメインロジック側の定義を単一の出所にする）。
  */
-export const upsertImportMappingSchema = z.object({
-  hotelId: entityIdSchema,
-  source: importSourceSchema,
-  encoding: importEncodingSchema.default('cp932'),
-  delimiter: importDelimiterSchema.default(','),
-  mapping: reservationMappingSchema,
-})
+export const upsertImportMappingSchema = z
+  .object({
+    hotelId: entityIdSchema,
+    source: importSourceSchema,
+    encoding: importEncodingSchema.default('cp932'),
+    delimiter: importDelimiterSchema.default(','),
+    mapping: reservationMappingSchema,
+    /**
+     * この取得元が書き込む先。省略時は、同じホテルの他の取得元が担当していない先をすべて受け持つ。
+     * 重なる指定は 409（TLとNEHOPSが同じ実績を上書きし合わないため）
+     */
+    targets: z
+      .array(z.enum(IMPORT_TARGETS))
+      .min(1, '書き込み先を1つ以上指定してください')
+      .refine((t) => new Set(t).size === t.length, '書き込み先が重複しています')
+      .optional(),
+    /** 施設の照合に使うCSVの列名（施設コード・施設名など） */
+    facilityColumn: z.string().min(1).max(100).optional(),
+    /** facilityColumn に入っていてよい値（このホテルの施設コード等） */
+    facilityValues: z.array(z.string().min(1).max(100)).min(1).max(20).optional(),
+  })
+  .refine((m) => Boolean(m.facilityColumn) === Boolean(m.facilityValues), {
+    path: ['facilityValues'],
+    message: 'facilityColumn と facilityValues は両方指定してください',
+  })
 
 /** 列マッピングの取得（GET /import/mapping?hotelId=&source=） */
 export const importMappingQuerySchema = z.object({

@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   aggregateByChannel,
   aggregateDaily,
+  checkFacility,
+  ImportTargetConflictError,
+  resolveImportTargets,
   normalizeReservations,
   parseAmount,
   parseCalendarDate,
@@ -250,5 +253,64 @@ describe('reconstructBookingCurve（Issue #24 E2）', () => {
       { asOf: utc('2026-09-15') }
     )
     expect(points).toEqual([])
+  })
+})
+
+describe('resolveImportTargets（取得元ごとの書き込み先の排他）', () => {
+  it('最初の取得元は、指定しなければすべてを受け持つ', () => {
+    expect(resolveImportTargets(undefined, [])).toEqual(['daily', 'roomType', 'channel', 'curve'])
+  })
+
+  it('2つ目の取得元は、空いている書き込み先だけを受け持つ', () => {
+    const others = [{ source: 'tl-lincoln', targets: ['channel', 'curve'] as const }]
+    expect(resolveImportTargets(undefined, others)).toEqual(['daily', 'roomType'])
+  })
+
+  it('他の取得元が担当している先を指定すると拒否する（TLとNEHOPSが上書きし合わないため）', () => {
+    const others = [{ source: 'tl-lincoln', targets: ['daily', 'channel'] as const }]
+    expect(() => resolveImportTargets(['daily'], others)).toThrow(ImportTargetConflictError)
+    expect(() => resolveImportTargets(['daily'], others)).toThrow(/daily（tl-lincoln が担当）/)
+  })
+
+  it('空きが無ければ指定なしでも拒否する（どちらを正にするか人に決めさせる）', () => {
+    const others = [{ source: 'tl-lincoln', targets: ['daily', 'roomType', 'channel', 'curve'] as const }]
+    expect(() => resolveImportTargets(undefined, others)).toThrow(ImportTargetConflictError)
+  })
+
+  it('重ならない指定はそのまま通り、並びは固定される', () => {
+    const others = [{ source: 'nehops', targets: ['daily'] as const }]
+    expect(resolveImportTargets(['curve', 'channel'], others)).toEqual(['channel', 'curve'])
+  })
+})
+
+describe('checkFacility（他施設のデータ混入の検知）', () => {
+  const rows = (codes: string[]) => codes.map((code, i) => ({ 施設コード: code, 予約番号: `R${i}` }))
+
+  it('すべての行が許可された施設なら合格', () => {
+    const result = checkFacility(rows(['H-A', 'H-A']), '施設コード', ['H-A'])
+    expect(result).toEqual({ ok: true, missingColumn: false, unexpected: [], checkedRows: 2 })
+  })
+
+  it('1行でも他施設があれば不合格で、施設ごとの行数を返す', () => {
+    const result = checkFacility(rows(['H-A', 'H-B', 'H-B', 'H-C']), '施設コード', ['H-A'])
+    expect(result.ok).toBe(false)
+    expect(result.unexpected).toEqual([
+      { value: 'H-B', rows: 2 },
+      { value: 'H-C', rows: 1 },
+    ])
+  })
+
+  it('空欄も許可外として扱う（どこの施設か分からない行を通さない）', () => {
+    const result = checkFacility(rows(['H-A', '']), '施設コード', ['H-A'])
+    expect(result.unexpected).toEqual([{ value: '（空欄）', rows: 1 }])
+  })
+
+  it('照合の列そのものが無いCSVは不合格（別の画面・別の出力の可能性）', () => {
+    const result = checkFacility([{ 予約番号: 'R1' }], '施設コード', ['H-A'])
+    expect(result).toMatchObject({ ok: false, missingColumn: true })
+  })
+
+  it('前後の空白は無視する', () => {
+    expect(checkFacility(rows([' H-A ']), '施設コード', ['H-A']).ok).toBe(true)
   })
 })

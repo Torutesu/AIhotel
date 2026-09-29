@@ -713,6 +713,13 @@ model ImportMapping {
   delimiter       String   @default(",")
   /// 列名 → 意味 の対応（lib/reservationImport.ts の reservationMappingSchema）
   mapping         Json
+  /// この取得元が書き込む先（daily / roomType / channel / curve）。
+  /// 同じホテルの別の取得元と重ならないようサービス層で検証する（TLとNEHOPSが同じ実績を上書きし合わないため）
+  targets         Json     @default("[]")
+  /// 施設の照合に使う列（CSV内の施設コード・施設名など）。設定するとファイル単位で照合する
+  facilityColumn  String?
+  /// facilityColumn に入っていてよい値。1行でも外れたらファイルごと取り込まない
+  facilityValues  Json?
   updatedByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
