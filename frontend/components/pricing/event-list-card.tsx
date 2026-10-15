@@ -69,6 +69,7 @@ export function EventListCard({ events, loading, error, onReload }: EventListCar
         endDate: values.endDate,
         expectedImpact: values.expectedImpact,
         location: values.location.trim() || undefined,
+        excludeFromHistory: values.excludeFromHistory,
       }
       if (editingEvent) {
         const { hotelId: _hotelId, ...updateInput } = payload
@@ -149,6 +150,11 @@ export function EventListCard({ events, loading, error, onReload }: EventListCar
                       {ev.expectedImpact && (
                         <Badge className={`${impactBadgeClass(ev.expectedImpact)} text-[10px]`}>
                           {impactLabel(ev.expectedImpact)}
+                        </Badge>
+                      )}
+                      {ev.excludeFromHistory && (
+                        <Badge variant="secondary" className="text-[10px]" title="期間内の実績を予測の基準に使いません">
+                          特殊日
                         </Badge>
                       )}
                     </div>

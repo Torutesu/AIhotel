@@ -10,6 +10,7 @@ import { Loader2, Save } from "lucide-react"
 import { z } from "zod"
 
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -31,8 +32,13 @@ export const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "sports", label: "スポーツ" },
   { value: "conference", label: "カンファレンス" },
   { value: "festival", label: "祭り・催事" },
+  { value: "holiday", label: "年末年始・大型連休" },
+  { value: "weather", label: "台風・災害" },
   { value: "other", label: "その他" },
 ]
+
+/** 特殊日にしておくのが基本の種別（選んだときにチェックを入れる） */
+const SPECIAL_TYPES = new Set(["holiday", "weather"])
 
 const eventFormSchema = z
   .object({
@@ -42,6 +48,7 @@ const eventFormSchema = z
     endDate: z.string().min(1, "終了日を選択してください"),
     expectedImpact: z.enum(["high", "medium", "low"]),
     location: z.string().trim().max(200, "開催場所は200文字以内で入力してください"),
+    excludeFromHistory: z.boolean(),
   })
   .refine((data) => !data.startDate || !data.endDate || data.startDate <= data.endDate, {
     path: ["endDate"],
@@ -57,6 +64,7 @@ const EMPTY_VALUES: EventFormValues = {
   endDate: "",
   expectedImpact: "medium",
   location: "",
+  excludeFromHistory: false,
 }
 
 function toFormValues(event: HotelEvent | null): EventFormValues {
@@ -68,6 +76,7 @@ function toFormValues(event: HotelEvent | null): EventFormValues {
     endDate: toDateStr(new Date(event.endDate)),
     expectedImpact: (event.expectedImpact as "high" | "medium" | "low") ?? "medium",
     location: event.location ?? "",
+    excludeFromHistory: event.excludeFromHistory ?? false,
   }
 }
 
@@ -103,6 +112,7 @@ export function EventDialog({ open, onOpenChange, event, saving, onSubmit }: Eve
   const endDate = watch("endDate")
   const eventType = watch("type")
   const expectedImpact = watch("expectedImpact")
+  const excludeFromHistory = watch("excludeFromHistory")
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -137,7 +147,10 @@ export function EventDialog({ open, onOpenChange, event, saving, onSubmit }: Eve
                 <Label htmlFor="event-type">種別</Label>
                 <Select
                   value={eventType}
-                  onValueChange={(v) => setValue("type", v, { shouldValidate: true })}
+                  onValueChange={(v) => {
+                    setValue("type", v, { shouldValidate: true })
+                    if (SPECIAL_TYPES.has(v)) setValue("excludeFromHistory", true)
+                  }}
                 >
                   <SelectTrigger id="event-type" className="h-9 text-sm">
                     <SelectValue />
@@ -214,6 +227,23 @@ export function EventDialog({ open, onOpenChange, event, saving, onSubmit }: Eve
                 {...register("location")}
               />
               <FormFieldError message={errors.location?.message} />
+            </div>
+
+            <div className="flex items-start gap-2 rounded-md border bg-muted/30 p-3">
+              <Checkbox
+                id="event-exclude-history"
+                checked={excludeFromHistory}
+                onCheckedChange={(checked) => setValue("excludeFromHistory", checked === true)}
+              />
+              <div className="space-y-1">
+                <Label htmlFor="event-exclude-history" className="text-sm">
+                  特殊日として予測の基準から外す
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  年末年始・大型連休・春節・台風などで需要がふだんと違う日です。期間内の実績を、ほかの日の予測
+                  （同じ曜日の平均・前年比較・予約の入り方の比較）に使わないようにします。
+                </p>
+              </div>
             </div>
           </div>
 

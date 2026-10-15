@@ -3,7 +3,7 @@
 // 推奨ランクの調整（#17）。価格戦略の重み（StrategyWeightsCard）と同じ PricingStrategyConfig に保存する。
 // 既定値は想定値で、運用しながらホテルごとに変える前提。
 // 変更は MANAGER 以上。OPERATOR には読み取り専用で表示する。
-// 推奨を固定する期間（団体・契約レートの日など）もここで登録する。
+// 推奨を固定する期間（団体・契約レートの日など）と、期間・曜日ごとの価格の幅（D-11）もここで登録する。
 
 import { useEffect, useState } from "react"
 import { Loader2, Lock, Save, SlidersHorizontal, Trash2 } from "lucide-react"
@@ -19,6 +19,7 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PricingLockPeriod, type PricingStrategy } from "@/lib/api"
 import { canManage, ROLE_LABELS } from "@shared/types"
+import { PriceBoundsSection } from "./price-bounds-section"
 
 /** フォームの値。数値欄は空文字＝「制限なし」 */
 interface FormState {
@@ -198,6 +199,7 @@ export function StrategyGuardrailsCard() {
           </div>
         )}
 
+        <PriceBoundsSection canEdit={canEdit} />
         <PricingLocksSection canEdit={canEdit} />
       </CardContent>
     </Card>

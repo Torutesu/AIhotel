@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   pricingLocks: vi.fn(),
   createPricingLock: vi.fn(),
   deletePricingLock: vi.fn(),
+  priceBounds: vi.fn(),
+  createPriceBound: vi.fn(),
+  deletePriceBound: vi.fn(),
 }))
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -24,6 +27,9 @@ vi.mock("@/lib/api", async (importOriginal) => {
       pricingLocks: mocks.pricingLocks,
       createPricingLock: mocks.createPricingLock,
       deletePricingLock: mocks.deletePricingLock,
+      priceBounds: mocks.priceBounds,
+      createPriceBound: mocks.createPriceBound,
+      deletePriceBound: mocks.deletePriceBound,
     },
   }
 })
@@ -72,6 +78,7 @@ describe("StrategyGuardrailsCard（#17）", () => {
     Object.values(mocks).forEach((m) => typeof m === "function" && m.mockReset())
     mocks.pricingStrategy.mockResolvedValue(STRATEGY)
     mocks.pricingLocks.mockResolvedValue([])
+    mocks.priceBounds.mockResolvedValue([])
   })
 
   it("保存では重みを送らない（重みのカードで保存した値を古い値で上書きしない）", async () => {
@@ -106,11 +113,46 @@ describe("StrategyGuardrailsCard（#17）", () => {
   it("固定期間を追加すると一覧に出る", async () => {
     mocks.createPricingLock.mockResolvedValue({ id: "l2", hotelId: "h1", startDate: "2026-11-01", endDate: "2026-11-03", reason: null })
     render(<StrategyGuardrailsCard />)
-    fireEvent.change(await screen.findByLabelText("開始日"), { target: { value: "2026-11-01" } })
-    fireEvent.change(screen.getByLabelText("終了日"), { target: { value: "2026-11-03" } })
-    fireEvent.click(screen.getByRole("button", { name: "追加" }))
+    await screen.findByLabelText("推奨ランクの下限")
+    const byId = (id: string) => document.getElementById(id) as HTMLElement
+    fireEvent.change(byId("lock-start"), { target: { value: "2026-11-01" } })
+    fireEvent.change(byId("lock-end"), { target: { value: "2026-11-03" } })
+    const addButtons = screen.getAllByRole("button", { name: "追加" })
+    fireEvent.click(addButtons[addButtons.length - 1])
     expect(await screen.findByText(/2026-11-01 〜 2026-11-03/)).toBeTruthy()
     expect(mocks.createPricingLock).toHaveBeenCalledWith({ hotelId: "h1", startDate: "2026-11-01", endDate: "2026-11-03", reason: undefined })
+  })
+
+  it("期間・曜日ごとの価格の幅を追加すると一覧に出る（D-11）", async () => {
+    mocks.createPriceBound.mockResolvedValue({
+      id: "b1",
+      hotelId: "h1",
+      startDate: "2026-12-01",
+      endDate: "2026-12-31",
+      weekdays: [5, 6],
+      minRank: 20,
+      maxRank: 38,
+      reason: null,
+      createdAt: "2026-10-15T00:00:00.000Z",
+    })
+    render(<StrategyGuardrailsCard />)
+    fireEvent.change(await screen.findByLabelText("下限ランク（Floor）"), { target: { value: "20" } })
+    fireEvent.change(screen.getByLabelText("上限ランク（Ceiling）"), { target: { value: "38" } })
+    fireEvent.change(document.getElementById("bound-start") as HTMLElement, { target: { value: "2026-12-01" } })
+    fireEvent.change(document.getElementById("bound-end") as HTMLElement, { target: { value: "2026-12-31" } })
+    fireEvent.click(screen.getByRole("button", { name: "金" }))
+    fireEvent.click(screen.getByRole("button", { name: "土" }))
+    fireEvent.click(screen.getAllByRole("button", { name: "追加" })[0])
+    expect(await screen.findByText("金・土 R20〜R38")).toBeTruthy()
+    expect(mocks.createPriceBound).toHaveBeenCalledWith({
+      hotelId: "h1",
+      startDate: "2026-12-01",
+      endDate: "2026-12-31",
+      weekdays: [5, 6],
+      minRank: 20,
+      maxRank: 38,
+      reason: undefined,
+    })
   })
 })
 

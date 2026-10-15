@@ -346,6 +346,8 @@ export interface Event {
   location?: string
   expectedImpact?: 'high' | 'medium' | 'low'
   description?: string
+  /** 特殊日（年末年始・台風など）。期間内の実績を需要予測の基準から外す（D-11） */
+  excludeFromHistory?: boolean
 }
 
 // ======================================

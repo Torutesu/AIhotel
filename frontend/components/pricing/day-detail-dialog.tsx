@@ -131,8 +131,33 @@ const EXCLUDED_REASONS: Record<RecommendationRationale["excluded"][number]["reas
 const GUARDRAIL_LABELS: Record<RecommendationRationale["guardrails"][number]["key"], string> = {
   minRank: "推奨ランクの下限",
   maxRank: "推奨ランクの上限",
+  periodMinRank: "期間で決めた価格の幅（下限）",
+  periodMaxRank: "期間で決めた価格の幅（上限）",
   maxDailyChange: "1回の変動幅",
   hysteresis: "据え置き（前回との差が小さい）",
+}
+
+const ADJUSTMENT_LABELS: Record<RecommendationRationale["adjustments"][number]["key"], string> = {
+  event: "イベント",
+  weekend: "週末",
+  pace: "予約の入り方",
+  otbFloor: "予約済みの室数",
+}
+
+/** 予約の入り方（D-11）の材料を一文にする。材料が無ければ null */
+export function paceNote(rationale: RecommendationRationale): string | null {
+  const pace = rationale.adjustments.find((a) => a.key === "pace" || a.key === "otbFloor")
+  const input = pace?.input
+  if (!pace || !input) return null
+  const lead = typeof input.leadDays === "number" ? `残り${input.leadDays}日で` : ""
+  const otb = typeof input.otbRooms === "number" ? `${input.otbRooms}室` : null
+  if (pace.key === "otbFloor") {
+    return otb ? `${lead}すでに${otb}の予約があるため、それを下回る稼働率は予測していません。` : null
+  }
+  const lastYear = typeof input.lastYearOtbRooms === "number" ? `${input.lastYearOtbRooms}室` : null
+  const ratio = typeof input.ratio === "number" ? `${Math.round(input.ratio * 100)}%` : null
+  if (!otb || !lastYear || !ratio) return null
+  return `${lead}${otb}の予約（前年同曜日の同じ時点は${lastYear}、ペース${ratio}）。宿泊日が近いほど予約の入り方を重く見ます。`
 }
 
 /** 推奨理由（#24 E4）。なぜこのランクを推奨したかを、観点ごとのランクと重みで示す */
@@ -157,10 +182,11 @@ export function RationaleSection({ rationale }: { rationale: RecommendationRatio
         <p className="text-xs text-muted-foreground">
           稼働率予測の補正：
           {rationale.adjustments
-            .map((a) => `${a.key === "event" ? "イベント" : "週末"} ${a.impact > 0 ? "+" : ""}${Math.round(a.impact * 100)}pt`)
+            .map((a) => `${ADJUSTMENT_LABELS[a.key]} ${a.impact > 0 ? "+" : ""}${Math.round(a.impact * 100)}pt`)
             .join("、")}
         </p>
       )}
+      {paceNote(rationale) && <p className="text-xs text-muted-foreground">{paceNote(rationale)}</p>}
       {rationale.guardrails.length > 0 && (
         <p className="text-xs text-muted-foreground">
           調整：
