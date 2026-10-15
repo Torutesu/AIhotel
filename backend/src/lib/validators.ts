@@ -173,6 +173,8 @@ const eventBaseSchema = z.object({
   location: z.string().max(200).optional(),
   expectedImpact: z.enum(['high', 'medium', 'low']).optional(),
   description: z.string().max(2000).optional(),
+  // 特殊日として予測の基準から外す（年末年始・台風など — D-11）
+  excludeFromHistory: z.boolean().optional(),
 })
 
 export const createEventSchema = eventBaseSchema.refine(data => data.startDate <= data.endDate, {
@@ -708,6 +710,28 @@ export const updateStrategySchema = z.object({
 })
 
 // 推奨を固定する期間（#17 のガードレール③）
+// 期間・曜日ごとの価格の幅（推奨ランクの下限・上限 — D-11）
+const rankSchema = z.number().int().min(1, 'ランクは1以上です').max(40, 'ランクは40以下です')
+export const createPriceBoundSchema = z.object({
+  hotelId: entityIdSchema,
+  startDate: dateOnlyInputSchema,
+  endDate: dateOnlyInputSchema,
+  // 0=日〜6=土。空（省略）なら期間内の全日
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7).default([])
+    .refine((days) => new Set(days).size === days.length, { message: '曜日が重複しています' }),
+  minRank: rankSchema.nullable().optional(),
+  maxRank: rankSchema.nullable().optional(),
+  reason: z.string().max(200).optional(),
+}).refine(data => data.startDate <= data.endDate, {
+  message: '開始日は終了日以前である必要があります',
+}).refine(data => withinMaxRange(data.startDate, data.endDate), {
+  message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください`,
+}).refine(data => data.minRank != null || data.maxRank != null, {
+  message: '下限か上限の少なくとも一方を指定してください',
+}).refine(data => data.minRank == null || data.maxRank == null || data.minRank <= data.maxRank, {
+  message: '下限は上限以下にしてください',
+})
+
 export const createPricingLockSchema = z.object({
   hotelId: entityIdSchema,
   startDate: dateOnlyInputSchema,
@@ -762,6 +786,7 @@ export type BudgetMonthInput = z.infer<typeof budgetMonthSchema>
 export type UpsertBudgetsInput = z.infer<typeof upsertBudgetsSchema>
 export type UpdateStrategyInput = z.infer<typeof updateStrategySchema>
 export type CreatePricingLockInput = z.infer<typeof createPricingLockSchema>
+export type CreatePriceBoundInput = z.infer<typeof createPriceBoundSchema>
 export type CreateCompetitorInput = z.infer<typeof createCompetitorSchema>
 export type UpdateCompetitorInput = z.infer<typeof updateCompetitorSchema>
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>

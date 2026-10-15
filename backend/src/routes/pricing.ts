@@ -8,6 +8,7 @@ import {
   recomputeForecastSchema,
   monthTargetSchema,
   createPricingLockSchema,
+  createPriceBoundSchema,
   idParamSchema,
 } from '../lib/validators.js'
 import {
@@ -20,6 +21,10 @@ import {
   getPricingLocks,
   createPricingLock,
   deletePricingLock,
+  getPriceBounds,
+  createPriceBound,
+  deletePriceBound,
+  getSaleOpenCheck,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -104,4 +109,41 @@ pricingRouter.delete(
   validate(hotelIdQuerySchema, 'query'),
   requireHotelAccess((req) => req.query.hotelId),
   deletePricingLock
+)
+
+// 期間・曜日ごとの価格の幅（推奨ランクの下限・上限 — D-11）。閲覧は全ロール、登録・削除は MANAGER 以上
+// GET /api/v1/pricing/bounds?hotelId=
+pricingRouter.get(
+  '/bounds',
+  validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  getPriceBounds
+)
+
+// POST /api/v1/pricing/bounds
+pricingRouter.post(
+  '/bounds',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(createPriceBoundSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
+  createPriceBound
+)
+
+// DELETE /api/v1/pricing/bounds/:id?hotelId=
+pricingRouter.delete(
+  '/bounds/:id',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(idParamSchema, 'params'),
+  validate(hotelIdQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  deletePriceBound
+)
+
+// 販売開始チェック（D-11）。閲覧のみ（推奨は保存しない）なので全ロール
+// GET /api/v1/pricing/sale-open-check?hotelId=&year=&month=
+pricingRouter.get(
+  '/sale-open-check',
+  validate(monthQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  getSaleOpenCheck
 )

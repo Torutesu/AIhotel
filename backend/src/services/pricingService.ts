@@ -180,6 +180,51 @@ export async function deletePricingLockService(id: string, hotelId: string) {
   return existing
 }
 
+// ======================================
+// 期間・曜日ごとの価格の幅（推奨ランクの下限・上限 — D-11）
+// ======================================
+
+export async function listPriceBoundsService(hotelId: string) {
+  return prisma.priceBoundPeriod.findMany({
+    where: { hotelId, endDate: { gte: todayJst() } },
+    orderBy: [{ startDate: 'asc' }, { createdAt: 'asc' }],
+  })
+}
+
+export async function createPriceBoundService(
+  input: {
+    hotelId: string
+    startDate: Date
+    endDate: Date
+    weekdays: number[]
+    minRank?: number | null
+    maxRank?: number | null
+    reason?: string
+  },
+  createdByUserId: string
+) {
+  const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+  return prisma.priceBoundPeriod.create({
+    data: {
+      ...input,
+      weekdays: [...input.weekdays].sort((a, b) => a - b),
+      minRank: input.minRank ?? null,
+      maxRank: input.maxRank ?? null,
+      tenantId: hotel.tenantId,
+      createdByUserId,
+    },
+  })
+}
+
+export async function deletePriceBoundService(id: string, hotelId: string) {
+  const existing = await prisma.priceBoundPeriod.findFirst({ where: { id, hotelId } })
+  if (!existing) throw new NotFoundError('価格の幅')
+  const result = await prisma.priceBoundPeriod.deleteMany({ where: { id, hotelId } })
+  if (result.count === 0) throw new NotFoundError('価格の幅')
+  return existing
+}
+
 /**
  * 月間着地シミュレーション（F-DP-04）
  */

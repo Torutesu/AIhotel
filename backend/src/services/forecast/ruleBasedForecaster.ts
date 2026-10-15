@@ -4,6 +4,7 @@ import type { DailyForecast, DemandForecaster, ForecastDemandLevel, ForecastInpu
 import {
   OCCUPANCY_ONLY_WEIGHTS,
   applyRankGuardrails,
+  resolvePriceBounds,
   blendRanksByStrategy,
   computeAdrRank,
   computeBaseAdr,
@@ -12,12 +13,24 @@ import {
   resolveCompetitorOccupancy,
   type AdrRecord,
   type CompetitorPriceRecord,
+  type PriceBoundRecord,
   type RankGuardrails,
   type RankPrice,
   type StrategyWeights,
 } from './strategyWeighting.js'
 import { RATIONALE_VERSION, type RationaleV1 } from './rationale.js'
-import { DEFAULT_WEEKEND_DAYS, addUtcDays } from '../../lib/date.js'
+import { DEFAULT_WEEKEND_DAYS, addUtcDays, todayJst } from '../../lib/date.js'
+import {
+  applyPace,
+  isInRanges,
+  lastYearSameWeekday,
+  leadDaysBetween,
+  otbAtLead,
+  type BookingCurvePoint,
+  type DateRange,
+  type PaceInput,
+  type PaceResult,
+} from './pace.js'
 
 // ルールベース需要予測（F-DP-05 の前段。将来 ML モデルに差し替え予定）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
@@ -32,7 +45,11 @@ import { DEFAULT_WEEKEND_DAYS, addUtcDays } from '../../lib/date.js'
 // v3 での変更（#17）: 競合観点の比較人数・相対ポジション・48時間より古い競合価格の除外、
 // ガードレール（ランクの下限・上限、1回の変動幅、ヒステリシス）、推奨を固定する期間、
 // 推奨理由（#24 E4）の出力を加えた。
-export const MODEL_VERSION = 'rule-based-v3'
+//
+// v4 での変更（D-11。IDeaS の運用を参考に）: 前年同曜日と比べた予約の入り方（ブッキングペース）と
+// 予約済み室数の下限を予測稼働率に反映し、特殊日（年末年始・台風など）の実績を基準から外し、
+// 期間・曜日ごとの価格の幅（下限・上限ランク）を推奨にかけるようにした。
+export const MODEL_VERSION = 'rule-based-v4'
 // ガードレールの既定値（設定を保存していないホテル向け。PricingStrategyConfig の列の既定値と揃える — #17）
 const DEFAULT_MAX_DAILY_RANK_CHANGE = 3
 const DEFAULT_HYSTERESIS_RANKS = 1
@@ -190,19 +207,23 @@ export function computeDailyForecastCore(
   history: OccupancyRecord[],
   events: EventImpactRecord[],
   weekendDays: number[],
-  maxRank = DEFAULT_MAX_RANK
-): Omit<DailyForecast, 'recommendedPrice' | 'predictedAdr' | 'modelVersion'> {
+  maxRank = DEFAULT_MAX_RANK,
+  pace?: PaceInput
+): Omit<DailyForecast, 'recommendedPrice' | 'predictedAdr' | 'modelVersion'> & { pace?: PaceResult } {
   const movingAverage = computeMovingAverageBySameWeekday(history, targetDate)
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
   const eventImpact = computeEventImpact(events, targetDate)
   const weekendAdjustment = computeWeekendAdjustment(targetDate, weekendDays)
 
-  const predictedOccupancy = computePredictedOccupancy({
+  const baseOccupancy = computePredictedOccupancy({
     movingAverage,
     yearOverYear,
     eventImpact,
     weekendAdjustment,
   })
+  // ブッキングペースと予約済み室数の下限（D-11）。材料が無い日は何もしない
+  const paceResult = pace ? applyPace(baseOccupancy, pace) : undefined
+  const predictedOccupancy = paceResult?.predicted ?? baseOccupancy
 
   return {
     date: targetDate,
@@ -210,6 +231,7 @@ export function computeDailyForecastCore(
     demandLevel: mapOccupancyToDemandLevel(predictedOccupancy),
     recommendedRank: mapOccupancyToRank(predictedOccupancy, maxRank),
     confidence: computeConfidence({ movingAverage, yearOverYear }),
+    ...(paceResult && { pace: paceResult }),
   }
 }
 
@@ -228,7 +250,12 @@ export const ruleBasedForecaster: DemandForecaster = {
     // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得
     const historyWindowStart = addUtcDays(startDate, -400)
 
-    const [dailyData, events, priceRanks, strategyConfig, competitorPrices, previous] = await Promise.all([
+    // ブッキングペースの前年同曜日（364日前）まで遡れるよう、予約積上は対象期間の1年前から取る（D-11）
+    const lastYearStart = lastYearSameWeekday(startDate)
+    const lastYearEnd = lastYearSameWeekday(endDate)
+
+    const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily] =
+      await Promise.all([
       prisma.dailyData.findMany({
         where: {
           hotelId,
@@ -237,9 +264,14 @@ export const ruleBasedForecaster: DemandForecaster = {
         select: { date: true, occupancy: true, adr: true },
         orderBy: { date: 'asc' },
       }),
+      // 対象期間のイベント（影響度の加算）と、過去の特殊日（基準から外す期間 — D-11）
       prisma.event.findMany({
-        where: { hotelId, startDate: { lte: endDate }, endDate: { gte: startDate } },
-        select: { startDate: true, endDate: true, expectedImpact: true },
+        where: {
+          hotelId,
+          startDate: { lte: endDate },
+          OR: [{ endDate: { gte: startDate } }, { excludeFromHistory: true, endDate: { gte: historyWindowStart } }],
+        },
+        select: { startDate: true, endDate: true, expectedImpact: true, excludeFromHistory: true },
       }),
       prisma.priceRank.findMany({
         where: { hotelId, isActive: true },
@@ -259,13 +291,48 @@ export const ruleBasedForecaster: DemandForecaster = {
         where: { hotelId, roomTypeId: null, date: { gte: startDate, lte: endDate } },
         select: { date: true, recommendedRank: true },
       }),
+      // 期間・曜日ごとの価格の幅（D-11）
+      prisma.priceBoundPeriod.findMany({
+        where: { hotelId, startDate: { lte: endDate }, endDate: { gte: startDate } },
+        select: { startDate: true, endDate: true, weekdays: true, minRank: true, maxRank: true, createdAt: true },
+      }),
+      // 予約積上（今年の対象期間と、前年同曜日 — D-11）
+      prisma.bookingCurveData.findMany({
+        where: {
+          hotelId,
+          OR: [
+            { stayDate: { gte: startDate, lte: endDate } },
+            { stayDate: { gte: lastYearStart, lte: lastYearEnd } },
+          ],
+        },
+        select: { stayDate: true, daysBefore: true, roomsBooked: true },
+      }),
+      // 前年同曜日の最終の販売室数（D-11）
+      prisma.dailyData.findMany({
+        where: { hotelId, date: { gte: lastYearStart, lte: lastYearEnd } },
+        select: { date: true, soldRooms: true },
+      }),
     ])
 
-    const history: OccupancyRecord[] = dailyData
+    const events = allEvents.filter((e) => e.endDate >= startDate)
+    // 特殊日の実績は、同曜日平均・前年比較・ペースの基準に使わない（D-11）
+    const specialDays: DateRange[] = allEvents.filter((e) => e.excludeFromHistory)
+    const curveByStayDate = new Map<number, BookingCurvePoint[]>()
+    for (const point of curve) {
+      const key = point.stayDate.getTime()
+      curveByStayDate.set(key, [...(curveByStayDate.get(key) ?? []), point])
+    }
+    const lastYearSoldByDate = new Map(
+      lastYearDaily.filter((d) => d.soldRooms != null).map((d) => [d.date.getTime(), d.soldRooms as number])
+    )
+    const today = todayJst()
+
+    const usualDays = dailyData.filter((d) => !isInRanges(d.date, specialDays))
+    const history: OccupancyRecord[] = usualDays
       .filter((d): d is typeof d & { occupancy: number } => d.occupancy != null)
       .map((d) => ({ date: d.date, occupancy: d.occupancy }))
 
-    const adrHistory: AdrRecord[] = dailyData
+    const adrHistory: AdrRecord[] = usualDays
       .filter((d): d is typeof d & { adr: number } => d.adr != null)
       .map((d) => ({ date: d.date, adr: d.adr }))
 
@@ -293,19 +360,36 @@ export const ruleBasedForecaster: DemandForecaster = {
           weightCompetitor: strategyConfig.weightCompetitor,
         }
       : OCCUPANCY_ONLY_WEIGHTS
-    const guardrails: RankGuardrails = {
+    const baseGuardrails: RankGuardrails = {
       minRank: strategyConfig?.minRank ?? null,
       maxRank: strategyConfig?.maxRank ?? null,
       maxDailyRankChange: strategyConfig ? strategyConfig.maxDailyRankChange : DEFAULT_MAX_DAILY_RANK_CHANGE,
       hysteresisRanks: strategyConfig?.hysteresisRanks ?? DEFAULT_HYSTERESIS_RANKS,
     }
+    const bounds: PriceBoundRecord[] = priceBounds
     const now = new Date()
 
     const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
     const results: DailyForecast[] = []
     for (let i = 0; i < totalDays; i++) {
       const date = addUtcDays(startDate, i)
-      const core = computeDailyForecastCore(date, history, events, weekendDays, maxRank)
+      const lastYearDate = lastYearSameWeekday(date)
+      const leadDays = leadDaysBetween(today, date)
+      const lastYearIsSpecial = isInRanges(lastYearDate, specialDays)
+      const pace: PaceInput | undefined =
+        leadDays >= 0
+          ? {
+              leadDays,
+              otbRooms: otbAtLead(curveByStayDate.get(date.getTime()) ?? [], leadDays),
+              // 前年同曜日が特殊日なら比べない（予約済みの下限だけかける）
+              lastYearOtbRooms: lastYearIsSpecial
+                ? null
+                : otbAtLead(curveByStayDate.get(lastYearDate.getTime()) ?? [], leadDays),
+              lastYearFinalRooms: lastYearIsSpecial ? null : (lastYearSoldByDate.get(lastYearDate.getTime()) ?? null),
+              totalRooms: hotel.totalRooms,
+            }
+          : undefined
+      const { pace: paceResult, ...core } = computeDailyForecastCore(date, history, events, weekendDays, maxRank, pace)
 
       const baseAdr = computeBaseAdr(adrHistory, date)
       const adrRank = computeAdrRank(adrHistory, date, rankPrices)
@@ -324,7 +408,7 @@ export const ruleBasedForecaster: DemandForecaster = {
       const guarded = applyRankGuardrails({
         rank: blended.rank,
         previousRank: previousRankByDate.get(date.getTime()) ?? null,
-        guardrails,
+        guardrails: { ...baseGuardrails, ...resolvePriceBounds(bounds, date, baseGuardrails) },
         maxRank,
       })
 
@@ -349,6 +433,8 @@ export const ruleBasedForecaster: DemandForecaster = {
           offsetPct: strategyConfig?.competitorOffsetPct ?? 0,
           events,
           weekendDays,
+          pace,
+          paceResult,
         }),
       })
     }
@@ -370,6 +456,8 @@ function buildRationale(params: {
   offsetPct: number
   events: EventImpactRecord[]
   weekendDays: number[]
+  pace?: PaceInput
+  paceResult?: PaceResult
 }): RationaleV1 {
   const { blended, weights, competitor } = params
   const factors: RationaleV1['factors'] = [
@@ -418,6 +506,22 @@ function buildRationale(params: {
   if (eventImpact !== 0) adjustments.push({ key: 'event', impact: eventImpact })
   const weekendImpact = computeWeekendAdjustment(params.date, params.weekendDays)
   if (weekendImpact !== 0) adjustments.push({ key: 'weekend', impact: weekendImpact })
+  const { pace, paceResult } = params
+  if (pace && paceResult && paceResult.impact !== 0) {
+    adjustments.push({
+      key: paceResult.otbFloorApplied ? 'otbFloor' : 'pace',
+      impact: paceResult.impact,
+      input: {
+        leadDays: pace.leadDays,
+        otbRooms: pace.otbRooms,
+        lastYearOtbRooms: pace.lastYearOtbRooms,
+        lastYearFinalRooms: pace.lastYearFinalRooms,
+        ratio: paceResult.ratio,
+        paceOccupancy: paceResult.paceOccupancy,
+        weight: paceResult.weight,
+      },
+    })
+  }
 
   return {
     version: RATIONALE_VERSION,
