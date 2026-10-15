@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import {
   LayoutDashboard,
   TrendingUp,
@@ -17,6 +17,8 @@ import {
   PanelLeftOpen,
   AlertCircle,
 } from "lucide-react"
+import { BrandLogo } from "@/components/brand-logo"
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { DashboardTab } from "@/components/tabs/dashboard-tab"
@@ -64,6 +66,8 @@ const TAB_TITLES: Record<Tab, string> = {
 export function MainLayout() {
   // タブ・対象年月・分析ビューは URL（?tab=&year=&month=&view=）が唯一の出所（U-8）
   const { tab: activeTab, setTab, navigate, setPeriodMonth } = useAppState()
+  const chatButtonRef = useRef<HTMLButtonElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -82,6 +86,13 @@ export function MainLayout() {
   useEffect(() => {
     if (typeof window === "undefined") return
     setCollapsed(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true")
+  }, [])
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)")
+    const closeCompactMenu = () => { if (desktop.matches) setMobileNavOpen(false) }
+    desktop.addEventListener("change", closeCompactMenu)
+    return () => desktop.removeEventListener("change", closeCompactMenu)
   }, [])
 
   const toggleCollapsed = () => {
@@ -140,44 +151,20 @@ export function MainLayout() {
     return <NoHotelState />
   }
 
-  return (
-    <div className="flex h-screen bg-background overflow-hidden">
-      {/* モバイル用オーバーレイ背景 */}
-      {mobileNavOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
-          onClick={() => setMobileNavOpen(false)}
-          aria-hidden
-        />
-      )}
-
-      {/* Left Sidebar Navigation */}
-      <aside
-        className={cn(
-          "z-50 flex w-72 flex-col border-r border-sidebar-border bg-sidebar transition-all duration-200",
-          "fixed inset-y-0 left-0 md:static md:w-66",
-          collapsed && "md:w-[72px]",
-          mobileNavOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-        )}
-      >
+  const navigation = (<>
         <div
           className={cn(
             "flex items-center border-b border-sidebar-border py-5",
             collapsed ? "justify-center px-3" : "justify-between px-6",
           )}
         >
-          <div className={cn("flex min-w-0 items-center gap-2", collapsed && "md:hidden")}>
-            <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
-            <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
-              ホテレベ
-            </h1>
-          </div>
+          <BrandLogo className={cn(collapsed && "lg:hidden")} />
 
           {/* デスクトップ: 折りたたみ切り替え */}
           <Button
             variant="ghost"
             size="icon"
-            className="hidden h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent md:inline-flex"
+            className="hidden h-11 w-11 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent lg:inline-flex"
             onClick={toggleCollapsed}
             title={collapsed ? "サイドバーを開く" : "サイドバーを折りたたむ"}
             aria-label={collapsed ? "サイドバーを開く" : "サイドバーを折りたたむ"}
@@ -193,7 +180,7 @@ export function MainLayout() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent md:hidden"
+            className="h-11 w-11 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent lg:hidden"
             onClick={() => setMobileNavOpen(false)}
             title="メニューを閉じる"
             aria-label="メニューを閉じる"
@@ -204,8 +191,8 @@ export function MainLayout() {
 
         {/* ホテル切替（複数ホテルにアクセスできるユーザーのみ表示 — X-5） */}
         {canSwitchHotel && (
-          <div className={cn("border-b border-sidebar-border px-4 py-3", collapsed && "md:px-2")}>
-            <HotelSwitcher compact={collapsed} className={cn(collapsed && "md:flex-col md:gap-1")} />
+          <div className={cn("border-b border-sidebar-border px-4 py-3", collapsed && "lg:px-2")}>
+            <HotelSwitcher compact={collapsed} className={cn(collapsed && "lg:flex-col lg:gap-1")} />
           </div>
         )}
 
@@ -221,15 +208,17 @@ export function MainLayout() {
                 title={collapsed ? tab.label : undefined}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex w-full items-center gap-3 whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
-                  collapsed && "md:justify-center md:px-0",
+                  "flex w-full items-center gap-3 min-h-12 rounded-lg px-3 py-3 text-base font-medium transition-colors",
+                  collapsed && "lg:justify-center lg:px-0",
                   isActive
                     ? "bg-sidebar-primary text-sidebar-primary-foreground"
                     : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" aria-hidden />
-                <span className={cn(collapsed && "md:hidden")}>{tab.label}</span>
+                <span className={cn("min-w-0 text-left leading-6", collapsed && "lg:hidden")}>
+                  {tab.id === "pricing" ? <><span className="block">ダイナミック</span><span className="block">プライシング</span></> : tab.label}
+                </span>
               </button>
             )
           })}
@@ -239,32 +228,33 @@ export function MainLayout() {
           <button
             onClick={() => selectTab("settings")}
             title={collapsed ? "設定" : undefined}
+            aria-current={activeTab === "settings" ? "page" : undefined}
             className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors",
-              collapsed && "md:justify-center md:px-0",
+              "flex w-full items-center gap-3 min-h-12 rounded-lg px-3 py-3 text-base font-medium transition-colors",
+              collapsed && "lg:justify-center lg:px-0",
               activeTab === "settings"
                 ? "bg-sidebar-primary text-sidebar-primary-foreground"
                 : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
             )}
           >
             <Settings className="h-5 w-5 flex-shrink-0" aria-hidden />
-            <span className={cn(collapsed && "md:hidden")}>設定</span>
+            <span className={cn(collapsed && "lg:hidden")}>設定</span>
           </button>
 
           <div
             className={cn(
               "flex items-center gap-2 rounded-lg px-2 py-2",
-              collapsed ? "md:justify-center" : "justify-between",
+              collapsed ? "lg:justify-center" : "justify-between",
             )}
           >
-            <div className={cn("min-w-0", collapsed && "md:hidden")}>
+            <div className={cn("min-w-0", collapsed && "lg:hidden")}>
               <p className="truncate text-sm font-medium text-sidebar-foreground">{user.name}</p>
               {user.role !== "PLATFORM_ADMIN" && <p className="truncate text-xs text-muted-foreground">{user.email}</p>}
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent"
+              className="h-11 w-11 flex-shrink-0 text-sidebar-foreground hover:bg-sidebar-accent"
               onClick={() => setLogoutConfirmOpen(true)}
               title="ログアウト"
               aria-label="ログアウト"
@@ -273,38 +263,50 @@ export function MainLayout() {
             </Button>
           </div>
 
-          <div className={cn("pt-2 text-xs text-muted-foreground", collapsed && "md:hidden")}>
+          <div className={cn("pt-2 text-xs text-muted-foreground", collapsed && "lg:hidden")}>
             <p>© 2026 ホテレベ</p>
           </div>
         </div>
+  </>)
+
+  return (
+    <div className="flex h-dvh bg-background overflow-hidden [contain:paint]">
+      <a href="#main-content" className="skip-link">本文へ移動</a>
+      <aside aria-label="メインナビゲーション" className={cn("hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex", collapsed ? "w-[72px]" : "w-[280px]")}>
+        {navigation}
       </aside>
+      <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <DialogContent showCloseButton={false} onCloseAutoFocus={(event) => { event.preventDefault(); menuButtonRef.current?.focus() }} className="inset-y-0 left-0 top-0 flex h-dvh w-[min(320px,calc(100vw-2rem))] max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 p-0 sm:max-w-none">
+          <DialogTitle className="sr-only">メインメニュー</DialogTitle>
+          <DialogDescription className="sr-only">表示する画面を選択してください</DialogDescription>
+          {navigation}
+        </DialogContent>
+      </Dialog>
+
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* モバイル用トップバー */}
-        <div className="flex items-center gap-3 border-b border-sidebar-border bg-sidebar px-4 py-3 md:hidden">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-sidebar-border bg-sidebar px-4 py-2 lg:hidden">
+          <BrandLogo />
           <Button
+            ref={menuButtonRef}
             variant="ghost"
             size="icon"
-            className="h-8 w-8 flex-shrink-0"
+            className="h-11 w-11 flex-shrink-0"
+            aria-expanded={mobileNavOpen}
             onClick={() => setMobileNavOpen(true)}
             title="メニューを開く"
             aria-label="メニューを開く"
           >
             <Menu className="h-5 w-5" aria-hidden />
           </Button>
-          <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
-          <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
-            ホテレベ
-          </h1>
-          {/* ホテル切替（複数ホテルにアクセスできるユーザーのみ表示 — X-5） */}
-          <HotelSwitcher compact className="ml-auto min-w-0 max-w-[55%]" />
         </div>
 
         <DemoModeBanner />
         <TrialBanner />
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-auto">
+        <main id="main-content" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pb-24 outline-none">
           {/* タブごとにエラー境界で囲む。key でタブを切り替えたら境界の状態も戻す（#91） */}
           <ErrorBoundary key={activeTab}>
             {activeTab === "dashboard" && <DashboardTab onAlertNavigate={handleAlertNavigate} />}
@@ -331,8 +333,9 @@ export function MainLayout() {
 
       {/* Chat Button - Bottom Right */}
       <Button
+        ref={chatButtonRef}
         size="icon"
-        className="fixed bottom-6 right-6 z-30 h-14 w-14 rounded-full shadow-xs"
+        className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 h-14 w-14 rounded-full shadow-xs sm:right-6"
         onClick={() => setChatOpen(!chatOpen)}
         aria-label={chatOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"}
         aria-expanded={chatOpen}
@@ -341,7 +344,7 @@ export function MainLayout() {
       </Button>
 
       {/* Chat Interface */}
-      <ChatInterface isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+      <ChatInterface isOpen={chatOpen} onClose={() => setChatOpen(false)} returnFocusRef={chatButtonRef} />
 
       {/* ログアウトの確認（F-5） */}
       <ConfirmDialog

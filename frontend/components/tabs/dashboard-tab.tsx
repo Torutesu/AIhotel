@@ -150,7 +150,8 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+      <header><h1 className="text-2xl font-bold sm:text-3xl">ダッシュボード</h1><p className="mt-2 text-sm text-muted-foreground">今月の収益と、次に必要なアクション。</p></header>
       {/* 初期設定の必須項目が揃うまで出す（#13） */}
       <SetupChecklistCard />
       <div className="space-y-4">

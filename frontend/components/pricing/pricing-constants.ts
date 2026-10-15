@@ -11,11 +11,11 @@ export function eventTypeLabel(type: string): string {
 export function impactBadgeClass(impact?: string | null): string {
   switch (impact) {
     case "high":
-      return "bg-negative text-white"
+      return "bg-negative text-white dark:text-background"
     case "medium":
-      return "bg-warning text-white"
+      return "bg-warning text-white dark:text-background"
     case "low":
-      return "bg-primary text-white"
+      return "bg-primary text-primary-foreground"
     default:
       return "bg-muted text-muted-foreground"
   }
@@ -58,17 +58,17 @@ export function eventsOnDate(events: HotelEvent[], date: string): HotelEvent[] {
 export const PRICE_RANK_COUNT = 40
 export function getRankBadgeColor(rank: number): string {
   const band = Math.ceil((rank / PRICE_RANK_COUNT) * 5)
-  if (band <= 1) return "bg-primary text-white"
-  if (band <= 2) return "bg-[color:var(--chart-2)] text-white"
-  if (band <= 3) return "bg-[color:var(--chart-4)] text-white"
-  if (band <= 4) return "bg-warning text-white"
-  return "bg-negative text-white"
+  if (band <= 1) return "bg-primary text-primary-foreground"
+  if (band <= 2) return "bg-[color:var(--chart-2)]/20 text-foreground"
+  if (band <= 3) return "bg-[color:var(--chart-4)]/20 text-foreground"
+  if (band <= 4) return "bg-warning text-white dark:text-background"
+  return "bg-negative text-white dark:text-background"
 }
 
 export function demandBadgeClass(demand: string | null): string {
   switch (demand) {
     case "A":
-      return "bg-primary text-white"
+      return "bg-primary text-primary-foreground"
     case "B":
       return "bg-[color:var(--cyan-edge)] text-white"
     case "C":
@@ -144,9 +144,9 @@ export const AI_PRICING_PROPOSALS: Array<{ level: "high" | "medium" | "low"; tex
 ]
 
 export const PROPOSAL_LEVEL_STYLE: Record<string, { label: string; className: string }> = {
-  high: { label: "レベル高", className: "bg-negative text-white" },
-  medium: { label: "レベル中", className: "bg-warning text-white" },
-  low: { label: "レベル低", className: "bg-primary text-white" },
+  high: { label: "レベル高", className: "bg-negative text-white dark:text-background" },
+  medium: { label: "レベル中", className: "bg-warning text-white dark:text-background" },
+  low: { label: "レベル低", className: "bg-primary text-primary-foreground" },
 }
 
 /** 表示中の1か月分のカレンダー */
