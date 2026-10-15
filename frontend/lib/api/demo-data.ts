@@ -30,6 +30,10 @@ import {
   PricingCalendarDay,
   PricingCalendar,
   PricingStrategy,
+  PriceBoundPeriod,
+  CreatePriceBoundInput,
+  SaleOpenCheck,
+  SaleOpenCheckDay,
   BookingCurve,
   CompetitorPrices,
   MonthlyTrend,
@@ -582,6 +586,78 @@ export function getMockEvents(hotelId: string): HotelEvent[] {
 export function setMockStrategy(next: PricingStrategy): PricingStrategy {
   mockStrategy = next
   return mockStrategy
+}
+
+// ---- 価格の幅・販売開始チェック（D-11） ----
+
+let mockPriceBounds: PriceBoundPeriod[] = []
+
+export function getMockPriceBounds(): PriceBoundPeriod[] {
+  return mockPriceBounds
+}
+
+export function addMockPriceBound(input: CreatePriceBoundInput): PriceBoundPeriod {
+  const bound: PriceBoundPeriod = {
+    id: `mock-bound-${Date.now()}`,
+    hotelId: input.hotelId,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    weekdays: [...input.weekdays].sort((a, b) => a - b),
+    minRank: input.minRank ?? null,
+    maxRank: input.maxRank ?? null,
+    reason: input.reason ?? null,
+    createdAt: new Date().toISOString(),
+  }
+  mockPriceBounds = [...mockPriceBounds, bound]
+  return bound
+}
+
+export function removeMockPriceBound(id: string): void {
+  mockPriceBounds = mockPriceBounds.filter((b) => b.id !== id)
+}
+
+/** 販売開始チェックのサンプル。料金カレンダーのサンプルを前年同曜日の ADR（推奨の 85〜115%）と比べる */
+export function mockSaleOpenCheck(hotelId: string, year: number, month: number): SaleOpenCheck {
+  const { calendar } = mockPricingCalendar(hotelId, year, month)
+  const rng = createSeededRandom(year * 100 + month + 31)
+  const days: SaleOpenCheckDay[] = calendar.map((day) => {
+    const date = new Date(`${day.date}T00:00:00`)
+    const lastYear = new Date(date.getTime() - 364 * 86_400_000)
+    const lastYearAdr = Math.round((day.predictedAdr ?? 0) * (0.85 + rng() * 0.3))
+    const diffPct = day.predictedAdr ? Math.round((day.predictedAdr / lastYearAdr - 1) * 1000) / 10 : null
+    return {
+      date: day.date,
+      weekday: date.getDay(),
+      demandLevel: day.demandLevel ?? "C",
+      recommendedRank: day.recommendedRank,
+      recommendedPrice: day.recommendedPrice,
+      predictedAdr: day.predictedAdr,
+      lastYearDate: toLocalDateStr(lastYear),
+      lastYearAdr,
+      lastYearOccupancy: Number(Math.min(1, (day.predictedOccupancy ?? 0.7) * (0.9 + rng() * 0.15)).toFixed(3)),
+      diffPct,
+      status: diffPct == null ? "no_comparison" : diffPct < 0 ? "below_last_year" : "ok",
+      events: [],
+    }
+  })
+  const values = days.map((d) => d.predictedAdr).filter((v): v is number => v != null)
+  const lastYears = days.map((d) => d.lastYearAdr).filter((v): v is number => v != null)
+  const average = (list: number[]) => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null)
+  const belowLastYearDays = days.filter((d) => d.status === "below_last_year").length
+  return {
+    year,
+    month,
+    days,
+    summary: {
+      averagePredictedAdr: average(values),
+      lastYearMonthAdr: average(lastYears),
+      budgetAdr: null,
+      comparableDays: days.filter((d) => d.status !== "no_comparison").length,
+      belowLastYearDays,
+      verdict: belowLastYearDays > 0 ? "review" : "ok",
+    },
+    modelVersion: "rule-based-v4",
+  }
 }
 
 /** デモモードで編集したイベント一覧を差し替える */

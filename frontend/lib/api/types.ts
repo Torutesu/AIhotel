@@ -249,6 +249,65 @@ export interface PricingLockPeriod {
   reason: string | null
 }
 
+/**
+ * 期間・曜日ごとの価格の幅（推奨ランクの下限・上限 — D-11）。
+ * ホテル全体の下限・上限より優先し、重なった期間は後から登録したものを優先する
+ */
+export interface PriceBoundPeriod {
+  id: string
+  hotelId: string
+  startDate: string
+  endDate: string
+  /** 0=日〜6=土。空なら期間内の全日 */
+  weekdays: number[]
+  minRank: number | null
+  maxRank: number | null
+  reason: string | null
+  createdAt: string
+}
+
+export interface CreatePriceBoundInput {
+  hotelId: string
+  startDate: string
+  endDate: string
+  weekdays: number[]
+  minRank?: number | null
+  maxRank?: number | null
+  reason?: string
+}
+
+/** 販売開始チェック（D-11）の1日ぶん */
+export interface SaleOpenCheckDay {
+  date: string
+  weekday: number
+  demandLevel: string
+  recommendedRank: number | null
+  recommendedPrice: number | null
+  predictedAdr: number | null
+  lastYearDate: string
+  lastYearAdr: number | null
+  lastYearOccupancy: number | null
+  diffPct: number | null
+  status: "ok" | "below_last_year" | "no_comparison"
+  events: string[]
+}
+
+/** GET /pricing/sale-open-check の結果 */
+export interface SaleOpenCheck {
+  year: number
+  month: number
+  days: SaleOpenCheckDay[]
+  summary: {
+    averagePredictedAdr: number | null
+    lastYearMonthAdr: number | null
+    budgetAdr: number | null
+    comparableDays: number
+    belowLastYearDays: number
+    verdict: "ok" | "review" | "insufficient"
+  }
+  modelVersion: string
+}
+
 /** 推奨理由（#24 E4）。バックエンドの services/forecast/rationale.ts と同じ形 */
 export interface RecommendationRationale {
   version: 1
@@ -260,9 +319,19 @@ export interface RecommendationRationale {
     weight: number
     input: Record<string, number | string | null>
   }>
-  adjustments: Array<{ key: "event" | "weekend"; impact: number }>
+  /** pace = 前年同曜日と比べた予約の入り方、otbFloor = 予約済みの室数を下限にした引き上げ（D-11） */
+  adjustments: Array<{
+    key: "event" | "weekend" | "pace" | "otbFloor"
+    impact: number
+    input?: Record<string, number | string | null>
+  }>
   excluded: Array<{ key: "occupancy" | "adr" | "competitor"; reason: "no_data" | "stale" | "zero_weight" }>
-  guardrails: Array<{ key: "minRank" | "maxRank" | "maxDailyChange" | "hysteresis"; from: number; to: number }>
+  /** periodMinRank / periodMaxRank は期間・曜日ごとの価格の幅（D-11） */
+  guardrails: Array<{
+    key: "minRank" | "maxRank" | "periodMinRank" | "periodMaxRank" | "maxDailyChange" | "hysteresis"
+    from: number
+    to: number
+  }>
 }
 
 export interface BookingCurve {
@@ -345,6 +414,8 @@ export interface CreateEventInput {
   location?: string
   expectedImpact?: "high" | "medium" | "low"
   description?: string
+  /** 特殊日として予測の基準から外す（D-11） */
+  excludeFromHistory?: boolean
 }
 
 export type UpdateEventInput = Partial<Omit<CreateEventInput, "hotelId">>

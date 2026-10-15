@@ -274,9 +274,14 @@ export interface RankGuardrails {
   maxDailyRankChange: number | null
   /** 前回の推奨との差がこれ以内なら据え置く（0 は常に更新） */
   hysteresisRanks: number
+  /** 下限・上限がどこから来たか（期間・曜日ごとの価格の幅なら period — D-11）。省略はホテル全体 */
+  boundSource?: { min: 'hotel' | 'period'; max: 'hotel' | 'period' }
 }
 
-export type GuardrailKey = 'minRank' | 'maxRank' | 'maxDailyChange' | 'hysteresis'
+/**
+ * minRank / maxRank はホテル全体の下限・上限、periodMinRank / periodMaxRank は期間・曜日ごとの価格の幅（D-11）
+ */
+export type GuardrailKey = 'minRank' | 'maxRank' | 'periodMinRank' | 'periodMaxRank' | 'maxDailyChange' | 'hysteresis'
 
 export interface GuardrailResult {
   rank: number
@@ -315,14 +320,59 @@ export function applyRankGuardrails(params: {
   const lower = Math.max(1, guardrails.minRank ?? 1)
   const upper = Math.min(params.maxRank, guardrails.maxRank ?? params.maxRank)
   if (rank < lower) {
-    applied.push({ key: 'minRank', from: rank, to: lower })
+    applied.push({ key: guardrails.boundSource?.min === 'period' ? 'periodMinRank' : 'minRank', from: rank, to: lower })
     rank = lower
   } else if (rank > upper) {
-    applied.push({ key: 'maxRank', from: rank, to: upper })
+    applied.push({ key: guardrails.boundSource?.max === 'period' ? 'periodMaxRank' : 'maxRank', from: rank, to: upper })
     rank = upper
   }
 
   return { rank, applied }
+}
+
+// ======================================
+// 期間・曜日ごとの価格の幅（D-11）
+// ======================================
+
+export interface PriceBoundRecord {
+  startDate: Date
+  endDate: Date
+  /** 0=日〜6=土。空なら期間内の全日 */
+  weekdays: number[]
+  minRank: number | null
+  maxRank: number | null
+  createdAt: Date
+}
+
+/**
+ * その日に効く推奨ランクの下限・上限を決める。
+ * - 期間・曜日ごとの価格の幅がその日に当たれば、ホテル全体の下限・上限より優先する
+ * - 重なった期間は後から登録したものを優先する（下限・上限それぞれ、値のある最新のもの）
+ * - 出どころの違う下限が上限を超えたら、期間で決めた側に合わせる（例: 期間の下限 R25 ＞ ホテル全体の上限 R20 → 上限も R25）
+ */
+export function resolvePriceBounds(
+  bounds: PriceBoundRecord[],
+  date: Date,
+  hotel: { minRank: number | null; maxRank: number | null }
+): { minRank: number | null; maxRank: number | null; boundSource: { min: 'hotel' | 'period'; max: 'hotel' | 'period' } } {
+  const dow = date.getUTCDay()
+  const matching = bounds
+    .filter((b) => b.startDate <= date && date <= b.endDate && (b.weekdays.length === 0 || b.weekdays.includes(dow)))
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  const periodMin = matching.find((b) => b.minRank != null)?.minRank ?? null
+  const periodMax = matching.find((b) => b.maxRank != null)?.maxRank ?? null
+
+  let minRank = periodMin ?? hotel.minRank
+  let maxRank = periodMax ?? hotel.maxRank
+  const boundSource = {
+    min: periodMin != null ? ('period' as const) : ('hotel' as const),
+    max: periodMax != null ? ('period' as const) : ('hotel' as const),
+  }
+  if (minRank != null && maxRank != null && minRank > maxRank) {
+    if (boundSource.max === 'period' && boundSource.min === 'hotel') minRank = maxRank
+    else maxRank = minRank
+  }
+  return { minRank, maxRank, boundSource }
 }
 
 /** 競合と比べる人数（#17）。未設定ならホテルタイプから決める: 宿泊特化=1名、それ以外=2名、タイプ未設定=1名 */

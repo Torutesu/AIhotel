@@ -11,9 +11,13 @@ import {
   listPricingLocksService,
   createPricingLockService,
   deletePricingLockService,
+  listPriceBoundsService,
+  createPriceBoundService,
+  deletePriceBoundService,
 } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
-import type { CreatePricingLockInput, MonthTargetInput, UpdateStrategyInput } from '../lib/validators.js'
+import { getSaleOpenCheckService } from '../services/saleOpenCheckService.js'
+import type { CreatePriceBoundInput, CreatePricingLockInput, MonthTargetInput, UpdateStrategyInput } from '../lib/validators.js'
 
 /**
  * 日別価格カレンダー
@@ -171,4 +175,52 @@ export const deletePricingLock = asyncHandler(async (req: Request, res: Response
     userAgent: req.headers['user-agent'],
   })
   sendDeleted(res)
+})
+
+/** GET /api/v1/pricing/bounds?hotelId=（期間・曜日ごとの価格の幅 — D-11） */
+export const getPriceBounds = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  sendSuccess(res, await listPriceBoundsService(hotelId))
+})
+
+/** POST /api/v1/pricing/bounds */
+export const createPriceBound = asyncHandler(async (req: Request, res: Response) => {
+  const bound = await createPriceBoundService(req.body as CreatePriceBoundInput, req.user!.userId)
+  await writeAuditLog({
+    tenantId: bound.tenantId,
+    userId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'PriceBoundPeriod',
+    entityId: bound.id,
+    newValue: bound,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, bound, 201, '価格の幅を登録しました')
+})
+
+/** DELETE /api/v1/pricing/bounds/:id?hotelId= */
+export const deletePriceBound = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId } = req.query as unknown as { hotelId: string }
+  const deleted = await deletePriceBoundService(req.params.id, hotelId)
+  await writeAuditLog({
+    tenantId: deleted.tenantId,
+    userId: req.user!.userId,
+    action: 'DELETE',
+    entity: 'PriceBoundPeriod',
+    entityId: deleted.id,
+    oldValue: deleted,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendDeleted(res)
+})
+
+/**
+ * 販売開始チェック（D-11）。対象月の推奨（保存しない試算）を前年同曜日・前年同月・予算の ADR と比べる
+ * GET /api/v1/pricing/sale-open-check?hotelId=&year=&month=
+ */
+export const getSaleOpenCheck = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as { hotelId: string; year: number; month: number }
+  sendSuccess(res, await getSaleOpenCheckService(hotelId, year, month))
 })

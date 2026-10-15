@@ -54,6 +54,7 @@ model Tenant {
   monthlyBudgets           MonthlyBudget[]
   pricingStrategyConfigs   PricingStrategyConfig[]
   pricingLockPeriods       PricingLockPeriod[]
+  priceBoundPeriods        PriceBoundPeriod[]
   hotelIntegrations        HotelIntegration[]
   competitorObservations   CompetitorRateObservation[]
   competitorFetchRuns      CompetitorFetchRun[]
@@ -206,6 +207,7 @@ model Hotel {
   groupBookings            GroupBooking[]
   userPreferences          UserPreference[]
   competitorFetchRuns      CompetitorFetchRun[]
+  priceBoundPeriods        PriceBoundPeriod[]
 
   @@index([tenantId])
 }
@@ -342,6 +344,29 @@ model PricingLockPeriod {
   hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
   startDate       DateTime @db.Date
   endDate         DateTime @db.Date
+  reason          String?
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, startDate])
+}
+
+// 期間・曜日ごとの推奨ランクの下限・上限（価格の幅。IDeaS の Floor / Ceiling に相当 — D-11）。
+// 推奨の数字を直接決めるのではなく、推奨が動ける幅を決めて需要予測をコントロールする。
+// ホテル全体の下限・上限（PricingStrategyConfig）より優先し、重なった期間は後から登録したものを優先する
+model PriceBoundPeriod {
+  id              String   @id @default(cuid())
+  tenantId        String
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId         String
+  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  // 対象の曜日（0=日〜6=土）。空なら期間内の全日
+  weekdays        Int[]
+  minRank         Int?
+  maxRank         Int?
   reason          String?
   createdByUserId String?
   createdAt       DateTime @default(now())
@@ -812,22 +837,25 @@ model GroupBooking {
 // ======================================
 
 model Event {
-  id              String   @id @default(cuid())
-  tenantId        String
-  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  hotelId         String
-  hotel           Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  name            String
-  type            String // concert, sports, conference, festival 等
-  startDate       DateTime @db.Date
-  endDate         DateTime @db.Date
-  location        String?
-  expectedImpact  String? // high, medium, low
-  description     String?
+  id                 String   @id @default(cuid())
+  tenantId           String
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId            String
+  hotel              Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  name               String
+  type               String // concert, sports, conference, festival 等
+  startDate          DateTime @db.Date
+  endDate            DateTime @db.Date
+  location           String?
+  expectedImpact     String? // high, medium, low
+  description        String?
+  // 特殊日（年末年始・大型連休・春節・台風など）。期間内の実績を需要予測の基準（同曜日平均・前年比較・予約ペース）から外し、
+  // ふだんの日の予測が引きずられないようにする（IDeaS の Special Event に相当 — D-11）
+  excludeFromHistory Boolean  @default(false)
   // オペレーター登録（F-DP-07）の記録用
-  createdByUserId String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdByUserId    String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@index([tenantId])
   @@index([hotelId])

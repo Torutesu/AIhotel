@@ -200,7 +200,7 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       await setWeights(60, 20, 20)
       await recomputeAndReadRanks()
       const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL } })
-      expect(row.modelVersion).toBe('rule-based-v3')
+      expect(row.modelVersion).toBe('rule-based-v4')
     })
   })
 
@@ -376,6 +376,166 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       expect(day).toBeDefined()
       expect(day.competitorMaxPrice).toBe(10_000)
       expect(day.competitorMedianPrice).toBe(10_000)
+    })
+  })
+
+  describe('IDeaS の運用を参考にした調整（D-11）', () => {
+    const iso = (d: Date) => d.toISOString().slice(0, 10)
+    const auth = () => ({ Authorization: `Bearer ${token}` })
+    const readRationales = async () =>
+      (
+        await prisma.aiPriceRecommendation.findMany({ where: { hotelId: HOTEL, roomTypeId: null }, orderBy: { date: 'asc' } })
+      ).map(
+        (r) =>
+          r.rationale as {
+            guardrails: Array<{ key: string; from: number; to: number }>
+            adjustments: Array<{ key: string; impact: number; input?: Record<string, unknown> }>
+          }
+      )
+
+    it('期間・曜日ごとの価格の幅で推奨を止め、推奨理由に残る。登録・削除は監査ログに残る', async () => {
+      await setWeights(0, 0, 100) // 競合観点だけならすべてランク2
+      const everyDay = await request(app)
+        .post('/api/v1/pricing/bounds')
+        .set(auth())
+        .send({ hotelId: HOTEL, startDate: iso(today), endDate: iso(endDate), minRank: 4, reason: '繁忙期の下限' })
+      expect(everyDay.status, JSON.stringify(everyDay.body)).toBe(201)
+      // 今日と同じ曜日だけ R6 に固定（後から登録したほうが優先）
+      const oneWeekday = await request(app)
+        .post('/api/v1/pricing/bounds')
+        .set(auth())
+        .send({ hotelId: HOTEL, startDate: iso(today), endDate: iso(endDate), weekdays: [today.getUTCDay()], minRank: 6, maxRank: 6 })
+      expect(oneWeekday.status, JSON.stringify(oneWeekday.body)).toBe(201)
+
+      const ranks = await recomputeAndReadRanks()
+      expect(ranks[0]).toBe(6)
+      expect(ranks.slice(1).every((r) => r === 4)).toBe(true)
+      const rationales = await readRationales()
+      expect(rationales[1].guardrails).toContainEqual({ key: 'periodMinRank', from: 2, to: 4 })
+
+      const list = await request(app).get('/api/v1/pricing/bounds').query({ hotelId: HOTEL }).set(auth())
+      expect(list.body.data).toHaveLength(2)
+
+      for (const created of [everyDay, oneWeekday]) {
+        const removed = await request(app)
+          .delete(`/api/v1/pricing/bounds/${created.body.data.id}`)
+          .query({ hotelId: HOTEL })
+          .set(auth())
+        expect(removed.status).toBe(200)
+      }
+      const actions = await prisma.auditLog.findMany({ where: { tenantId: TENANT, entity: 'PriceBoundPeriod' } })
+      expect(actions.map((a) => a.action).sort()).toEqual(['CREATE', 'CREATE', 'DELETE', 'DELETE'])
+      expect((await recomputeAndReadRanks()).every((r) => r === 2)).toBe(true)
+    })
+
+    it('下限も上限も無い・下限が上限より大きい価格の幅は 400', async () => {
+      for (const body of [{}, { minRank: 8, maxRank: 3 }, { minRank: 2, weekdays: [1, 1] }]) {
+        const res = await request(app)
+          .post('/api/v1/pricing/bounds')
+          .set(auth())
+          .send({ hotelId: HOTEL, startDate: iso(today), endDate: iso(endDate), ...body })
+        expect(res.status, JSON.stringify(body)).toBe(400)
+      }
+    })
+
+    it('特殊日に登録した期間の実績は、同曜日平均の基準に使わない', async () => {
+      await setWeights(100, 0, 0)
+      const lastWeek = { gte: addUtcDays(today, -7), lte: addUtcDays(today, -1) }
+      // 直近1週間だけ満室（台風明けの特需などを想定）
+      await prisma.dailyData.updateMany({ where: { hotelId: HOTEL, date: lastWeek }, data: { occupancy: 1 } })
+      try {
+        const withSpike = await recomputeAndReadRanks()
+        const created = await request(app)
+          .post('/api/v1/events')
+          .set(auth())
+          .send({
+            hotelId: HOTEL,
+            name: '台風の影響',
+            type: 'weather',
+            startDate: iso(addUtcDays(today, -7)),
+            endDate: iso(addUtcDays(today, -1)),
+            excludeFromHistory: true,
+          })
+        expect(created.status, JSON.stringify(created.body)).toBe(201)
+        const excluded = await recomputeAndReadRanks()
+        // 満室の週を外すと同曜日平均が 0.625 → 0.5 に戻り、推奨が下がる
+        excluded.forEach((rank, i) => expect(rank).toBeLessThan(withSpike[i]))
+      } finally {
+        await prisma.dailyData.updateMany({ where: { hotelId: HOTEL, date: lastWeek }, data: { occupancy: 0.5 } })
+        await prisma.event.deleteMany({ where: { hotelId: HOTEL } })
+      }
+    })
+
+    it('前年同曜日より予約が速い日は予測を引き上げ、予約済みの室数を下限にする', async () => {
+      await setWeights(100, 0, 0)
+      const baseline = await recomputeAndReadRanks()
+      const target = addUtcDays(today, 3)
+      const lastYear = addUtcDays(target, -364)
+      const floorTarget = addUtcDays(today, 5)
+      await prisma.bookingCurveData.createMany({
+        data: [
+          // 今年: 残3日で30室。前年同曜日: 残3日で20室、最終90室 → ペース比1.5
+          { tenantId: TENANT, hotelId: HOTEL, stayDate: target, daysBefore: 3, roomsBooked: 30 },
+          { tenantId: TENANT, hotelId: HOTEL, stayDate: lastYear, daysBefore: 3, roomsBooked: 20 },
+          // 前年と比べられなくても、残5日で96室入っていればそれが下限
+          { tenantId: TENANT, hotelId: HOTEL, stayDate: floorTarget, daysBefore: 5, roomsBooked: 96 },
+        ],
+      })
+      // 前年の最終販売室数（稼働率は入れない＝前年比較の稼働率には使わせない）
+      await prisma.dailyData.create({ data: { tenantId: TENANT, hotelId: HOTEL, date: lastYear, soldRooms: 90 } })
+      try {
+        const ranks = await recomputeAndReadRanks()
+        expect(ranks[3]).toBeGreaterThan(baseline[3])
+        expect(ranks[5]).toBe(10)
+        const rationales = await readRationales()
+        expect(rationales[3].adjustments.find((a) => a.key === 'pace')?.input).toMatchObject({ ratio: 1.5, leadDays: 3 })
+        expect(rationales[5].adjustments.map((a) => a.key)).toContain('otbFloor')
+      } finally {
+        await prisma.bookingCurveData.deleteMany({ where: { hotelId: HOTEL } })
+        await prisma.dailyData.deleteMany({ where: { hotelId: HOTEL, date: lastYear } })
+      }
+    })
+
+    it('販売開始チェック: 前年同曜日のADRを割る日を数え、前年の特殊日は比べない', async () => {
+      await setWeights(0, 100, 0) // 予測ADRは 47,000円前後
+      const year = today.getUTCMonth() === 11 ? today.getUTCFullYear() + 1 : today.getUTCFullYear()
+      const month = ((today.getUTCMonth() + 1) % 12) + 1 // 来月
+      const first = new Date(Date.UTC(year, month - 1, 1))
+      const days = new Date(Date.UTC(year, month, 0)).getUTCDate()
+      const lastYearDates = Array.from({ length: days }, (_, i) => addUtcDays(addUtcDays(first, i), -364))
+      // 前年同曜日の実績 ADR を高く置く（推奨は前年割れになる）。1日目の前年同曜日は特殊日にする
+      await prisma.dailyData.createMany({
+        data: lastYearDates.map((date) => ({ tenantId: TENANT, hotelId: HOTEL, date, adr: 100_000, soldRooms: 50, totalRevenue: 5_000_000 })),
+        skipDuplicates: true,
+      })
+      await prisma.event.create({
+        data: { tenantId: TENANT, hotelId: HOTEL, name: '前年の年末年始', type: 'holiday', startDate: lastYearDates[0], endDate: lastYearDates[0], excludeFromHistory: true },
+      })
+      try {
+        const res = await request(app)
+          .get('/api/v1/pricing/sale-open-check')
+          .query({ hotelId: HOTEL, year, month })
+          .set(auth())
+        expect(res.status, JSON.stringify(res.body)).toBe(200)
+        const { days: rows, summary } = res.body.data
+        expect(rows).toHaveLength(days)
+        expect(rows[0].status).toBe('no_comparison')
+        expect(rows.slice(1).every((d: { status: string }) => d.status === 'below_last_year')).toBe(true)
+        expect(summary).toMatchObject({ belowLastYearDays: days - 1, comparableDays: days - 1, verdict: 'review' })
+
+        // 推奨は保存しない（料金カレンダーは変わらない）
+        const saved = await prisma.aiPriceRecommendation.count({ where: { hotelId: HOTEL, date: { gte: first } } })
+        expect(saved).toBe(0)
+
+        const past = await request(app)
+          .get('/api/v1/pricing/sale-open-check')
+          .query({ hotelId: HOTEL, year: today.getUTCFullYear() - 1, month: 1 })
+          .set(auth())
+        expect(past.status).toBe(400)
+      } finally {
+        await prisma.dailyData.deleteMany({ where: { hotelId: HOTEL, date: { in: lastYearDates } } })
+        await prisma.event.deleteMany({ where: { hotelId: HOTEL } })
+      }
     })
   })
 })

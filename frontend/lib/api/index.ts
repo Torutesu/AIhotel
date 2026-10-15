@@ -20,6 +20,7 @@ import {
 import type {
   LoginResult, DashboardKpi, KpiSnapshot, AlertItem, AiSummary, PricingCalendar, PricingSimulation,
   RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, PricingStrategyInput, PricingLockPeriod, BookingCurve,
+  PriceBoundPeriod, CreatePriceBoundInput, SaleOpenCheck,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
   CreatePriceRankInput, UpdateHotelSettingsInput, SetupStatus, CreateCompetitorInput, UpdateCompetitorInput,
   DashboardPreference, UserPreferences, CompetitorFetchSourceStatus
@@ -29,7 +30,7 @@ import {
   mockCompetitorPrices, mockMonthlyTrend, mockCompetitorAnalysis, getMockPriceRanks, mockStrategy,
   setMockStrategy, setMockEvents, getMockEvents, mockKpiSnapshots, mockPricingSimulation, mockBudgetYear,
   mockCompetitorSettings, mockUsers, mockReviewScores, updateMockAlertStatus, getMockDashboardPreference,
-  setMockDashboardPreference
+  setMockDashboardPreference, getMockPriceBounds, addMockPriceBound, removeMockPriceBound, mockSaleOpenCheck
 } from "./demo-data"
 import { adminEndpoints } from "./admin"
 import { demoAdmin } from "./demo-admin"
@@ -292,6 +293,36 @@ export const api = {
     return rawRequest(`/api/v1/pricing/locks/${id}?hotelId=${hotelId}`, { method: "DELETE" })
   },
 
+  /** 期間・曜日ごとの価格の幅（推奨ランクの下限・上限 — D-11）。今日以降に終わるものだけが返る */
+  priceBounds(hotelId: string): Promise<PriceBoundPeriod[]> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/bounds?hotelId=${hotelId}`),
+      () => getMockPriceBounds()
+    )
+  },
+
+  createPriceBound(input: CreatePriceBoundInput): Promise<PriceBoundPeriod> {
+    return withDemoFallback(
+      () => rawRequest("/api/v1/pricing/bounds", { method: "POST", body: JSON.stringify(input) }),
+      () => addMockPriceBound(input)
+    )
+  },
+
+  deletePriceBound(hotelId: string, id: string): Promise<void> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/bounds/${id}?hotelId=${hotelId}`, { method: "DELETE" }),
+      () => removeMockPriceBound(id)
+    )
+  },
+
+  /** 販売開始チェック（D-11）。対象月の推奨（保存しない試算）を前年同曜日・前年同月・予算の ADR と比べる */
+  saleOpenCheck(hotelId: string, year: number, month: number): Promise<SaleOpenCheck> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/sale-open-check?hotelId=${hotelId}&year=${year}&month=${month}`),
+      () => mockSaleOpenCheck(hotelId, year, month)
+    )
+  },
+
   /**
    * 月次着地シミュレーション（F-DP-04）。
    * 行が無い月は simulation が null で返る。フロントエンドで平均値を捏造しないこと。
@@ -473,6 +504,7 @@ export const api = {
           location: input.location,
           expectedImpact: input.expectedImpact,
           description: input.description,
+          excludeFromHistory: input.excludeFromHistory,
         }
         getMockEvents(input.hotelId).push(newEvent)
         return newEvent

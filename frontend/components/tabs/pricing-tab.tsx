@@ -22,6 +22,7 @@ import { StrategyGuardrailsCard } from "@/components/pricing/strategy-guardrails
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
 import { PriceCalendarSection } from "@/components/pricing/price-calendar-section"
 import { EventListCard } from "@/components/pricing/event-list-card"
+import { SaleOpenCheckCard } from "@/components/pricing/sale-open-check-card"
 import { DayDetailDialog } from "@/components/pricing/day-detail-dialog"
 import { DayAnalysisDialog } from "@/components/pricing/day-analysis-dialog"
 import {
@@ -212,6 +213,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
           )}
         </CardContent>
       </Card>
+
+      {/* 販売開始チェック（先々の月を前年同曜日・前年同月・予算の ADR と突き合わせる — D-11） */}
+      <SaleOpenCheckCard />
 
       {/* 当月のイベント情報（実API接続 — F-DP-07） */}
       <EventListCard

@@ -12,6 +12,7 @@ import {
   type AdrRecord,
   type CompetitorPriceRecord,
   type RankPrice,
+  resolvePriceBounds,
 } from './strategyWeighting.js'
 
 // UTC固定の日付ヘルパー（タイムゾーン依存の失敗を避ける）
@@ -280,5 +281,52 @@ describe('computePredictedAdr', () => {
 
   it('ADR実績が無ければ null を返す', () => {
     expect(computePredictedAdr({ baseAdr: null, recommendedRank: 3, ranks: RANKS })).toBeNull()
+  })
+})
+
+describe('resolvePriceBounds（期間・曜日ごとの価格の幅 — D-11）', () => {
+  const d = (s: string) => new Date(`${s}T00:00:00.000Z`)
+  const hotel = { minRank: 5, maxRank: 30 }
+  const bounds = [
+    // 12月の金・土は R20〜R38
+    { startDate: d('2026-12-01'), endDate: d('2026-12-31'), weekdays: [5, 6], minRank: 20, maxRank: 38, createdAt: d('2026-10-01') },
+    // 年末は下限だけ R30（後から登録）
+    { startDate: d('2026-12-28'), endDate: d('2026-12-31'), weekdays: [], minRank: 30, maxRank: null, createdAt: d('2026-10-02') },
+  ]
+
+  it('当たる期間があればホテル全体より優先し、曜日も見る', () => {
+    expect(resolvePriceBounds(bounds, d('2026-12-04'), hotel)).toEqual({
+      minRank: 20,
+      maxRank: 38,
+      boundSource: { min: 'period', max: 'period' },
+    })
+    // 12/3 は木曜 → 期間外の扱い
+    expect(resolvePriceBounds(bounds, d('2026-12-03'), hotel)).toMatchObject({ minRank: 5, maxRank: 30 })
+  })
+
+  it('重なった期間は後から登録したものを優先し、値の無い側は次に新しいもの・ホテル全体で埋める', () => {
+    // 12/29 は火曜 → 年末の期間だけ: 下限 R30（期間）、上限 R30（ホテル全体）
+    expect(resolvePriceBounds(bounds, d('2026-12-29'), hotel)).toEqual({
+      minRank: 30,
+      maxRank: 30,
+      boundSource: { min: 'period', max: 'hotel' },
+    })
+    // 12/31 は木曜、12/28 は月曜。12/26（土）は金土の期間だけ
+    expect(resolvePriceBounds(bounds, d('2026-12-26'), hotel).minRank).toBe(20)
+  })
+
+  it('期間の下限がホテル全体の上限を超えたら、上限を期間の下限に合わせる', () => {
+    const r = resolvePriceBounds([bounds[1]], d('2026-12-29'), { minRank: null, maxRank: 25 })
+    expect(r).toMatchObject({ minRank: 30, maxRank: 30 })
+  })
+
+  it('期間で決めた下限・上限で止めたことが推奨理由に残る', () => {
+    const guarded = applyRankGuardrails({
+      rank: 10,
+      previousRank: null,
+      guardrails: { maxDailyRankChange: null, hysteresisRanks: 0, ...resolvePriceBounds(bounds, d('2026-12-04'), hotel) },
+      maxRank: 40,
+    })
+    expect(guarded).toEqual({ rank: 20, applied: [{ key: 'periodMinRank', from: 10, to: 20 }] })
   })
 })
