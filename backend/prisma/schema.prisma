@@ -884,6 +884,8 @@ model NewHotelOpening {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  // 同じホテルに同じ名前・同じ開業日の行は1つだけ（取り込みはこのキーで上書きする）
+  @@unique([hotelId, name, openingDate])
   @@index([tenantId])
   @@index([hotelId, openingDate])
 }
