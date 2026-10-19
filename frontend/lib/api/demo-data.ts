@@ -34,7 +34,6 @@ import {
   CreatePriceBoundInput,
   SaleOpenCheck,
   SaleOpenCheckDay,
-  BookingCurve,
   CompetitorPrices,
   MonthlyTrend,
   CompetitorAnalysis,
@@ -329,12 +328,23 @@ export function mockAiSummary(section?: string): AiSummary {
   }
 }
 
-export function mockPricingCalendar(hotelId: string, year: number, month: number): PricingCalendar {
+/** 料金カレンダーのデモのうち、推奨・実績・競合の部分（予算・オンハンド・日のタイプは demo-revenue.ts が足す） */
+export type MockPricingCalendarBaseDay = Omit<
+  PricingCalendarDay,
+  | "budgetRooms" | "budgetOccupancy" | "budgetAdr" | "budgetRevenue" | "onHandRooms" | "currentOccupancy" | "onHandAdr"
+  | "currentRevenue" | "expectedRevenue" | "dayType" | "dayTypeExpectedOccupancy" | "dayTypePaceRatio" | "dayTypeHistory"
+>
+
+export function mockPricingCalendar(
+  hotelId: string,
+  year: number,
+  month: number,
+): Omit<PricingCalendar, "calendar"> & { calendar: MockPricingCalendarBaseDay[] } {
   const numDays = mockDaysInMonth(year, month)
   const today = new Date()
   const rng = createSeededRandom(year * 100 + month + 7)
   const boost = mockSeasonBoost(month)
-  const calendar: PricingCalendarDay[] = []
+  const calendar: MockPricingCalendarBaseDay[] = []
 
   for (let d = 1; d <= numDays; d++) {
     const date = new Date(year, month - 1, d)
@@ -398,28 +408,6 @@ export function eachMockDate(startDate: string, endDate: string): Date[] {
     dates.push(new Date(d))
   }
   return dates
-}
-
-export function mockBookingCurve(hotelId: string, date: string): BookingCurve {
-  const stay = new Date(date)
-  const totalRooms = MOCK_HOTEL.totalRooms
-  const rng = createSeededRandom(stay.getFullYear() * 10000 + (stay.getMonth() + 1) * 100 + stay.getDate())
-  const weekend = isMockWeekend(stay)
-  const finalOccupancy = Math.min(0.98, (weekend ? 0.92 : 0.74) + (rng() - 0.5) * 0.1)
-
-  // 宿泊日までの日数が減るほど積み上がる（右肩上がり — F-DAILY-01）
-  const daysBeforeList = [90, 60, 45, 30, 21, 14, 10, 7, 5, 3, 2, 1, 0]
-  const points = daysBeforeList.map((daysBefore) => {
-    const progress = Math.pow(1 - daysBefore / 90, 1.6)
-    const occupancy = Number((finalOccupancy * progress).toFixed(3))
-    return {
-      daysBefore,
-      roomsBooked: Math.round(totalRooms * occupancy),
-      occupancy,
-    }
-  })
-
-  return { hotelId, stayDate: date, totalRooms, points }
 }
 
 export function mockCompetitorPrices(hotelId: string, startDate: string, endDate: string): CompetitorPrices {
@@ -578,6 +566,22 @@ export function getMockEvents(hotelId: string): HotelEvent[] {
       expectedImpact: "high",
       description: "周辺ホテルの需要増加が見込まれます。",
     },
+    // 今日から数えた先のイベント（外部需要動向の「今後のイベント」に出す — 2026-10）
+    ...([
+      { name: "国際医学会", type: "conference", start: 16, end: 18, location: "国際会議場", expectedImpact: "high" },
+      { name: "アリーナ公演（2日間）", type: "concert", start: 23, end: 24, location: "市営アリーナ", expectedImpact: "medium" },
+      { name: "プロ野球 公式戦", type: "sports", start: 30, end: 31, location: "ドーム球場", expectedImpact: "medium" },
+      { name: "秋祭り", type: "festival", start: 44, end: 45, location: "中心市街地", expectedImpact: "low" },
+    ] as const).map((e, i): HotelEvent => ({
+      id: `mock-event-${i + 2}`,
+      hotelId,
+      name: e.name,
+      type: e.type,
+      startDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + e.start),
+      endDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + e.end),
+      location: e.location,
+      expectedImpact: e.expectedImpact,
+    })),
   ]
   return mockEvents
 }
@@ -714,7 +718,7 @@ export function mockKpiSnapshots(hotelId: string, year: number, month: number, b
 }
 
 /** 月次予算（季節変動つき）と前年実績 */
-function mockBudgetValues(year: number, month: number): Omit<MonthlyBudgetRow, "id" | "hotelId" | "year" | "month"> {
+export function mockBudgetValues(year: number, month: number): Omit<MonthlyBudgetRow, "id" | "hotelId" | "year" | "month"> {
   const capacity = MOCK_HOTEL.totalRooms * mockDaysInMonth(year, month)
   const boost = mockSeasonBoost(month)
   const budgetOccupancy = Number(Math.min(0.95, 0.78 * boost).toFixed(3))

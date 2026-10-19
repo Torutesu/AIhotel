@@ -2,7 +2,8 @@
 
 import { rawRequest, withDemoFallback } from "./client"
 import { mockChannelBreakdown, mockDayOfWeekBreakdown, mockRoomTypeBreakdown } from "./demo-data"
-import type { ChannelBreakdown, DayOfWeekBreakdown, RoomTypeBreakdown } from "./types"
+import { mockDailyPerformance } from "./demo-revenue"
+import type { ChannelBreakdown, DailyPerformance, DayOfWeekBreakdown, RoomTypeBreakdown } from "./types"
 
 const monthQuery = (hotelId: string, year: number, month: number) =>
   `hotelId=${encodeURIComponent(hotelId)}&year=${year}&month=${month}`
@@ -29,6 +30,14 @@ export const analysisEndpoints = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/analysis/day-of-week?${monthQuery(hotelId, year, month)}`),
       () => mockDayOfWeekBreakdown(hotelId, year, month)
+    )
+  },
+
+  /** 日別パフォーマンス（実績と、日割り予算・AI の予測・前年同曜日 — 2026-10） */
+  dailyPerformance(hotelId: string, year: number, month: number): Promise<DailyPerformance> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/daily-performance?${monthQuery(hotelId, year, month)}`),
+      () => mockDailyPerformance(hotelId, year, month)
     )
   },
 }
