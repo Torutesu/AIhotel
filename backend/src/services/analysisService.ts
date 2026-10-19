@@ -328,7 +328,7 @@ export async function getDailyPerformanceService(hotelId: string, year: number, 
   const { start, end } = monthRange(year, month)
 
   const [context, actuals, recommendations] = await Promise.all([
-    loadMonthContext(hotelId, totalRooms, year, month),
+    loadMonthContext(hotelId, totalRooms, year, month, { curves: 'none' }),
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: start, lt: end } },
       select: { date: true, soldRooms: true, occupancy: true, adr: true, revPar: true, totalRevenue: true },
