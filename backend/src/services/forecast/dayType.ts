@@ -120,17 +120,20 @@ export interface DayTypeTimelineInput {
 
 /**
  * 1日ぶんの「今の日のタイプ」と、残日数ごとの推移を出す。
- * 前年同曜日の同じ残日数の予約が記録に無く、前年の結果だけがある残日数0は、結果どうしで比べる
+ * 残日数0（当日・結果）は、今年・前年とも結果（販売室数）を優先して結果どうしで比べる。
+ * 当日の数日前の予約の記録で代用すると、結果に前年の直前の伸びを足して着地を高く見てしまうため
  */
 export function buildDayTypeTimeline(input: DayTypeTimelineInput): DayTypeTimeline {
   const { stayDate, today, totalRooms, points, lastYearPoints, lastYearFinalRooms, actualSoldRooms, predictedOccupancy } = input
   const currentLead = leadDaysBetween(today, stayDate)
-  const lastYearAt = (lead: number) => otbAtLead(lastYearPoints, lead) ?? (lead === 0 ? lastYearFinalRooms : null)
+  const ownAt = (lead: number) => (lead === 0 ? (actualSoldRooms ?? otbAtLead(points, 0)) : otbAtLead(points, lead))
+  const lastYearAt = (lead: number) =>
+    lead === 0 ? (lastYearFinalRooms ?? otbAtLead(lastYearPoints, 0)) : otbAtLead(lastYearPoints, lead)
 
   const history: DayTypeHistoryPoint[] = []
   for (const lead of DAY_TYPE_HISTORY_LEADS) {
     if (lead <= currentLead) continue
-    const otbRooms = otbAtLead(points, lead) ?? (lead === 0 ? actualSoldRooms : null)
+    const otbRooms = ownAt(lead)
     const result = classifyDayType({
       totalRooms,
       otbRooms,
@@ -143,7 +146,7 @@ export function buildDayTypeTimeline(input: DayTypeTimelineInput): DayTypeTimeli
   let current: DayTypeResult
   if (currentLead < 0 || (currentLead === 0 && actualSoldRooms != null)) {
     // 宿泊日を過ぎた日（当日でも結果が入っていれば）は結果で判定する（販売室数が無ければ当日の予約積上）
-    const otbRooms = actualSoldRooms ?? otbAtLead(points, 0)
+    const otbRooms = ownAt(0)
     current = classifyDayType({
       totalRooms,
       otbRooms,

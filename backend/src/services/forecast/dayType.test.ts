@@ -124,5 +124,22 @@ describe('buildDayTypeTimeline', () => {
     // 結果がまだ無ければ今日の取り込み（60室）で見る
     expect(buildDayTypeTimeline({ ...today, points: withToday, actualSoldRooms: null }).current.expectedOccupancy).toBe(0.6)
   })
+
+  it('結果の出た日は、前年に当日直前の予約の記録があっても前年の結果と比べる（着地を結果より高く見ない）', () => {
+    const stay = d('2026-10-10')
+    const t = buildDayTypeTimeline({
+      stayDate: stay,
+      today: d('2026-10-15'),
+      totalRooms: 100,
+      points: [{ stayDate: stay, daysBefore: 1, roomsBooked: 75 }],
+      // 前年は1日前に60室、結果80室
+      lastYearPoints: [{ stayDate: d('2025-10-11'), daysBefore: 1, roomsBooked: 60 }],
+      lastYearFinalRooms: 80,
+      actualSoldRooms: 80,
+      predictedOccupancy: 0.7,
+    })
+    expect(t.current).toMatchObject({ dayType: 'C3', expectedOccupancy: 0.8, paceRatio: 1 })
+    expect(t.history.at(-1)).toMatchObject({ daysBefore: 0, dayType: 'C3', otbRooms: 80 })
+  })
 })
 
