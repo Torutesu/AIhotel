@@ -15,6 +15,7 @@ import {
   getRoomTypeBreakdown,
   getDayOfWeekBreakdown,
   getDailyPerformance,
+  getMonthPace,
 } from '../controllers/analysisController.js'
 
 export const analysisRouter: ExpressRouter = Router()
@@ -49,3 +50,5 @@ analysisRouter.get('/room-types', validate(monthQuerySchema, 'query'), getRoomTy
 analysisRouter.get('/day-of-week', validate(monthQuerySchema, 'query'), getDayOfWeekBreakdown)
 // GET /api/v1/analysis/daily-performance?hotelId=&year=&month= — 実績と日割り予算・AI の予測・前年同曜日（2026-10）
 analysisRouter.get('/daily-performance', validate(monthQuerySchema, 'query'), getDailyPerformance)
+// GET /api/v1/analysis/month-pace?hotelId=&year=&month= — 月の予約の積み上がり（180日前 → 結果）と予算・AI・前年の比較
+analysisRouter.get('/month-pace', validate(monthQuerySchema, 'query'), getMonthPace)

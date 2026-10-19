@@ -232,6 +232,20 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
       expect(day.budget.adr).toBe(10_000)
     })
 
+    it('月のグラフ: 月の予約の積み上がりと、予算・AI の予測・前年同曜日の合計を返す', async () => {
+      const res = await get('/api/v1/analysis/month-pace', tokens.operator, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+      const n = daysIn(prev)
+      const data = res.body.data
+      expect(data).toMatchObject({ totalRooms: TOTAL_ROOMS, days: n, budgetRooms: 50 * n, aiRooms: 70 * n })
+      expect(data.budgetOccupancy).toBe(0.5)
+      // 先月の宿泊日には予約積上の記録が無く結果だけ → 結果（0日前）だけが出る
+      expect(data.points).toEqual([
+        { daysBefore: 0, rooms: 60 * n, occupancy: 0.6, comparableRooms: 60 * n, lastYearRooms: 40 * (n - 1) + 80 },
+      ])
+      expect((await get('/api/v1/analysis/month-pace', tokens.otherManager, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })).status).toBe(403)
+    })
+
     it('他テナントは 403', async () => {
       const res = await get('/api/v1/analysis/daily-performance', tokens.otherManager, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })
       expect(res.status).toBe(403)
@@ -264,6 +278,15 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
       expect(updated).toMatchObject({ expectedImpact: 'low', description: '雨天中止' })
       expect(await prisma.event.count({ where: { hotelId: HOTEL_A } })).toBe(2)
       expect(await prisma.auditLog.count({ where: { tenantId: TENANT_A, entity: 'Event' } })).toBe(2)
+    })
+
+    it('画面から登録した名前の前後の空白は詰めて保存し、取り込みの「同じ名前」と照合できる', async () => {
+      const date = iso(addUtcDays(today, 40))
+      const created = await post('/api/v1/events', tokens.operator, { hotelId: HOTEL_A, name: ' 港まつり ', type: 'festival', startDate: date, endDate: date })
+      expect(created.body.data.name).toBe('港まつり')
+      const res = await post('/api/v1/events/import', tokens.manager, { hotelId: HOTEL_A, dryRun: true, rows: [{ name: '港まつり', type: 'festival', startDate: date, endDate: date }] })
+      expect(res.body.data).toMatchObject({ created: 0, updated: 1 })
+      await prisma.event.deleteMany({ where: { hotelId: HOTEL_A, name: '港まつり' } })
     })
 
     it('1行でも不正なら何も書かず、行番号つきのエラーを返す', async () => {
@@ -315,6 +338,14 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
       expect(updated.status, JSON.stringify(updated.body)).toBe(200)
       expect(updated.body.data).toMatchObject({ rooms: 200, notes: '客室数を訂正' })
       expect(await prisma.auditLog.count({ where: { tenantId: TENANT_A, entity: 'NewHotelOpening' } })).toBe(2)
+    })
+
+    it('同じ名前・同じ開業日は登録できず（409）、空の更新は 400', async () => {
+      const dup = await post('/api/v1/new-hotels', tokens.manager, { hotelId: HOTEL_A, name: 'ホテル駅前新館', openingDate: iso(addUtcDays(today, 60)) })
+      expect(dup.status).toBe(409)
+      expect(dup.body.error).toBe('同じ名前・同じ開業日の新規ホテルが既に登録されています')
+      const empty = await request(app).put(`/api/v1/new-hotels/${id}`).query({ hotelId: HOTEL_A }).set('Authorization', `Bearer ${tokens.manager}`).send({})
+      expect(empty.status).toBe(400)
     })
 
     it('オペレーターは変更できず、他テナントは見ることも変えることもできない', async () => {

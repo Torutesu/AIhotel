@@ -156,10 +156,8 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
             targetMonth={targetPeriod}
             onTargetMonthChange={setTargetPeriod}
             onNavigateToPricing={onNavigateToPricing}
-            onSelectStayDate={(date) => {
-              setCurveStayDate(date)
-              setAnalysisView("booking")
-            }}
+            onSelectStayDate={setCurveStayDate}
+            onOpenBookingCurve={() => setAnalysisView("booking")}
           />
           <WeekdayPerformanceSection />
           <YearlyTrendSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />

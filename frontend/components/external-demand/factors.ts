@@ -17,11 +17,11 @@ export type ExternalFactorRow = {
 export const FACTOR_STATUS_LABELS: Record<string, string> = { positive: "好調", warning: "注意", normal: "通常" }
 export const FACTOR_TREND_LABELS: Record<string, string> = { up: "上昇", down: "下降", neutral: "横ばい" }
 
-/** 一覧の CSV。指標1つにつき1行（指標の無い要因は1行） */
+/** 一覧の CSV。指標1つにつき1行（指標の無い要因は1行）。外部要因データは未取り込みなので、どの行にも「サンプル」と書く */
 export function factorsToCsvRows(category: string, factors: ExternalFactorRow[]): CsvValue[][] {
-  const rows: CsvValue[][] = [["区分", "項目", "状況", "傾向", "内容", "指標", "値", "補足"]]
+  const rows: CsvValue[][] = [["データ", "区分", "項目", "状況", "傾向", "内容", "指標", "値", "補足"]]
   for (const f of factors) {
-    const base = [category, f.name, FACTOR_STATUS_LABELS[f.status] ?? f.status, FACTOR_TREND_LABELS[f.trend] ?? f.trend, f.note]
+    const base = ["サンプル", category, f.name, FACTOR_STATUS_LABELS[f.status] ?? f.status, FACTOR_TREND_LABELS[f.trend] ?? f.trend, f.note]
     if (!f.kpis || f.kpis.length === 0) rows.push([...base, "", "", ""])
     else for (const k of f.kpis) rows.push([...base, k.label, k.value, k.hint ?? ""])
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { adjacentMonthsNeeded, DayAnalysisDialog, neighborDates } from "./day-analysis-dialog"
 import type { PricingCalendarDay } from "@/lib/api"
@@ -87,6 +87,10 @@ describe("DayAnalysisDialog", () => {
     expect(screen.getAllByTestId("neighbor-day")).toHaveLength(5)
     expect(screen.getByText("9/30")).toBeTruthy()
 
+    // 見出しの横に、今の日のタイプと90日前のタイプ
+    const header = screen.getByTestId("day-type-header")
+    expect(header.textContent).toBe("日のタイプD490日前D3")
+
     // 日のタイプ（今と推移）
     const history = screen.getByRole("list", { name: "日のタイプの推移" })
     expect(history.textContent).toContain("90日前")
@@ -96,6 +100,27 @@ describe("DayAnalysisDialog", () => {
     // アラート（AI の予測 B）と日のタイプ（D）のずれ・ペースの遅れをインサイトに出す
     expect(screen.getByText("予約の実数とAIの予測がずれています")).toBeTruthy()
     expect(screen.getByText("前年より予約の入りが遅れています")).toBeTruthy()
+  })
+
+  it("前後の月の取得に失敗したらその旨と再試行を出し、再試行で取り直す", async () => {
+    mocks.pricingCalendar.mockReset()
+    mocks.pricingCalendar.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce({
+      hotelId: "hotel-a",
+      year: 2026,
+      month: 9,
+      calendar: [day("2026-09-29"), day("2026-09-30")],
+    })
+    const selected = day("2026-10-01")
+    render(<DayAnalysisDialog day={selected} days={[selected, day("2026-10-02"), day("2026-10-03")]} onClose={vi.fn()} />)
+
+    const alert = await screen.findByRole("alert")
+    expect(alert.textContent).toContain("前後の月のカレンダーの取得に失敗しました")
+    expect(screen.getAllByText("データなし")).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole("button", { name: "再試行" }))
+    await waitFor(() => expect(screen.getByText("9/29").parentElement?.textContent).not.toContain("データなし"))
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(mocks.pricingCalendar).toHaveBeenCalledTimes(2)
   })
 
   it("月の途中の日は前後の月を取りに行かない", () => {

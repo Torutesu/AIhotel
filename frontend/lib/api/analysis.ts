@@ -2,8 +2,8 @@
 
 import { rawRequest, withDemoFallback } from "./client"
 import { mockChannelBreakdown, mockDayOfWeekBreakdown, mockRoomTypeBreakdown } from "./demo-data"
-import { mockDailyPerformance } from "./demo-revenue"
-import type { ChannelBreakdown, DailyPerformance, DayOfWeekBreakdown, RoomTypeBreakdown } from "./types"
+import { mockDailyPerformance, mockMonthPace } from "./demo-revenue"
+import type { ChannelBreakdown, DailyPerformance, DayOfWeekBreakdown, MonthPace, RoomTypeBreakdown } from "./types"
 
 const monthQuery = (hotelId: string, year: number, month: number) =>
   `hotelId=${encodeURIComponent(hotelId)}&year=${year}&month=${month}`
@@ -38,6 +38,14 @@ export const analysisEndpoints = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/analysis/daily-performance?${monthQuery(hotelId, year, month)}`),
       () => mockDailyPerformance(hotelId, year, month)
+    )
+  },
+
+  /** 月の予約の積み上がり（180日前 → 結果）と予算・AI の予測・前年同曜日 — 日別パフォーマンスの月のグラフ */
+  monthPace(hotelId: string, year: number, month: number): Promise<MonthPace> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/month-pace?${monthQuery(hotelId, year, month)}`),
+      () => mockMonthPace(hotelId, year, month)
     )
   },
 }

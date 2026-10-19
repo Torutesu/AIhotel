@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 
-import { buildDayPaceRows, buildVarianceRows, differenceOf, summarizeVariance, yearOverYearOf } from "./performance-variance"
+import { buildDayPaceRows, buildMonthPaceRows, buildVarianceRows, differenceOf, summarizeVariance, yearOverYearOf } from "./performance-variance"
 import type { BookingCurve, DailyPerformanceDay, DayMetrics } from "@/lib/api"
 
 // 日別パフォーマンスの差異（実績 − 予算・AI、前年比）と日のグラフ（2026-10）
@@ -57,6 +57,26 @@ describe("buildVarianceRows / summarizeVariance", () => {
     // 前年: 1日目だけ → 960,000 / 600,000 − 1
     expect(s.yoy.revenue).toBeCloseTo(0.6)
   })
+
+  it("予算が未登録の月は予算差異の月計を出さない（実績そのものを差異にしない）", () => {
+    const empty: DayMetrics = { soldRooms: null, occupancy: null, adr: null, revPar: null, revenue: null }
+    const s = summarizeVariance(days.map((d) => ({ ...d, budget: empty })), 100)
+    expect(s.budget).toEqual({ occupancy: null, adr: null, revPar: null, revenue: null })
+    expect(s.actual?.soldRooms).toBe(140)
+  })
+
+  it("相手の値が一部の項目だけ欠けていれば、その項目の月計だけ出さない", () => {
+    const s = summarizeVariance(
+      [
+        { ...days[0], budget: { ...m(70, 10000), revenue: null, adr: null, revPar: null } },
+        { ...days[1], budget: m(70, 10000) },
+      ],
+      100,
+    )
+    expect(s.budget.occupancy).toBeCloseTo(0)
+    expect(s.budget.revenue).toBeNull()
+    expect(s.budget.adr).toBeNull()
+  })
 })
 
 describe("buildDayPaceRows（日のグラフ）", () => {
@@ -86,5 +106,31 @@ describe("buildDayPaceRows（日のグラフ）", () => {
     // 結果 82室 vs 前年の最終 70室
     expect(rows[2].yoy).toBeCloseTo(82 / 70 - 1)
     expect(rows[2].budget).toBeCloseTo(0.07)
+  })
+})
+
+describe("buildMonthPaceRows（月のグラフ — 月全体の 180日前 → 結果）", () => {
+  it("月の予約の稼働率を予算・AI の予測と比べ、前年同曜日の同じ時点との比を出す", () => {
+    const rows = buildMonthPaceRows({
+      hotelId: "h",
+      year: 2026,
+      month: 9,
+      totalRooms: 100,
+      days: 30,
+      budgetRooms: 2340,
+      budgetOccupancy: 0.78,
+      aiRooms: 2100,
+      aiOccupancy: 0.7,
+      points: [
+        { daysBefore: 90, rooms: 660, occupancy: 0.22, comparableRooms: 660, lastYearRooms: 600 },
+        { daysBefore: 0, rooms: 2085, occupancy: 0.695, comparableRooms: 2000, lastYearRooms: 2 },
+      ],
+    })
+    expect(rows[0].daysBefore).toBe(90)
+    expect(rows[0].budget).toBeCloseTo(0.22 - 0.78)
+    expect(rows[0].ai).toBeCloseTo(0.22 - 0.7)
+    expect(rows[0].yoy).toBeCloseTo(0.1)
+    // 前年の予約が少なすぎれば比べない
+    expect(rows[1].yoy).toBeNull()
   })
 })

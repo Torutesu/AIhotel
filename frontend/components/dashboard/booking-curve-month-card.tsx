@@ -1,6 +1,6 @@
 "use client"
 
-// OCC・ADR 月間ブッキングカーブ（2026-10 の画面修正 DB01）。
+// OCC・ADR月間BCグラフ（ブッキングカーブ — 2026-10 の画面修正 DB01）。
 // 対象月の宿泊日を1日選び、予約日（横軸）ごとの予約室数の積み上がりを、前年同曜日の参考カーブ・客室数・予算ADRと並べる。
 // 左軸 = 室数、右軸 = 円。実データ: GET /daily/booking-curve。
 // ADR の推移・販売価格の履歴（HR）・団体（GROUP）は PMS・サイトコントローラー連携（Phase 4）で入る系列で、
@@ -125,7 +125,7 @@ export function BookingCurveMonthCard({ year, month }: BookingCurveMonthCardProp
       <CardHeader className="pb-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-base font-medium">OCC・ADR 月間ブッキングカーブ</CardTitle>
+            <CardTitle className="text-base font-medium">OCC・ADR月間BCグラフ</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               選んだ宿泊日の予約室数が、予約日ごとにどう積み上がったかを前年同曜日（参考カーブ）と比べます。左軸: 室数／右軸: 円
             </p>
@@ -222,10 +222,11 @@ export function BookingCurveMonthCard({ year, month }: BookingCurveMonthCardProp
                   <Area yAxisId="rooms" type="stepAfter" dataKey="group" name="GROUP" fill="var(--chart-2)" fillOpacity={0.5} stroke="var(--chart-2)" />
                 )}
                 {totalRooms != null && (
-                  <ReferenceLine yAxisId="rooms" y={totalRooms} stroke="currentColor" strokeWidth={2} label={{ value: `客室 ${totalRooms}`, position: "insideTopLeft", fontSize: 10 }} />
+                  <ReferenceLine yAxisId="rooms" y={totalRooms} ifOverflow="extendDomain" stroke="currentColor" strokeWidth={2} label={{ value: `客室 ${totalRooms}`, position: "insideTopLeft", fontSize: 10 }} />
                 )}
                 {curve.budget?.adr != null && (
-                  <ReferenceLine yAxisId="yen" y={curve.budget.adr} stroke="var(--chart-4)" strokeWidth={2} label={{ value: "予算ADR", position: "insideBottomRight", fontSize: 10 }} />
+                  // 実データでは円の軸に線が無いことがある（ADR・HR は PMS 連携後）。そのままだと軸の範囲外として消えるので広げる
+                  <ReferenceLine yAxisId="yen" y={curve.budget.adr} ifOverflow="extendDomain" stroke="var(--chart-4)" strokeWidth={2} label={{ value: "予算ADR", position: "insideBottomRight", fontSize: 10 }} />
                 )}
                 <Line yAxisId="rooms" type="linear" dataKey="reference" name="参考カーブ（前年同曜日）" stroke="#f19a9a" strokeWidth={1.5} dot={false} connectNulls />
                 <Line yAxisId="rooms" type="linear" dataKey="rooms" name="Booking Curve" stroke="var(--positive)" strokeWidth={3} dot={false} connectNulls />

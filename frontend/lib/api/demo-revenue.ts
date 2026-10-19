@@ -15,7 +15,7 @@ import {
   mockSeasonBoost,
   setMockEvents,
   toLocalDateStr,
-  type mockPricingCalendar,
+  mockPricingCalendar,
 } from "./demo-data"
 import type {
   BookingCurve,
@@ -25,6 +25,7 @@ import type {
   DayTypeHistoryPoint,
   EventImportRow,
   ImportResult,
+  MonthPace,
   NewHotelInput,
   NewHotelOpening,
   PricingCalendar,
@@ -293,6 +294,52 @@ export function mockDailyPerformance(hotelId: string, year: number, month: numbe
   }
 }
 
+/** 月の予約の積み上がりのデモ（180日前 → 結果。まだ来ていない残日数は出さない） */
+export function mockMonthPace(hotelId: string, year: number, month: number): MonthPace {
+  const totalRooms = MOCK_HOTEL.totalRooms
+  const { calendar } = mockPricingCalendar(hotelId, year, month)
+  const curves = calendar.map((day) => demoDayCurve(new Date(`${day.date}T00:00:00`), day.actualOccupancy ?? day.predictedOccupancy ?? 0.7))
+  const lastDay = new Date(year, month - 1, calendar.length)
+  const minLead = Math.max(0, leadDays(lastDay))
+  const capacity = totalRooms * calendar.length
+  const points = []
+  // 予約は積み上がるだけ（日ごとに、それまでの最大を下回らない）
+  const ownMax = curves.map(() => 0)
+  const lyMax = curves.map(() => 0)
+  for (let lead = 180; lead >= minLead; lead--) {
+    let rooms = 0
+    let lastYearRooms = 0
+    curves.forEach((curve, i) => {
+      const [own, ly] = curve.at(lead)
+      ownMax[i] = Math.max(ownMax[i], own)
+      lyMax[i] = Math.max(lyMax[i], ly)
+      rooms += ownMax[i]
+      lastYearRooms += lyMax[i]
+    })
+    points.push({
+      daysBefore: lead,
+      rooms,
+      occupancy: Math.round((rooms / capacity) * 1000) / 1000,
+      comparableRooms: rooms,
+      lastYearRooms,
+    })
+  }
+  const budget = mockBudgetValues(year, month)
+  const aiRooms = calendar.reduce((sum, d) => sum + Math.round(totalRooms * (d.predictedOccupancy ?? 0)), 0)
+  return {
+    hotelId,
+    year,
+    month,
+    totalRooms,
+    days: calendar.length,
+    budgetRooms: budget.budgetRooms ?? null,
+    budgetOccupancy: budget.budgetRooms != null ? Math.round((budget.budgetRooms / capacity) * 1000) / 1000 : null,
+    aiRooms,
+    aiOccupancy: Math.round((aiRooms / capacity) * 1000) / 1000,
+    points,
+  }
+}
+
 // ---- 周辺の新規ホテル ----
 
 let mockNewHotels: NewHotelOpening[] | null = null
@@ -362,7 +409,7 @@ export function importMockNewHotels(hotelId: string, rows: NewHotelInput[], dryR
 /** イベントの取り込み（同じ名前・同じ開始日は上書き）。dryRun なら件数だけ */
 export function importMockEvents(hotelId: string, rows: EventImportRow[], dryRun: boolean): ImportResult {
   const list = getMockEvents(hotelId)
-  const dateKey = (d: Date | string) => (typeof d === "string" ? d.slice(0, 10) : toLocalDateStr(d))
+  const dateKey = (d: Date | string) => (typeof d === "string" ? d : d.toISOString()).slice(0, 10)
   const key = (name: string, start: Date | string) => `${name}\u0000${dateKey(start)}`
   const existing = new Map(list.map((e) => [key(e.name, e.startDate), e]))
   const updated = rows.filter((r) => existing.has(key(r.name, r.startDate))).length
@@ -377,8 +424,8 @@ export function importMockEvents(hotelId: string, rows: EventImportRow[], dryRun
         hotelId,
         name: row.name,
         type: row.type,
-        startDate: new Date(`${row.startDate}T00:00:00`),
-        endDate: new Date(`${row.endDate}T00:00:00`),
+        startDate: new Date(`${row.startDate}T00:00:00Z`),
+        endDate: new Date(`${row.endDate}T00:00:00Z`),
         location: row.location,
         expectedImpact: row.expectedImpact,
         description: row.description,

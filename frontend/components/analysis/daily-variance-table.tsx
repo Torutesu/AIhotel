@@ -91,10 +91,12 @@ export function DailyVarianceTable({ days, totalRooms, month, selectedDate, onSe
                 key={row.date}
                 role="button"
                 tabIndex={0}
-                aria-label={`${month}/${row.day}を選んで日のグラフとブッキングカーブを表示`}
+                aria-label={`${month}/${row.day}を選んで日のグラフを表示`}
                 aria-pressed={isSelected}
                 onClick={() => onSelectDate(row.date)}
                 onKeyDown={(e) => {
+                  // 行の中の日付ボタンでのキー操作はボタン側に任せる（ここで止めるとボタンが押せない）
+                  if (e.target !== e.currentTarget) return
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault()
                     onSelectDate(row.date)

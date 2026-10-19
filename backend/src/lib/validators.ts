@@ -166,7 +166,8 @@ export const updatePriceRankSchema = createPriceRankSchema.omit({ hotelId: true,
 
 const eventBaseSchema = z.object({
   hotelId: entityIdSchema,
-  name: z.string().min(1).max(200),
+  // 前後の空白は詰める（取り込みの「同じ名前」の照合と揃える）
+  name: z.string().trim().min(1).max(200),
   type: z.string().min(1).max(50),
   startDate: dateOnlyInputSchema,
   endDate: dateOnlyInputSchema,
@@ -447,7 +448,10 @@ export const createNewHotelSchema = newHotelFieldsSchema.extend({
   openingDate: dateOnlyInputSchema,
 })
 
-export const updateNewHotelSchema = newHotelFieldsSchema.extend({ openingDate: dateOnlyInputSchema }).partial()
+export const updateNewHotelSchema = newHotelFieldsSchema
+  .extend({ openingDate: dateOnlyInputSchema })
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目がありません' })
 
 export const MAX_NEW_HOTEL_IMPORT_ROWS = 500
 // 取り込み: 同じ名前・同じ開業日の行は上書きする

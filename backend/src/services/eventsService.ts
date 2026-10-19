@@ -151,6 +151,12 @@ export async function importEventsService(input: ImportEventsInput, userId: stri
 
   await prisma.$transaction(
     async (tx) => {
+      // 確認のあとに別の取り込み・登録が入っていても上書きの対象を取り違えないよう、書く直前に照合し直す
+      const current = await tx.event.findMany({
+        where: { hotelId: hotel.id, OR: input.rows.map((r) => ({ name: r.name, startDate: toDate(r.startDate) })) },
+        select: { id: true, name: true, startDate: true },
+      })
+      const currentByKey = new Map(current.map((e) => [`${e.name}\u0000${e.startDate.toISOString().slice(0, 10)}`, e.id]))
       for (const row of input.rows) {
         const data = {
           name: row.name,
@@ -162,7 +168,7 @@ export async function importEventsService(input: ImportEventsInput, userId: stri
           description: row.description ?? null,
           excludeFromHistory: row.excludeFromHistory ?? false,
         }
-        const id = existingByKey.get(`${row.name}\u0000${row.startDate}`)
+        const id = currentByKey.get(`${row.name}\u0000${row.startDate}`)
         if (id) {
           await tx.event.updateMany({ where: { id, hotelId: hotel.id }, data })
         } else {

@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { eachUtcDay, monthRange } from '../lib/date.js'
-import { allocateDailyBudget, type DailyBudget } from './budgetAllocation.js'
+import { allocateDailyBudget, type DailyBudget, type MonthBudgetInput } from './budgetAllocation.js'
 import { isInRanges, lastYearSameWeekday, type BookingCurvePoint } from './forecast/pace.js'
 
 // 月の「日ごとの比較の材料」をまとめて読む（2026-10 デモ画面の修正）。
@@ -21,6 +21,8 @@ export interface LastYearDay {
 
 export interface MonthContext {
   days: Date[]
+  /** 月次予算（登録が無ければ null） */
+  monthBudget: MonthBudgetInput | null
   /** days と同じ並び */
   budgets: DailyBudget[]
   /** 宿泊日（getTime）→ 予約積上 */
@@ -42,16 +44,26 @@ function groupCurves(rows: Array<{ stayDate: Date; daysBefore: number; roomsBook
   return map
 }
 
+/**
+ * @param options.curves 読む予約積上。'all' = 月の全宿泊日（既定）、'none' = 読まない、Date[] = その宿泊日だけ。
+ *   予約積上は毎日取り込むと1宿泊日あたり最大数百行になるため、使わない画面では読まない
+ */
 export async function loadMonthContext(
   hotelId: string,
   totalRooms: number,
   year: number,
-  month: number
+  month: number,
+  options: { curves?: 'all' | 'none' | Date[] } = {}
 ): Promise<MonthContext> {
   const { start, end } = monthRange(year, month)
   const days = eachUtcDay(start, end)
   const lastYearStart = lastYearSameWeekday(start)
   const lastYearEnd = lastYearSameWeekday(days[days.length - 1])
+  const curves = options.curves ?? 'all'
+  const curveFilter = (from: Date, to: Date, stayDates: Date[] | null) =>
+    stayDates ? { stayDate: { in: stayDates } } : { stayDate: { gte: from, lte: to } }
+  const ownStayDates = Array.isArray(curves) ? curves : null
+  const lastYearStayDates = ownStayDates ? ownStayDates.map(lastYearSameWeekday) : null
 
   const [budget, lastYearRows, specialDays, curveRows, lastYearCurveRows] = await Promise.all([
     prisma.monthlyBudget.findUnique({
@@ -66,14 +78,18 @@ export async function loadMonthContext(
       where: { hotelId, excludeFromHistory: true, startDate: { lte: lastYearEnd }, endDate: { gte: lastYearStart } },
       select: { startDate: true, endDate: true },
     }),
-    prisma.bookingCurveData.findMany({
-      where: { hotelId, stayDate: { gte: start, lt: end } },
-      select: { stayDate: true, daysBefore: true, roomsBooked: true },
-    }),
-    prisma.bookingCurveData.findMany({
-      where: { hotelId, stayDate: { gte: lastYearStart, lte: lastYearEnd } },
-      select: { stayDate: true, daysBefore: true, roomsBooked: true },
-    }),
+    curves === 'none'
+      ? Promise.resolve([])
+      : prisma.bookingCurveData.findMany({
+          where: { hotelId, ...curveFilter(start, days[days.length - 1], ownStayDates) },
+          select: { stayDate: true, daysBefore: true, roomsBooked: true },
+        }),
+    curves === 'none'
+      ? Promise.resolve([])
+      : prisma.bookingCurveData.findMany({
+          where: { hotelId, ...curveFilter(lastYearStart, lastYearEnd, lastYearStayDates) },
+          select: { stayDate: true, daysBefore: true, roomsBooked: true },
+        }),
   ])
 
   const special = (date: Date) => isInRanges(date, specialDays)
@@ -86,5 +102,5 @@ export async function loadMonthContext(
     days.map((day) => lastYearDaily.get(lastYearSameWeekday(day).getTime())?.soldRooms ?? null)
   )
 
-  return { days, budgets, curves: groupCurves(curveRows), lastYearCurves, lastYearDaily }
+  return { days, monthBudget: budget, budgets, curves: groupCurves(curveRows), lastYearCurves, lastYearDaily }
 }

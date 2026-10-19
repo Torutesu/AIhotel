@@ -26,10 +26,22 @@ describe('allocateDailyBudget', () => {
     expect(days[0].revenue).toBe(300_000)
   })
 
-  it('1日の室数は客室数で頭打ちにし、売上も同じ割合で切る', () => {
+  it('1日の室数は客室数で頭打ちにし、あふれた分はほかの日に配り直す（月の合計は予算のまま）', () => {
     const days = allocateDailyBudget({ budgetRevenue: 2_000_000, budgetRooms: 200, budgetAdr: 10_000, budgetOccupancy: null }, 100, [1, 3])
     expect(days[1]).toMatchObject({ rooms: 100, occupancy: 1, revenue: 1_000_000, adr: 10_000 })
-    expect(days[0]).toMatchObject({ rooms: 50, revenue: 500_000 })
+    expect(days[0]).toMatchObject({ rooms: 100, revenue: 1_000_000 })
+
+    // 稼働率95%の予算（31日・客室100）で週末の重みが大きくても、合計は予算どおり
+    const weights = Array.from({ length: 31 }, (_, i) => (i % 7 === 5 || i % 7 === 6 ? 98 : 80))
+    const high = allocateDailyBudget({ budgetRevenue: null, budgetRooms: null, budgetAdr: 15_000, budgetOccupancy: 0.95 }, 100, weights)
+    expect(high.every((d) => (d.rooms ?? 0) <= 100)).toBe(true)
+    expect(high.reduce((s, d) => s + (d.revenue ?? 0), 0)).toBeCloseTo(0.95 * 100 * 31 * 15_000, -3)
+    expect(high.reduce((s, d) => s + (d.rooms ?? 0), 0)).toBe(2945)
+  })
+
+  it('月の予算が客室数×日数を超えるときは全日を満室にする', () => {
+    const days = allocateDailyBudget({ budgetRevenue: null, budgetRooms: 500, budgetAdr: 10_000, budgetOccupancy: null }, 100, [1, 1, 1])
+    expect(days.map((d) => d.rooms)).toEqual([100, 100, 100])
   })
 
   it('予算が無ければすべて null', () => {

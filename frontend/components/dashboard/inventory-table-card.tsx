@@ -26,9 +26,9 @@ const INVENTORY_ROOM_TYPES = [
 
 /** 団体のセグメント（サンプル） */
 export const GROUP_SEGMENTS = [
-  { key: "general", label: "一般団体" },
-  { key: "recruit", label: "募集" },
-  { key: "school", label: "修学旅行" },
+  { key: "general", label: "一般団体室数" },
+  { key: "recruit", label: "募集室数" },
+  { key: "school", label: "修学旅行室数" },
   { key: "sports", label: "スポーツ団体", note: "敗退CXL団体" },
 ]
 
@@ -131,7 +131,7 @@ interface InventoryTableCardProps {
 
 export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
   const { weekendDays, isWeekendDow } = useWeekend()
-  const [snapshotPeriod, setSnapshotPeriod] = useState("1")
+  const [snapshotPeriod, setSnapshotPeriod] = useState("7")
   const [bySegment, setBySegment] = useState(false)
   const rooms = totalRooms ?? 200
 
@@ -277,7 +277,7 @@ export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
               {bySegment ? (
                 <>
                   {GROUP_SEGMENTS.map((seg) => (
-                    <Fragment key={seg.key}>{groupRows(`${seg.label}室数`, (d) => d.segments[seg.key], seg.note)}</Fragment>
+                    <Fragment key={seg.key}>{groupRows(seg.label, (d) => d.segments[seg.key], seg.note)}</Fragment>
                   ))}
                   {groupRows("合計", (d) => d.group, undefined, true)}
                 </>

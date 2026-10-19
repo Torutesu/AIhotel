@@ -3,16 +3,9 @@
 // 前年比 = 前年同曜日（364日前）と比べる。稼働率は pt 差、ADR・REV-Per・室料売上は伸び率（%）。
 // 画面から切り離した純関数にしてテストで固定する。
 
-import type { BookingCurve, DailyPerformanceDay, DayMetrics } from "@/lib/api"
+import type { BookingCurve, DailyPerformanceDay, DayMetrics, MonthPace } from "@/lib/api"
 
 export type VarianceMetric = "occupancy" | "adr" | "revPar" | "revenue"
-
-export const VARIANCE_METRICS: Array<{ key: VarianceMetric; label: string }> = [
-  { key: "occupancy", label: "稼働率" },
-  { key: "adr", label: "ADR" },
-  { key: "revPar", label: "REV-Per" },
-  { key: "revenue", label: "室料売上" },
-]
 
 export type VarianceSet = Record<VarianceMetric, number | null>
 
@@ -69,18 +62,23 @@ export function buildVarianceRows(days: DailyPerformanceDay[]): VarianceRow[] {
   })
 }
 
-/** 指標を日ごとに足し上げた月の値（結果の出た日だけ。ADR = 売上 ÷ 室数、REV-Per = 売上 ÷ 客室数×日数） */
+/**
+ * 指標を日ごとに足し上げた月の値（ADR = 売上 ÷ 室数、REV-Per = 売上 ÷ 客室数×日数）。
+ * 1日でも値の欠けた指標は出さない（欠けた日を 0 と数えると、予算未登録の月に差異が実績そのものになる）
+ */
 function totalOf(list: Array<DayMetrics | null>, totalRooms: number): DayMetrics | null {
-  const valid = list.filter((m): m is DayMetrics => m != null)
-  if (valid.length === 0) return null
-  const rooms = valid.reduce((s, m) => s + (m.soldRooms ?? 0), 0)
-  const revenue = valid.reduce((s, m) => s + (m.revenue ?? 0), 0)
+  if (list.length === 0 || list.some((m) => m == null)) return null
+  const valid = list as DayMetrics[]
+  const sumOf = (pick: (m: DayMetrics) => number | null) =>
+    valid.every((m) => pick(m) != null) ? valid.reduce((s, m) => s + (pick(m) as number), 0) : null
+  const rooms = sumOf((m) => m.soldRooms)
+  const revenue = sumOf((m) => m.revenue)
   const capacity = totalRooms * valid.length
   return {
     soldRooms: rooms,
-    occupancy: capacity > 0 ? rooms / capacity : null,
-    adr: rooms > 0 ? revenue / rooms : null,
-    revPar: capacity > 0 ? revenue / capacity : null,
+    occupancy: rooms != null && capacity > 0 ? rooms / capacity : null,
+    adr: rooms != null && revenue != null && rooms > 0 ? revenue / rooms : null,
+    revPar: revenue != null && capacity > 0 ? revenue / capacity : null,
     revenue,
   }
 }
@@ -90,7 +88,11 @@ export function summarizeVariance(days: DailyPerformanceDay[], totalRooms: numbe
   const done = days.filter((d) => d.actual != null)
   const actual = totalOf(done.map((d) => d.actual), totalRooms)
   const pick = (f: (d: DailyPerformanceDay) => DayMetrics | null) => {
-    const pairs = done.filter((d) => f(d) != null)
+    // 比べる相手の値がある日だけ（予算が未登録なら日割り予算の項目はすべて null）
+    const pairs = done.filter((d) => {
+      const target = f(d)
+      return target != null && (target.soldRooms != null || target.revenue != null)
+    })
     return { actual: totalOf(pairs.map((d) => d.actual), totalRooms), target: totalOf(pairs.map(f), totalRooms) }
   }
   const budget = pick((d) => d.budget)
@@ -143,4 +145,17 @@ export function buildDayPaceRows(curve: BookingCurve): DayPaceRow[] {
       yoy: ly != null && ly >= 3 ? rooms / ly - 1 : null,
     }
   })
+}
+
+/**
+ * 月のグラフ（月全体の 180日前 → 結果）。月の予約室数の合計を、予算・AI の予測の合計・前年同曜日の同じ時点と比べる。
+ * 日のグラフと同じ形の行にする
+ */
+export function buildMonthPaceRows(pace: MonthPace): DayPaceRow[] {
+  return pace.points.map((p) => ({
+    daysBefore: p.daysBefore,
+    budget: pace.budgetOccupancy != null ? p.occupancy - pace.budgetOccupancy : null,
+    ai: pace.aiOccupancy != null ? p.occupancy - pace.aiOccupancy : null,
+    yoy: p.comparableRooms != null && p.lastYearRooms != null && p.lastYearRooms >= 3 ? p.comparableRooms / p.lastYearRooms - 1 : null,
+  }))
 }

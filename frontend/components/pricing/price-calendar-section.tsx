@@ -25,7 +25,7 @@ import {
   specialDayNameOf,
   type MonthCalendar,
 } from "@/components/pricing/pricing-constants"
-import { DAY_NAMES, monthLabel as monthLabelOf } from "@/lib/date"
+import { DAY_NAMES, monthLabel as monthLabelOf, parseDateStr } from "@/lib/date"
 import { formatPercent as pct, formatYen as yen } from "@/lib/format"
 import { DayTypeBadge, DayTypeHelp } from "@/components/pricing/day-type"
 import { OnHandChart } from "@/components/pricing/on-hand-chart"
@@ -46,34 +46,42 @@ interface PriceCalendarSectionProps {
   onSelectDay: (day: PricingCalendarDay) => void
 }
 
-/** 月計（予算・現在・AI の想定）。純関数 */
+/**
+ * 月計（予算・現在・AI の想定）。純関数。
+ * 稼働率は値のある日の室数 ÷（客室数 × 値のある日数）で出す（値の欠けた日を 0室と数えると月計が低く出る）。
+ * ADR は売上と室数の両方が分かる日だけで出す
+ */
 export function summarizeCalendar(days: PricingCalendarDay[], totalRooms: number | null) {
   const sum = (values: Array<number | null>) => {
     const valid = values.filter((v): v is number => v != null)
     return valid.length > 0 ? valid.reduce((a, b) => a + b, 0) : null
   }
-  const capacity = totalRooms != null && totalRooms > 0 ? totalRooms * days.length : null
-  const occ = (rooms: number | null) => (rooms != null && capacity ? rooms / capacity : null)
-  const adr = (revenue: number | null, rooms: number | null) => (revenue != null && rooms ? revenue / rooms : null)
+  const occ = (values: Array<number | null>) => {
+    const valid = values.filter((v): v is number => v != null)
+    if (valid.length === 0 || totalRooms == null || totalRooms <= 0) return null
+    return valid.reduce((a, b) => a + b, 0) / (totalRooms * valid.length)
+  }
+  /** 売上・室数の両方が分かる日だけで ADR を出す */
+  const adrOf = (pairs: Array<[number | null, number | null]>) => {
+    const valid = pairs.filter((p): p is [number, number] => p[0] != null && p[1] != null)
+    const rooms = valid.reduce((a, [, r]) => a + r, 0)
+    return rooms > 0 ? valid.reduce((a, [rev]) => a + rev, 0) / rooms : null
+  }
+  const aiRoomsOf = (d: PricingCalendarDay) =>
+    totalRooms != null && d.predictedOccupancy != null ? Math.round(d.predictedOccupancy * totalRooms) : null
 
-  const budgetRooms = sum(days.map((d) => d.budgetRooms))
   const budgetRevenue = sum(days.map((d) => d.budgetRevenue))
-  const onHandRooms = sum(days.map((d) => d.onHandRooms))
-  // 現在ADR は売上の分かる日だけで出す（先の日の予約の売上は PMS 連携後）
-  const withRevenue = days.filter((d) => d.currentRevenue != null && d.onHandRooms != null)
-  const currentRevenue = sum(days.map((d) => d.currentRevenue))
-  const aiRooms = totalRooms != null ? sum(days.map((d) => (d.predictedOccupancy != null ? Math.round(d.predictedOccupancy * totalRooms) : null))) : null
-  const expectedRevenue = sum(days.map((d) => d.expectedRevenue))
   return {
-    budgetAdr: adr(budgetRevenue, budgetRooms) ?? days.find((d) => d.budgetAdr != null)?.budgetAdr ?? null,
-    currentAdr: adr(sum(withRevenue.map((d) => d.currentRevenue)), sum(withRevenue.map((d) => d.onHandRooms))),
-    expectedAdr: adr(expectedRevenue, aiRooms),
-    budgetOccupancy: occ(budgetRooms),
-    currentOccupancy: occ(onHandRooms),
-    predictedOccupancy: occ(aiRooms),
+    budgetAdr: adrOf(days.map((d) => [d.budgetRevenue, d.budgetRooms])) ?? days.find((d) => d.budgetAdr != null)?.budgetAdr ?? null,
+    // 現在ADR は売上の分かる日だけで出す（先の日の予約の売上は PMS 連携後）
+    currentAdr: adrOf(days.map((d) => [d.currentRevenue, d.onHandRooms])),
+    expectedAdr: adrOf(days.map((d) => [d.expectedRevenue, aiRoomsOf(d)])),
+    budgetOccupancy: occ(days.map((d) => d.budgetRooms)),
+    currentOccupancy: occ(days.map((d) => d.onHandRooms)),
+    predictedOccupancy: occ(days.map(aiRoomsOf)),
     budgetRevenue,
-    currentRevenue,
-    expectedRevenue,
+    currentRevenue: sum(days.map((d) => d.currentRevenue)),
+    expectedRevenue: sum(days.map((d) => d.expectedRevenue)),
   }
 }
 
@@ -186,7 +194,7 @@ export function PriceCalendarSection({
                 <tbody>
                   {days.map((day) => {
                     const [, , dayNum] = day.date.split("-")
-                    const dateObj = new Date(day.date)
+                    const dateObj = parseDateStr(day.date)
                     const dow = dateObj.getDay()
                     const holiday = holidayNameOf(dateObj)
                     const special = specialDayNameOf(dateObj)

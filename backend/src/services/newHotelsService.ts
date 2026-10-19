@@ -1,5 +1,6 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
-import { BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
+import { BadRequestError, ConflictError, NotFoundError } from '../middlewares/errorHandler.js'
 import type { CreateNewHotelInput, ImportNewHotelsInput, UpdateNewHotelInput } from '../lib/validators.js'
 
 // 周辺の新規ホテル（開業予定・開業済み — 外部需要動向 2026-10）。
@@ -11,17 +12,29 @@ export async function listNewHotelsService(hotelId: string) {
   return prisma.newHotelOpening.findMany({ where: { hotelId }, orderBy: [{ openingDate: 'asc' }, { name: 'asc' }] })
 }
 
+const DUPLICATE_MESSAGE = '同じ名前・同じ開業日の新規ホテルが既に登録されています'
+
+/** 一意制約（ホテル・名前・開業日）の違反を 409 にする */
+async function withDuplicateCheck<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run()
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw new ConflictError(DUPLICATE_MESSAGE)
+    throw err
+  }
+}
+
 export async function createNewHotelService(input: CreateNewHotelInput, createdByUserId: string) {
   const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true }, select: { tenantId: true } })
   if (!hotel) throw new NotFoundError('ホテル')
-  return prisma.newHotelOpening.create({ data: { ...input, tenantId: hotel.tenantId, createdByUserId } })
+  return withDuplicateCheck(() => prisma.newHotelOpening.create({ data: { ...input, tenantId: hotel.tenantId, createdByUserId } }))
 }
 
 /** 更新。更新前の値も返し、呼び出し側が監査ログの oldValue に使う */
 export async function updateNewHotelService(id: string, hotelId: string, data: UpdateNewHotelInput) {
   const before = await prisma.newHotelOpening.findFirst({ where: { id, hotelId } })
   if (!before) throw new NotFoundError('新規ホテル')
-  const result = await prisma.newHotelOpening.updateMany({ where: { id, hotelId }, data })
+  const result = await withDuplicateCheck(() => prisma.newHotelOpening.updateMany({ where: { id, hotelId }, data }))
   if (result.count === 0) throw new NotFoundError('新規ホテル')
   const after = await prisma.newHotelOpening.findUnique({ where: { id } })
   return { before, after }
@@ -65,7 +78,7 @@ export interface ImportNewHotelsResult {
 
 /**
  * まとめて登録する。同じホテル・同じ名前・同じ開業日の行は上書きする（何度取り込んでも増えない）。
- * 全行を検証してから1トランザクションで書く
+ * 全行を検証してから1トランザクションで書く。書き込みは一意制約のキーで upsert するので、同時に取り込んでも重複しない
  */
 export async function importNewHotelsService(input: ImportNewHotelsInput, userId: string): Promise<ImportNewHotelsResult> {
   const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true }, select: { id: true, tenantId: true } })
@@ -97,9 +110,8 @@ export async function importNewHotelsService(input: ImportNewHotelsInput, userId
   await prisma.$transaction(
     async (tx) => {
       for (const row of input.rows) {
-        const data = {
-          name: row.name,
-          openingDate: toDate(row.openingDate),
+        const openingDate = toDate(row.openingDate)
+        const fields = {
           rooms: row.rooms ?? null,
           category: row.category ?? null,
           location: row.location ?? null,
@@ -107,12 +119,11 @@ export async function importNewHotelsService(input: ImportNewHotelsInput, userId
           expectedImpact: row.expectedImpact ?? null,
           notes: row.notes ?? null,
         }
-        const id = existingByKey.get(keyOf(row.name, row.openingDate))
-        if (id) {
-          await tx.newHotelOpening.updateMany({ where: { id, hotelId: hotel.id }, data })
-        } else {
-          await tx.newHotelOpening.create({ data: { ...data, hotelId: hotel.id, tenantId: hotel.tenantId, createdByUserId: userId } })
-        }
+        await tx.newHotelOpening.upsert({
+          where: { hotelId_name_openingDate: { hotelId: hotel.id, name: row.name, openingDate } },
+          update: fields,
+          create: { ...fields, name: row.name, openingDate, hotelId: hotel.id, tenantId: hotel.tenantId, createdByUserId: userId },
+        })
       }
     },
     { timeout: 60_000 }

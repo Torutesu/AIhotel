@@ -20,7 +20,7 @@ export async function getBookingCurveService(hotelId: string, stayDate: Date) {
       orderBy: { daysBefore: 'desc' },
     }),
     // 予算ADR・日割り予算・前年同曜日の予約積上（2026-10 ダッシュボードの月間BCグラフ・日別パフォーマンスの日のグラフ）
-    loadMonthContext(hotelId, totalRooms, stayDate.getUTCFullYear(), stayDate.getUTCMonth() + 1),
+    loadMonthContext(hotelId, totalRooms, stayDate.getUTCFullYear(), stayDate.getUTCMonth() + 1, { curves: [stayDate] }),
     prisma.aiPriceRecommendation.findFirst({
       where: { hotelId, date: stayDate, roomTypeId: null },
       select: { predictedOccupancy: true, predictedAdr: true, recommendedPrice: true },

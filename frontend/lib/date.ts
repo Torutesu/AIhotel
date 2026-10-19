@@ -26,6 +26,15 @@ export function toDateStr(date: Date): string {
   ).padStart(2, "0")}`
 }
 
+/**
+ * "yyyy-MM-dd" をその日のローカル 0時の Date にする（toDateStr の逆）。
+ * new Date("yyyy-MM-dd") は UTC の 0時になり、UTC より西の時間帯では曜日・日付が1日ずれるため使わない
+ */
+export function parseDateStr(value: string): Date {
+  const [y, m, d] = value.slice(0, 10).split("-").map(Number)
+  return new Date(y, m - 1, d)
+}
+
 /** Date を "yyyy-MM"（ローカル時刻基準）に整形する */
 export function toMonthStr(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`

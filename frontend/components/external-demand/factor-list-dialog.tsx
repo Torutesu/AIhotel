@@ -37,7 +37,7 @@ export function FactorListDialog({ open, onOpenChange, category, factors }: Fact
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => downloadCsv(`外部需要動向_${category}_${fileDateStamp()}.csv`, factorsToCsvRows(category, factors))}
+            onClick={() => downloadCsv(`外部需要動向_${category}_サンプル_${fileDateStamp()}.csv`, factorsToCsvRows(category, factors))}
           >
             <Download className="h-4 w-4" aria-hidden />
             CSV出力
