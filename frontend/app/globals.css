@@ -4,25 +4,25 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* OpenAI Developers style reference — stark white laboratory */
+  /* ホテレベ / デジタル庁DSを参照したライトテーマ */
   --background: #ffffff; /* paper white canvas */
-  --foreground: #282828; /* graphite — repeated body/UI text */
-  --card: #f9f9f9; /* fog white */
+  --foreground: #1a1a1a; /* graphite — repeated body/UI text */
+  --card: #ffffff; /* fog white */
   --card-foreground: #282828;
   --popover: #ffffff;
   --popover-foreground: #282828;
-  --primary: #000000; /* obsidian — the single dark CTA mass */
+  --primary: #0017c1; /* DADS Blue 900 */
   --primary-foreground: #ffffff;
   --secondary: #ededed; /* mist gray */
   --secondary-foreground: #0d0d0d;
   --muted: #f3f3f3; /* linen */
-  --muted-foreground: #5d5d5d; /* ash gray */
+  --muted-foreground: #595959; /* ash gray */
   --accent: #f3f3f3;
   --accent-foreground: #181818;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #ededed; /* mist gray hairline */
-  --input: #ededed;
+  --border: #d9d9d9; /* mist gray hairline */
+  --input: #767676;
   --ring: #0d0d0d; /* neutral ink — no chromatic accent on controls */
   /* グラフ/データ指標色は元のパレットに戻す */
   --chart-1: oklch(0.55 0.18 250);
@@ -41,8 +41,8 @@
   --radius: 0.5rem; /* 8px — card/button/input radius */
   --sidebar: #ffffff;
   --sidebar-foreground: #282828;
-  --sidebar-primary: #ededed; /* ghost-nav active fill, not the CTA black */
-  --sidebar-primary-foreground: #0d0d0d;
+  --sidebar-primary: #e8f1fe; /* 選択中ナビゲーション */
+  --sidebar-primary-foreground: #0017c1;
   --sidebar-accent: #f3f3f3;
   --sidebar-accent-foreground: #181818;
   --sidebar-border: #ededed;
@@ -95,8 +95,10 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-heading: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif; /* 単一書体、weightのみで階層を作る */
+  --text-xs: 0.875rem;
+  --text-xs--line-height: 1.5;
+  --font-sans: var(--font-noto-sans-jp), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-heading: var(--font-noto-sans-jp), ui-sans-serif, system-ui, -apple-system, sans-serif; /* 単一書体、weightのみで階層を作る */
   --font-mono: "Geist Mono", "Geist Mono Fallback";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -185,3 +187,32 @@
     font-weight: 500;
   }
 }
+
+/* ホテレベ / デジタル庁DS: readable text, visible focus, fluid data containers. */
+@layer base {
+  html { scroll-padding-top: 1rem; }
+  body { line-height: 1.5; }
+  :focus-visible { outline: 2px solid #ffd43d; outline-offset: 2px; box-shadow: 0 0 0 6px #1a1a1a; }
+  h1, h2, h3 { overflow-wrap: anywhere; }
+  input, select, textarea { font-size: 1rem; }
+}
+@layer components {
+  .skip-link { position: fixed; top: 1rem; left: 1rem; z-index: 200; padding: .75rem 1rem; background: var(--background); color: var(--primary); transform: translateY(-200%); }
+  .skip-link:focus { transform: translateY(0); }
+  [data-slot="card"], [data-slot="card-content"], [data-slot="tabs-content"] { min-width: 0; }
+  [data-slot="table-container"] { max-width: 100%; overscroll-behavior-x: contain; }
+  [data-slot="button"] { min-height: 2.75rem; }
+  [data-slot="input"], [data-slot="select-trigger"] { min-height: 3rem; }
+  [data-slot="tabs-list"] { height: auto; min-height: 3rem; max-width: 100%; flex-wrap: wrap; justify-content: flex-start; }
+  [data-slot="tabs-trigger"] { min-height: 2.75rem; height: auto; }
+  [data-slot="dialog-content"] { max-height: 100dvh; overflow-y: auto; }
+  @media (max-width: 639px) {
+    [data-slot="card-header"], [data-slot="card-content"], [data-slot="card-footer"] { padding-inline: 1rem; }
+    [data-slot="button"] { min-height: 2.75rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+}
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid #ffd43d; outline-offset: 2px; box-shadow: 0 0 0 6px #1a1a1a; }
