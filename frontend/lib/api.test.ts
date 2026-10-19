@@ -336,6 +336,16 @@ describe("デモモード（バックエンド未接続）", () => {
     expect(after.map((a) => a.id)).not.toContain(target.id)
   })
 
+  it("イベントは追加・削除と同じく編集もデモのデータに反映する", async () => {
+    const [target] = await api.events("demo-hotel-001")
+    const updated = await api.updateEvent(target.id, "demo-hotel-001", { name: "改名した大会", startDate: "2026-11-03", endDate: "2026-11-04" })
+    expect(updated).toMatchObject({ id: target.id, name: "改名した大会", type: target.type })
+    expect(new Date(updated.startDate).toISOString()).toBe("2026-11-03T00:00:00.000Z")
+    const after = await api.events("demo-hotel-001")
+    expect(after.find((e) => e.id === target.id)?.name).toBe("改名した大会")
+    await expect(api.updateEvent("no-such-event", "demo-hotel-001", { name: "x" })).rejects.toThrow("イベントが見つかりません")
+  })
+
   it("サンプルを用意していない保存は、デモ表示中で保存できないことを伝える", async () => {
     await expect(api.saveBudgets({ hotelId: "demo-hotel-001", year: 2026, months: [] })).rejects.toThrow(
       "デモ表示中のため保存できません"

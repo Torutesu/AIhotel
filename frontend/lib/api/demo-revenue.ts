@@ -409,7 +409,7 @@ export function importMockNewHotels(hotelId: string, rows: NewHotelInput[], dryR
 /** イベントの取り込み（同じ名前・同じ開始日は上書き）。dryRun なら件数だけ */
 export function importMockEvents(hotelId: string, rows: EventImportRow[], dryRun: boolean): ImportResult {
   const list = getMockEvents(hotelId)
-  const dateKey = (d: Date | string) => (typeof d === "string" ? d.slice(0, 10) : toLocalDateStr(d))
+  const dateKey = (d: Date | string) => (typeof d === "string" ? d : d.toISOString()).slice(0, 10)
   const key = (name: string, start: Date | string) => `${name}\u0000${dateKey(start)}`
   const existing = new Map(list.map((e) => [key(e.name, e.startDate), e]))
   const updated = rows.filter((r) => existing.has(key(r.name, r.startDate))).length
@@ -424,8 +424,8 @@ export function importMockEvents(hotelId: string, rows: EventImportRow[], dryRun
         hotelId,
         name: row.name,
         type: row.type,
-        startDate: new Date(`${row.startDate}T00:00:00`),
-        endDate: new Date(`${row.endDate}T00:00:00`),
+        startDate: new Date(`${row.startDate}T00:00:00Z`),
+        endDate: new Date(`${row.endDate}T00:00:00Z`),
         location: row.location,
         expectedImpact: row.expectedImpact,
         description: row.description,

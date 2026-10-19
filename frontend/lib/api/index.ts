@@ -518,10 +518,27 @@ export const api = {
   },
 
   updateEvent(id: string, hotelId: string, input: UpdateEventInput): Promise<HotelEvent> {
-    return rawRequest(`/api/v1/events/${id}?hotelId=${hotelId}`, {
-      method: "PUT",
-      body: JSON.stringify(input),
-    })
+    return withDemoFallback(
+      () =>
+        rawRequest(`/api/v1/events/${id}?hotelId=${hotelId}`, {
+          method: "PUT",
+          body: JSON.stringify(input),
+        }),
+      () => {
+        const list = getMockEvents(hotelId)
+        const found = list.find((e) => e.id === id)
+        if (!found) throw new ApiClientError(404, "イベントが見つかりません")
+        const { startDate, endDate, ...rest } = input
+        const updated: HotelEvent = {
+          ...found,
+          ...rest,
+          ...(startDate ? { startDate: new Date(startDate) } : {}),
+          ...(endDate ? { endDate: new Date(endDate) } : {}),
+        }
+        setMockEvents(list.map((e) => (e.id === id ? updated : e)))
+        return updated
+      }
+    )
   },
 
   deleteEvent(id: string, hotelId: string): Promise<void> {

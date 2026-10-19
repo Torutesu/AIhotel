@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest"
 
-import { mockPricingCalendar } from "./demo-data"
-import { demoDayType, enrichMockPricingCalendar, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockMonthPace } from "./demo-revenue"
+import { eventsOnDate } from "@/components/pricing/pricing-constants"
+import { getMockEvents, mockPricingCalendar } from "./demo-data"
+import { demoDayType, enrichMockPricingCalendar, importMockEvents, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockMonthPace } from "./demo-revenue"
 
 // デモモードのデータ（2026-10）。日のタイプはバックエンド（services/forecast/dayType.test.ts）と同じ例で同じ答えになること
 
@@ -74,6 +75,31 @@ describe("importMockNewHotels", () => {
     importMockNewHotels("demo", [{ name: first.name, openingDate: first.openingDate, rooms: 999 }, { name: "新ホテル", openingDate: "2027-04-01" }], false)
     expect(getMockNewHotels("demo")).toHaveLength(before + 1)
     expect(getMockNewHotels("demo").find((h) => h.name === first.name)?.rooms).toBe(999)
+  })
+})
+
+describe("getMockEvents / importMockEvents", () => {
+  const today = new Date()
+  const day15 = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-15`
+
+  it("API と同じく日付を UTC の 0時で持つ（日本時間でも日付が前日にずれない）", () => {
+    const events = getMockEvents("demo")
+    for (const e of events) {
+      expect(new Date(e.startDate).getUTCHours()).toBe(0)
+      expect(new Date(e.endDate).getUTCHours()).toBe(0)
+    }
+    expect(eventsOnDate(events, day15).map((e) => e.name)).toContain("地域花火大会")
+  })
+
+  it("同じ名前・同じ開始日の行は上書きになり、取り込んだ日付も UTC の 0時になる", () => {
+    const dry = importMockEvents("demo", [
+      { name: "地域花火大会", type: "festival", startDate: day15, endDate: day15 },
+      { name: "新しい展示会", type: "conference", startDate: "2027-01-10", endDate: "2027-01-11" },
+    ], true)
+    expect(dry).toMatchObject({ dryRun: true, total: 2, created: 1, updated: 1 })
+    importMockEvents("demo", [{ name: "新しい展示会", type: "conference", startDate: "2027-01-10", endDate: "2027-01-11" }], false)
+    const added = getMockEvents("demo").find((e) => e.name === "新しい展示会")
+    expect(new Date(added!.startDate).toISOString()).toBe("2027-01-10T00:00:00.000Z")
   })
 })
 

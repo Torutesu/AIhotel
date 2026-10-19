@@ -553,6 +553,7 @@ export let mockEvents: HotelEvent[] | null = null
 
 export function getMockEvents(hotelId: string): HotelEvent[] {
   if (mockEvents) return mockEvents
+  // API と同じく日付は UTC の 0時で持つ（画面は ISO 文字列の先頭10文字を日付として読む）
   const today = new Date()
   mockEvents = [
     {
@@ -560,8 +561,8 @@ export function getMockEvents(hotelId: string): HotelEvent[] {
       hotelId,
       name: "地域花火大会",
       type: "festival",
-      startDate: new Date(today.getFullYear(), today.getMonth(), 15),
-      endDate: new Date(today.getFullYear(), today.getMonth(), 15),
+      startDate: new Date(Date.UTC(today.getFullYear(), today.getMonth(), 15)),
+      endDate: new Date(Date.UTC(today.getFullYear(), today.getMonth(), 15)),
       location: "近隣河川敷",
       expectedImpact: "high",
       description: "周辺ホテルの需要増加が見込まれます。",
@@ -577,8 +578,8 @@ export function getMockEvents(hotelId: string): HotelEvent[] {
       hotelId,
       name: e.name,
       type: e.type,
-      startDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + e.start),
-      endDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + e.end),
+      startDate: new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate() + e.start)),
+      endDate: new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate() + e.end)),
       location: e.location,
       expectedImpact: e.expectedImpact,
     })),
