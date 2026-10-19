@@ -610,7 +610,7 @@ TRUST_PROXY=1
 
 ### Pricing (`backend/src/routes/pricing.ts`)
 
-- `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）
+- `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）。日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプとその推移を含む（2026-10）
 - `GET /api/v1/pricing/strategy` - 価格戦略の重み付け取得（`hotelId`）
 - `PUT /api/v1/pricing/strategy` - 価格戦略の更新（**MANAGER以上**）。重みは3つ揃えて送る（合計100%必須）か、送らない。
   推奨の調整（比較人数・競合との価格差・ランクの下限/上限・1回の変動幅・ヒステリシス — #17）は送った項目だけが変わる
@@ -625,6 +625,13 @@ TRUST_PROXY=1
 - `POST /api/v1/events` - イベント登録（OPERATORも可 — F-DP-07）
 - `PUT /api/v1/events/:id` - イベント更新（**MANAGER以上**）
 - `DELETE /api/v1/events/:id` - イベント削除（**MANAGER以上**）
+- `POST /api/v1/events/import` - 規定フォーム（CSV）の取り込み（**MANAGER以上**、500行まで、`dryRun` 対応。同じ名前・同じ開始日は上書き — 2026-10）
+
+### New hotels（周辺の新規ホテル — 外部需要動向） (`backend/src/routes/newHotels.ts`)
+
+- `GET /api/v1/new-hotels` - 一覧（`hotelId`）
+- `POST /api/v1/new-hotels` / `PUT /api/v1/new-hotels/:id` / `DELETE /api/v1/new-hotels/:id` - 登録・更新・削除（**MANAGER以上**、監査ログ）
+- `POST /api/v1/new-hotels/import` - 規定フォーム（CSV）の取り込み（**MANAGER以上**、500行まで、`dryRun` 対応。同じ名前・同じ開業日は上書き）
 
 ### Reports (`backend/src/routes/reports.ts`)
 
@@ -632,7 +639,7 @@ TRUST_PROXY=1
 
 ### Daily（日別分析） (`backend/src/routes/daily.ts`)
 
-- `GET /api/v1/daily/booking-curve` - ブッキングカーブ取得（`hotelId`, `date`）
+- `GET /api/v1/daily/booking-curve` - ブッキングカーブ取得（`hotelId`, `date`）。前年同曜日の参考カーブ・日割り予算・AI の予測・結果を含む（2026-10）
 - `GET /api/v1/daily/competitor-prices` - 競合価格取得（`hotelId`, `startDate`, `endDate`。1〜3名価格）
 
 ### Analysis（各種分析） (`backend/src/routes/analysis.ts`)
@@ -640,6 +647,7 @@ TRUST_PROXY=1
 - `GET /api/v1/analysis/monthly` - 年間の月次推移取得（`hotelId`, `year`）
 - `GET /api/v1/analysis/competitor` - 競合分析取得（`hotelId`, `startDate`, `endDate`）
 - `GET /api/v1/analysis/reviews` - 口コミ評価点取得（`hotelId`。現状はシードデータ、収集バッチは未実装）
+- `GET /api/v1/analysis/daily-performance` - 日別パフォーマンス（`hotelId`, `year`, `month`。実績と日割り予算・AI の予測・前年同曜日 — 2026-10）
 
 ### Users (`backend/src/routes/users.ts`)
 
