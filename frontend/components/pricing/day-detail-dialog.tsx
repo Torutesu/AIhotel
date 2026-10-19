@@ -3,7 +3,7 @@
 // 日別の詳細情報ダイアログ（U-15 で pricing-tab.tsx から分割）
 // その日の推奨価格・需要予測と、その日にかかる登録済みイベント（GET /events）を表示する。
 // 以前は画面内だけに保持する「メモ保存」があり、保存したように見えてリロードで消えていたため廃止した（#80）。
-// イベントの登録・編集は「当月のイベント情報」から行う。
+// イベントの登録・編集・取り込みは「外部需要動向」のイベントから行う（2026-10）。
 
 import { Badge } from "@/components/ui/badge"
 import {
@@ -104,7 +104,7 @@ export function DayDetailDialog({ day, events, onClose }: DayDetailDialogProps) 
                       </ul>
                     )}
                     <p className="text-xs text-muted-foreground">
-                      イベントの登録・編集は、画面下の「当月のイベント情報」から行えます。登録したイベントは需要予測に反映されます。
+                      イベントの登録・編集・規定フォームでの取り込みは、メニューの「外部需要動向」＞イベントから行えます。登録したイベントは需要予測に反映されます。
                     </p>
                   </div>
                 </div>
