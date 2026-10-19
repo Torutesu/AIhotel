@@ -222,10 +222,11 @@ export function BookingCurveMonthCard({ year, month }: BookingCurveMonthCardProp
                   <Area yAxisId="rooms" type="stepAfter" dataKey="group" name="GROUP" fill="var(--chart-2)" fillOpacity={0.5} stroke="var(--chart-2)" />
                 )}
                 {totalRooms != null && (
-                  <ReferenceLine yAxisId="rooms" y={totalRooms} stroke="currentColor" strokeWidth={2} label={{ value: `客室 ${totalRooms}`, position: "insideTopLeft", fontSize: 10 }} />
+                  <ReferenceLine yAxisId="rooms" y={totalRooms} ifOverflow="extendDomain" stroke="currentColor" strokeWidth={2} label={{ value: `客室 ${totalRooms}`, position: "insideTopLeft", fontSize: 10 }} />
                 )}
                 {curve.budget?.adr != null && (
-                  <ReferenceLine yAxisId="yen" y={curve.budget.adr} stroke="var(--chart-4)" strokeWidth={2} label={{ value: "予算ADR", position: "insideBottomRight", fontSize: 10 }} />
+                  // 実データでは円の軸に線が無いことがある（ADR・HR は PMS 連携後）。そのままだと軸の範囲外として消えるので広げる
+                  <ReferenceLine yAxisId="yen" y={curve.budget.adr} ifOverflow="extendDomain" stroke="var(--chart-4)" strokeWidth={2} label={{ value: "予算ADR", position: "insideBottomRight", fontSize: 10 }} />
                 )}
                 <Line yAxisId="rooms" type="linear" dataKey="reference" name="参考カーブ（前年同曜日）" stroke="#f19a9a" strokeWidth={1.5} dot={false} connectNulls />
                 <Line yAxisId="rooms" type="linear" dataKey="rooms" name="Booking Curve" stroke="var(--positive)" strokeWidth={3} dot={false} connectNulls />
