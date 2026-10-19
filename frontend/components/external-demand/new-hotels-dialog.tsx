@@ -188,7 +188,7 @@ export function NewHotelsDialog({ open, onOpenChange, hotels, loading, error, on
             title="規定フォームから取り込む"
             description={
               <>
-                テンプレート（CSV）に新規ホテルを書いて取り込みます。必須はホテル名と開業日で、影響度は「高・中・低」です。
+                テンプレート（CSV）に新規ホテルを書いて取り込みます。必須はホテル名と開業日で、影響度は「高／中／低」です。
                 同じホテル名・同じ開業日の行は上書きします。上の「CSV出力」のファイルもそのまま取り込めます。
               </>
             }

@@ -95,7 +95,7 @@ export function parseEventCsv(text: string): { rows: EventImportRow[]; errors: C
     const problems: string[] = []
     if (!name) problems.push("イベント名を入力してください")
     if (name.length > 200) problems.push("イベント名は200文字以内で入力してください")
-    if (!type) problems.push(`種別は ${EVENT_TYPES.map((t) => t.label).join("・")} のいずれかで入力してください`)
+    if (!type) problems.push(`種別は「${EVENT_TYPES.map((t) => t.label).join("／")}」のいずれかで入力してください`)
     if (!startDate) problems.push("開始日は YYYY-MM-DD または YYYY/M/D 形式で入力してください")
     if (!endDate) problems.push("終了日は YYYY-MM-DD または YYYY/M/D 形式で入力してください")
     if (startDate && endDate && startDate > endDate) problems.push("終了日は開始日以降にしてください")

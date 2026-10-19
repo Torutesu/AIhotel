@@ -185,7 +185,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
 
         <TrendChartCard kpi={kpi} loading={loading} year={year} month={month} />
 
-        {/* OCC・ADR 月間ブッキングカーブ（DB01 — GET /daily/booking-curve） */}
+        {/* OCC・ADR月間BCグラフ（DB01 — GET /daily/booking-curve） */}
         <BookingCurveMonthCard year={year} month={month} />
 
         {/* 月初比較・日付比較（U-5 — GET /dashboard/kpi/comparison） */}

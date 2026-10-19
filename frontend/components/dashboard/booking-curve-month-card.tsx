@@ -1,6 +1,6 @@
 "use client"
 
-// OCC・ADR 月間ブッキングカーブ（2026-10 の画面修正 DB01）。
+// OCC・ADR月間BCグラフ（ブッキングカーブ — 2026-10 の画面修正 DB01）。
 // 対象月の宿泊日を1日選び、予約日（横軸）ごとの予約室数の積み上がりを、前年同曜日の参考カーブ・客室数・予算ADRと並べる。
 // 左軸 = 室数、右軸 = 円。実データ: GET /daily/booking-curve。
 // ADR の推移・販売価格の履歴（HR）・団体（GROUP）は PMS・サイトコントローラー連携（Phase 4）で入る系列で、
@@ -125,7 +125,7 @@ export function BookingCurveMonthCard({ year, month }: BookingCurveMonthCardProp
       <CardHeader className="pb-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-base font-medium">OCC・ADR 月間ブッキングカーブ</CardTitle>
+            <CardTitle className="text-base font-medium">OCC・ADR月間BCグラフ</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               選んだ宿泊日の予約室数が、予約日ごとにどう積み上がったかを前年同曜日（参考カーブ）と比べます。左軸: 室数／右軸: 円
             </p>

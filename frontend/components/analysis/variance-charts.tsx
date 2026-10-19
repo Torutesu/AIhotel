@@ -93,6 +93,13 @@ function PaceChartRow({ rows, resultLabel }: { rows: DayPaceRow[]; resultLabel: 
   )
 }
 
+/** 今日から月末までの日数 */
+function daysUntilMonthEnd(year: number, month: number, today = new Date()): number {
+  const end = new Date(year, month, 0)
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000)
+}
+
 export function VarianceMonthCharts({ year, month }: { year: number; month: number }) {
   const { hotelId } = useAuth()
   const { data: pace, loading, error, reload } = useApiQuery<MonthPace>(
@@ -119,7 +126,9 @@ export function VarianceMonthCharts({ year, month }: { year: number; month: numb
         <ErrorState message={error} onRetry={reload} />
       ) : rows.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          この月の宿泊日に予約の記録（OTB の取り込み）がそろっていないため、月のグラフを出せません。
+          {daysUntilMonthEnd(year, month) > 180
+            ? "この月はまだ月末の 180日前の時点に達していないため、月のグラフはありません。"
+            : "この月の宿泊日に予約の記録（OTB の取り込み）がそろっていないため、月のグラフを出せません。"}
         </p>
       ) : (
         <>
