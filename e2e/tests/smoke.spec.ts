@@ -9,6 +9,7 @@ const TABS: Array<{ tab: string; heading: RegExp }> = [
   { tab: "pricing", heading: /ダイナミックプライシング/ },
   { tab: "analysis", heading: /分析/ },
   { tab: "reports", heading: /レポート/ },
+  { tab: "ai-summary", heading: /外部需要動向/ },
   { tab: "settings", heading: /設定/ },
 ]
 

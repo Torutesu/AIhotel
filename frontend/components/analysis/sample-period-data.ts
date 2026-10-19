@@ -14,6 +14,8 @@ export function buildPeriodData(targetPeriod: string) {
     bookingWindowData: [
       {
         window: "当日",
+        // その時点（残日数）での対象月の日のタイプ（最も多かったタイプ — 2026-10 の画面修正 分析03）
+        dayType: "D4",
         bookings: Math.round(45 * baseMultiplier),
         share: 6.1,
         adr: Math.round(15200 * (0.95 + baseMultiplier * 0.05)),
@@ -22,6 +24,7 @@ export function buildPeriodData(targetPeriod: string) {
       },
       {
         window: "1-3日前",
+        dayType: "C2",
         bookings: Math.round(98 * baseMultiplier),
         share: 13.2,
         adr: Math.round(16800 * (0.95 + baseMultiplier * 0.05)),
@@ -30,6 +33,7 @@ export function buildPeriodData(targetPeriod: string) {
       },
       {
         window: "4-7日前",
+        dayType: "B3",
         bookings: Math.round(156 * baseMultiplier),
         share: 21.1,
         adr: Math.round(18200 * (0.95 + baseMultiplier * 0.05)),
@@ -38,6 +42,7 @@ export function buildPeriodData(targetPeriod: string) {
       },
       {
         window: "8-14日前",
+        dayType: "B4",
         bookings: Math.round(189 * baseMultiplier),
         share: 25.5,
         adr: Math.round(19100 * (0.95 + baseMultiplier * 0.05)),
@@ -46,6 +51,7 @@ export function buildPeriodData(targetPeriod: string) {
       },
       {
         window: "15-30日前",
+        dayType: "B3",
         bookings: Math.round(168 * baseMultiplier),
         share: 22.7,
         adr: Math.round(19800 * (0.95 + baseMultiplier * 0.05)),
@@ -54,6 +60,7 @@ export function buildPeriodData(targetPeriod: string) {
       },
       {
         window: "31-60日前",
+        dayType: "B3",
         bookings: Math.round(62 * baseMultiplier),
         share: 8.4,
         adr: Math.round(20500 * (0.95 + baseMultiplier * 0.05)),
@@ -62,6 +69,7 @@ export function buildPeriodData(targetPeriod: string) {
       },
       {
         window: "61日以上前",
+        dayType: "B3",
         bookings: Math.round(23 * baseMultiplier),
         share: 3.1,
         adr: Math.round(21200 * (0.95 + baseMultiplier * 0.05)),

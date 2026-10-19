@@ -24,18 +24,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DatePicker } from "@/components/date-picker"
 import { FormFieldError } from "@/components/form-field-error"
 import { toDateStr } from "@/lib/date"
+import { EVENT_TYPES } from "@/lib/external-demand-csv"
 import { zodResolver } from "@/lib/zod-resolver"
 import type { Event as HotelEvent } from "@shared/types"
 
-export const EVENT_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "concert", label: "コンサート" },
-  { value: "sports", label: "スポーツ" },
-  { value: "conference", label: "カンファレンス" },
-  { value: "festival", label: "祭り・催事" },
-  { value: "holiday", label: "年末年始・大型連休" },
-  { value: "weather", label: "台風・災害" },
-  { value: "other", label: "その他" },
-]
+// 種別の選択肢は CSV の規定フォームと共通（lib/external-demand-csv.ts が唯一の出所）
+export const EVENT_TYPE_OPTIONS = EVENT_TYPES
 
 /** 特殊日にしておくのが基本の種別（選んだときにチェックを入れる） */
 const SPECIAL_TYPES = new Set(["holiday", "weather"])

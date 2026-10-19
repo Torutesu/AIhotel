@@ -1,13 +1,13 @@
 "use client"
 
 // 日別パフォーマンス＋月間サマリー（U-7 / U-11 / U-15）
-// 数値は GET /api/v1/dashboard/kpi の summary / comparison / dailyTrend を出所とする。
-// 以前はシード付き乱数で生成したダミー値を表示していたが、実データへ置き換えた。
+// 月間サマリーは GET /api/v1/dashboard/kpi の summary / comparison / dailyTrend を出所とする。
+// 日別の表とグラフは GET /api/v1/analysis/daily-performance（2026-10 の画面修正）:
+// 実績・予算差異・AI想定差異・前年比の表、月のグラフ（差異の推移）、日のグラフ（180日前 → 結果）。
 
 import { useMemo, useState } from "react"
 import { TrendingUp } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -15,14 +15,13 @@ import { ErrorState } from "@/components/error-state"
 import { MonthPicker } from "@/components/month-picker"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
-import { useWeekend } from "@/hooks/use-weekend"
-import { api, type DashboardKpi } from "@/lib/api"
-import { DAY_NAMES, monthLabel, parseMonthStr, startOfToday } from "@/lib/date"
-import { formatPercent, formatPt, formatRooms, formatYen } from "@/lib/format"
+import { api, type DailyPerformance, type DashboardKpi } from "@/lib/api"
+import { DailyVarianceTable } from "@/components/analysis/daily-variance-table"
+import { VarianceDayCharts, VarianceMonthCharts } from "@/components/analysis/variance-charts"
+import { DAY_NAMES, monthLabel, parseMonthStr } from "@/lib/date"
+import { formatPercent, formatYen } from "@/lib/format"
 
 interface DailyRow {
-  /** "M/d" 形式の表示用日付 */
-  label: string
   /** "yyyy-MM-dd" */
   date: string
   day: number
@@ -33,8 +32,6 @@ interface DailyRow {
   soldRooms: number | null
   revPar: number | null
   revenue: number | null
-  /** 前年同日比（室料売上ベース）。前年実績が無ければ null */
-  yoy: number | null
 }
 
 interface DailyPerformanceSectionProps {
@@ -74,7 +71,6 @@ export function DailyPerformanceSection({
   onSelectStayDate,
 }: DailyPerformanceSectionProps = {}) {
   const { hotelId, hotel } = useAuth()
-  const { isWeekendDow } = useWeekend()
 
   const [internalTargetMonth, setInternalTargetMonth] = useState(() => {
     const now = new Date()
@@ -104,24 +100,36 @@ export function DailyPerformanceSection({
   )
   const kpi = kpiData ?? null
 
+  const {
+    data: performance,
+    loading: performanceLoading,
+    error: performanceError,
+    reload: reloadPerformance,
+  } = useApiQuery<DailyPerformance>(
+    hotelId ? () => api.dailyPerformance(hotelId, year, month) : null,
+    [hotelId, year, month],
+    "日別パフォーマンスの取得に失敗しました",
+  )
+  // 日のグラフの対象日: 行で選んだ日。選ぶまでは月の最後の実績日
+  const latestActualDate = useMemo(
+    () => [...(performance?.days ?? [])].reverse().find((d) => d.actual != null)?.date ?? null,
+    [performance],
+  )
+  const chartDate = selectedStayDate && selectedStayDate.startsWith(targetMonth) ? selectedStayDate : latestActualDate
+
   const totalRooms = hotel?.totalRooms ?? null
 
   const rows = useMemo<DailyRow[]>(() => {
     if (!kpi) return []
     return kpi.dailyTrend.map((row) => {
-      const [, m, d] = row.date.split("-")
+      const [, , d] = row.date.split("-")
       const occupancy = row.isActual ? row.occupancy : row.predictedOccupancy
       const adr = row.isActual ? row.adr : row.predictedAdr
       const soldRooms =
         totalRooms != null && occupancy != null ? Math.round(occupancy * totalRooms) : null
       const revPar = occupancy != null && adr != null ? occupancy * adr : null
       const revenue = soldRooms != null && adr != null ? soldRooms * adr : null
-      const lastYearRevPar =
-        row.lastYearOccupancy != null && row.lastYearAdr != null
-          ? row.lastYearOccupancy * row.lastYearAdr
-          : null
       return {
-        label: `${Number(m)}/${Number(d)}`,
         date: row.date,
         day: Number(d),
         dow: new Date(row.date).getDay(),
@@ -131,10 +139,6 @@ export function DailyPerformanceSection({
         soldRooms,
         revPar,
         revenue,
-        yoy:
-          revPar != null && lastYearRevPar != null && lastYearRevPar > 0
-            ? (revPar - lastYearRevPar) / lastYearRevPar - 0
-            : null,
       }
     })
   }, [kpi, totalRooms])
@@ -151,7 +155,6 @@ export function DailyPerformanceSection({
     [rows],
   )
 
-  const today = useMemo(() => startOfToday(), [])
   const summary = kpi?.summary ?? null
   const hasActuals = (summary?.actualDays ?? 0) > 0
   const toDate = kpi?.comparison?.toDate ?? null
@@ -284,155 +287,41 @@ export function DailyPerformanceSection({
         </CardContent>
       </Card>
 
-      {/* 日別パフォーマンステーブル */}
+      {/* 日別パフォーマンス（実績・予算差異・AI想定差異・前年比 — 2026-10） */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium">
             日別パフォーマンス（{targetMonthLabel}）
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            行をクリックすると、その日のブッキングカーブを予約動向に表示します。
-            実績が確定していない日はAI予測値を表示します
-            {totalRooms == null && "（客室数が取得できないため販売室数・室料売上は算出できません）"}
+            結果の出た日の実績と、日割り予算・AIの想定・前年同曜日との差を並べます（料金カレンダーの「結果」「想定差異」はここへ移しました）。
+            行をクリックすると、その日の日のグラフとブッキングカーブを表示します。日付からダイナミックプライシングの同じ日へ移動できます。
           </p>
         </CardHeader>
-        <CardContent className="pt-0">
-          {loading ? (
+        <CardContent className="space-y-6 pt-0">
+          {performanceLoading ? (
             <Skeleton className="h-64 w-full" />
-          ) : rows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              {targetMonthLabel}の日別データがありません。
-            </p>
+          ) : performanceError || !performance ? (
+            <ErrorState message={performanceError ?? "日別パフォーマンスの取得に失敗しました"} onRetry={reloadPerformance} />
+          ) : performance.days.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">{targetMonthLabel}の日別データがありません。</p>
           ) : (
-            <div className="max-h-[560px] overflow-y-auto overflow-x-auto">
-              <table className="table-sticky-head w-full text-xs">
-                <thead>
-                  <tr className="border-b">
-                    <th className="px-2 py-2 text-left font-medium">日付</th>
-                    <th className="px-2 py-2 text-left font-medium">曜日</th>
-                    <th className="px-2 py-2 text-right font-medium">販売室数</th>
-                    <th className="px-2 py-2 text-right font-medium">稼働率</th>
-                    <th className="px-2 py-2 text-right font-medium">ADR</th>
-                    <th className="px-2 py-2 text-right font-medium">REV-Per</th>
-                    <th className="px-2 py-2 text-right font-medium">室料売上</th>
-                    <th className="px-2 py-2 text-center font-medium">前年比</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const isPast = new Date(row.date) < today
-                    const isSelected = selectedStayDate === row.date
-                    const selectStay = () => {
-                      setSelectedStayDate(row.date)
-                      const [y, m, d] = row.date.split("-").map(Number)
-                      onSelectStayDate?.(new Date(y, m - 1, d))
-                    }
-                    return (
-                      <tr
-                        key={row.date}
-                        // 行全体をクリック／キーボードで選択できるようにする（U-14）
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`${row.label}のブッキングカーブを表示`}
-                        aria-pressed={isSelected}
-                        onClick={selectStay}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault()
-                            selectStay()
-                          }
-                        }}
-                        className={`cursor-pointer border-b hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                          isPast ? "opacity-70" : ""
-                        } ${isSelected ? "bg-primary/10" : ""}`}
-                      >
-                        <td className="px-2 py-2 font-medium">
-                          {/* 日付リンクはダイナミックプライシングの同じ日へ遷移する（行クリックとは別動作） */}
-                          <button
-                            type="button"
-                            className="text-primary underline-offset-2 hover:underline"
-                            title={`${row.label} のダイナミックプライシングを開く`}
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              const [y, m, d] = row.date.split("-").map(Number)
-                              onNavigateToPricing?.(new Date(y, m - 1, d))
-                            }}
-                          >
-                            {row.label}
-                          </button>
-                        </td>
-                        <td className="px-2 py-2">
-                          <Badge
-                            variant={isWeekendDow(row.dow) ? "default" : "outline"}
-                            className="text-xs"
-                          >
-                            {DAY_NAMES[row.dow]}
-                          </Badge>
-                        </td>
-                        <td className="px-2 py-2 text-right">{formatRooms(row.soldRooms)}</td>
-                        <td className="px-2 py-2 text-right">
-                          <span
-                            className={
-                              row.occupancy == null
-                                ? ""
-                                : row.occupancy >= 0.9
-                                  ? "font-medium text-positive"
-                                  : row.occupancy < 0.7
-                                    ? "text-negative"
-                                    : ""
-                            }
-                          >
-                            {formatPercent(row.occupancy)}
-                          </span>
-                          {!row.isActual && row.occupancy != null && (
-                            <span className="ml-1 text-[9px] text-muted-foreground">AI</span>
-                          )}
-                        </td>
-                        <td className="px-2 py-2 text-right">{formatYen(row.adr)}</td>
-                        <td className="px-2 py-2 text-right">{formatYen(row.revPar)}</td>
-                        <td className="px-2 py-2 text-right font-medium">{formatYen(row.revenue)}</td>
-                        <td className="px-2 py-2 text-center">
-                          {row.yoy == null ? (
-                            <span className="text-muted-foreground">-</span>
-                          ) : (
-                            <span className={row.yoy >= 0 ? "text-positive" : "text-negative"}>
-                              {formatPt(row.yoy * 100)}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                {summary && hasActuals && (
-                  <tfoot className="border-t-2">
-                    <tr className="bg-muted/30">
-                      <td className="px-2 py-2 font-semibold" colSpan={2}>
-                        当月実績（{summary.actualDays}日分）
-                      </td>
-                      <td className="px-2 py-2 text-right font-semibold">
-                        {formatRooms(summary.soldRooms)}
-                      </td>
-                      <td className="px-2 py-2 text-right font-semibold">
-                        {formatPercent(summary.occupancyRate)}
-                      </td>
-                      <td className="px-2 py-2 text-right font-semibold">{formatYen(summary.adr)}</td>
-                      <td className="px-2 py-2 text-right font-semibold">
-                        {formatYen(summary.revPar)}
-                      </td>
-                      <td className="px-2 py-2 text-right font-semibold">
-                        {formatYen(summary.roomRevenue)}
-                      </td>
-                      <td className="px-2 py-2 text-center font-semibold">
-                        {toDate?.lastYearRevenueRatio != null
-                          ? formatPercent(toDate.lastYearRevenueRatio)
-                          : "-"}
-                      </td>
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
+            <>
+              <DailyVarianceTable
+                days={performance.days}
+                totalRooms={performance.totalRooms}
+                month={month}
+                selectedDate={chartDate}
+                onSelectDate={(date) => {
+                  setSelectedStayDate(date)
+                  const [y, m, d] = date.split("-").map(Number)
+                  onSelectStayDate?.(new Date(y, m - 1, d))
+                }}
+                onNavigateToPricing={onNavigateToPricing}
+              />
+              <VarianceMonthCharts days={performance.days} month={month} />
+              <VarianceDayCharts date={chartDate} />
+            </>
           )}
         </CardContent>
       </Card>

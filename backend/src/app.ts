@@ -16,6 +16,7 @@ import { dailyRouter } from './routes/daily.js'
 import { analysisRouter } from './routes/analysis.js'
 import { settingsRouter } from './routes/settings.js'
 import { eventsRouter } from './routes/events.js'
+import { newHotelsRouter } from './routes/newHotels.js'
 import { reportsRouter } from './routes/reports.js'
 import { usersRouter } from './routes/users.js'
 import { preferencesRouter } from './routes/preferences.js'
@@ -169,6 +170,7 @@ app.use('/api/v1/daily', dailyRouter)
 app.use('/api/v1/analysis', analysisRouter)
 app.use('/api/v1/settings', settingsRouter)
 app.use('/api/v1/events', eventsRouter)
+app.use('/api/v1/new-hotels', newHotelsRouter)
 app.use('/api/v1/reports', reportsRouter)
 app.use('/api/v1/users', usersRouter)
 app.use('/api/v1/preferences', preferencesRouter)

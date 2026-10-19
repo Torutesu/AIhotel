@@ -2,8 +2,11 @@
 
 // 日別のAI分析ダイアログ（U-15 で pricing-tab.tsx から分割）
 // 表示している内容はすべてカレンダーAPIの実データから導出した説明文。
+// 2026-10 の画面修正（DP03）: 日のタイプとその推移（90日前 → 現在）を足し、
+// 周辺日は前後2日ずつの5日を、月をまたいでも表示する（前後の月は必要なときだけ取得する）。
 
-import { AlertCircle } from "lucide-react"
+import { useMemo } from "react"
+import { AlertCircle, ArrowRight } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,14 +17,41 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useAuth } from "@/components/auth-provider"
 import {
   demandBadgeClass,
   demandDescription,
   getRankBadgeColor,
 } from "@/components/pricing/pricing-constants"
-import { DAY_NAMES } from "@/lib/date"
+import { DayTypeBadge, DayTypeHelp, describeDayType, leadLabel } from "@/components/pricing/day-type"
+import { useApiQuery } from "@/hooks/use-api-query"
+import { DAY_NAMES, toDateStr } from "@/lib/date"
 import { formatPercent as pct, formatSignedYen as signedYen, formatYen as yen } from "@/lib/format"
-import type { PricingCalendarDay } from "@/lib/api"
+import { api, type PricingCalendarDay } from "@/lib/api"
+
+/** 周辺日として並べる日数（前後2日ずつ） */
+export const NEIGHBOR_RADIUS = 2
+
+/** 選んだ日の前後 NEIGHBOR_RADIUS 日の日付（"yyyy-MM-dd"。月をまたぐ） */
+export function neighborDates(date: string, radius = NEIGHBOR_RADIUS): string[] {
+  const [y, m, d] = date.split("-").map(Number)
+  return Array.from({ length: radius * 2 + 1 }, (_, i) => toDateStr(new Date(y, m - 1, d - radius + i)))
+}
+
+/** 前後の月のうち、周辺日のために取得が要る月（{ year, month } の配列） */
+export function adjacentMonthsNeeded(date: string, radius = NEIGHBOR_RADIUS): Array<{ year: number; month: number }> {
+  const month = date.slice(0, 7)
+  const months = new Set(neighborDates(date, radius).map((d) => d.slice(0, 7)).filter((m) => m !== month))
+  return [...months].map((m) => ({ year: Number(m.slice(0, 4)), month: Number(m.slice(5, 7)) }))
+}
+
+/** 英字の差（A=0 … E=4）。日のタイプとアラートのずれを見る */
+function gradeIndex(letter: string | null | undefined): number | null {
+  if (!letter) return null
+  const i = "ABCDE".indexOf(letter[0])
+  return i < 0 ? null : i
+}
 
 interface DayAnalysisDialogProps {
   /** 選択中の日。null ならダイアログを閉じる */
@@ -33,6 +63,24 @@ interface DayAnalysisDialogProps {
 
 export function DayAnalysisDialog({ day: selectedDay, days, onClose }: DayAnalysisDialogProps) {
   if (!selectedDay) return null
+  return <DayAnalysisContent day={selectedDay} days={days} onClose={onClose} />
+}
+
+function DayAnalysisContent({ day: selectedDay, days, onClose }: { day: PricingCalendarDay; days: PricingCalendarDay[]; onClose: () => void }) {
+  const { hotelId } = useAuth()
+  const needed = useMemo(() => adjacentMonthsNeeded(selectedDay.date), [selectedDay.date])
+  const neededKey = needed.map((m) => `${m.year}-${m.month}`).join(",")
+  const { data: adjacentDays, loading: adjacentLoading } = useApiQuery<PricingCalendarDay[]>(
+    hotelId && needed.length > 0
+      ? async () => (await Promise.all(needed.map((m) => api.pricingCalendar(hotelId, m.year, m.month)))).flatMap((c) => c.calendar)
+      : null,
+    [hotelId, neededKey],
+    "前後の月のカレンダーの取得に失敗しました",
+  )
+  const neighbors = useMemo(() => {
+    const byDate = new Map([...(adjacentDays ?? []), ...days].map((d) => [d.date, d]))
+    return neighborDates(selectedDay.date).map((date) => ({ date, data: byDate.get(date) ?? null }))
+  }, [adjacentDays, days, selectedDay.date])
 
   return (
           <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -41,11 +89,36 @@ export function DayAnalysisDialog({ day: selectedDay, days, onClose }: DayAnalys
           const day = selectedDay
           const [y, m, d] = day.date.split("-").map(Number)
           const dow = new Date(day.date).getDay()
-          const dayIdx = days.findIndex((x) => x.date === day.date)
-          const neighborStart = Math.max(0, dayIdx - 3)
-          const neighbors = days.slice(neighborStart, dayIdx + 4)
-
           const insights: Array<{ type: string; title: string; content: string }> = []
+
+          // 日のタイプ（予約の実数から見た見込み）とアラート（AI の予測）のずれ・ペース
+          const typeGrade = gradeIndex(day.dayType)
+          const alertGrade = gradeIndex(day.demandLevel)
+          if (typeGrade != null && alertGrade != null && Math.abs(typeGrade - alertGrade) >= 1) {
+            insights.push({
+              type: typeGrade < alertGrade ? "positive" : "negative",
+              title: "予約の実数とAIの予測がずれています",
+              content: `日のタイプは「${day.dayType}」（予約から見た着地見込み${pct(day.dayTypeExpectedOccupancy)}）、アラートは「${day.demandLevel}」です。${
+                typeGrade < alertGrade
+                  ? "予約が予測より強く入っています。推奨ランクの引き上げや価格の幅の下限を上げることを検討してください。"
+                  : "予約が予測ほど入っていません。価格の幅の上限を下げる・販促を行うなどの手当てを検討してください。"
+              }`,
+            })
+          }
+          const pace = day.dayType?.[1]
+          if (pace === "4" || pace === "5") {
+            insights.push({
+              type: "negative",
+              title: "前年より予約の入りが遅れています",
+              content: `前年同曜日の同じ時点と比べて${day.dayTypePaceRatio != null ? `${day.dayTypePaceRatio.toFixed(2)}倍` : "遅れた"}ペースです（${describeDayType(day.dayType)}）。`,
+            })
+          } else if (pace === "1") {
+            insights.push({
+              type: "positive",
+              title: "前年より予約が大きく先行しています",
+              content: `前年同曜日の同じ時点と比べて${day.dayTypePaceRatio != null ? `${day.dayTypePaceRatio.toFixed(2)}倍` : "速い"}ペースです。売り切れる前に単価を上げる余地があります。`,
+            })
+          }
 
           if (day.demandLevel === "A" || day.demandLevel === "B") {
             insights.push({
@@ -92,35 +165,96 @@ export function DayAnalysisDialog({ day: selectedDay, days, onClose }: DayAnalys
               </DialogHeader>
 
               <div className="space-y-6 mt-4">
-                {neighbors.length > 1 && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base font-medium">周辺日の推奨価格・稼働率予測</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="overflow-x-auto">
-                        <div className="grid grid-flow-col auto-cols-[90px] gap-3 min-w-fit">
-                          {neighbors.map((n) => {
-                            const [, , nd] = n.date.split("-")
-                            const ndow = new Date(n.date).getDay()
-                            const isSelected = n.date === day.date
-                            return (
-                              <div
-                                key={n.date}
-                                className={`p-3 border rounded-lg text-center ${isSelected ? "ring-2 ring-primary bg-primary/5" : ""}`}
-                              >
-                                <div className="text-xs text-muted-foreground mb-1.5">{DAY_NAMES[ndow]}</div>
-                                <div className={`text-base font-semibold mb-2 ${isSelected ? "text-primary" : ""}`}>{Number(nd)}</div>
-                                <div className="text-xs text-muted-foreground mb-1 break-words">{yen(n.recommendedPrice)}</div>
-                                <div className="text-xs text-muted-foreground break-words">{pct(n.predictedOccupancy)}</div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base font-medium">周辺日の推奨価格・稼働率予測</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto">
+                      <div className="grid min-w-fit grid-flow-col auto-cols-[96px] gap-3">
+                        {neighbors.map(({ date, data: n }) => {
+                          const [ny, nm, nd] = date.split("-").map(Number)
+                          const ndow = new Date(ny, nm - 1, nd).getDay()
+                          const isSelected = date === day.date
+                          const otherMonth = nm !== m
+                          return (
+                            <div
+                              key={date}
+                              data-testid="neighbor-day"
+                              className={`rounded-lg border p-3 text-center ${isSelected ? "bg-primary/5 ring-2 ring-primary" : ""} ${otherMonth ? "bg-muted/30" : ""}`}
+                            >
+                              <div className="mb-1.5 text-xs text-muted-foreground">{DAY_NAMES[ndow]}</div>
+                              <div className={`mb-1 text-base font-semibold ${isSelected ? "text-primary" : ""}`}>
+                                {otherMonth ? `${nm}/${nd}` : nd}
                               </div>
-                            )
-                          })}
-                        </div>
+                              {n ? (
+                                <>
+                                  <div className="mb-1">
+                                    <DayTypeBadge dayType={n.dayType} />
+                                  </div>
+                                  <div className="mb-1 break-words text-xs text-muted-foreground">{yen(n.recommendedPrice)}</div>
+                                  <div className="break-words text-xs text-muted-foreground">{pct(n.predictedOccupancy)}</div>
+                                </>
+                              ) : adjacentLoading && otherMonth ? (
+                                <Skeleton className="mx-auto mt-2 h-8 w-14" />
+                              ) : (
+                                <div className="text-[10px] text-muted-foreground">データなし</div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
-                    </CardContent>
-                  </Card>
-                )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base font-medium">
+                      <DayTypeHelp label="日のタイプとその推移" />
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <DayTypeBadge
+                        dayType={day.dayType}
+                        expectedOccupancy={day.dayTypeExpectedOccupancy}
+                        paceRatio={day.dayTypePaceRatio}
+                        size="lg"
+                      />
+                      <div className="text-sm">
+                        <p className="font-medium">{describeDayType(day.dayType)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          着地見込み {pct(day.dayTypeExpectedOccupancy)}
+                          {day.dayTypePaceRatio != null && `・前年同曜日の ${day.dayTypePaceRatio.toFixed(2)}倍のペース`}
+                          {day.onHandRooms != null && `・今の予約 ${day.onHandRooms.toLocaleString()}室`}
+                        </p>
+                      </div>
+                    </div>
+                    {day.dayTypeHistory.length > 0 ? (
+                      <ol className="flex flex-wrap items-center gap-1.5 text-xs" aria-label="日のタイプの推移">
+                        {day.dayTypeHistory.map((h) => (
+                          <li key={h.daysBefore} className="flex items-center gap-1.5">
+                            <span className="flex flex-col items-center rounded-md border px-2 py-1">
+                              <span className="text-[10px] text-muted-foreground">{leadLabel(h.daysBefore)}</span>
+                              <DayTypeBadge dayType={h.dayType} paceRatio={h.paceRatio} />
+                            </span>
+                            <ArrowRight className="h-3 w-3 text-muted-foreground" aria-hidden />
+                          </li>
+                        ))}
+                        <li className="flex flex-col items-center rounded-md border border-primary/50 bg-primary/5 px-2 py-1">
+                          <span className="text-[10px] text-primary">{day.actualAdr != null ? "結果" : "現在"}</span>
+                          <DayTypeBadge dayType={day.dayType} />
+                        </li>
+                      </ol>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">90日前より後に予約の記録が始まった日のため、推移はまだありません。</p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground">
+                      「-」は、その時点の予約の記録（毎日の取り込み）が無い残日数です。
+                    </p>
+                  </CardContent>
+                </Card>
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <Card className="border-primary/50 bg-primary/5">

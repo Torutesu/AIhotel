@@ -1,21 +1,12 @@
 "use client"
 
-// 日別価格カレンダー（テーブル／タイプ別人数別カレンダー）と価格推移グラフ
+// 日別価格カレンダー（テーブル／タイプ別人数別カレンダー）と 個人団体別 オンハンド状況
 // （U-15 で pricing-tab.tsx から分割）。GET /pricing/calendar の実データを表示する。
+// 2026-10 の画面修正（DP02）で、オペレーターが価格を決める表として 予算・現在・AI の推奨を並べた。
+// 結果（ADR・稼働率・売上）と想定との差異は 分析 > 日別パフォーマンス へ移した。
 
 import { useMemo, useState } from "react"
 import { Calendar, Info, Table2 } from "lucide-react"
-import {
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Bar,
-  ComposedChart,
-  Legend,
-} from "recharts"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,18 +26,16 @@ import {
   type MonthCalendar,
 } from "@/components/pricing/pricing-constants"
 import { DAY_NAMES, monthLabel as monthLabelOf } from "@/lib/date"
-import {
-  formatPercent as pct,
-  formatSignedPt as signedPt,
-  formatSignedYen as signedYen,
-  formatYen as yen,
-} from "@/lib/format"
-import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
+import { formatPercent as pct, formatYen as yen } from "@/lib/format"
+import { DayTypeBadge, DayTypeHelp } from "@/components/pricing/day-type"
+import { OnHandChart } from "@/components/pricing/on-hand-chart"
 import type { PricingCalendarDay } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 
 interface PriceCalendarSectionProps {
   monthData: MonthCalendar
+  /** 客室数（月計の稼働率に使う） */
+  totalRooms: number | null
   /** 日別分析から遷移してきた日（該当行を強調してスクロールする） */
   highlightedDate: string | null
   /** 当月の登録済みイベント（GET /events — #80） */
@@ -57,35 +46,58 @@ interface PriceCalendarSectionProps {
   onSelectDay: (day: PricingCalendarDay) => void
 }
 
-/** 価格推移グラフのツールチップ */
-function PricingTooltip({ active, payload }: ChartTooltipProps) {
-  if (!active || !payload || payload.length === 0) return null
+/** 月計（予算・現在・AI の想定）。純関数 */
+export function summarizeCalendar(days: PricingCalendarDay[], totalRooms: number | null) {
+  const sum = (values: Array<number | null>) => {
+    const valid = values.filter((v): v is number => v != null)
+    return valid.length > 0 ? valid.reduce((a, b) => a + b, 0) : null
+  }
+  const capacity = totalRooms != null && totalRooms > 0 ? totalRooms * days.length : null
+  const occ = (rooms: number | null) => (rooms != null && capacity ? rooms / capacity : null)
+  const adr = (revenue: number | null, rooms: number | null) => (revenue != null && rooms ? revenue / rooms : null)
+
+  const budgetRooms = sum(days.map((d) => d.budgetRooms))
+  const budgetRevenue = sum(days.map((d) => d.budgetRevenue))
+  const onHandRooms = sum(days.map((d) => d.onHandRooms))
+  // 現在ADR は売上の分かる日だけで出す（先の日の予約の売上は PMS 連携後）
+  const withRevenue = days.filter((d) => d.currentRevenue != null && d.onHandRooms != null)
+  const currentRevenue = sum(days.map((d) => d.currentRevenue))
+  const aiRooms = totalRooms != null ? sum(days.map((d) => (d.predictedOccupancy != null ? Math.round(d.predictedOccupancy * totalRooms) : null))) : null
+  const expectedRevenue = sum(days.map((d) => d.expectedRevenue))
+  return {
+    budgetAdr: adr(budgetRevenue, budgetRooms) ?? days.find((d) => d.budgetAdr != null)?.budgetAdr ?? null,
+    currentAdr: adr(sum(withRevenue.map((d) => d.currentRevenue)), sum(withRevenue.map((d) => d.onHandRooms))),
+    expectedAdr: adr(expectedRevenue, aiRooms),
+    budgetOccupancy: occ(budgetRooms),
+    currentOccupancy: occ(onHandRooms),
+    predictedOccupancy: occ(aiRooms),
+    budgetRevenue,
+    currentRevenue,
+    expectedRevenue,
+  }
+}
+
+function HeaderHelp({ label, help, align = "right" }: { label: string; help: string; align?: "right" | "center" }) {
   return (
-    <div className="rounded-lg border border-border bg-background p-3 shadow-lg">
-      <p className="mb-2 text-sm font-medium">{payload[0].payload?.date}</p>
-      <div className="space-y-1">
-        {payload.map((entry: ChartTooltipEntry, index: number) => {
-          const name = String(entry.name ?? "")
-          const value = toNumber(entry.value)
-          return (
-            <p key={index} className="flex items-center gap-2 text-xs">
-              <span className="h-0.5 w-3" style={{ backgroundColor: entry.color }}></span>
-              <span>
-                {name}:{" "}
-                {name.includes("価格") || name.includes("ADR")
-                  ? `¥${Math.round(value).toLocaleString()}`
-                  : `${Math.round(value)}%`}
-              </span>
-            </p>
-          )
-        })}
-      </div>
-    </div>
+    <TooltipProvider>
+      <UITooltip>
+        <TooltipTrigger asChild>
+          <span className={`flex cursor-help items-center gap-1 ${align === "right" ? "justify-end" : "justify-center"}`}>
+            {label}
+            <Info className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <p className="text-xs">{help}</p>
+        </TooltipContent>
+      </UITooltip>
+    </TooltipProvider>
   )
 }
 
 export function PriceCalendarSection({
   monthData,
+  totalRooms,
   highlightedDate,
   events,
   onSelectRowForAnalysis,
@@ -95,20 +107,8 @@ export function PriceCalendarSection({
   const [calendarViewMode, setCalendarViewMode] = useState<"table" | "grid">("table")
 
   const days = monthData.calendar
-  const chartData = useMemo(
-    () =>
-      days.map((d) => {
-        const [, , dayNum] = d.date.split("-")
-        return {
-          date: `${monthData.month}/${Number(dayNum)}`,
-          actualAdr: d.actualAdr,
-          predictedAdr: d.predictedAdr,
-          predictedOccupancy:
-            d.predictedOccupancy != null ? Math.round(d.predictedOccupancy * 1000) / 10 : null,
-        }
-      }),
-    [days, monthData.month],
-  )
+  const summary = useMemo(() => summarizeCalendar(days, totalRooms), [days, totalRooms])
+  const hasPending = days.some((d) => d.onHandAdr == null && d.actualAdr == null)
 
   return (
         <div key={`${monthData.year}-${monthData.month}`} className="space-y-3">
@@ -135,6 +135,10 @@ export function PriceCalendarSection({
               </Button>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground">
+            オペレーターが予算・現在の予約・AIの推奨を見比べ、シミュレーションも含めて価格を決める表です。行をクリックすると日のAI分析（日のタイプの推移）を開きます。
+            結果と想定との差異は「分析 &gt; 日別パフォーマンス」で確認できます。
+          </p>
           <p className="text-xs text-muted-foreground mb-2">
             曜日欄の色: <span className="text-negative font-medium">祝日</span> / <span className="text-warning font-medium">特日（お盆・年末年始等）</span>
             。特日はAIが候補を提示し、オペレーターがマスタ設定画面で修正できます。
@@ -147,49 +151,36 @@ export function PriceCalendarSection({
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left py-2 px-2 font-medium">日付</th>
+                    <th className="text-left py-2 px-2 font-medium whitespace-nowrap">日付</th>
                     <th className="text-left py-2 px-2 font-medium">曜日</th>
-                    <th className="text-center py-2 px-2 font-medium">
-                      <TooltipProvider>
-                        <UITooltip>
-                          <TooltipTrigger asChild>
-                            <span className="flex items-center justify-center gap-1 cursor-help">
-                              アラート
-                              <Info className="w-3.5 h-3.5 text-muted-foreground" />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs">
-                            <p className="text-xs">需要水準のアラート（A: 需要が非常に高い 〜 E: 需要が非常に低い）です。</p>
-                          </TooltipContent>
-                        </UITooltip>
-                      </TooltipProvider>
+                    <th className="text-center py-2 px-2 font-medium whitespace-nowrap">
+                      <DayTypeHelp />
                     </th>
-                    <th className="text-right py-2 px-2 font-medium">現在ADR</th>
-                    <th className="text-right py-2 px-2 font-medium">推奨ADR（AI）</th>
-                    <th className="text-right py-2 px-2 font-medium">稼働率予測（AI）</th>
                     <th className="text-center py-2 px-2 font-medium">
+                      <HeaderHelp align="center" label="アラート" help="AI の需要予測による需要水準のアラート（A: 需要が非常に高い 〜 E: 需要が非常に低い）です。" />
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap bg-muted/40">予算ADR</th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap">
+                      <HeaderHelp label="現在ADR" help="結果の出た日は実績ADR、先の日は予約（オンハンド）のADRです。予約の単価は PMS 連携後に入ります。" />
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap">推奨ADR</th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap bg-muted/40">予算稼働率</th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap">
+                      <HeaderHelp label="現在稼働率" help="結果の出た日は実績、先の日は今の予約室数（オンハンド）÷ 客室数です。" />
+                    </th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap">稼働率予測（AI）</th>
+                    <th className="text-center py-2 px-2 font-medium whitespace-nowrap">
                       現在料金ランク
                       <span className="block text-[10px] font-normal text-muted-foreground">（サイトコントローラー）</span>
                     </th>
-                    <th className="text-center py-2 px-2 font-medium">推奨料金ランク（AI）</th>
-                    <th className="text-right py-2 px-2 font-medium">ADR結果</th>
-                    <th className="text-right py-2 px-2 font-medium">稼働率結果</th>
-                    <th className="text-right py-2 px-2 font-medium">
-                      <TooltipProvider>
-                        <UITooltip>
-                          <TooltipTrigger asChild>
-                            <span className="flex items-center justify-end gap-1 cursor-help">
-                              推奨ADR差異
-                              <Info className="w-3.5 h-3.5 text-muted-foreground" />
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs">
-                            <p className="text-xs">実績と推奨値の差異です。AIの学習およびAIコメント（良かった・悪かった等）の材料になります。</p>
-                          </TooltipContent>
-                        </UITooltip>
-                      </TooltipProvider>
+                    <th className="text-center py-2 px-2 font-medium whitespace-nowrap">推奨料金ランク</th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap bg-muted/40">
+                      <HeaderHelp label="予算売上" help="月次予算を前年同曜日の販売室数の比で日に配った値です（予算ADRは月の値）。" />
                     </th>
-                    <th className="text-right py-2 px-2 font-medium">推奨稼働率差異</th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap">現在売上</th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap">
+                      <HeaderHelp label="想定売上" help="AI の予測稼働率 × 客室数 × 推奨（予測）ADR です。" />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -200,13 +191,6 @@ export function PriceCalendarSection({
                     const holiday = holidayNameOf(dateObj)
                     const special = specialDayNameOf(dateObj)
                     const isActualDay = day.actualAdr != null
-                    // 現在ADRは実績（actualAdr）のみ。未確定日はサイトコントローラー未連携のため「-」
-                    const currentAdr = day.actualAdr
-                    const adrDiff = day.actualAdr != null && day.predictedAdr != null ? day.actualAdr - day.predictedAdr : null
-                    const occDiff =
-                      day.actualOccupancy != null && day.predictedOccupancy != null
-                        ? day.actualOccupancy - day.predictedOccupancy
-                        : null
                     // 特日 > 祝日 > 週末（Hotel.weekendDays）の順で色付け（色のみで表現、特日は別色）
                     const dayColorClass = special
                       ? "text-warning font-semibold"
@@ -249,15 +233,25 @@ export function PriceCalendarSection({
                           )}
                         </td>
                         <td className="text-center py-2 px-2">
+                          <DayTypeBadge
+                            dayType={day.dayType}
+                            expectedOccupancy={day.dayTypeExpectedOccupancy}
+                            paceRatio={day.dayTypePaceRatio}
+                          />
+                        </td>
+                        <td className="text-center py-2 px-2">
                           {day.demandLevel ? (
                             <Badge className={`${demandBadgeClass(day.demandLevel)} text-xs`}>{day.demandLevel}</Badge>
                           ) : (
                             "-"
                           )}
                         </td>
-                        <td className="text-right py-2 px-2">{yen(currentAdr)}</td>
-                        <td className="text-right py-2 px-2 font-semibold">{yen(day.predictedAdr)}</td>
-                        <td className="text-right py-2 px-2">{pct(day.predictedOccupancy)}</td>
+                        <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(day.budgetAdr)}</td>
+                        <td className={`text-right py-2 px-2 tabular-nums ${isActualDay ? "font-medium" : ""}`}>{yen(day.onHandAdr)}</td>
+                        <td className="text-right py-2 px-2 font-semibold tabular-nums">{yen(day.predictedAdr)}</td>
+                        <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{pct(day.budgetOccupancy)}</td>
+                        <td className={`text-right py-2 px-2 tabular-nums ${isActualDay ? "font-medium" : ""}`}>{pct(day.currentOccupancy)}</td>
+                        <td className="text-right py-2 px-2 tabular-nums">{pct(day.predictedOccupancy)}</td>
                         {/* サイトコントローラー連携が未実装のため、現在ランクは取得元が無い（U-7） */}
                         <td className="text-center py-2 px-2">
                           <span className="text-muted-foreground text-[10px]">未連携</span>
@@ -271,28 +265,37 @@ export function PriceCalendarSection({
                             <span className="text-muted-foreground text-xs">-</span>
                           )}
                         </td>
-                        {/* 結果・差異は実績に変わった日のみ数値を表示 */}
-                        <td className="text-right py-2 px-2">{isActualDay ? yen(day.actualAdr) : "-"}</td>
-                        <td className="text-right py-2 px-2">{isActualDay ? pct(day.actualOccupancy) : "-"}</td>
-                        <td
-                          className={`text-right py-2 px-2 ${
-                            adrDiff == null ? "" : adrDiff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"
-                          }`}
-                        >
-                          {adrDiff != null ? signedYen(adrDiff) : "-"}
-                        </td>
-                        <td
-                          className={`text-right py-2 px-2 ${
-                            occDiff == null ? "" : occDiff >= 0 ? "text-[color:var(--positive)]" : "text-[color:var(--negative)]"
-                          }`}
-                        >
-                          {occDiff != null ? signedPt(occDiff) : "-"}
-                        </td>
+                        <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(day.budgetRevenue)}</td>
+                        <td className={`text-right py-2 px-2 tabular-nums ${isActualDay ? "font-medium" : ""}`}>{yen(day.currentRevenue)}</td>
+                        <td className="text-right py-2 px-2 tabular-nums">{yen(day.expectedRevenue)}</td>
                       </tr>
                     )
                   })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 font-medium">
+                    <td className="py-2 px-2" colSpan={4}>
+                      月計
+                      <span className="ml-1 text-[10px] font-normal text-muted-foreground">（ADRは売上÷室数、稼働率は月の客室数に対して）</span>
+                    </td>
+                    <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(summary.budgetAdr)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums">{yen(summary.currentAdr)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums">{yen(summary.expectedAdr)}</td>
+                    <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{pct(summary.budgetOccupancy)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums">{pct(summary.currentOccupancy)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums">{pct(summary.predictedOccupancy)}</td>
+                    <td className="py-2 px-2" colSpan={2}></td>
+                    <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(summary.budgetRevenue)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums">{yen(summary.currentRevenue)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums">{yen(summary.expectedRevenue)}</td>
+                  </tr>
+                </tfoot>
               </table>
+              {hasPending && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  「-」の現在ADR・現在売上は、予約の単価・売上を PMS から受け取れるようになってから表示します（今は結果の出た日だけ）。
+                </p>
+              )}
             </div>
           ) : (
             <PriceGrid
@@ -304,53 +307,12 @@ export function PriceCalendarSection({
             />
           )}
 
-          {/* 価格推移グラフ */}
-          <div className="mt-6 pt-6 border-t">
-            <h3 className="text-base font-semibold mb-3">価格推移グラフ</h3>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-xs flex-wrap">
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-0.5 bg-positive"></div>
-                  <span>実績ADR</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-0.5 bg-[color:var(--chart-2)]"></div>
-                  <span>AI予測ADR</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-warning/40 rounded"></div>
-                  <span>稼働率予測</span>
-                </div>
-              </div>
-
-              <ResponsiveContainer width="100%" height={250}>
-                <ComposedChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} />
-                  <YAxis
-                    yAxisId="left"
-                    tick={{ fontSize: 11 }}
-                    stroke="currentColor"
-                    opacity={0.5}
-                    tickFormatter={(value) => `¥${(value / 1000).toFixed(0)}k`}
-                  />
-                  <YAxis
-                    yAxisId="right"
-                    orientation="right"
-                    tick={{ fontSize: 11 }}
-                    stroke="currentColor"
-                    opacity={0.5}
-                    tickFormatter={(value) => `${value}%`}
-                  />
-                  <Tooltip content={<PricingTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: "11px" }} />
-                  <Bar yAxisId="right" dataKey="predictedOccupancy" fill="#fed7aa" opacity={0.5} name="稼働率予測" />
-                  <Line yAxisId="left" type="monotone" dataKey="actualAdr" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} name="実績ADR" connectNulls={false} />
-                  <Line yAxisId="left" type="monotone" dataKey="predictedAdr" stroke="#16a34a" strokeWidth={2} dot={{ r: 3 }} name="AI予測ADR" connectNulls={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
+          {/* 個人団体別 オンハンド状況（DP04。以前の価格推移グラフを置き換え） */}
+          {days.length > 0 && (
+            <div className="mt-6 pt-6 border-t">
+              <OnHandChart days={days} totalRooms={totalRooms} />
             </div>
-          </div>
+          )}
         </div>
   )
 }

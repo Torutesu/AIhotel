@@ -1,13 +1,15 @@
 "use client"
 
 // 予約期間（リードタイム）別分析（U-15 で analysis-tab.tsx から分割）。
-// 集計APIが未実装のためサンプル表示。
+// 集計APIが未実装のためサンプル表示。2026-10 の画面修正（分析03）で「日のタイプ」の列を足した
+// （その予約期間の時点での対象月の日のタイプ。予約期間ごとに並べるとタイプの推移が分かる）。
 
 import { useMemo } from "react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SampleDataNotice } from "@/components/sample-data-notice"
 import { buildPeriodData } from "@/components/analysis/sample-period-data"
+import { DayTypeBadge, DayTypeHelp } from "@/components/pricing/day-type"
 import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysis/section-props"
 
 export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
@@ -27,6 +29,9 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-3 px-4 font-medium">予約期間</th>
+                  <th className="text-center py-3 px-4 font-medium">
+                    <DayTypeHelp />
+                  </th>
                   <th className="text-right py-3 px-4 font-medium">予約数</th>
                   <th className="text-right py-3 px-4 font-medium">構成比</th>
                   <th className="text-right py-3 px-4 font-medium">平均ADR</th>
@@ -38,6 +43,9 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
                 {periodData.bookingWindowData.map((row) => (
                   <tr key={row.window} className="border-b hover:bg-muted/50">
                     <td className="py-3 px-4 font-medium">{row.window}</td>
+                    <td className="text-center py-3 px-4">
+                      <DayTypeBadge dayType={row.dayType} />
+                    </td>
                     <td className="text-right py-3 px-4">{row.bookings}件</td>
                     <td className="text-right py-3 px-4">{row.share.toFixed(1)}%</td>
                     <td className="text-right py-3 px-4">¥{row.adr.toLocaleString()}</td>
@@ -61,6 +69,10 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
               </tbody>
             </table>
           </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            日のタイプは、その予約期間の時点で対象月の日に最も多かったタイプです（英字 = 着地見込みの需要、数字 = 前年同曜日と比べたペース）。
+            予約期間をさかのぼって並べると、需要の見え方がどう変わったか（例: 61日以上前 B3 → 当日 D4）が分かります。
+          </p>
         </CardContent>
       </Card>
 

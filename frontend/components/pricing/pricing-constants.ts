@@ -153,6 +153,8 @@ export const PROPOSAL_LEVEL_STYLE: Record<string, { label: string; className: st
 export interface MonthCalendar {
   year: number
   month: number
+  /** 客室数（API が返せば） */
+  totalRooms?: number
   calendar: PricingCalendarDay[]
 }
 

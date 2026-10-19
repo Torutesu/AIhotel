@@ -1,9 +1,16 @@
 "use client"
 
+// 外部需要動向（メニュー名は 2026-10 に「AIまとめ」から変更）。
+// 外部要因（気候・インバウンド・アクセス）とAIコメントは、データの取り込みと Claude API が未実装のためサンプル。
+// イベントと周辺の新規ホテルは登録データ（GET /events・GET /new-hotels）を表示し、個別登録と規定フォーム（CSV）の取り込みができる。
+// 要因のカードをクリックすると一覧が開き、CSV に書き出せる。
+
+import { useState, type ReactNode } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
-  Brain,
+  Globe,
+  List,
   ExternalLink,
   Sun,
   Plane,
@@ -20,17 +27,16 @@ import {
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { SampleDataNotice } from "@/components/sample-data-notice"
 import { XAxis, YAxis, CartesianGrid, BarChart, Bar, ComposedChart, Line, ReferenceLine, ReferenceArea, Legend, Area } from "recharts"
-
-/** 本番想定のダミーKPI（デモ用） */
-type FactorKpi = { label: string; value: string; hint?: string }
-
-type ExternalFactorRow = {
-  name: string
-  status: string
-  trend: string
-  note: string
-  kpis?: FactorKpi[]
-}
+import { useAuth } from "@/components/auth-provider"
+import { useApiQuery } from "@/hooks/use-api-query"
+import { FactorListDialog } from "@/components/external-demand/factor-list-dialog"
+import { EventsDialog, upcomingEvents } from "@/components/external-demand/events-dialog"
+import { NewHotelsDialog } from "@/components/external-demand/new-hotels-dialog"
+import type { ExternalFactorRow } from "@/components/external-demand/factors"
+import { formatEventRange, impactLabel } from "@/components/pricing/pricing-constants"
+import { api, type NewHotelOpening } from "@/lib/api"
+import { toDateStr } from "@/lib/date"
+import type { Event as HotelEvent } from "@shared/types"
 
 // 先6ヶ月の月別予測データ（サンプル）。月の表示は今日から数えた翌月〜6か月後にする
 // （固定の月名だと、時間が経つと過去の月を「予測」として見せてしまう — #92）
@@ -273,13 +279,91 @@ function StatusBadge({ status }: { status: string }) {
   return <Badge variant="outline">-</Badge>
 }
 
+/** 登録データの要約（イベント・新規ホテルのカードの上部） */
+function RegisteredSummary({
+  title,
+  loading,
+  error,
+  items,
+  empty,
+}: {
+  title: string
+  loading: boolean
+  error: string | null
+  items: Array<{ key: string; label: string; detail: string }>
+  empty: string
+}) {
+  return (
+    <div className="mb-3 space-y-1.5 rounded-md border border-primary/30 bg-primary/5 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-medium">{title}</span>
+        <Badge variant="outline" className="text-[10px]">登録データ</Badge>
+      </div>
+      {loading ? (
+        <p className="text-xs text-muted-foreground">読み込み中…</p>
+      ) : error ? (
+        <p className="text-xs text-negative">{error}</p>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{empty}</p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item) => (
+            <li key={item.key} className="flex items-baseline justify-between gap-2 text-xs">
+              <span className="truncate font-medium">{item.label}</span>
+              <span className="flex-shrink-0 tabular-nums text-muted-foreground">{item.detail}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export function AISummaryTab() {
+  const { hotelId } = useAuth()
+  const [openCategory, setOpenCategory] = useState<string | null>(null)
+  const eventsQuery = useApiQuery<HotelEvent[]>(hotelId ? () => api.events(hotelId) : null, [hotelId], "イベントの取得に失敗しました")
+  const hotelsQuery = useApiQuery<NewHotelOpening[]>(hotelId ? () => api.newHotels(hotelId) : null, [hotelId], "新規ホテルの取得に失敗しました")
+
+  const upcoming = upcomingEvents(eventsQuery.data ?? [])
+  const today = toDateStr(new Date())
+  const upcomingHotels = (hotelsQuery.data ?? []).filter((h) => h.openingDate.slice(0, 10) >= today)
+  const registered: Record<string, ReactNode> = {
+    events: (
+      <RegisteredSummary
+        title={`今後のイベント ${upcoming.length}件`}
+        loading={eventsQuery.loading}
+        error={eventsQuery.error}
+        empty="登録されたイベントはありません。クリックして登録・取り込みできます。"
+        items={upcoming.slice(0, 3).map((e) => ({
+          key: e.id,
+          label: e.name,
+          detail: `${formatEventRange(e.startDate, e.endDate)}${e.expectedImpact ? `・${impactLabel(e.expectedImpact).replace("影響度:", "影響")}` : ""}`,
+        }))}
+      />
+    ),
+    hotels: (
+      <RegisteredSummary
+        title={`開業予定 ${upcomingHotels.length}軒・計 ${upcomingHotels.reduce((sum, h) => sum + (h.rooms ?? 0), 0).toLocaleString()}室`}
+        loading={hotelsQuery.loading}
+        error={hotelsQuery.error}
+        empty="登録された新規ホテルはありません。クリックして登録・取り込みできます。"
+        items={upcomingHotels.slice(0, 3).map((h) => ({
+          key: h.id,
+          label: h.name,
+          detail: `${h.openingDate.slice(5, 10).replace("-", "/")}開業${h.rooms != null ? `・${h.rooms}室` : ""}`,
+        }))}
+      />
+    ),
+  }
+  const openedFactors = openCategory ? externalFactorsData[openCategory] : null
+
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
       {/* ヘッダー */}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Brain className="w-6 h-6" />
+          <Globe className="w-6 h-6" />
           外部需要動向
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
@@ -287,7 +371,7 @@ export function AISummaryTab() {
         </p>
       </div>
 
-      <SampleDataNotice detail="外部要因データの取り込みとClaude APIによるAIコメント生成が未実装のため、このタブの数値・コメントはすべてサンプルです。" />
+      <SampleDataNotice detail="外部要因データの取り込みとClaude APIによるAIコメント生成が未実装のため、登録したイベント・新規ホテル（「登録データ」の欄）以外の数値・コメントはサンプルです。" />
 
       {/* AI総合コメント */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
@@ -385,19 +469,39 @@ export function AISummaryTab() {
         </CardContent>
       </Card>
 
-      {/* 外部要因カテゴリ別詳細（時間軸b: 要因による期間） */}
+      {/* 外部要因カテゴリ別詳細（時間軸b: 要因による期間）。カードをクリックすると一覧・CSV出力（2026-10） */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {Object.entries(externalFactorsData).map(([key, category]) => {
           const IconComponent = category.icon
           return (
-            <Card key={key}>
+            <Card
+              key={key}
+              role="button"
+              tabIndex={0}
+              aria-label={`${category.name}の一覧を開く`}
+              onClick={() => setOpenCategory(key)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  setOpenCategory(key)
+                }
+              }}
+              className="cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base font-medium">
-                  <IconComponent className="w-4 h-4" />
-                  {category.name}
+                <CardTitle className="flex items-center justify-between gap-2 text-base font-medium">
+                  <span className="flex items-center gap-2">
+                    <IconComponent className="w-4 h-4" />
+                    {category.name}
+                  </span>
+                  <span className="flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
+                    <List className="h-3.5 w-3.5" aria-hidden />
+                    {key === "events" || key === "hotels" ? "一覧・登録・CSV" : "一覧・CSV出力"}
+                  </span>
                 </CardTitle>
               </CardHeader>
               <CardContent>
+                {registered[key]}
                 <div className="space-y-3">
                   {category.factors.map((factor, idx) => (
                     <div key={idx} className="flex items-center justify-between text-sm">
@@ -437,6 +541,29 @@ export function AISummaryTab() {
           )
         })}
       </div>
+
+      <EventsDialog
+        open={openCategory === "events"}
+        onOpenChange={(open) => !open && setOpenCategory(null)}
+        events={eventsQuery.data}
+        loading={eventsQuery.loading}
+        error={eventsQuery.error}
+        onReload={eventsQuery.reload}
+      />
+      <NewHotelsDialog
+        open={openCategory === "hotels"}
+        onOpenChange={(open) => !open && setOpenCategory(null)}
+        hotels={hotelsQuery.data}
+        loading={hotelsQuery.loading}
+        error={hotelsQuery.error}
+        onReload={hotelsQuery.reload}
+      />
+      <FactorListDialog
+        open={openedFactors != null && openCategory !== "events" && openCategory !== "hotels"}
+        onOpenChange={(open) => !open && setOpenCategory(null)}
+        category={openedFactors?.name ?? ""}
+        factors={openedFactors?.factors ?? []}
+      />
 
       {/* 注意事項 */}
       <Card className="bg-warning/10 border-warning/30">

@@ -23,15 +23,20 @@ import type {
   PriceBoundPeriod, CreatePriceBoundInput, SaleOpenCheck,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
   CreatePriceRankInput, UpdateHotelSettingsInput, SetupStatus, CreateCompetitorInput, UpdateCompetitorInput,
-  DashboardPreference, UserPreferences, CompetitorFetchSourceStatus
+  DashboardPreference, UserPreferences, CompetitorFetchSourceStatus, EventImportRow, ImportResult, NewHotelInput,
+  NewHotelOpening
 } from "./types"
 import {
-  mockDashboardKpi, mockAlerts, mockAiSummary, mockPricingCalendar, mockBookingCurve,
+  mockDashboardKpi, mockAlerts, mockAiSummary, mockPricingCalendar,
   mockCompetitorPrices, mockMonthlyTrend, mockCompetitorAnalysis, getMockPriceRanks, mockStrategy,
   setMockStrategy, setMockEvents, getMockEvents, mockKpiSnapshots, mockPricingSimulation, mockBudgetYear,
   mockCompetitorSettings, mockUsers, mockReviewScores, updateMockAlertStatus, getMockDashboardPreference,
   setMockDashboardPreference, getMockPriceBounds, addMockPriceBound, removeMockPriceBound, mockSaleOpenCheck
 } from "./demo-data"
+import {
+  enrichMockPricingCalendar, mockBookingCurveDetail, getMockNewHotels, addMockNewHotel,
+  updateMockNewHotel, removeMockNewHotel, importMockNewHotels, importMockEvents
+} from "./demo-revenue"
 import { adminEndpoints } from "./admin"
 import { demoAdmin } from "./demo-admin"
 import { demoShared, demoSharedStatus } from "./demo-shared"
@@ -253,7 +258,7 @@ export const api = {
   pricingCalendar(hotelId: string, year: number, month: number): Promise<PricingCalendar> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/pricing/calendar?hotelId=${hotelId}&year=${year}&month=${month}`),
-      () => mockPricingCalendar(hotelId, year, month)
+      () => enrichMockPricingCalendar(mockPricingCalendar(hotelId, year, month))
     )
   },
 
@@ -378,7 +383,7 @@ export const api = {
   bookingCurve(hotelId: string, date: string): Promise<BookingCurve> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/daily/booking-curve?hotelId=${hotelId}&date=${date}`),
-      () => mockBookingCurve(hotelId, date)
+      () => mockBookingCurveDetail(hotelId, date)
     )
   },
 
@@ -528,6 +533,51 @@ export const api = {
       () => {
         setMockEvents(getMockEvents(hotelId).filter((e) => e.id !== id))
       }
+    )
+  },
+
+  /** イベントの取り込み（外部需要動向の規定フォーム。dryRun で確認 → 取り込み。MANAGER 以上） */
+  importEvents(hotelId: string, rows: EventImportRow[], dryRun: boolean): Promise<ImportResult> {
+    return withDemoFallback(
+      () => rawRequest("/api/v1/events/import", { method: "POST", body: JSON.stringify({ hotelId, rows, dryRun }) }),
+      () => importMockEvents(hotelId, rows, dryRun)
+    )
+  },
+
+  // ---- 周辺の新規ホテル（外部需要動向 — 2026-10） ----
+
+  newHotels(hotelId: string): Promise<NewHotelOpening[]> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/new-hotels?hotelId=${encodeURIComponent(hotelId)}`),
+      () => getMockNewHotels(hotelId)
+    )
+  },
+
+  createNewHotel(hotelId: string, input: NewHotelInput): Promise<NewHotelOpening> {
+    return withDemoFallback(
+      () => rawRequest("/api/v1/new-hotels", { method: "POST", body: JSON.stringify({ hotelId, ...input }) }),
+      () => addMockNewHotel(hotelId, input)
+    )
+  },
+
+  updateNewHotel(hotelId: string, id: string, input: Partial<NewHotelInput>): Promise<NewHotelOpening> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/new-hotels/${id}?hotelId=${encodeURIComponent(hotelId)}`, { method: "PUT", body: JSON.stringify(input) }),
+      () => updateMockNewHotel(hotelId, id, input)
+    )
+  },
+
+  deleteNewHotel(hotelId: string, id: string): Promise<void> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/new-hotels/${id}?hotelId=${encodeURIComponent(hotelId)}`, { method: "DELETE" }),
+      () => removeMockNewHotel(hotelId, id)
+    )
+  },
+
+  importNewHotels(hotelId: string, rows: NewHotelInput[], dryRun: boolean): Promise<ImportResult> {
+    return withDemoFallback(
+      () => rawRequest("/api/v1/new-hotels/import", { method: "POST", body: JSON.stringify({ hotelId, rows, dryRun }) }),
+      () => importMockNewHotels(hotelId, rows, dryRun)
     )
   },
 

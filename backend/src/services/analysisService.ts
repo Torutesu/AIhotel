@@ -2,6 +2,8 @@ import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
 import { DEFAULT_WEEKEND_DAYS, monthRange } from '../lib/date.js'
+import { loadMonthContext } from './dayContextService.js'
+import { lastYearSameWeekday } from './forecast/pace.js'
 
 /**
  * 年間推移 — 月単位（F-ANA-03: クォーターではなく月単位）
@@ -280,4 +282,94 @@ export async function getDayOfWeekBreakdownService(hotelId: string, year: number
   })
   const weekendDays = Array.isArray(hotel.weekendDays) ? (hotel.weekendDays as number[]) : [...DEFAULT_WEEKEND_DAYS]
   return { hotelId, year, month, days: aggregateDayOfWeek(rows, hotel.totalRooms, weekendDays) }
+}
+
+// ======================================
+// 日別パフォーマンス（2026-10 の画面修正: 実績・予算差異・AI想定差異・前年比）
+// ======================================
+
+/** 1日ぶんの指標。比べる相手（予算・AI・前年）も同じ形で返し、差は画面で出す */
+export interface DayMetrics {
+  soldRooms: number | null
+  occupancy: number | null
+  adr: number | null
+  revPar: number | null
+  revenue: number | null
+}
+
+/** AI の予測を指標にする（予測稼働率 × 客室数 × 予測ADR。予測ADR が無ければ推奨価格）。純関数 */
+export function aiDayMetrics(
+  rec: { predictedOccupancy: number | null; predictedAdr: number | null; recommendedPrice: number | null } | undefined,
+  totalRooms: number
+): DayMetrics | null {
+  if (!rec || rec.predictedOccupancy == null || totalRooms <= 0) return null
+  const soldRooms = Math.round(totalRooms * rec.predictedOccupancy)
+  const adr = rec.predictedAdr ?? rec.recommendedPrice
+  const revenue = adr == null ? null : soldRooms * adr
+  return {
+    soldRooms,
+    occupancy: rec.predictedOccupancy,
+    adr: adr == null ? null : Math.round(adr),
+    revPar: revenue == null ? null : Math.round(revenue / totalRooms),
+    revenue: revenue == null ? null : Math.round(revenue),
+  }
+}
+
+/**
+ * 対象月の日ごとの実績と、比べる相手（日割り予算・AI の予測・前年同曜日の実績）。
+ * 実績はまだ結果の出ていない日は null。AI の予測は推奨を作った日だけ（過去の日の推奨は再計算しても残る）
+ */
+export async function getDailyPerformanceService(hotelId: string, year: number, month: number) {
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+  const totalRooms = hotel.totalRooms
+  const { start, end } = monthRange(year, month)
+
+  const [context, actuals, recommendations] = await Promise.all([
+    loadMonthContext(hotelId, totalRooms, year, month),
+    prisma.dailyData.findMany({
+      where: { hotelId, date: { gte: start, lt: end } },
+      select: { date: true, soldRooms: true, occupancy: true, adr: true, revPar: true, totalRevenue: true },
+    }),
+    prisma.aiPriceRecommendation.findMany({
+      where: { hotelId, date: { gte: start, lt: end }, roomTypeId: null },
+      select: { date: true, predictedOccupancy: true, predictedAdr: true, recommendedPrice: true },
+    }),
+  ])
+
+  const actualByDate = new Map(actuals.map((a) => [a.date.getTime(), a]))
+  const recByDate = new Map(recommendations.map((r) => [r.date.getTime(), r]))
+
+  const days = context.days.map((day, index) => {
+    const actual = actualByDate.get(day.getTime())
+    const lastYearDate = lastYearSameWeekday(day)
+    const lastYear = context.lastYearDaily.get(lastYearDate.getTime())
+    const budget = context.budgets[index]
+    return {
+      date: day.toISOString().slice(0, 10),
+      actual: actual
+        ? {
+            soldRooms: actual.soldRooms,
+            occupancy: actual.occupancy,
+            adr: actual.adr == null ? null : Math.round(actual.adr),
+            revPar: actual.revPar == null ? null : Math.round(actual.revPar),
+            revenue: actual.totalRevenue == null ? null : Math.round(actual.totalRevenue),
+          }
+        : null,
+      budget: { soldRooms: budget.rooms, occupancy: budget.occupancy, adr: budget.adr, revPar: budget.revPar, revenue: budget.revenue },
+      ai: aiDayMetrics(recByDate.get(day.getTime()), totalRooms),
+      lastYearDate: lastYearDate.toISOString().slice(0, 10),
+      lastYear: lastYear
+        ? {
+            soldRooms: lastYear.soldRooms,
+            occupancy: lastYear.occupancy,
+            adr: lastYear.adr == null ? null : Math.round(lastYear.adr),
+            revPar: lastYear.revPar == null ? null : Math.round(lastYear.revPar),
+            revenue: lastYear.totalRevenue == null ? null : Math.round(lastYear.totalRevenue),
+          }
+        : null,
+    }
+  })
+
+  return { hotelId, year, month, totalRooms, days }
 }

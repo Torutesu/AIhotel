@@ -7,8 +7,9 @@ import {
   idParamSchema,
   createEventSchema,
   updateEventSchema,
+  importEventsSchema,
 } from '../lib/validators.js'
-import { getEvents, createEvent, updateEvent, deleteEvent } from '../controllers/eventsController.js'
+import { getEvents, createEvent, updateEvent, deleteEvent, importEvents } from '../controllers/eventsController.js'
 
 export const eventsRouter: ExpressRouter = Router()
 
@@ -29,6 +30,15 @@ eventsRouter.post(
   validate(createEventSchema),
   requireHotelAccess((req) => req.body?.hotelId),
   createEvent
+)
+
+// POST /api/v1/events/import — 規定フォーム（CSV）の取り込み。まとめて書き換えるので MANAGER 以上（2026-10）
+eventsRouter.post(
+  '/import',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(importEventsSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
+  importEvents
 )
 
 // PUT /api/v1/events/:id?hotelId= — 更新・削除は MANAGER 以上（登録のみオペレーター可 — S-4）

@@ -8,7 +8,7 @@ import {
   FileText,
   MessageCircle,
   Settings,
-  Brain,
+  Globe,
   LogOut,
   Loader2,
   Menu,
@@ -44,7 +44,7 @@ const tabs = [
   { id: "pricing" as const, label: "ダイナミックプライシング", icon: TrendingUp },
   { id: "analysis" as const, label: "分析", icon: BarChart3 },
   { id: "reports" as const, label: "レポート", icon: FileText },
-  { id: "ai-summary" as const, label: "AIまとめ", icon: Brain },
+  { id: "ai-summary" as const, label: "外部需要動向", icon: Globe },
 ]
 
 const SIDEBAR_COLLAPSED_KEY = "hrms.sidebarCollapsed"
@@ -57,7 +57,7 @@ const TAB_TITLES: Record<Tab, string> = {
   pricing: "ダイナミックプライシング",
   analysis: "分析",
   reports: "レポート",
-  "ai-summary": "AIまとめ",
+  "ai-summary": "外部需要動向",
   settings: "設定",
 }
 

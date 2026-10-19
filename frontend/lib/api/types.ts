@@ -155,12 +155,44 @@ export interface PricingCalendarDay {
   confidence: number | null
   /** 推奨理由（#24 E4）。推奨の無い日と古い推奨は null */
   rationale?: RecommendationRationale | null
+  // ---- 2026-10 の画面修正（DP02 / DP03 / DP04）----
+  /** 日割り予算（月次予算を前年同曜日の販売室数の比で配ったもの）。予算が無ければ null */
+  budgetRooms: number | null
+  budgetOccupancy: number | null
+  /** 月の予算ADR（どの日も同じ値） */
+  budgetAdr: number | null
+  budgetRevenue: number | null
+  /** オンハンド（今の予約室数）。結果の出た日は販売室数 */
+  onHandRooms: number | null
+  /** 現在稼働率（結果の出た日は実績、先の日はオンハンド ÷ 客室数） */
+  currentOccupancy: number | null
+  /** 予約（オンハンド）のADR。予約の単価は PMS 連携（Phase 4）で入る。今は結果の出た日の実績ADR */
+  onHandAdr: number | null
+  /** 現在売上（結果の出た日は実績。予約の売上は PMS 連携後） */
+  currentRevenue: number | null
+  /** 想定売上 = AI の予測稼働率 × 客室数 × 予測ADR */
+  expectedRevenue: number | null
+  /** 日のタイプ（例 "C3"。英字 = 着地見込みの需要、数字 = 前年同曜日と比べたペース） */
+  dayType: string | null
+  dayTypeExpectedOccupancy: number | null
+  dayTypePaceRatio: number | null
+  /** 今より前の残日数ごとの日のタイプ（残日数の大きい順） */
+  dayTypeHistory: DayTypeHistoryPoint[]
+}
+
+export interface DayTypeHistoryPoint {
+  daysBefore: number
+  dayType: string | null
+  otbRooms: number | null
+  paceRatio: number | null
 }
 
 export interface PricingCalendar {
   hotelId: string
   year: number
   month: number
+  /** 客室数（2026-10 から） */
+  totalRooms?: number
   calendar: PricingCalendarDay[]
 }
 
@@ -334,11 +366,118 @@ export interface RecommendationRationale {
   }>
 }
 
+export interface BookingCurvePoint {
+  daysBefore: number
+  roomsBooked: number
+  occupancy: number
+}
+
 export interface BookingCurve {
   hotelId: string
   stayDate: string
   totalRooms: number
-  points: Array<{ daysBefore: number; roomsBooked: number; occupancy: number }>
+  points: BookingCurvePoint[]
+  /** 参考カーブ: 前年同曜日（364日前）の予約積上。前年同曜日が特殊日なら points は空 */
+  reference?: {
+    date: string
+    points: BookingCurvePoint[]
+    finalRooms: number | null
+    finalOccupancy: number | null
+    adr: number | null
+  }
+  /** その日の日割り予算 */
+  budget?: { rooms: number | null; occupancy: number | null; adr: number | null }
+  /** 今の AI の予測 */
+  prediction?: { occupancy: number; rooms: number; adr: number | null } | null
+  /** 結果（宿泊日を過ぎていれば） */
+  actual?: { soldRooms: number | null; occupancy: number | null; adr: number | null } | null
+  /**
+   * PMS・サイトコントローラー連携（Phase 4）で入る系列。実 API はまだ返さず、デモデータだけが持つ。
+   * adrHistory = 予約のADRの推移、rateHistory = 販売価格（料金）の履歴、groupRooms = 団体の予約室数
+   */
+  adrHistory?: Array<{ daysBefore: number; adr: number | null }>
+  rateHistory?: Array<{ daysBefore: number; price: number | null }>
+  groupRooms?: Array<{ daysBefore: number; rooms: number }>
+}
+
+// ---- 日別パフォーマンス（GET /analysis/daily-performance — 2026-10）----
+
+export interface DayMetrics {
+  soldRooms: number | null
+  occupancy: number | null
+  adr: number | null
+  revPar: number | null
+  revenue: number | null
+}
+
+export interface DailyPerformanceDay {
+  date: string
+  /** 実績（まだ結果の出ていない日は null） */
+  actual: DayMetrics | null
+  /** 日割り予算 */
+  budget: DayMetrics
+  /** AI の予測（推奨を作った日だけ） */
+  ai: DayMetrics | null
+  /** 前年同曜日（364日前） */
+  lastYearDate: string
+  lastYear: DayMetrics | null
+}
+
+export interface DailyPerformance {
+  hotelId: string
+  year: number
+  month: number
+  totalRooms: number
+  days: DailyPerformanceDay[]
+}
+
+// ---- 周辺の新規ホテル（/new-hotels — 外部需要動向 2026-10）----
+
+export type ImpactLevel = "high" | "medium" | "low"
+
+export interface NewHotelOpening {
+  id: string
+  hotelId: string
+  name: string
+  openingDate: string
+  rooms: number | null
+  category: string | null
+  location: string | null
+  distanceKm: number | null
+  expectedImpact: ImpactLevel | null
+  notes: string | null
+}
+
+export interface NewHotelInput {
+  name: string
+  openingDate: string
+  rooms?: number | null
+  category?: string | null
+  location?: string | null
+  distanceKm?: number | null
+  expectedImpact?: ImpactLevel | null
+  notes?: string | null
+}
+
+/** 取り込み API（dryRun で確認 → 取り込み）の要約 */
+export interface ImportResult {
+  dryRun: boolean
+  total: number
+  created: number
+  updated: number
+  startDate: string
+  endDate: string
+}
+
+export interface EventImportRow {
+  name: string
+  type: string
+  startDate: string
+  endDate: string
+  location?: string
+  expectedImpact?: ImpactLevel
+  description?: string
+  excludeFromHistory?: boolean
 }
 
 export interface CompetitorPrices {

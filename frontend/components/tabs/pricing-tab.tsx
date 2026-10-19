@@ -3,7 +3,7 @@
 // ダイナミックプライシングタブ（U-15 で各セクションを components/pricing/* へ分割したコンテナ）
 //
 // 実データ: GET /pricing/calendar・GET/PUT /pricing/strategy・GET /pricing/simulation・
-//           POST /pricing/recompute・/events 一式
+//           POST /pricing/recompute・GET /events（登録・取り込みは外部需要動向 — 2026-10）
 // サンプル表示: AI価格最適化の提案（Claude API未実装）
 
 import { useEffect, useMemo, useState } from "react"
@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorCard } from "@/components/error-state"
 import { SampleDataNotice } from "@/components/sample-data-notice"
 import { LabeledMonthPicker } from "@/components/month-picker"
-import { usePeriod } from "@/components/app-state-provider"
+import { useAppState, usePeriod } from "@/components/app-state-provider"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 
@@ -45,7 +45,8 @@ interface PricingTabProps {
 }
 
 export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = {}) {
-  const { hotelId } = useAuth()
+  const { hotelId, hotel } = useAuth()
+  const { setTab } = useAppState()
   // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
   const { year: selectedYear, month: selectedMonth, periodMonth, setPeriodMonth } = usePeriod()
 
@@ -80,7 +81,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     hotelId
       ? async () => {
           const calendar = await api.pricingCalendar(hotelId, selectedYear, selectedMonth)
-          return { year: calendar.year, month: calendar.month, calendar: calendar.calendar }
+          return { year: calendar.year, month: calendar.month, totalRooms: calendar.totalRooms, calendar: calendar.calendar }
         }
       : null,
     [hotelId, selectedYear, selectedMonth],
@@ -204,6 +205,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
               <PriceCalendarSection
                 key={`${monthData.year}-${monthData.month}`}
                 monthData={monthData}
+                totalRooms={monthData.totalRooms ?? hotel?.totalRooms ?? null}
                 highlightedDate={highlightedDate}
                 events={events}
                 onSelectRowForAnalysis={setSelectedRowForAnalysis}
@@ -217,12 +219,13 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
       {/* 販売開始チェック（先々の月を前年同曜日・前年同月・予算の ADR と突き合わせる — D-11） */}
       <SaleOpenCheckCard />
 
-      {/* 当月のイベント情報（実API接続 — F-DP-07） */}
+      {/* 当月のイベント情報（参照のみ。登録・取り込みは外部需要動向 — 2026-10） */}
       <EventListCard
         events={events}
         loading={eventsLoading}
         error={eventsError}
         onReload={loadEvents}
+        onManage={() => setTab("ai-summary")}
       />
 
       <DayDetailDialog

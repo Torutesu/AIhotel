@@ -406,6 +406,60 @@ export const importOtbSchema = z.object({
     .max(MAX_IMPORT_ROWS, `1回に取り込めるのは${MAX_IMPORT_ROWS}行までです`),
 })
 
+// イベントの取り込み（外部需要動向の規定フォーム — 2026-10）。同じホテル・同じ名前・同じ開始日のイベントは上書きする
+export const MAX_EVENT_IMPORT_ROWS = 500
+export const importEventsSchema = z.object({
+  hotelId: entityIdSchema,
+  dryRun: z.boolean().optional(),
+  rows: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1, 'イベント名は必須です').max(200, 'イベント名は200文字以内で入力してください'),
+        type: z.string().trim().min(1, '種別は必須です').max(50),
+        startDate: importDateSchema,
+        endDate: importDateSchema,
+        location: z.string().trim().max(200).optional(),
+        expectedImpact: z.enum(['high', 'medium', 'low'], { errorMap: () => ({ message: '影響度は 高・中・低 のいずれかで入力してください' }) }).optional(),
+        description: z.string().trim().max(2000).optional(),
+        excludeFromHistory: z.boolean().optional(),
+      })
+    )
+    .min(1, '取り込む行がありません')
+    .max(MAX_EVENT_IMPORT_ROWS, `1回に取り込めるのは${MAX_EVENT_IMPORT_ROWS}行までです`),
+})
+
+// ======================================
+// 周辺の新規ホテル（外部需要動向 — 2026-10）
+// ======================================
+
+const newHotelFieldsSchema = z.object({
+  name: z.string().trim().min(1, 'ホテル名は必須です').max(200, 'ホテル名は200文字以内で入力してください'),
+  rooms: z.number({ invalid_type_error: '客室数は数値で入力してください' }).int('客室数は整数で入力してください').min(1, '客室数は1以上で入力してください').max(10000).nullable().optional(),
+  category: z.string().trim().max(50).nullable().optional(),
+  location: z.string().trim().max(200).nullable().optional(),
+  distanceKm: z.number({ invalid_type_error: '距離は数値で入力してください' }).min(0, '距離は0以上で入力してください').max(1000).nullable().optional(),
+  expectedImpact: z.enum(['high', 'medium', 'low'], { errorMap: () => ({ message: '影響度は 高・中・低 のいずれかで入力してください' }) }).nullable().optional(),
+  notes: z.string().trim().max(2000).nullable().optional(),
+})
+
+export const createNewHotelSchema = newHotelFieldsSchema.extend({
+  hotelId: entityIdSchema,
+  openingDate: dateOnlyInputSchema,
+})
+
+export const updateNewHotelSchema = newHotelFieldsSchema.extend({ openingDate: dateOnlyInputSchema }).partial()
+
+export const MAX_NEW_HOTEL_IMPORT_ROWS = 500
+// 取り込み: 同じ名前・同じ開業日の行は上書きする
+export const importNewHotelsSchema = z.object({
+  hotelId: entityIdSchema,
+  dryRun: z.boolean().optional(),
+  rows: z
+    .array(newHotelFieldsSchema.extend({ openingDate: importDateSchema }))
+    .min(1, '取り込む行がありません')
+    .max(MAX_NEW_HOTEL_IMPORT_ROWS, `1回に取り込めるのは${MAX_NEW_HOTEL_IMPORT_ROWS}行までです`),
+})
+
 // ======================================
 // 初期設定を速くする仕組み（#13）
 // ======================================
@@ -794,6 +848,10 @@ export type AuditLogQuery = z.infer<typeof auditLogQuerySchema>
 export type ImportDailyDataInput = z.infer<typeof importDailyDataSchema>
 export type ImportCompetitorPricesInput = z.infer<typeof importCompetitorPricesSchema>
 export type ImportOtbInput = z.infer<typeof importOtbSchema>
+export type ImportEventsInput = z.infer<typeof importEventsSchema>
+export type CreateNewHotelInput = z.infer<typeof createNewHotelSchema>
+export type UpdateNewHotelInput = z.infer<typeof updateNewHotelSchema>
+export type ImportNewHotelsInput = z.infer<typeof importNewHotelsSchema>
 export type UpsertIntegrationInput = z.infer<typeof upsertIntegrationSchema>
 export type CopyHotelSettingsInput = z.infer<typeof copyHotelSettingsSchema>
 export type ImportSetupWorkbookInput = z.infer<typeof importSetupWorkbookSchema>
