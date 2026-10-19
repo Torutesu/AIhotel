@@ -25,7 +25,7 @@ import {
   specialDayNameOf,
   type MonthCalendar,
 } from "@/components/pricing/pricing-constants"
-import { DAY_NAMES, monthLabel as monthLabelOf } from "@/lib/date"
+import { DAY_NAMES, monthLabel as monthLabelOf, parseDateStr } from "@/lib/date"
 import { formatPercent as pct, formatYen as yen } from "@/lib/format"
 import { DayTypeBadge, DayTypeHelp } from "@/components/pricing/day-type"
 import { OnHandChart } from "@/components/pricing/on-hand-chart"
@@ -194,7 +194,7 @@ export function PriceCalendarSection({
                 <tbody>
                   {days.map((day) => {
                     const [, , dayNum] = day.date.split("-")
-                    const dateObj = new Date(day.date)
+                    const dateObj = parseDateStr(day.date)
                     const dow = dateObj.getDay()
                     const holiday = holidayNameOf(dateObj)
                     const special = specialDayNameOf(dateObj)

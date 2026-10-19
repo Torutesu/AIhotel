@@ -18,7 +18,7 @@ import { useApiQuery } from "@/hooks/use-api-query"
 import { api, type DailyPerformance, type DashboardKpi } from "@/lib/api"
 import { DailyVarianceTable } from "@/components/analysis/daily-variance-table"
 import { VarianceDayCharts, VarianceMonthCharts } from "@/components/analysis/variance-charts"
-import { DAY_NAMES, monthLabel, parseMonthStr } from "@/lib/date"
+import { DAY_NAMES, monthLabel, parseDateStr, parseMonthStr } from "@/lib/date"
 import { formatPercent, formatYen } from "@/lib/format"
 
 interface DailyRow {
@@ -141,7 +141,7 @@ export function DailyPerformanceSection({
       return {
         date: row.date,
         day: Number(d),
-        dow: new Date(row.date).getDay(),
+        dow: parseDateStr(row.date).getDay(),
         isActual: row.isActual,
         occupancy,
         adr,

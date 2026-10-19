@@ -95,6 +95,8 @@ export function DailyVarianceTable({ days, totalRooms, month, selectedDate, onSe
                 aria-pressed={isSelected}
                 onClick={() => onSelectDate(row.date)}
                 onKeyDown={(e) => {
+                  // 行の中の日付ボタンでのキー操作はボタン側に任せる（ここで止めるとボタンが押せない）
+                  if (e.target !== e.currentTarget) return
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault()
                     onSelectDate(row.date)

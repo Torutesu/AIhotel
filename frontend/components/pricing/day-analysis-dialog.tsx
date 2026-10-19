@@ -6,9 +6,10 @@
 // 周辺日は前後2日ずつの5日を、月をまたいでも表示する（前後の月は必要なときだけ取得する）。
 
 import { useMemo } from "react"
-import { AlertCircle, ArrowRight } from "lucide-react"
+import { AlertCircle, ArrowRight, RefreshCw } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Dialog,
@@ -70,7 +71,7 @@ function DayAnalysisContent({ day: selectedDay, days, onClose }: { day: PricingC
   const { hotelId } = useAuth()
   const needed = useMemo(() => adjacentMonthsNeeded(selectedDay.date), [selectedDay.date])
   const neededKey = needed.map((m) => `${m.year}-${m.month}`).join(",")
-  const { data: adjacentDays, loading: adjacentLoading } = useApiQuery<PricingCalendarDay[]>(
+  const { data: adjacentDays, loading: adjacentLoading, error: adjacentError, reload: reloadAdjacent } = useApiQuery<PricingCalendarDay[]>(
     hotelId && needed.length > 0
       ? async () => (await Promise.all(needed.map((m) => api.pricingCalendar(hotelId, m.year, m.month)))).flatMap((c) => c.calendar)
       : null,
@@ -88,7 +89,7 @@ function DayAnalysisContent({ day: selectedDay, days, onClose }: { day: PricingC
         {(() => {
           const day = selectedDay
           const [y, m, d] = day.date.split("-").map(Number)
-          const dow = new Date(day.date).getDay()
+          const dow = new Date(y, m - 1, d).getDay()
           const insights: Array<{ type: string; title: string; content: string }> = []
           // 推移のいちばん古い時点（ふつうは90日前）
           const oldestHistory = day.dayTypeHistory[0] ?? null
@@ -220,6 +221,16 @@ function DayAnalysisContent({ day: selectedDay, days, onClose }: { day: PricingC
                         })}
                       </div>
                     </div>
+                    {adjacentError && (
+                      <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <AlertCircle className="h-3.5 w-3.5 text-destructive" aria-hidden />
+                        <span>{adjacentError}（前後の月の日は「データなし」と表示しています）</span>
+                        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={reloadAdjacent}>
+                          <RefreshCw className="h-3.5 w-3.5" aria-hidden />
+                          再試行
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
