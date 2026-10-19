@@ -15,7 +15,7 @@ import {
   mockSeasonBoost,
   setMockEvents,
   toLocalDateStr,
-  type mockPricingCalendar,
+  mockPricingCalendar,
 } from "./demo-data"
 import type {
   BookingCurve,
@@ -25,6 +25,7 @@ import type {
   DayTypeHistoryPoint,
   EventImportRow,
   ImportResult,
+  MonthPace,
   NewHotelInput,
   NewHotelOpening,
   PricingCalendar,
@@ -290,6 +291,52 @@ export function mockDailyPerformance(hotelId: string, year: number, month: numbe
       lastYearDate: toLocalDateStr(new Date(b.date.getTime() - 364 * DAY_MS)),
       lastYear: metrics(b.lyRooms, b.lyAdr),
     })),
+  }
+}
+
+/** 月の予約の積み上がりのデモ（180日前 → 結果。まだ来ていない残日数は出さない） */
+export function mockMonthPace(hotelId: string, year: number, month: number): MonthPace {
+  const totalRooms = MOCK_HOTEL.totalRooms
+  const { calendar } = mockPricingCalendar(hotelId, year, month)
+  const curves = calendar.map((day) => demoDayCurve(new Date(`${day.date}T00:00:00`), day.actualOccupancy ?? day.predictedOccupancy ?? 0.7))
+  const lastDay = new Date(year, month - 1, calendar.length)
+  const minLead = Math.max(0, leadDays(lastDay))
+  const capacity = totalRooms * calendar.length
+  const points = []
+  // 予約は積み上がるだけ（日ごとに、それまでの最大を下回らない）
+  const ownMax = curves.map(() => 0)
+  const lyMax = curves.map(() => 0)
+  for (let lead = 180; lead >= minLead; lead--) {
+    let rooms = 0
+    let lastYearRooms = 0
+    curves.forEach((curve, i) => {
+      const [own, ly] = curve.at(lead)
+      ownMax[i] = Math.max(ownMax[i], own)
+      lyMax[i] = Math.max(lyMax[i], ly)
+      rooms += ownMax[i]
+      lastYearRooms += lyMax[i]
+    })
+    points.push({
+      daysBefore: lead,
+      rooms,
+      occupancy: Math.round((rooms / capacity) * 1000) / 1000,
+      comparableRooms: rooms,
+      lastYearRooms,
+    })
+  }
+  const budget = mockBudgetValues(year, month)
+  const aiRooms = calendar.reduce((sum, d) => sum + Math.round(totalRooms * (d.predictedOccupancy ?? 0)), 0)
+  return {
+    hotelId,
+    year,
+    month,
+    totalRooms,
+    days: calendar.length,
+    budgetRooms: budget.budgetRooms ?? null,
+    budgetOccupancy: budget.budgetRooms != null ? Math.round((budget.budgetRooms / capacity) * 1000) / 1000 : null,
+    aiRooms,
+    aiOccupancy: Math.round((aiRooms / capacity) * 1000) / 1000,
+    points,
   }
 }
 

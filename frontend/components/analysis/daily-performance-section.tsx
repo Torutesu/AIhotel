@@ -40,8 +40,10 @@ interface DailyPerformanceSectionProps {
   onTargetMonthChange?: (value: string) => void
   /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
   onNavigateToPricing?: (date: Date) => void
-  /** 行クリックで宿泊日が選ばれたことを親に伝える（ブッキングカーブとの連動用） */
+  /** 行・日付の選択で宿泊日が選ばれたことを親に伝える（予約動向のブッキングカーブを同じ日にそろえる。画面は移動しない） */
   onSelectStayDate?: (date: Date) => void
+  /** 予約動向のブッキングカーブを開く */
+  onOpenBookingCurve?: () => void
 }
 
 /** 実績のある行から最大／最小の日を選ぶ */
@@ -69,6 +71,7 @@ export function DailyPerformanceSection({
   onTargetMonthChange,
   onNavigateToPricing,
   onSelectStayDate,
+  onOpenBookingCurve,
 }: DailyPerformanceSectionProps = {}) {
   const { hotelId, hotel } = useAuth()
 
@@ -116,6 +119,12 @@ export function DailyPerformanceSection({
     [performance],
   )
   const chartDate = selectedStayDate && selectedStayDate.startsWith(targetMonth) ? selectedStayDate : latestActualDate
+  /** 日のグラフの日付を選ぶ（表の行・日付の選択。予約動向のブッキングカーブにも伝える） */
+  const selectChartDate = (date: string) => {
+    setSelectedStayDate(date)
+    const [y, m, d] = date.split("-").map(Number)
+    onSelectStayDate?.(new Date(y, m - 1, d))
+  }
 
   const totalRooms = hotel?.totalRooms ?? null
 
@@ -295,7 +304,7 @@ export function DailyPerformanceSection({
           </CardTitle>
           <p className="text-xs text-muted-foreground">
             結果の出た日の実績と、日割り予算・AIの想定・前年同曜日との差を並べます（料金カレンダーの「結果」「想定差異」はここへ移しました）。
-            行をクリックすると、その日の日のグラフとブッキングカーブを表示します。日付からダイナミックプライシングの同じ日へ移動できます。
+            行をクリックすると、下の日のグラフにその日を表示します。日付からダイナミックプライシングの同じ日へ移動できます。
           </p>
         </CardHeader>
         <CardContent className="space-y-6 pt-0">
@@ -312,15 +321,17 @@ export function DailyPerformanceSection({
                 totalRooms={performance.totalRooms}
                 month={month}
                 selectedDate={chartDate}
-                onSelectDate={(date) => {
-                  setSelectedStayDate(date)
-                  const [y, m, d] = date.split("-").map(Number)
-                  onSelectStayDate?.(new Date(y, m - 1, d))
-                }}
+                onSelectDate={selectChartDate}
                 onNavigateToPricing={onNavigateToPricing}
               />
-              <VarianceMonthCharts days={performance.days} month={month} />
-              <VarianceDayCharts date={chartDate} />
+              <VarianceMonthCharts year={year} month={month} />
+              <VarianceDayCharts
+                date={chartDate}
+                year={year}
+                month={month}
+                onDateChange={selectChartDate}
+                onOpenBookingCurve={onOpenBookingCurve}
+              />
             </>
           )}
         </CardContent>

@@ -431,6 +431,31 @@ export interface DailyPerformance {
   days: DailyPerformanceDay[]
 }
 
+/** 月の予約の積み上がり（GET /analysis/month-pace — 日別パフォーマンスの月のグラフ） */
+export interface MonthPacePoint {
+  daysBefore: number
+  /** 月の予約室数の合計（その時点） */
+  rooms: number
+  occupancy: number
+  /** 前年同曜日の記録がある日だけの、今年と前年の予約室数の合計 */
+  comparableRooms: number | null
+  lastYearRooms: number | null
+}
+
+export interface MonthPace {
+  hotelId: string
+  year: number
+  month: number
+  totalRooms: number
+  days: number
+  budgetRooms: number | null
+  budgetOccupancy: number | null
+  aiRooms: number | null
+  aiOccupancy: number | null
+  /** 残日数の大きい順（180日前 → 結果）。月のどこかの日に記録が欠ける残日数・まだ来ていない残日数は含まない */
+  points: MonthPacePoint[]
+}
+
 // ---- 周辺の新規ホテル（/new-hotels — 外部需要動向 2026-10）----
 
 export type ImpactLevel = "high" | "medium" | "low"

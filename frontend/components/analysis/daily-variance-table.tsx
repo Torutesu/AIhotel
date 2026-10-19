@@ -91,7 +91,7 @@ export function DailyVarianceTable({ days, totalRooms, month, selectedDate, onSe
                 key={row.date}
                 role="button"
                 tabIndex={0}
-                aria-label={`${month}/${row.day}を選んで日のグラフとブッキングカーブを表示`}
+                aria-label={`${month}/${row.day}を選んで日のグラフを表示`}
                 aria-pressed={isSelected}
                 onClick={() => onSelectDate(row.date)}
                 onKeyDown={(e) => {

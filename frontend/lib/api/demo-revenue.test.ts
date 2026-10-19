@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 
 import { mockPricingCalendar } from "./demo-data"
-import { demoDayType, enrichMockPricingCalendar, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance } from "./demo-revenue"
+import { demoDayType, enrichMockPricingCalendar, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockMonthPace } from "./demo-revenue"
 
 // デモモードのデータ（2026-10）。日のタイプはバックエンド（services/forecast/dayType.test.ts）と同じ例で同じ答えになること
 
@@ -74,5 +74,22 @@ describe("importMockNewHotels", () => {
     importMockNewHotels("demo", [{ name: first.name, openingDate: first.openingDate, rooms: 999 }, { name: "新ホテル", openingDate: "2027-04-01" }], false)
     expect(getMockNewHotels("demo")).toHaveLength(before + 1)
     expect(getMockNewHotels("demo").find((h) => h.name === first.name)?.rooms).toBe(999)
+  })
+})
+
+describe("mockMonthPace", () => {
+  it("180日前から、過ぎた月は結果まで、今月はまだ来ていない残日数を除いて返す", () => {
+    const today = new Date()
+    const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    const done = mockMonthPace("demo", prev.getFullYear(), prev.getMonth() + 1)
+    expect(done.points[0].daysBefore).toBe(180)
+    expect(done.points.at(-1)?.daysBefore).toBe(0)
+    const rooms = done.points.map((p) => p.rooms)
+    expect(rooms).toEqual([...rooms].sort((a, b) => a - b))
+    expect(done.budgetOccupancy).toBeGreaterThan(0)
+
+    const current = mockMonthPace("demo", today.getFullYear(), today.getMonth() + 1)
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
+    expect(current.points.at(-1)?.daysBefore).toBe(lastDay - today.getDate())
   })
 })

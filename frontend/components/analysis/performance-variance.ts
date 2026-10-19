@@ -3,16 +3,9 @@
 // 前年比 = 前年同曜日（364日前）と比べる。稼働率は pt 差、ADR・REV-Per・室料売上は伸び率（%）。
 // 画面から切り離した純関数にしてテストで固定する。
 
-import type { BookingCurve, DailyPerformanceDay, DayMetrics } from "@/lib/api"
+import type { BookingCurve, DailyPerformanceDay, DayMetrics, MonthPace } from "@/lib/api"
 
 export type VarianceMetric = "occupancy" | "adr" | "revPar" | "revenue"
-
-export const VARIANCE_METRICS: Array<{ key: VarianceMetric; label: string }> = [
-  { key: "occupancy", label: "稼働率" },
-  { key: "adr", label: "ADR" },
-  { key: "revPar", label: "REV-Per" },
-  { key: "revenue", label: "室料売上" },
-]
 
 export type VarianceSet = Record<VarianceMetric, number | null>
 
@@ -143,4 +136,17 @@ export function buildDayPaceRows(curve: BookingCurve): DayPaceRow[] {
       yoy: ly != null && ly >= 3 ? rooms / ly - 1 : null,
     }
   })
+}
+
+/**
+ * 月のグラフ（月全体の 180日前 → 結果）。月の予約室数の合計を、予算・AI の予測の合計・前年同曜日の同じ時点と比べる。
+ * 日のグラフと同じ形の行にする
+ */
+export function buildMonthPaceRows(pace: MonthPace): DayPaceRow[] {
+  return pace.points.map((p) => ({
+    daysBefore: p.daysBefore,
+    budget: pace.budgetOccupancy != null ? p.occupancy - pace.budgetOccupancy : null,
+    ai: pace.aiOccupancy != null ? p.occupancy - pace.aiOccupancy : null,
+    yoy: p.comparableRooms != null && p.lastYearRooms != null && p.lastYearRooms >= 3 ? p.comparableRooms / p.lastYearRooms - 1 : null,
+  }))
 }
