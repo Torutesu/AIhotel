@@ -34,6 +34,8 @@ interface CsvImportCardProps<Row> {
   submit: (hotelId: string, rows: Row[], dryRun: boolean) => Promise<ImportSummary>
   /** 確認画面の「新規 N・上書き N」の単位（既定は「行」） */
   unit?: string
+  /** 取り込みが終わったあと（一覧の再読込など） */
+  onImported?: () => void
 }
 
 /** File.text() は古いブラウザに無いため FileReader で読む */
@@ -73,6 +75,7 @@ export function CsvImportCard<Row>({
   parse,
   submit,
   unit = "行",
+  onImported,
 }: CsvImportCardProps<Row>) {
   const { hotelId, user } = useAuth()
   const editable = canManage(user?.role)
@@ -148,6 +151,7 @@ export function CsvImportCard<Row>({
         description: `新規 ${result.created}${unit}・更新 ${result.updated}${unit}（${result.startDate} 〜 ${result.endDate}）`,
       })
       reset()
+      onImported?.()
     } catch (err) {
       if (err instanceof ApiClientError && err.fieldErrors.length > 0) {
         setPreview(null)
