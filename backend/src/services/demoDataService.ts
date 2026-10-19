@@ -4,8 +4,8 @@ import { addUtcDays } from '../lib/date.js'
 
 // デモ用のホテルデータを作る（seed とトライアルの発行で共用 — トライアル）。
 //
-// 部屋タイプ・料金ランク・価格戦略・競合・過去90日の実績と今後90日の予測・内訳・ブッキングカーブ・
-// 競合価格・予算・アラート・AIコメント・着地・口コミを、指定したテナント×ホテルに入れる。
+// 部屋タイプ・料金ランク・価格戦略・競合・過去90日の実績と今後90日の予測・内訳・前年の実績・ブッキングカーブ・
+// 競合価格・予算・アラート・AIコメント・着地・口コミ・イベント・周辺の新規ホテルを、指定したテナント×ホテルに入れる。
 // 決定的な擬似乱数を使うので、同じ日に作れば同じ値になる（seed の冪等性 — M-4）。
 // 既存の行は削除・upsert で置き換えるので、同じホテルに対して何度呼んでもよい。
 
@@ -245,23 +245,66 @@ export async function populateDemoHotelData(
   await db.otaChannelData.createMany({ data: channelRows })
   await db.dailyRoomData.createMany({ data: roomRows })
 
-  // 9. ブッキングカーブ（今後30日の宿泊日 × リードタイム）
-  const curveRows = []
-  for (let offset = 0; offset < 30; offset++) {
-    const stayDate = addDays(today, offset)
-    const dow = stayDate.getUTCDay()
+  // 8c. 前年の実績（前年同曜日 = 364日前 との比較用 — 2026-10）。
+  // 料金カレンダーの日割り予算・日のタイプ、日別パフォーマンスの前年比、ブッキングカーブの参考カーブが使う。
+  // 直近90日の値が変わらないよう別の乱数列を使い、内訳（8b）は作らない
+  const lastYearRng = createRng(20261019)
+  const lastYearRows = []
+  for (let offset = -455; offset < -90; offset++) {
+    const date = addDays(today, offset)
+    const dow = date.getUTCDay()
     const isWeekend = dow === 5 || dow === 6
-    const finalRooms = Math.round(totalRooms * (isWeekend ? 0.93 : 0.75))
-    for (const daysBefore of [90, 60, 45, 30, 21, 14, 7, 3, 1, 0]) {
-      if (daysBefore < offset) continue // まだ到来していない時点は積上げ済みのみ
-      const progress = Math.pow(1 - daysBefore / 90, 1.6)
-      curveRows.push({
-        hotelId,
-        tenantId,
-        stayDate,
-        daysBefore,
-        roomsBooked: Math.round(finalRooms * Math.min(1, progress + rng() * 0.05)),
-      })
+    const seasonBoost = 1 + 0.1 * Math.sin(((date.getUTCMonth() + 1) / 12) * Math.PI * 2)
+    // 前年は今年より少し弱い（稼働 −3pt・単価 −4%）
+    const occupancy = Math.min(1, Math.max(0.3, (isWeekend ? 0.87 : 0.69) * seasonBoost + (lastYearRng() - 0.5) * 0.12))
+    const adr = Math.round(((isWeekend ? 23000 : 16500) * seasonBoost + (lastYearRng() - 0.5) * 2000) * 0.96)
+    const soldRooms = Math.round(totalRooms * occupancy)
+    lastYearRows.push({
+      hotelId,
+      tenantId,
+      date,
+      occupancy: Math.round(occupancy * 1000) / 1000,
+      adr,
+      revPar: Math.round((soldRooms * adr) / totalRooms),
+      totalRevenue: soldRooms * adr,
+      soldRooms,
+      guests: Math.round(soldRooms * (1.3 + lastYearRng() * 0.4)),
+    })
+  }
+  await db.dailyData.createMany({ data: lastYearRows })
+
+  // 9. ブッキングカーブ（過去90日〜今後90日の宿泊日と、その前年同曜日の宿泊日 × 残日数）。
+  // 結果の出た宿泊日は最終の販売室数まで、先の宿泊日は「今日の取り込み」（残日数 = 今日からの日数）までの予約積上を作る。
+  // OTB は毎日取り込む前提（#24 E2）なので、今日の時点の記録は必ずある。
+  // 行数がトライアル発行の速さに効くため、前年は比べる相手になる日（−455〜−273日）だけにする
+  const curveRng = createRng(20261020)
+  const CURVE_LEADS = [180, 120, 90, 60, 45, 30, 21, 14, 7, 3, 1, 0]
+  const finalByDate = new Map<number, number>()
+  for (const row of [...lastYearRows, ...dailyRows]) finalByDate.set(row.date.getTime(), row.soldRooms)
+  const predictedByDate = new Map(aiRows.map((r) => [r.date.getTime(), r.predictedOccupancy]))
+  const curveRows = []
+  for (let offset = -455; offset <= 90; offset++) {
+    if (offset > -273 && offset < -90) continue
+    const stayDate = addDays(today, offset)
+    const finalRooms =
+      offset <= 0 ? finalByDate.get(stayDate.getTime()) : Math.round(totalRooms * (predictedByDate.get(stayDate.getTime()) ?? 0.7))
+    if (finalRooms == null) continue
+    // 週末は早めに埋まる。残日数が大きい順に積み上げ、前の時点を下回らないようにする
+    const curvePower = stayDate.getUTCDay() === 5 || stayDate.getUTCDay() === 6 ? 1.5 : 1.9
+    // 先の宿泊日は今日の時点まで。前年の宿泊日には、今年の同じ曜日の「今日の時点」と同じ残日数も入れる（ペースを比べるため）
+    const counterpart = offset + 364
+    const leads =
+      offset > 0
+        ? [...CURVE_LEADS.filter((l) => l > offset), offset]
+        : offset <= -273 && counterpart > 0 && !CURVE_LEADS.includes(counterpart)
+          ? [...CURVE_LEADS, counterpart].sort((a, b) => b - a)
+          : CURVE_LEADS
+    let booked = 0
+    for (const daysBefore of leads) {
+      const progress = Math.pow(1 - daysBefore / 190, curvePower)
+      const noisy = daysBefore === 0 ? finalRooms : Math.round(finalRooms * Math.min(1, progress * (0.92 + curveRng() * 0.12)))
+      booked = Math.max(booked, Math.min(noisy, finalRooms))
+      curveRows.push({ hotelId, tenantId, stayDate, daysBefore, roomsBooked: booked })
     }
   }
   await db.bookingCurveData.createMany({ data: curveRows })
@@ -450,4 +493,24 @@ export async function populateDemoHotelData(
   }
   await db.reviewScore.createMany({ data: reviewRows })
 
+  // 15. イベントと周辺の新規ホテル（外部需要動向 — 2026-10）。
+  // 利用者が画面から登録した行（createdByUserId あり）は残し、デモの行だけを作り直す
+  await db.event.deleteMany({ where: { hotelId, createdByUserId: null } })
+  await db.event.createMany({
+    data: [
+      { name: '市民花火大会', type: 'festival', start: 9, end: 9, location: '河川敷', expectedImpact: 'high' },
+      { name: '国際医学会', type: 'conference', start: 16, end: 18, location: '国際会議場', expectedImpact: 'high' },
+      { name: 'アリーナ公演（2日間）', type: 'concert', start: 23, end: 24, location: '市営アリーナ', expectedImpact: 'medium' },
+      { name: 'プロ野球 公式戦', type: 'sports', start: 30, end: 31, location: 'ドーム球場', expectedImpact: 'medium' },
+      { name: '秋祭り', type: 'festival', start: 44, end: 45, location: '中心市街地', expectedImpact: 'low' },
+    ].map(({ start, end, ...e }) => ({ ...e, hotelId, tenantId, startDate: addDays(today, start), endDate: addDays(today, end) })),
+  })
+  await db.newHotelOpening.deleteMany({ where: { hotelId, createdByUserId: null } })
+  await db.newHotelOpening.createMany({
+    data: [
+      { name: 'ステーションホテル新館', days: 45, rooms: 220, category: 'ビジネス', location: '駅北口', distanceKm: 0.4, expectedImpact: 'high', notes: '同価格帯。開業月は割引販売の見込み' },
+      { name: 'グランドリゾート湾岸', days: 150, rooms: 310, category: 'リゾート', location: '湾岸エリア', distanceKm: 3.2, expectedImpact: 'medium', notes: '上位カテゴリ。週末の需要を取り合う' },
+      { name: 'カプセルイン中央', days: -40, rooms: 160, category: 'カプセル', location: '中央通り', distanceKm: 0.9, expectedImpact: 'low', notes: '開業済み。客層は重なりにくい' },
+    ].map(({ days, ...h }) => ({ ...h, hotelId, tenantId, openingDate: addDays(today, days) })),
+  })
 }
