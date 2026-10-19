@@ -57,6 +57,26 @@ describe("buildVarianceRows / summarizeVariance", () => {
     // 前年: 1日目だけ → 960,000 / 600,000 − 1
     expect(s.yoy.revenue).toBeCloseTo(0.6)
   })
+
+  it("予算が未登録の月は予算差異の月計を出さない（実績そのものを差異にしない）", () => {
+    const empty: DayMetrics = { soldRooms: null, occupancy: null, adr: null, revPar: null, revenue: null }
+    const s = summarizeVariance(days.map((d) => ({ ...d, budget: empty })), 100)
+    expect(s.budget).toEqual({ occupancy: null, adr: null, revPar: null, revenue: null })
+    expect(s.actual?.soldRooms).toBe(140)
+  })
+
+  it("相手の値が一部の項目だけ欠けていれば、その項目の月計だけ出さない", () => {
+    const s = summarizeVariance(
+      [
+        { ...days[0], budget: { ...m(70, 10000), revenue: null, adr: null, revPar: null } },
+        { ...days[1], budget: m(70, 10000) },
+      ],
+      100,
+    )
+    expect(s.budget.occupancy).toBeCloseTo(0)
+    expect(s.budget.revenue).toBeNull()
+    expect(s.budget.adr).toBeNull()
+  })
 })
 
 describe("buildDayPaceRows（日のグラフ）", () => {

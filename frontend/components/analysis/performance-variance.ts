@@ -62,18 +62,23 @@ export function buildVarianceRows(days: DailyPerformanceDay[]): VarianceRow[] {
   })
 }
 
-/** 指標を日ごとに足し上げた月の値（結果の出た日だけ。ADR = 売上 ÷ 室数、REV-Per = 売上 ÷ 客室数×日数） */
+/**
+ * 指標を日ごとに足し上げた月の値（ADR = 売上 ÷ 室数、REV-Per = 売上 ÷ 客室数×日数）。
+ * 1日でも値の欠けた指標は出さない（欠けた日を 0 と数えると、予算未登録の月に差異が実績そのものになる）
+ */
 function totalOf(list: Array<DayMetrics | null>, totalRooms: number): DayMetrics | null {
-  const valid = list.filter((m): m is DayMetrics => m != null)
-  if (valid.length === 0) return null
-  const rooms = valid.reduce((s, m) => s + (m.soldRooms ?? 0), 0)
-  const revenue = valid.reduce((s, m) => s + (m.revenue ?? 0), 0)
+  if (list.length === 0 || list.some((m) => m == null)) return null
+  const valid = list as DayMetrics[]
+  const sumOf = (pick: (m: DayMetrics) => number | null) =>
+    valid.every((m) => pick(m) != null) ? valid.reduce((s, m) => s + (pick(m) as number), 0) : null
+  const rooms = sumOf((m) => m.soldRooms)
+  const revenue = sumOf((m) => m.revenue)
   const capacity = totalRooms * valid.length
   return {
     soldRooms: rooms,
-    occupancy: capacity > 0 ? rooms / capacity : null,
-    adr: rooms > 0 ? revenue / rooms : null,
-    revPar: capacity > 0 ? revenue / capacity : null,
+    occupancy: rooms != null && capacity > 0 ? rooms / capacity : null,
+    adr: rooms != null && revenue != null && rooms > 0 ? revenue / rooms : null,
+    revPar: revenue != null && capacity > 0 ? revenue / capacity : null,
     revenue,
   }
 }
@@ -83,7 +88,11 @@ export function summarizeVariance(days: DailyPerformanceDay[], totalRooms: numbe
   const done = days.filter((d) => d.actual != null)
   const actual = totalOf(done.map((d) => d.actual), totalRooms)
   const pick = (f: (d: DailyPerformanceDay) => DayMetrics | null) => {
-    const pairs = done.filter((d) => f(d) != null)
+    // 比べる相手の値がある日だけ（予算が未登録なら日割り予算の項目はすべて null）
+    const pairs = done.filter((d) => {
+      const target = f(d)
+      return target != null && (target.soldRooms != null || target.revenue != null)
+    })
     return { actual: totalOf(pairs.map((d) => d.actual), totalRooms), target: totalOf(pairs.map(f), totalRooms) }
   }
   const budget = pick((d) => d.budget)

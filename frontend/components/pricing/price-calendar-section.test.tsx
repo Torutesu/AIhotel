@@ -62,6 +62,32 @@ describe("summarizeCalendar", () => {
     expect(s.predictedOccupancy).toBeCloseTo(0.71)
     expect(s.expectedAdr).toBeCloseTo(16150)
   })
+
+  it("値の欠けた日は稼働率・ADR の分母に入れない（予約の記録・予測の無い日を 0室と数えない）", () => {
+    const s = summarizeCalendar(
+      [
+        day("2026-12-01", { onHandRooms: 40, predictedOccupancy: 0.8, expectedRevenue: 80 * 15000 }),
+        day("2026-12-02", { onHandRooms: null, predictedOccupancy: null, expectedRevenue: null }),
+        day("2026-12-03", { onHandRooms: 60, predictedOccupancy: 0.6, expectedRevenue: null }),
+      ],
+      100,
+    )
+    expect(s.currentOccupancy).toBeCloseTo(0.5)
+    expect(s.predictedOccupancy).toBeCloseTo(0.7)
+    // 想定ADR は想定売上の分かる日（1日目）だけで出す
+    expect(s.expectedAdr).toBeCloseTo(15000)
+    expect(s.expectedRevenue).toBe(80 * 15000)
+  })
+
+  it("予算が未登録なら予算の月計は出さない", () => {
+    const s = summarizeCalendar(
+      DAYS.map((d) => ({ ...d, budgetRooms: null, budgetOccupancy: null, budgetAdr: null, budgetRevenue: null })),
+      100,
+    )
+    expect(s.budgetAdr).toBeNull()
+    expect(s.budgetOccupancy).toBeNull()
+    expect(s.budgetRevenue).toBeNull()
+  })
 })
 
 describe("toOnHandRows", () => {
