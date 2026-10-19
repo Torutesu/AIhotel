@@ -141,8 +141,8 @@ export function buildDayTypeTimeline(input: DayTypeTimelineInput): DayTypeTimeli
   }
 
   let current: DayTypeResult
-  if (currentLead < 0) {
-    // 宿泊日を過ぎた日は結果で判定する（販売室数が無ければ当日の予約積上）
+  if (currentLead < 0 || (currentLead === 0 && actualSoldRooms != null)) {
+    // 宿泊日を過ぎた日（当日でも結果が入っていれば）は結果で判定する（販売室数が無ければ当日の予約積上）
     const otbRooms = actualSoldRooms ?? otbAtLead(points, 0)
     current = classifyDayType({
       totalRooms,

@@ -116,4 +116,13 @@ describe('buildDayTypeTimeline', () => {
     // 92 vs 80 = 1.15 → 2。着地は結果そのもの（92%）→ A
     expect(t.current).toMatchObject({ dayType: 'A2', expectedOccupancy: 0.92 })
   })
+
+  it('当日でも結果（販売室数）が入っていれば結果で判定する', () => {
+    const today = { stayDate, today: stayDate, totalRooms, lastYearPoints, lastYearFinalRooms: 80, predictedOccupancy: 0.7 }
+    const withToday = [...points, { stayDate, daysBefore: 0, roomsBooked: 60 }]
+    expect(buildDayTypeTimeline({ ...today, points: withToday, actualSoldRooms: 92 }).current).toMatchObject({ dayType: 'A2', expectedOccupancy: 0.92 })
+    // 結果がまだ無ければ今日の取り込み（60室）で見る
+    expect(buildDayTypeTimeline({ ...today, points: withToday, actualSoldRooms: null }).current.expectedOccupancy).toBe(0.6)
+  })
 })
+
