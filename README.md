@@ -648,6 +648,7 @@ TRUST_PROXY=1
 - `GET /api/v1/analysis/competitor` - 競合分析取得（`hotelId`, `startDate`, `endDate`）
 - `GET /api/v1/analysis/reviews` - 口コミ評価点取得（`hotelId`。現状はシードデータ、収集バッチは未実装）
 - `GET /api/v1/analysis/daily-performance` - 日別パフォーマンス（`hotelId`, `year`, `month`。実績と日割り予算・AI の予測・前年同曜日 — 2026-10）
+- `GET /api/v1/analysis/month-pace` - 月の予約の積み上がり（`hotelId`, `year`, `month`。月の各宿泊日の N日前の予約室数の合計を 180日前→結果 で返し、予算・AI の予測・前年同曜日と比べる — 2026-10）
 
 ### Users (`backend/src/routes/users.ts`)
 
