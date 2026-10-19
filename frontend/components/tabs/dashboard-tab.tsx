@@ -3,7 +3,7 @@
 // ダッシュボードタブ（U-15 で各セクションを components/dashboard/* へ分割したコンテナ）
 //
 // 実データ: GET /dashboard/kpi・/dashboard/alerts・/dashboard/ai-summary・
-//           /dashboard/kpi/comparison・/hotels
+//           /dashboard/kpi/comparison・/hotels・/daily/booking-curve（月間ブッキングカーブ — 2026-10）
 // サンプル表示: 在庫表（PMS連携・残室推移の記録が未実装）
 
 import { useCallback, useEffect, useState } from "react"
@@ -21,6 +21,7 @@ import { TrendChartCard } from "@/components/dashboard/trend-chart-card"
 import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
 import { KpiProgressSection, ALL_KPI_KEYS } from "@/components/dashboard/kpi-progress-section"
 import { InventoryTableCard } from "@/components/dashboard/inventory-table-card"
+import { BookingCurveMonthCard } from "@/components/dashboard/booking-curve-month-card"
 import { SetupChecklistCard } from "@/components/onboarding/setup-checklist-card"
 import { api, ApiClientError, type AiSummary, type AlertItem, type DashboardKpi } from "@/lib/api"
 import type { AlertLinkTarget } from "@/lib/alert-link"
@@ -183,6 +184,9 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
         <AiSummaryCard summary={aiSummary} loading={loading} />
 
         <TrendChartCard kpi={kpi} loading={loading} year={year} month={month} />
+
+        {/* OCC・ADR 月間ブッキングカーブ（DB01 — GET /daily/booking-curve） */}
+        <BookingCurveMonthCard year={year} month={month} />
 
         {/* 月初比較・日付比較（U-5 — GET /dashboard/kpi/comparison） */}
         <KpiComparisonSection year={year} month={month} summary={kpi?.summary ?? null} />
