@@ -87,6 +87,10 @@ describe("DayAnalysisDialog", () => {
     expect(screen.getAllByTestId("neighbor-day")).toHaveLength(5)
     expect(screen.getByText("9/30")).toBeTruthy()
 
+    // 見出しの横に、今の日のタイプと90日前のタイプ
+    const header = screen.getByTestId("day-type-header")
+    expect(header.textContent).toBe("日のタイプD490日前D3")
+
     // 日のタイプ（今と推移）
     const history = screen.getByRole("list", { name: "日のタイプの推移" })
     expect(history.textContent).toContain("90日前")

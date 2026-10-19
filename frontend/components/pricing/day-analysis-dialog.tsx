@@ -90,6 +90,8 @@ function DayAnalysisContent({ day: selectedDay, days, onClose }: { day: PricingC
           const [y, m, d] = day.date.split("-").map(Number)
           const dow = new Date(day.date).getDay()
           const insights: Array<{ type: string; title: string; content: string }> = []
+          // 推移のいちばん古い時点（ふつうは90日前）
+          const oldestHistory = day.dayTypeHistory[0] ?? null
 
           // 日のタイプ（予約の実数から見た見込み）とアラート（AI の予測）のずれ・ペース
           const typeGrade = gradeIndex(day.dayType)
@@ -157,12 +159,25 @@ function DayAnalysisContent({ day: selectedDay, days, onClose }: { day: PricingC
 
           return (
             <>
-              <DialogHeader>
-                <DialogTitle>
-                  {y}年{m}月{d}日（{DAY_NAMES[dow]}）のAI分析
-                </DialogTitle>
-                <DialogDescription>需要アラート・競合分析・価格最適化の提案を表示します</DialogDescription>
-              </DialogHeader>
+              <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
+                <DialogHeader>
+                  <DialogTitle>
+                    {y}年{m}月{d}日（{DAY_NAMES[dow]}）のAI分析
+                  </DialogTitle>
+                  <DialogDescription>需要アラート・競合分析・価格最適化の提案を表示します</DialogDescription>
+                </DialogHeader>
+                {/* 日のタイプと、90日前（推移のいちばん古い時点）のタイプ（DP03 — 見出しの横に置く） */}
+                <div className="flex items-center gap-2 rounded-md border px-3 py-1.5" data-testid="day-type-header">
+                  <span className="text-xs text-muted-foreground">日のタイプ</span>
+                  <DayTypeBadge dayType={day.dayType} expectedOccupancy={day.dayTypeExpectedOccupancy} paceRatio={day.dayTypePaceRatio} />
+                  {oldestHistory && (
+                    <>
+                      <span className="text-xs text-muted-foreground">{leadLabel(oldestHistory.daysBefore)}</span>
+                      <DayTypeBadge dayType={oldestHistory.dayType} paceRatio={oldestHistory.paceRatio} />
+                    </>
+                  )}
+                </div>
+              </div>
 
               <div className="space-y-6 mt-4">
                 <Card>
