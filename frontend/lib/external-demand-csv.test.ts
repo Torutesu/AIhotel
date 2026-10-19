@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 
 import { toCsv, csvCell } from "@/lib/csv-export"
+import { readCsvTable } from "@/lib/csv"
 import {
   EVENT_CSV_TEMPLATE,
   NEW_HOTEL_CSV_TEMPLATE,
@@ -22,6 +23,34 @@ describe("csvCell / toCsv", () => {
     expect(csvCell(true)).toBe("○")
     expect(csvCell(false)).toBe("")
     expect(toCsv([["a", 1], ["b", null]])).toBe("a,1\r\nb,\r\n")
+  })
+
+  it("= + - @ で始まる文字列は先頭に ' を付けて数式として実行させない（数値・数値だけの文字列はそのまま）", () => {
+    expect(csvCell("=HYPERLINK(\"http://example.com\")")).toBe('"\'=HYPERLINK(""http://example.com"")"')
+    expect(csvCell("+cmd|' /C calc'!A0")).toBe("'+cmd|' /C calc'!A0")
+    expect(csvCell("-2+3")).toBe("'-2+3")
+    expect(csvCell("@SUM(A1)")).toBe("'@SUM(A1)")
+    expect(csvCell("+2.8pt")).toBe("'+2.8pt")
+    expect(csvCell("+12.4%")).toBe("+12.4%")
+    expect(csvCell("-3")).toBe("-3")
+    expect(csvCell(-5)).toBe("-5")
+    expect(csvCell("花火-大会")).toBe("花火-大会")
+  })
+})
+
+describe("readCsvTable", () => {
+  it("ダブルクォート内の改行はセルの中の改行として読み、行番号はその行の始まりにする", () => {
+    const { lines, errors } = readCsvTable('名前,メモ\r\nA,"1行目\r\n2行目"\r\nB,x\r\n', { name: ["名前", "名前"], memo: ["メモ", "メモ"] }, ["name"])
+    expect(errors).toEqual([])
+    expect(lines).toEqual([
+      { line: 2, cells: ["A", "1行目\n2行目"] },
+      { line: 4, cells: ["B", "x"] },
+    ])
+  })
+
+  it("書き出しで付けた先頭の ' を外して読む（' のあとが = + - @ のときだけ）", () => {
+    const { lines } = readCsvTable("名前\n'=1+1\n'abc\n", { name: ["名前", "名前"] }, ["name"])
+    expect(lines.map((l) => l.cells[0])).toEqual(["=1+1", "'abc"])
   })
 })
 
@@ -136,6 +165,19 @@ describe("parseNewHotelCsv", () => {
     const { rows } = parseNewHotelCsv(toCsv(newHotelsToCsvRows(hotels)))
     expect(rows).toEqual([
       { name: "リゾート南", openingDate: "2027-03-15", rooms: 310, category: "リゾート", location: null, distanceKm: 3.2, expectedImpact: "low", notes: null },
+    ])
+  })
+
+  it("改行を含むメモ・= で始まる名前も、出力して読み直すと同じ内容に戻る", () => {
+    const hotels = [
+      { id: "1", hotelId: "h", name: "=新館", openingDate: "2027-03-15", rooms: 120, category: null, location: "駅前, 東口", distanceKm: null, expectedImpact: null, notes: "1行目\n2行目は \"引用\"" },
+      { id: "2", hotelId: "h", name: "リゾート南", openingDate: "2027-04-01", rooms: 310, category: "リゾート", location: null, distanceKm: 3.2, expectedImpact: "low" as const, notes: null },
+    ]
+    const { rows, errors } = parseNewHotelCsv(toCsv(newHotelsToCsvRows(hotels)))
+    expect(errors).toEqual([])
+    expect(rows).toEqual([
+      { name: "=新館", openingDate: "2027-03-15", rooms: 120, category: null, location: "駅前, 東口", distanceKm: null, expectedImpact: null, notes: "1行目\n2行目は \"引用\"" },
+      { name: "リゾート南", openingDate: "2027-04-01", rooms: 310, category: "リゾート", location: null, distanceKm: 3.2, expectedImpact: "low", notes: null },
     ])
   })
 })
