@@ -7,7 +7,9 @@ import {
   createEventService,
   updateEventService,
   deleteEventService,
+  importEventsService,
 } from '../services/eventsService.js'
+import type { ImportEventsInput } from '../lib/validators.js'
 
 /**
  * イベント一覧（F-DP-07）
@@ -81,4 +83,27 @@ export const deleteEvent = asyncHandler(async (req: Request, res: Response) => {
     userAgent: req.headers['user-agent'],
   })
   sendDeleted(res)
+})
+
+/**
+ * イベントの取り込み（外部需要動向の規定フォーム — 2026-10。監査対象）
+ * POST /api/v1/events/import
+ */
+export const importEvents = asyncHandler(async (req: Request, res: Response) => {
+  const input = req.body as ImportEventsInput
+  const { tenantId, ...result } = await importEventsService(input, req.user!.userId)
+  if (!result.dryRun) {
+    await writeAuditLog({
+      tenantId,
+      userId: req.user!.userId,
+      action: 'CREATE',
+      entity: 'Event',
+      entityId: input.hotelId,
+      newValue: { import: 'events', ...result },
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
+  }
+  const verb = result.dryRun ? '確認しました' : '取り込みました'
+  sendSuccess(res, result, 200, `イベント ${result.total}件を${verb}（新規 ${result.created} / 更新 ${result.updated}）`)
 })

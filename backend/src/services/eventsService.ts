@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError, BadRequestError } from '../middlewares/errorHandler.js'
-import type { CreateEventInput, UpdateEventInput } from '../lib/validators.js'
+import type { CreateEventInput, ImportEventsInput, UpdateEventInput } from '../lib/validators.js'
 
 /** 期間を指定しないときに返す最大件数（#90）。期間を指定すれば 366 日以内で全件 */
 export const MAX_EVENTS_WITHOUT_RANGE = 500
@@ -82,4 +82,95 @@ export async function deleteEventService(id: string, hotelId: string) {
   const result = await prisma.event.deleteMany({ where: { id, hotelId } })
   if (result.count === 0) throw new NotFoundError('イベント')
   return existing
+}
+
+// ======================================
+// イベントの取り込み（外部需要動向の規定フォーム — 2026-10）
+// ======================================
+
+/** 取り込む行の検証（純関数）: 開始日 ≦ 終了日、ファイル内で同じ名前・同じ開始日の行が重なっていないか */
+export function findEventImportRowErrors(rows: ImportEventsInput['rows']): Array<{ field: string; message: string }> {
+  const errors: Array<{ field: string; message: string }> = []
+  const seen = new Map<string, number>()
+  rows.forEach((row, index) => {
+    if (row.startDate > row.endDate) {
+      errors.push({ field: `rows.${index}.endDate`, message: `終了日 ${row.endDate} が開始日 ${row.startDate} より前です` })
+    }
+    const key = `${row.name}\u0000${row.startDate}`
+    const first = seen.get(key)
+    if (first !== undefined) {
+      errors.push({ field: `rows.${index}.name`, message: `「${row.name}」（${row.startDate}〜）が ${first + 2} 行目と重複しています` })
+    } else {
+      seen.set(key, index)
+    }
+  })
+  return errors
+}
+
+export interface ImportEventsResult {
+  dryRun: boolean
+  total: number
+  created: number
+  updated: number
+  startDate: string
+  endDate: string
+  tenantId: string
+}
+
+/**
+ * イベントをまとめて登録する。同じホテル・同じ名前・同じ開始日のイベントは上書きする（何度取り込んでも増えない）。
+ * 全行を検証してから1トランザクションで書く（1行でも不正なら何も書かない — #82 と同じ方針）
+ */
+export async function importEventsService(input: ImportEventsInput, userId: string): Promise<ImportEventsResult> {
+  const hotel = await prisma.hotel.findFirst({ where: { id: input.hotelId, isActive: true }, select: { id: true, tenantId: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+
+  const errors = findEventImportRowErrors(input.rows)
+  if (errors.length > 0) throw new BadRequestError('取り込めない行があります。1行も取り込んでいません', errors)
+
+  const toDate = (v: string) => new Date(`${v}T00:00:00Z`)
+  const existing = await prisma.event.findMany({
+    where: { hotelId: hotel.id, OR: input.rows.map((r) => ({ name: r.name, startDate: toDate(r.startDate) })) },
+    select: { id: true, name: true, startDate: true },
+  })
+  const existingByKey = new Map(existing.map((e) => [`${e.name}\u0000${e.startDate.toISOString().slice(0, 10)}`, e.id]))
+  const starts = input.rows.map((r) => r.startDate).sort()
+  const ends = input.rows.map((r) => r.endDate).sort()
+  const updated = input.rows.filter((r) => existingByKey.has(`${r.name}\u0000${r.startDate}`)).length
+
+  const summary: ImportEventsResult = {
+    dryRun: Boolean(input.dryRun),
+    total: input.rows.length,
+    created: input.rows.length - updated,
+    updated,
+    startDate: starts[0],
+    endDate: ends[ends.length - 1],
+    tenantId: hotel.tenantId,
+  }
+  if (input.dryRun) return summary
+
+  await prisma.$transaction(
+    async (tx) => {
+      for (const row of input.rows) {
+        const data = {
+          name: row.name,
+          type: row.type,
+          startDate: toDate(row.startDate),
+          endDate: toDate(row.endDate),
+          location: row.location ?? null,
+          expectedImpact: row.expectedImpact ?? null,
+          description: row.description ?? null,
+          excludeFromHistory: row.excludeFromHistory ?? false,
+        }
+        const id = existingByKey.get(`${row.name}\u0000${row.startDate}`)
+        if (id) {
+          await tx.event.updateMany({ where: { id, hotelId: hotel.id }, data })
+        } else {
+          await tx.event.create({ data: { ...data, hotelId: hotel.id, tenantId: hotel.tenantId, createdByUserId: userId } })
+        }
+      }
+    },
+    { timeout: 60_000 }
+  )
+  return summary
 }
