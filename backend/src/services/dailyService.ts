@@ -1,29 +1,72 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 import { addUtcDays, eachUtcDay } from '../lib/date.js'
+import { loadMonthContext } from './dayContextService.js'
+import { lastYearSameWeekday } from './forecast/pace.js'
 
 /**
  * ブッキングカーブ（F-DAILY-01）
- * X軸 = 宿泊日までの残日数（降順で右肩上がりになる）
+ * X軸 = 宿泊日までの残日数（降順で右肩上がりになる）。
+ * 比べる線として、前年同曜日の予約積上（参考カーブ）・日割り予算・AI の予測・結果も返す
  */
 export async function getBookingCurveService(hotelId: string, stayDate: Date) {
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
+  const totalRooms = hotel.totalRooms
 
-  const points = await prisma.bookingCurveData.findMany({
-    where: { hotelId, stayDate },
-    orderBy: { daysBefore: 'desc' },
-  })
+  const [points, context, recommendation, actual] = await Promise.all([
+    prisma.bookingCurveData.findMany({
+      where: { hotelId, stayDate },
+      orderBy: { daysBefore: 'desc' },
+    }),
+    // 予算ADR・日割り予算・前年同曜日の予約積上（2026-10 ダッシュボードの月間BCグラフ・日別パフォーマンスの日のグラフ）
+    loadMonthContext(hotelId, totalRooms, stayDate.getUTCFullYear(), stayDate.getUTCMonth() + 1),
+    prisma.aiPriceRecommendation.findFirst({
+      where: { hotelId, date: stayDate, roomTypeId: null },
+      select: { predictedOccupancy: true, predictedAdr: true, recommendedPrice: true },
+    }),
+    prisma.dailyData.findUnique({
+      where: { hotelId_date: { hotelId, date: stayDate } },
+      select: { soldRooms: true, occupancy: true, adr: true },
+    }),
+  ])
+
+  const occupancyOf = (rooms: number) => (totalRooms > 0 ? Math.round((rooms / totalRooms) * 1000) / 1000 : 0)
+  const budget = context.budgets[context.days.findIndex((d) => d.getTime() === stayDate.getTime())]
+  const lastYearDate = lastYearSameWeekday(stayDate)
+  const lastYear = context.lastYearDaily.get(lastYearDate.getTime())
+  const predictedAdr = recommendation?.predictedAdr ?? recommendation?.recommendedPrice ?? null
 
   return {
     hotelId,
     stayDate: stayDate.toISOString().slice(0, 10),
-    totalRooms: hotel.totalRooms,
+    totalRooms,
     points: points.map((p) => ({
       daysBefore: p.daysBefore,
       roomsBooked: p.roomsBooked,
-      occupancy: Math.round((p.roomsBooked / hotel.totalRooms) * 1000) / 1000,
+      occupancy: occupancyOf(p.roomsBooked),
     })),
+    // 参考カーブ: 前年同曜日の予約積上。前年同曜日が特殊日なら空
+    reference: {
+      date: lastYearDate.toISOString().slice(0, 10),
+      points: (context.lastYearCurves.get(lastYearDate.getTime()) ?? [])
+        .slice()
+        .sort((a, b) => b.daysBefore - a.daysBefore)
+        .map((p) => ({ daysBefore: p.daysBefore, roomsBooked: p.roomsBooked, occupancy: occupancyOf(p.roomsBooked) })),
+      finalRooms: lastYear?.soldRooms ?? null,
+      finalOccupancy: lastYear?.occupancy ?? null,
+      adr: lastYear?.adr ?? null,
+    },
+    budget: { rooms: budget?.rooms ?? null, occupancy: budget?.occupancy ?? null, adr: budget?.adr ?? null },
+    prediction:
+      recommendation?.predictedOccupancy != null
+        ? {
+            occupancy: recommendation.predictedOccupancy,
+            rooms: Math.round(totalRooms * recommendation.predictedOccupancy),
+            adr: predictedAdr,
+          }
+        : null,
+    actual: actual ? { soldRooms: actual.soldRooms, occupancy: actual.occupancy, adr: actual.adr } : null,
   }
 }
 

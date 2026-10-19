@@ -1,11 +1,16 @@
 import { prisma } from '../lib/prisma.js'
 import { ApiError, NotFoundError } from '../middlewares/errorHandler.js'
-import { eachUtcDay, monthRange, todayJst } from '../lib/date.js'
+import { monthRange, todayJst } from '../lib/date.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
+import { loadMonthContext } from './dayContextService.js'
+import { buildDayTypeTimeline } from './forecast/dayType.js'
+import { lastYearSameWeekday, leadDaysBetween, otbAtLead } from './forecast/pace.js'
 
 /**
  * 日別価格カレンダー（F-DP-01）
- * 現在価格・AI推奨ランク・需要レベル・競合平均を日別に返す
+ * 現在価格・AI推奨ランク・需要レベル・競合平均を日別に返す。
+ * 2026-10 の画面修正（DP02 / DP03 / DP04）で、オペレーターが価格を決める材料として
+ * 日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプとその推移を足した
  */
 export async function getPricingCalendarService(hotelId: string, year: number, month: number) {
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
@@ -13,7 +18,7 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
 
   const { start, end } = monthRange(year, month)
 
-  const [recommendations, dailyData, priceRanks, competitorPrices] = await Promise.all([
+  const [recommendations, dailyData, priceRanks, competitorPrices, context] = await Promise.all([
     prisma.aiPriceRecommendation.findMany({
       where: { hotelId, date: { gte: start, lt: end }, roomTypeId: null },
       orderBy: { date: 'asc' },
@@ -34,8 +39,11 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       },
       select: { date: true, price1P: true },
     }),
+    loadMonthContext(hotelId, hotel.totalRooms, year, month),
   ])
 
+  const today = todayJst()
+  const totalRooms = hotel.totalRooms
   const rankByNumber = new Map(priceRanks.map((r) => [r.rank, r]))
   const actualByDate = new Map(dailyData.map((d) => [d.date.toISOString().slice(0, 10), d]))
 
@@ -52,12 +60,40 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
   const recommendationByDate = new Map(recommendations.map((r) => [r.date.toISOString().slice(0, 10), r]))
 
   // 暦日を軸に推奨・実績・競合を外部結合する。推奨の無い日も実績と競合価格を出す（#90）
-  const calendar = eachUtcDay(start, end).map((day) => {
+  const calendar = context.days.map((day, index) => {
     const key = day.toISOString().slice(0, 10)
     const rec = recommendationByDate.get(key)
     const actual = actualByDate.get(key)
     const rank = rec?.recommendedRank != null ? rankByNumber.get(rec.recommendedRank) : undefined
     const compPrices = competitorByDate.get(key)
+    const budget = context.budgets[index]
+    const lastYearKey = lastYearSameWeekday(day).getTime()
+    const points = context.curves.get(day.getTime()) ?? []
+
+    // オンハンド: 結果が出た日は販売室数、先の日は今の予約室数（直近3日以内の予約積上）
+    const lead = leadDaysBetween(today, day)
+    const onHandRooms = actual?.soldRooms ?? (lead >= 0 ? otbAtLead(points, lead) : null)
+    const currentOccupancy =
+      actual?.occupancy ?? (onHandRooms != null && totalRooms > 0 ? Math.round((onHandRooms / totalRooms) * 1000) / 1000 : null)
+
+    // 想定売上: AI の予測稼働率 × 客室数 × 予測ADR（無ければ推奨価格）。着地シミュレーションと同じ積み方
+    const expectedAdr = rec?.predictedAdr ?? rec?.recommendedPrice ?? null
+    const expectedRevenue =
+      rec?.predictedOccupancy != null && expectedAdr != null
+        ? Math.round(Math.round(totalRooms * rec.predictedOccupancy) * expectedAdr)
+        : null
+
+    const dayType = buildDayTypeTimeline({
+      stayDate: day,
+      today,
+      totalRooms,
+      points,
+      lastYearPoints: context.lastYearCurves.get(lastYearKey) ?? [],
+      lastYearFinalRooms: context.lastYearDaily.get(lastYearKey)?.soldRooms ?? null,
+      actualSoldRooms: actual?.soldRooms ?? null,
+      predictedOccupancy: rec?.predictedOccupancy ?? null,
+    })
+
     return {
       date: key,
       demandLevel: rec?.demandLevel ?? null,
@@ -78,10 +114,25 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       confidence: rec?.confidence ?? null,
       // 推奨理由（#24 E4）。推奨の無い日と、この列を足す前に作った推奨は null
       rationale: rec?.rationale ?? null,
+      // 日割り予算（月次予算を前年同曜日の販売室数の比で配ったもの）
+      budgetRooms: budget.rooms,
+      budgetOccupancy: budget.occupancy,
+      budgetAdr: budget.adr,
+      budgetRevenue: budget.revenue,
+      onHandRooms,
+      currentOccupancy,
+      // 予約（オンハンド）の単価・売上は PMS 連携（Phase 4）で入る。今は結果の出た日の実績だけ
+      onHandAdr: actual?.adr ?? null,
+      currentRevenue: actual?.totalRevenue ?? null,
+      expectedRevenue,
+      dayType: dayType.current.dayType,
+      dayTypeExpectedOccupancy: dayType.current.expectedOccupancy,
+      dayTypePaceRatio: dayType.current.paceRatio,
+      dayTypeHistory: dayType.history,
     }
   })
 
-  return { hotelId, year, month, calendar }
+  return { hotelId, year, month, totalRooms, calendar }
 }
 
 /**

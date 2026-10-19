@@ -8,6 +8,7 @@ import {
   getChannelBreakdownService,
   getRoomTypeBreakdownService,
   getDayOfWeekBreakdownService,
+  getDailyPerformanceService,
 } from '../services/analysisService.js'
 
 /**
@@ -71,4 +72,13 @@ export const getRoomTypeBreakdown = asyncHandler(async (req: Request, res: Respo
 export const getDayOfWeekBreakdown = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId, year, month } = req.query as unknown as MonthQuery
   sendSuccess(res, await getDayOfWeekBreakdownService(hotelId, year, month))
+})
+
+/**
+ * 日別パフォーマンス（実績と、日割り予算・AI の予測・前年同曜日 — 2026-10）
+ * GET /api/v1/analysis/daily-performance?hotelId=&year=&month=
+ */
+export const getDailyPerformance = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as MonthQuery
+  sendSuccess(res, await getDailyPerformanceService(hotelId, year, month))
 })
