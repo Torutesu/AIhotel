@@ -9,6 +9,7 @@ import {
   getRoomTypeBreakdownService,
   getDayOfWeekBreakdownService,
   getDailyPerformanceService,
+  getMonthPaceService,
 } from '../services/analysisService.js'
 
 /**
@@ -81,4 +82,13 @@ export const getDayOfWeekBreakdown = asyncHandler(async (req: Request, res: Resp
 export const getDailyPerformance = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId, year, month } = req.query as unknown as MonthQuery
   sendSuccess(res, await getDailyPerformanceService(hotelId, year, month))
+})
+
+/**
+ * 月の予約の積み上がり（日別パフォーマンスの月のグラフ — 180日前 → 結果）
+ * GET /api/v1/analysis/month-pace?hotelId=&year=&month=
+ */
+export const getMonthPace = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as MonthQuery
+  sendSuccess(res, await getMonthPaceService(hotelId, year, month))
 })

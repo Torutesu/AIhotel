@@ -26,7 +26,7 @@ export interface DailyBudget {
 const EMPTY: DailyBudget = { rooms: null, occupancy: null, adr: null, revenue: null, revPar: null }
 
 /** 月の予算室数。室数が無ければ稼働率×客室数×日数、それも無ければ売上÷ADR */
-function monthRooms(budget: MonthBudgetInput, totalRooms: number, days: number): number | null {
+export function monthBudgetRooms(budget: MonthBudgetInput, totalRooms: number, days: number): number | null {
   if (budget.budgetRooms != null) return budget.budgetRooms
   if (budget.budgetOccupancy != null) return budget.budgetOccupancy * totalRooms * days
   if (budget.budgetRevenue != null && budget.budgetAdr != null && budget.budgetAdr > 0) {
@@ -46,7 +46,7 @@ export function allocateDailyBudget(
   const days = weights.length
   if (!budget || days === 0 || totalRooms <= 0) return weights.map(() => EMPTY)
 
-  const rooms = monthRooms(budget, totalRooms, days)
+  const rooms = monthBudgetRooms(budget, totalRooms, days)
   const adr =
     budget.budgetAdr ??
     (budget.budgetRevenue != null && rooms != null && rooms > 0 ? budget.budgetRevenue / rooms : null)

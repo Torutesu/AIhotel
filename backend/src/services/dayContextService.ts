@@ -1,6 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { eachUtcDay, monthRange } from '../lib/date.js'
-import { allocateDailyBudget, type DailyBudget } from './budgetAllocation.js'
+import { allocateDailyBudget, type DailyBudget, type MonthBudgetInput } from './budgetAllocation.js'
 import { isInRanges, lastYearSameWeekday, type BookingCurvePoint } from './forecast/pace.js'
 
 // 月の「日ごとの比較の材料」をまとめて読む（2026-10 デモ画面の修正）。
@@ -21,6 +21,8 @@ export interface LastYearDay {
 
 export interface MonthContext {
   days: Date[]
+  /** 月次予算（登録が無ければ null） */
+  monthBudget: MonthBudgetInput | null
   /** days と同じ並び */
   budgets: DailyBudget[]
   /** 宿泊日（getTime）→ 予約積上 */
@@ -86,5 +88,5 @@ export async function loadMonthContext(
     days.map((day) => lastYearDaily.get(lastYearSameWeekday(day).getTime())?.soldRooms ?? null)
   )
 
-  return { days, budgets, curves: groupCurves(curveRows), lastYearCurves, lastYearDaily }
+  return { days, monthBudget: budget, budgets, curves: groupCurves(curveRows), lastYearCurves, lastYearDaily }
 }

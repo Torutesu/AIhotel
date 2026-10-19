@@ -1,9 +1,11 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
-import { DEFAULT_WEEKEND_DAYS, monthRange } from '../lib/date.js'
+import { DEFAULT_WEEKEND_DAYS, monthRange, todayJst } from '../lib/date.js'
 import { loadMonthContext } from './dayContextService.js'
 import { lastYearSameWeekday } from './forecast/pace.js'
+import { buildMonthPace } from './monthPace.js'
+import { monthBudgetRooms } from './budgetAllocation.js'
 
 /**
  * 年間推移 — 月単位（F-ANA-03: クォーターではなく月単位）
@@ -372,4 +374,68 @@ export async function getDailyPerformanceService(hotelId: string, year: number, 
   })
 
   return { hotelId, year, month, totalRooms, days }
+}
+
+/**
+ * 月の予約の積み上がり（日別パフォーマンスの「月のグラフ」— 180日前 → 結果）。
+ * 月の各宿泊日の「N 日前の予約室数」を足し上げ、日割り予算の合計・AI の予測の合計・前年同曜日の同じ時点と比べる
+ */
+export async function getMonthPaceService(hotelId: string, year: number, month: number) {
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+  const totalRooms = hotel.totalRooms
+  const { start, end } = monthRange(year, month)
+
+  const [context, actuals, recommendations] = await Promise.all([
+    loadMonthContext(hotelId, totalRooms, year, month),
+    prisma.dailyData.findMany({ where: { hotelId, date: { gte: start, lt: end } }, select: { date: true, soldRooms: true } }),
+    prisma.aiPriceRecommendation.findMany({
+      where: { hotelId, date: { gte: start, lt: end }, roomTypeId: null },
+      select: { date: true, predictedOccupancy: true },
+    }),
+  ])
+  const actualByDate = new Map(actuals.map((a) => [a.date.getTime(), a.soldRooms]))
+
+  const capacity = totalRooms * context.days.length
+  const points = buildMonthPace({
+    totalRooms,
+    today: todayJst(),
+    days: context.days.map((day) => {
+      const lastYearKey = lastYearSameWeekday(day).getTime()
+      const lastYearPoints = context.lastYearCurves.get(lastYearKey)
+      const lastYearDaily = context.lastYearDaily.get(lastYearKey)
+      return {
+        stayDate: day,
+        points: context.curves.get(day.getTime()) ?? [],
+        actualSoldRooms: actualByDate.get(day.getTime()) ?? null,
+        lastYear:
+          lastYearPoints || lastYearDaily
+            ? { points: lastYearPoints ?? [], finalRooms: lastYearDaily?.soldRooms ?? null }
+            : null,
+      }
+    }),
+  })
+
+  // 予算は日割りの丸めを足し上げず、月の値をそのまま使う
+  const monthRooms = context.monthBudget ? monthBudgetRooms(context.monthBudget, totalRooms, context.days.length) : null
+  const budgetRooms = monthRooms == null ? null : Math.round(Math.min(monthRooms, capacity))
+  // AI の予測は推奨のある日だけ。月の全日にそろっていなければ比べない
+  const aiRooms =
+    recommendations.length === context.days.length && recommendations.every((r) => r.predictedOccupancy != null)
+      ? recommendations.reduce((sum, r) => sum + Math.round(totalRooms * (r.predictedOccupancy as number)), 0)
+      : null
+  const occupancyOf = (rooms: number | null) => (rooms == null || capacity <= 0 ? null : Math.round((rooms / capacity) * 1000) / 1000)
+
+  return {
+    hotelId,
+    year,
+    month,
+    totalRooms,
+    days: context.days.length,
+    budgetRooms,
+    budgetOccupancy: occupancyOf(budgetRooms),
+    aiRooms,
+    aiOccupancy: occupancyOf(aiRooms),
+    points,
+  }
 }

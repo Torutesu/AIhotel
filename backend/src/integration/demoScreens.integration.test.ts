@@ -232,6 +232,20 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
       expect(day.budget.adr).toBe(10_000)
     })
 
+    it('月のグラフ: 月の予約の積み上がりと、予算・AI の予測・前年同曜日の合計を返す', async () => {
+      const res = await get('/api/v1/analysis/month-pace', tokens.operator, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+      const n = daysIn(prev)
+      const data = res.body.data
+      expect(data).toMatchObject({ totalRooms: TOTAL_ROOMS, days: n, budgetRooms: 50 * n, aiRooms: 70 * n })
+      expect(data.budgetOccupancy).toBe(0.5)
+      // 先月の宿泊日には予約積上の記録が無く結果だけ → 結果（0日前）だけが出る
+      expect(data.points).toEqual([
+        { daysBefore: 0, rooms: 60 * n, occupancy: 0.6, comparableRooms: 60 * n, lastYearRooms: 40 * (n - 1) + 80 },
+      ])
+      expect((await get('/api/v1/analysis/month-pace', tokens.otherManager, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })).status).toBe(403)
+    })
+
     it('他テナントは 403', async () => {
       const res = await get('/api/v1/analysis/daily-performance', tokens.otherManager, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })
       expect(res.status).toBe(403)
