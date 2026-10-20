@@ -18,6 +18,7 @@ const ANALYSIS_VIEWS: AnalysisView[] = [
   "composition",
   "booking",
   "competitor",
+  "ota",
   "free",
 ]
 

@@ -274,20 +274,6 @@ export interface Campaign {
   isActive: boolean
 }
 
-// Legacy support
-export interface CampaignData {
-  id: string
-  campaignName: string
-  channel: string
-  startDate: Date | null
-  endDate: Date | null
-  source: 'ota' | 'manual'
-  rooms: number
-  adrImpact: number
-  revParImpact: number
-  description: string
-}
-
 // ======================================
 // Competitor Types
 // ======================================

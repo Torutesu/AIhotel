@@ -739,33 +739,48 @@ export function mockPricingSimulation(hotelId: string, year: number, month: numb
   }
 }
 
+// チャネル数が多い施設もあるため（100を超えることもある）、上位10社＋その他の表示が確かめられる数にしている
 const MOCK_CHANNELS = [
-  { channel: "公式サイト", share: 0.3, adrFactor: 1.05 },
-  { channel: "楽天トラベル", share: 0.25, adrFactor: 0.98 },
-  { channel: "じゃらん", share: 0.2, adrFactor: 0.97 },
-  { channel: "一休", share: 0.1, adrFactor: 1.15 },
-  { channel: "Expedia", share: 0.08, adrFactor: 0.95 },
-  { channel: "Agoda", share: 0.07, adrFactor: 0.92 },
+  { channel: "公式サイト", share: 0.26, adrFactor: 1.05 },
+  { channel: "楽天トラベル", share: 0.21, adrFactor: 0.98 },
+  { channel: "じゃらん", share: 0.17, adrFactor: 0.97 },
+  { channel: "一休", share: 0.08, adrFactor: 1.15 },
+  { channel: "Booking.com", share: 0.06, adrFactor: 0.96 },
+  { channel: "Expedia", share: 0.05, adrFactor: 0.95 },
+  { channel: "Agoda", share: 0.04, adrFactor: 0.92 },
+  { channel: "るるぶトラベル", share: 0.03, adrFactor: 0.99 },
+  { channel: "JTB", share: 0.03, adrFactor: 1.02 },
+  { channel: "近畿日本ツーリスト", share: 0.02, adrFactor: 1.0 },
+  { channel: "Trip.com", share: 0.02, adrFactor: 0.9 },
+  { channel: "Yahoo!トラベル", share: 0.015, adrFactor: 0.97 },
+  { channel: "日本旅行", share: 0.01, adrFactor: 1.01 },
+  { channel: "電話・直接", share: 0.005, adrFactor: 1.08 },
 ]
 
-/** チャネル別の実績（対象月の実績を seed と同じ比率で分ける） */
+/** チャネル別の実績（対象月の実績を seed と同じ比率で分ける。前年同月は 5〜10% 低い水準） */
 export function mockChannelBreakdown(hotelId: string, year: number, month: number): ChannelBreakdown {
   const { summary } = mockDashboardKpi(hotelId, year, month)
+  const totalRooms = MOCK_HOTEL.totalRooms
   const rng = createSeededRandom(year * 100 + month + 11)
   const weightSum = MOCK_CHANNELS.reduce((sum, c) => sum + c.share * c.adrFactor, 0)
-  const channels = summary.soldRooms === 0 ? [] : MOCK_CHANNELS.map((c) => {
+  const rows = summary.soldRooms === 0 ? [] : MOCK_CHANNELS.map((c) => {
     const roomsSold = Math.round(summary.soldRooms * c.share)
     const revenue = Math.round((summary.roomRevenue * c.share * c.adrFactor) / weightSum)
+    const lastYearRevenue = Math.round(revenue * (0.82 + rng() * 0.26))
     return {
       channel: c.channel,
       roomsSold,
       revenue,
       adr: roomsSold > 0 ? Math.round(revenue / roomsSold) : null,
+      occupancy: summary.actualDays > 0 ? Number((roomsSold / (totalRooms * summary.actualDays)).toFixed(3)) : null,
       revenueShare: Number(((revenue / summary.roomRevenue) * 100).toFixed(1)),
-      revenueGrowth: Number(((rng() - 0.4) * 20).toFixed(1)),
+      roomsShare: Number(((roomsSold / summary.soldRooms) * 100).toFixed(1)),
+      lastYearRoomsSold: Math.round(roomsSold * (lastYearRevenue / revenue) * 1.02),
+      lastYearRevenue,
+      revenueYoy: Number((((revenue - lastYearRevenue) / lastYearRevenue) * 100).toFixed(1)),
     }
   })
-  return { hotelId, year, month, channels }
+  return { hotelId, year, month, totalRooms, days: summary.actualDays, channels: rows.sort((a, b) => b.revenue - a.revenue) }
 }
 
 const MOCK_ROOM_TYPE_DEFS = [
@@ -812,6 +827,11 @@ export function mockRoomTypeBreakdown(hotelId: string, year: number, month: numb
         revenue,
         adr: soldRooms > 0 ? Math.round(revenue / soldRooms) : null,
         occupancy: summary.actualDays > 0 ? Number((soldRooms / (t.count * summary.actualDays)).toFixed(3)) : null,
+        revenueShare: summary.roomRevenue > 0 ? Number(((revenue / summary.roomRevenue) * 100).toFixed(1)) : 0,
+        roomsShare: summary.soldRooms > 0 ? Number(((soldRooms / summary.soldRooms) * 100).toFixed(1)) : 0,
+        lastYearSoldRooms: Math.round(soldRooms * 0.94),
+        lastYearRevenue: Math.round(revenue * (0.88 + t.sortOrder * 0.015)),
+        revenueYoy: revenue > 0 ? Number(((1 / (0.88 + t.sortOrder * 0.015) - 1) * 100).toFixed(1)) : null,
       }
     }),
   }

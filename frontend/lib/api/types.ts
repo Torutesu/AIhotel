@@ -701,15 +701,25 @@ export interface ChannelBreakdown {
   hotelId: string
   year: number
   month: number
+  totalRooms: number
+  /** 実績のある日数 */
+  days: number
+  /** 売上順 */
   channels: Array<{
     channel: string
     roomsSold: number
     revenue: number
     adr: number | null
+    /** 稼働率への寄与 = 販売室数 ÷（客室数 × 実績のある日数） */
+    occupancy: number | null
     /** 室料売上に占める割合（%） */
     revenueShare: number
-    /** 前月比（%）。前月の実績が無ければ null */
-    revenueGrowth: number | null
+    /** 販売室数に占める割合（%） */
+    roomsShare: number
+    lastYearRoomsSold: number | null
+    lastYearRevenue: number | null
+    /** 室料売上の前年同月比（%）。前年の実績が無ければ null（2026-10: 前月比はやめた） */
+    revenueYoy: number | null
   }>
 }
 
@@ -728,6 +738,12 @@ export interface RoomTypeBreakdown {
     revenue: number
     adr: number | null
     occupancy: number | null
+    revenueShare: number
+    roomsShare: number
+    lastYearSoldRooms: number | null
+    lastYearRevenue: number | null
+    /** 室料売上の前年同月比（%） */
+    revenueYoy: number | null
   }>
 }
 
