@@ -3,7 +3,7 @@
 // 分析タブ（U-15 で各セクションを components/analysis/* へ分割したコンテナ）
 //
 // 分析の切り口が重複しないよう、見る軸ごとに5つへ再編している。
-//  - 実績推移 : いつ（日別・曜日別・年間の時系列）
+//  - 実績推移 : いつ（日別・曜日別・日のタイプ別・年間の時系列）
 //  - 需要構成 : 誰が・どこから・何を（チャネル/部屋タイプ/セグメント）
 //  - 予約動向 : いつ予約が入るか（ブッキングカーブ・予約期間）
 //  - 競合比較 : 外部との比較（競合価格・口コミ評価点）
@@ -21,10 +21,10 @@ import { useAppState, usePeriod } from "@/components/app-state-provider"
 import type { AnalysisView } from "@/lib/alert-link"
 
 import { DailyAiInsightSection } from "@/components/analysis/daily-ai-insight-section"
-import { LowAlertsSection } from "@/components/analysis/low-alerts-section"
 import { DailyPerformanceSection } from "@/components/analysis/daily-performance-section"
 import { BookingCurveSection } from "@/components/analysis/booking-curve-section"
 import { WeekdayPerformanceSection } from "@/components/analysis/weekday-performance-section"
+import { DayTypePerformanceSection } from "@/components/analysis/day-type-performance-section"
 import { DailyCompetitorSection } from "@/components/analysis/daily-competitor-section"
 import { ChannelAnalysisSection } from "@/components/analysis/channel-analysis-section"
 import { RoomTypeAnalysisSection } from "@/components/analysis/room-type-analysis-section"
@@ -44,14 +44,14 @@ interface AnalysisTabProps {
 /**
  * 分析タブ（旧「日別分析」＋「各種分析」の統合）。
  * 分析の切り口が重複しないよう、見る軸ごとに5つへ再編している。
- *  - 実績推移 : いつ（日別・曜日別・年間の時系列）
+ *  - 実績推移 : いつ（日別・曜日別・日のタイプ別・年間の時系列）
  *  - 需要構成 : 誰が・どこから・何を（チャネル/部屋タイプ/セグメント）
  *  - 予約動向 : いつ予約が入るか（ブッキングカーブ・予約期間）
  *  - 競合比較 : 外部との比較（競合価格・口コミ評価点）
  *  - フリー分析: 自由軸の分析と販促データ管理
  */
 const ANALYSIS_VIEWS = [
-  { value: "performance", label: "実績推移", description: "日別・曜日別・年間の時系列で実績を見る" },
+  { value: "performance", label: "実績推移", description: "日別・曜日別・日のタイプ別・年間の時系列で実績を見る（当月以降は実績＋予約）" },
   { value: "composition", label: "需要構成", description: "チャネル・部屋タイプ・顧客セグメント別に需要の内訳を見る" },
   { value: "booking", label: "予約動向", description: "宿泊日までのリードタイムで予約の入り方を見る" },
   {
@@ -105,10 +105,8 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
         </Button>
       </div>
 
+      {/* アラートの欄は置かない（2026-10 PDF c分析01実績推移1「ここは不要」。アラートはダッシュボードで確認し、対応・解決で外す） */}
       <DailyAiInsightSection />
-
-      {/* ダッシュボードが表示しない Level 3以下のアラート（X-4） */}
-      <LowAlertsSection />
 
       <Tabs
         value={activeView}
@@ -149,7 +147,7 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
           </CardContent>
         </Card>
 
-        {/* 実績推移: 日別 → 曜日別 → 年間の順で粒度を粗くしていく */}
+        {/* 実績推移: 日別 → 曜日別 → 日のタイプ別 → 年間の順で粒度を粗くしていく */}
         <TabsContent value="performance" className="space-y-4">
           {/* 対象期間は画面上部のセレクタに一本化する（同じ "YYYY-MM" 形式） */}
           <DailyPerformanceSection
@@ -160,6 +158,7 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
             onOpenBookingCurve={() => setAnalysisView("booking")}
           />
           <WeekdayPerformanceSection />
+          <DayTypePerformanceSection />
           <YearlyTrendSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
         </TabsContent>
 

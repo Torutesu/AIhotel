@@ -33,7 +33,7 @@ interface DashboardTabProps {
 /**
  * ダッシュボードに表示するアラートの最小レベル（F-DASH-05）。
  * 重要度は1〜5の5段階で管理し、ダッシュボードにはLevel 5・4のみを表示する。
- * Level 3以下は各分析画面側で確認する運用。
+ * Level 3以下は画面に出さない（2026-10: 分析タブのアラート欄は不要との指示で外した）。
  */
 const DASHBOARD_MIN_ALERT_LEVEL = 4
 
@@ -104,7 +104,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       ? async () => {
           const [kpi, alerts, aiSummary] = await Promise.all([
             api.dashboardKpi(hotelId, year, month),
-            // ダッシュボードはLevel 5・4のみ表示（F-DASH-05）。Level 3以下は各分析画面で確認する
+            // ダッシュボードはLevel 5・4のみ表示（F-DASH-05）
             api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL),
             api.aiSummary(hotelId),
           ])

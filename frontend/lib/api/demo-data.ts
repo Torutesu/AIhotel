@@ -40,7 +40,6 @@ import {
   PricingSimulation,
   ChannelBreakdown,
   RoomTypeBreakdown,
-  DayOfWeekBreakdown,
   DashboardPreference,
 } from "./types"
 
@@ -815,38 +814,6 @@ export function mockRoomTypeBreakdown(hotelId: string, year: number, month: numb
         occupancy: summary.actualDays > 0 ? Number((soldRooms / (t.count * summary.actualDays)).toFixed(3)) : null,
       }
     }),
-  }
-}
-
-/** 曜日別の実績（ダッシュボードのモックの日別実績を曜日ごとに集計） */
-export function mockDayOfWeekBreakdown(hotelId: string, year: number, month: number): DayOfWeekBreakdown {
-  const { dailyTrend } = mockDashboardKpi(hotelId, year, month)
-  const totalRooms = MOCK_HOTEL.totalRooms
-  const buckets = Array.from({ length: 7 }, () => ({ days: 0, soldRooms: 0, revenue: 0 }))
-  for (const day of dailyTrend) {
-    if (!day.isActual || day.occupancy == null || day.adr == null) continue
-    const [y, m, d] = day.date.split("-").map(Number)
-    const bucket = buckets[new Date(y, m - 1, d).getDay()]
-    const soldRooms = Math.round(day.occupancy * totalRooms)
-    bucket.days += 1
-    bucket.soldRooms += soldRooms
-    bucket.revenue += soldRooms * day.adr
-  }
-  const weekendDays = parseWeekendDays(MOCK_HOTEL.weekendDays)
-  return {
-    hotelId,
-    year,
-    month,
-    days: buckets.map((b, dayOfWeek) => ({
-      dayOfWeek,
-      isWeekend: weekendDays.includes(dayOfWeek),
-      days: b.days,
-      soldRooms: b.soldRooms,
-      revenue: b.revenue,
-      occupancy: b.days > 0 ? Number((b.soldRooms / (totalRooms * b.days)).toFixed(3)) : null,
-      adr: b.soldRooms > 0 ? Math.round(b.revenue / b.soldRooms) : null,
-      revPar: b.days > 0 ? Math.round(b.revenue / (totalRooms * b.days)) : null,
-    })),
   }
 }
 

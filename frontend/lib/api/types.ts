@@ -457,6 +457,8 @@ export interface DailyPerformanceDay {
   date: string
   /** 実績（まだ結果の出ていない日は null） */
   actual: DayMetrics | null
+  /** 予約実数（結果の出ていない日の今の予約室数・稼働率。予約の単価・売上は PMS 連携後のため null） */
+  onHand: DayMetrics | null
   /** 日割り予算 */
   budget: DayMetrics
   /** AI の予測（推奨を作った日だけ） */
@@ -729,21 +731,45 @@ export interface RoomTypeBreakdown {
   }>
 }
 
+/**
+ * 曜日別・日のタイプ別パフォーマンスの1行（2026-10: 前月以前は実績、当月以降は実績＋予約）。
+ * 販売室数・稼働率は実績＋予約、ADR・REV-Per・室料売上は結果の出た日だけ（予約の単価は PMS 連携後）
+ */
+export interface PerformanceRow {
+  /** 数えた日数（実績か予約の記録がある日） */
+  days: number
+  /** うち結果の出た日 */
+  actualDays: number
+  /** 販売室数 = 実績＋予約 */
+  soldRooms: number
+  /** うち予約（結果の出ていない日の今の予約室数） */
+  onHandRooms: number
+  revenue: number
+  occupancy: number | null
+  adr: number | null
+  revPar: number | null
+  /** 前年同曜日（364日前）の実績の合計（比べられる日だけ） */
+  lastYear: { days: number; soldRooms: number; revenue: number; occupancy: number | null; adr: number | null } | null
+  /** 対象の日（"yyyy-MM-dd"） */
+  dates: string[]
+}
+
 /** GET /api/v1/analysis/day-of-week（#88） */
 export interface DayOfWeekBreakdown {
   hotelId: string
   year: number
   month: number
-  days: Array<{
-    dayOfWeek: number
-    isWeekend: boolean
-    days: number
-    soldRooms: number
-    revenue: number
-    occupancy: number | null
-    adr: number | null
-    revPar: number | null
-  }>
+  days: Array<PerformanceRow & { dayOfWeek: number; isWeekend: boolean }>
+}
+
+/** GET /api/v1/analysis/day-type（日のタイプ別パフォーマンス — 2026-10） */
+export interface DayTypeBreakdown {
+  hotelId: string
+  year: number
+  month: number
+  /** 型を作れなかった日（過去の実績が足りない） */
+  untypedDays: number
+  types: Array<PerformanceRow & { dayType: string; model: DayModel }>
 }
 
 // ---- 初期設定を速くする仕組み（#13） ----

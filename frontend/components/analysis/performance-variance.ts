@@ -1,6 +1,7 @@
 // 日別パフォーマンスの差異の計算（2026-10 の画面修正。分析 > 実績推移 > 日別パフォーマンス）。
-// 予算差異・AI想定差異 = 実績 − 予算（AI の予測）。稼働率は pt、ADR・REV-Per・室料売上は円。
-// 前年比 = 前年同曜日（364日前）と比べる。稼働率は pt 差、ADR・REV-Per・室料売上は伸び率（%）。
+// 予算差異・AI想定差異 = 実績 − 予算（AI の予測）。稼働率は 0〜1 の差（画面は % 表記）、ADR・REV-Per・室料売上は円。
+// 前年比 = 前年同曜日（364日前）と比べる。稼働率は差、ADR・REV-Per・室料売上は伸び率（%）。
+// 「実数と想定値で見る」（PDF c分析01実績推移2）: 項目ごとに 実数（過去は実績、先の日は今の予約実数）・AI の想定・予算・予算差異を並べる。
 // 画面から切り離した純関数にしてテストで固定する。
 
 import type { BookingCurve, DailyPerformanceDay, DayMetrics, MonthPace } from "@/lib/api"
@@ -104,6 +105,87 @@ export function summarizeVariance(days: DailyPerformanceDay[], totalRooms: numbe
     budget: differenceOf(budget.actual, budget.target),
     ai: differenceOf(ai.actual, ai.target),
     yoy: yearOverYearOf(lastYear.actual, lastYear.target),
+  }
+}
+
+// ---- 実数と想定値（PDF c分析01実績推移2: 販売室数・想定販売数、稼働率・想定稼働率…と並べ、予算・予算差異は想定値に並べる）----
+
+export type FigureMetric = "soldRooms" | VarianceMetric
+
+export const FIGURE_METRICS: FigureMetric[] = ["soldRooms", "occupancy", "adr", "revPar", "revenue"]
+
+export interface FigureCell {
+  /** 実数（過去は実績、先の日は今の予約実数。予約の単価・売上は PMS 連携後のため null） */
+  value: number | null
+  /** AI の想定 */
+  ai: number | null
+  budget: number | null
+  /** 予算差異 = 結果（先の日は AI の想定）− 予算 */
+  budgetDiff: number | null
+}
+
+export interface FigureRow {
+  date: string
+  day: number
+  dow: number
+  hasActual: boolean
+  /** 予約実数の日（結果がまだで、今の予約の記録がある） */
+  hasOnHand: boolean
+  cells: Record<FigureMetric, FigureCell>
+  yoy: VarianceSet
+}
+
+function figureCells(value: DayMetrics | null, ai: DayMetrics | null, budget: DayMetrics | null, landing: DayMetrics | null): Record<FigureMetric, FigureCell> {
+  const cells = {} as Record<FigureMetric, FigureCell>
+  for (const metric of FIGURE_METRICS) {
+    const b = budget?.[metric] ?? null
+    const l = landing?.[metric] ?? null
+    cells[metric] = { value: value?.[metric] ?? null, ai: ai?.[metric] ?? null, budget: b, budgetDiff: l == null || b == null ? null : l - b }
+  }
+  return cells
+}
+
+export function buildFigureRows(days: DailyPerformanceDay[]): FigureRow[] {
+  return days.map((d) => {
+    const [y, m, dd] = d.date.split("-").map(Number)
+    return {
+      date: d.date,
+      day: dd,
+      dow: new Date(y, m - 1, dd).getDay(),
+      hasActual: d.actual != null,
+      hasOnHand: d.actual == null && d.onHand != null,
+      cells: figureCells(d.actual ?? d.onHand, d.ai, d.budget, d.actual ?? d.ai),
+      yoy: yearOverYearOf(d.actual, d.lastYear),
+    }
+  })
+}
+
+/**
+ * 月計（実数と想定値）。実数の販売室数・稼働率は 実績＋予約（実績か予約の記録がある日で数える。バックエンドの曜日別と同じ）、
+ * ADR・REV-Per・室料売上は結果の出た日だけ。想定・予算は月の全日、予算差異は 結果＋先の日の想定（着地の見込み）− 予算
+ */
+export function summarizeFigures(days: DailyPerformanceDay[], totalRooms: number) {
+  const done = days.filter((d) => d.actual != null)
+  const pending = days.filter((d) => d.actual == null && d.onHand?.soldRooms != null)
+  const actualTotal = totalOf(done.map((d) => d.actual), totalRooms)
+  const rooms = (actualTotal?.soldRooms ?? 0) + pending.reduce((a, d) => a + (d.onHand?.soldRooms ?? 0), 0)
+  const countedDays = done.length + pending.length
+  const value: DayMetrics = {
+    soldRooms: countedDays > 0 ? rooms : null,
+    occupancy: countedDays > 0 && totalRooms > 0 ? rooms / (totalRooms * countedDays) : null,
+    adr: actualTotal?.adr ?? null,
+    revPar: actualTotal?.revPar ?? null,
+    revenue: actualTotal?.revenue ?? null,
+  }
+  const landing = totalOf(days.map((d) => d.actual ?? d.ai), totalRooms)
+  const budget = totalOf(days.map((d) => d.budget), totalRooms)
+  const ai = totalOf(days.map((d) => d.ai), totalRooms)
+  const lastYear = done.filter((d) => d.lastYear != null)
+  return {
+    actualDays: done.length,
+    onHandDays: pending.length,
+    cells: figureCells(value, ai, budget, landing),
+    yoy: yearOverYearOf(totalOf(lastYear.map((d) => d.actual), totalRooms), totalOf(lastYear.map((d) => d.lastYear), totalRooms)),
   }
 }
 

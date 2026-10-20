@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 
 import { eventsOnDate } from "@/components/pricing/pricing-constants"
 import { getMockEvents, mockPricingCalendar } from "./demo-data"
-import { demoClassifyDay, enrichMockPricingCalendar, importMockEvents, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockMonthPace } from "./demo-revenue"
+import { demoClassifyDay, enrichMockPricingCalendar, importMockEvents, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockDayOfWeekBreakdown, mockDayTypeBreakdown, mockMonthPace } from "./demo-revenue"
 
 // デモモードのデータ（2026-10）。日のタイプはバックエンド（services/forecast/dayType.ts）と同じ手順で判定する（型はデモ用の固定）
 
@@ -66,6 +66,31 @@ describe("mockDailyPerformance", () => {
     const next = new Date(today.getFullYear(), today.getMonth() + 1, 1)
     const p = mockDailyPerformance("demo", next.getFullYear(), next.getMonth() + 1)
     expect(p.days.every((d) => d.actual === null && d.budget.revenue != null && d.ai != null && d.lastYear != null)).toBe(true)
+    // 先の日は予約実数（室数・稼働率だけ。予約の単価・売上は PMS 連携後）
+    expect(p.days.every((d) => d.onHand != null && d.onHand.soldRooms != null && d.onHand.adr === null && d.onHand.revenue === null)).toBe(true)
+  })
+})
+
+describe("mockDayOfWeekBreakdown / mockDayTypeBreakdown（当月以降は 実績＋予約）", () => {
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = today.getMonth() + 1
+
+  it("曜日別は月の全日を7つに分け、販売室数 = 実績＋予約、ADR は結果の出た日だけ", () => {
+    const p = mockDailyPerformance("demo", year, month)
+    const b = mockDayOfWeekBreakdown("demo", year, month)
+    expect(b.days.reduce((a, d) => a + d.days, 0)).toBe(p.days.length)
+    const rooms = p.days.reduce((a, d) => a + (d.actual?.soldRooms ?? d.onHand?.soldRooms ?? 0), 0)
+    expect(b.days.reduce((a, d) => a + d.soldRooms, 0)).toBe(rooms)
+    expect(b.days.flatMap((d) => d.dates).sort()).toEqual(p.days.map((d) => d.date))
+  })
+
+  it("日のタイプ別は型の名前ごとに集計し、全日がどれかの型か型なしに入る", () => {
+    const p = mockDailyPerformance("demo", year, month)
+    const t = mockDayTypeBreakdown("demo", year, month)
+    expect(t.types.length).toBeGreaterThan(0)
+    expect(t.types.every((r) => /^(平日|週末|特日)[A-D]型$/.test(r.dayType))).toBe(true)
+    expect(t.types.reduce((a, r) => a + r.days, 0) + t.untypedDays).toBe(p.days.length)
   })
 })
 

@@ -11,6 +11,7 @@ import {
   getMockEvents,
   isMockWeekend,
   mockBudgetValues,
+  mockDashboardKpi,
   mockDaysInMonth,
   mockSeasonBoost,
   mockRankToPrice1P,
@@ -24,6 +25,8 @@ import type {
   BookingCurvePoint,
   DailyPerformance,
   DayInsight,
+  DayOfWeekBreakdown,
+  DayTypeBreakdown,
   DayMetrics,
   DayModel,
   DayTypeHistoryPoint,
@@ -32,6 +35,7 @@ import type {
   MonthPace,
   NewHotelInput,
   NewHotelOpening,
+  PerformanceRow,
   PricingCalendar,
   DaySimulation,
 } from "./types"
@@ -445,6 +449,14 @@ export function mockDailyPerformance(hotelId: string, year: number, month: numbe
     revPar: Math.round((rooms * adr) / totalRooms),
     revenue: rooms * adr,
   })
+  // 予約実数（今の予約室数。予約の単価・売上は PMS 連携後のため出さない）
+  const onHandOf = (rooms: number): DayMetrics => ({
+    soldRooms: rooms,
+    occupancy: Math.round((rooms / totalRooms) * 1000) / 1000,
+    adr: null,
+    revPar: null,
+    revenue: null,
+  })
   const base = Array.from({ length: numDays }, (_, i) => {
     const date = new Date(year, month - 1, i + 1)
     const weekend = isMockWeekend(date)
@@ -458,6 +470,14 @@ export function mockDailyPerformance(hotelId: string, year: number, month: numbe
     return { date, aiOcc, aiAdr, actualOcc, actualAdr, lyRooms, lyAdr }
   })
   const budgets = demoDailyBudgets(year, month, base.map((b) => b.lyRooms))
+  // 結果の出た日の実績はダッシュボードのデモ（mockDashboardKpi）の日別実績にそろえる（月間サマリー・曜日別と同じ値になるように）
+  const trend = new Map(mockDashboardKpi(hotelId, year, month).dailyTrend.map((t) => [t.date, t]))
+  const actualOf = (b: (typeof base)[number]): DayMetrics | null => {
+    if (b.date > today) return null
+    const t = trend.get(toLocalDateStr(b.date))
+    if (t?.occupancy != null && t.adr != null) return metrics(Math.round(t.occupancy * totalRooms), t.adr)
+    return metrics(Math.round(totalRooms * b.actualOcc), b.actualAdr)
+  }
   return {
     hotelId,
     year,
@@ -465,7 +485,8 @@ export function mockDailyPerformance(hotelId: string, year: number, month: numbe
     totalRooms,
     days: base.map((b, i) => ({
       date: toLocalDateStr(b.date),
-      actual: b.date <= today ? metrics(Math.round(totalRooms * b.actualOcc), b.actualAdr) : null,
+      actual: actualOf(b),
+      onHand: b.date <= today ? null : onHandOf(Math.round(totalRooms * b.aiOcc * curveProgress(leadDays(b.date, today), isMockWeekend(b.date)))),
       budget: {
         soldRooms: budgets[i].rooms,
         occupancy: budgets[i].occupancy,
@@ -476,6 +497,91 @@ export function mockDailyPerformance(hotelId: string, year: number, month: numbe
       ai: metrics(Math.round(totalRooms * b.aiOcc), b.aiAdr),
       lastYearDate: toLocalDateStr(new Date(b.date.getTime() - 364 * DAY_MS)),
       lastYear: metrics(b.lyRooms, b.lyAdr),
+    })),
+  }
+}
+
+/** 曜日別・日のタイプ別のデモの集計（バックエンドの monthPerformance.ts の aggregatePerformance と同じ数え方） */
+function demoAggregatePerformance(days: DailyPerformance["days"], totalRooms: number): PerformanceRow {
+  const counted = days.filter((d) => d.actual?.soldRooms != null || d.onHand?.soldRooms != null)
+  const actual = counted.filter((d) => d.actual?.soldRooms != null)
+  const actualRooms = actual.reduce((a, d) => a + (d.actual?.soldRooms ?? 0), 0)
+  const onHandRooms = counted.filter((d) => d.actual == null).reduce((a, d) => a + (d.onHand?.soldRooms ?? 0), 0)
+  const revenue = actual.reduce((a, d) => a + (d.actual?.revenue ?? 0), 0)
+  const soldRooms = actualRooms + onHandRooms
+  const capacity = totalRooms * counted.length
+  const ly = counted.map((d) => d.lastYear).filter((m): m is DayMetrics => m?.soldRooms != null)
+  const lyRooms = ly.reduce((a, m) => a + (m.soldRooms ?? 0), 0)
+  const lyRevenue = ly.reduce((a, m) => a + (m.revenue ?? 0), 0)
+  const round3 = (v: number) => Math.round(v * 1000) / 1000
+  return {
+    days: counted.length,
+    actualDays: actual.length,
+    soldRooms,
+    onHandRooms,
+    revenue: Math.round(revenue),
+    occupancy: capacity > 0 ? round3(soldRooms / capacity) : null,
+    adr: actualRooms > 0 ? Math.round(revenue / actualRooms) : null,
+    revPar: actual.length > 0 ? Math.round(revenue / (totalRooms * actual.length)) : null,
+    lastYear:
+      ly.length > 0
+        ? {
+            days: ly.length,
+            soldRooms: lyRooms,
+            revenue: Math.round(lyRevenue),
+            occupancy: round3(lyRooms / (totalRooms * ly.length)),
+            adr: lyRooms > 0 ? Math.round(lyRevenue / lyRooms) : null,
+          }
+        : null,
+    dates: counted.map((d) => d.date),
+  }
+}
+
+/** 曜日別パフォーマンスのデモ（前月以前は実績、当月以降は実績＋予約） */
+export function mockDayOfWeekBreakdown(hotelId: string, year: number, month: number): DayOfWeekBreakdown {
+  const { days, totalRooms } = mockDailyPerformance(hotelId, year, month)
+  const dowOf = (date: string) => new Date(`${date}T00:00:00`).getDay()
+  return {
+    hotelId,
+    year,
+    month,
+    days: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => {
+      const mine = days.filter((d) => dowOf(d.date) === dayOfWeek)
+      return {
+        dayOfWeek,
+        isWeekend: mine.length > 0 && isMockWeekend(new Date(`${mine[0].date}T00:00:00`)),
+        ...demoAggregatePerformance(mine, totalRooms),
+      }
+    }),
+  }
+}
+
+/** 日のタイプ別パフォーマンスのデモ（日ごとの型は料金カレンダーのデモと同じ判定） */
+export function mockDayTypeBreakdown(hotelId: string, year: number, month: number): DayTypeBreakdown {
+  const { days, totalRooms } = mockDailyPerformance(hotelId, year, month)
+  const today = startOfLocalDay(new Date())
+  const groups = new Map<string, DailyPerformance["days"]>()
+  let untypedDays = 0
+  for (const d of days) {
+    const stay = new Date(`${d.date}T00:00:00`)
+    const type = d.actual?.soldRooms != null
+      ? demoClassifyDay(stay, { lead: 0, otbRooms: d.actual.soldRooms, finalRooms: d.actual.soldRooms })
+      : demoClassifyDay(stay, { lead: leadDays(stay, today), otbRooms: d.onHand?.soldRooms ?? null, predictedOccupancy: d.ai?.occupancy ?? null })
+    if (!type) {
+      untypedDays += 1
+      continue
+    }
+    groups.set(type.name, [...(groups.get(type.name) ?? []), d])
+  }
+  return {
+    hotelId,
+    year,
+    month,
+    untypedDays,
+    types: MOCK_DAY_TYPES.filter((t) => groups.has(t.name)).map((t) => ({
+      dayType: t.name,
+      model: t.model,
+      ...demoAggregatePerformance(groups.get(t.name) ?? [], totalRooms),
     })),
   }
 }
