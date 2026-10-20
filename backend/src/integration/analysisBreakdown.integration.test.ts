@@ -102,14 +102,16 @@ describeIntegration('分析の内訳 API（#88）', () => {
     const res = await get('/api/v1/analysis/channels', tokens.op)
     expect(res.status, JSON.stringify(res.body)).toBe(200)
     expect(res.body.data.channels).toHaveLength(2)
-    expect(res.body.data.channels[0]).toMatchObject({ roomsSold: 70, revenue: 1_575_000, revenueShare: 50 })
+    // 実績のある日 2日 × 100室 に対する稼働率。前年同月の実績は無い
+    expect(res.body.data).toMatchObject({ totalRooms: 100, days: 2 })
+    expect(res.body.data.channels[0]).toMatchObject({ roomsSold: 70, revenue: 1_575_000, revenueShare: 50, roomsShare: 50, occupancy: 0.35, revenueYoy: null })
   })
 
   it('部屋タイプ別（実績日数2日 × 室数で稼働率を出す）', async () => {
     const res = await get('/api/v1/analysis/room-types', tokens.op)
     expect(res.status).toBe(200)
     expect(res.body.data.actualDays).toBe(2)
-    expect(res.body.data.roomTypes[0]).toMatchObject({ code: 'TWN', soldRooms: 90, occupancy: 0.75 })
+    expect(res.body.data.roomTypes[0]).toMatchObject({ code: 'TWN', soldRooms: 90, occupancy: 0.75, roomsShare: 64.3, revenueShare: 70 })
   })
 
   it('曜日別（金曜は週末）', async () => {
