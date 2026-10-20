@@ -207,6 +207,8 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
         expect(res.status, JSON.stringify(res.body)).toBe(200)
         const data = res.body.data
         expect(data.dayType.name).toMatch(/^(平日|週末|特日)[A-D]型$/)
+        // 価格戦略の「日のタイプに合わせて重みを寄せる」が有効か（AI が優先モデルを使っているか）
+        expect(typeof data.modelApplied).toBe('boolean')
         expect(data.typeProfile.name).toBe(data.dayType.name)
         expect(Array.isArray(data.typeProfile.referenceCurve)).toBe(true)
         expect(data.categoryTypes.length).toBeGreaterThan(0)

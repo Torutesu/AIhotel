@@ -229,8 +229,11 @@ export function aggregateRoomTypes(
       revenue: mine.reduce((a, r) => a + (r.revenue ?? 0), 0),
     }
   }
-  const totalRevenue = rows.reduce((a, r) => a + (r.revenue ?? 0), 0)
-  const totalRooms = rows.reduce((a, r) => a + (r.soldRooms ?? 0), 0)
+  // 構成比の分母は一覧に出す部屋タイプだけ（無効にしたタイプの実績を含めると構成比の合計が100%にならない）
+  const listed = new Set(roomTypes.map((t) => t.id))
+  const shown = rows.filter((r) => listed.has(r.roomTypeId))
+  const totalRevenue = shown.reduce((a, r) => a + (r.revenue ?? 0), 0)
+  const totalRooms = shown.reduce((a, r) => a + (r.soldRooms ?? 0), 0)
   return roomTypes.map((t) => {
     const { soldRooms, revenue } = sumOf(rows, t.id)
     const ly = sumOf(lastYearRows, t.id)
@@ -332,7 +335,7 @@ export async function getDailyPerformanceService(hotelId: string, year: number, 
   // 先の日の今の予約室数（予約実数）を出すため、今日以降の宿泊日の予約積上だけ読む
   const future = eachUtcDay(start, end).filter((d) => d >= today)
   const [context, actuals, recommendations] = await Promise.all([
-    loadMonthContext(hotelId, totalRooms, year, month, { curves: future }),
+    loadMonthContext(hotelId, totalRooms, year, month, { curves: future, lastYearCurves: false }),
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: start, lt: end } },
       select: { date: true, soldRooms: true, occupancy: true, adr: true, revPar: true, totalRevenue: true },

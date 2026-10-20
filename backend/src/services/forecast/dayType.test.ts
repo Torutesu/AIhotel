@@ -68,6 +68,16 @@ describe('buildDayTypes', () => {
     expect(b).toMatchObject({ id: 'weekday-B', days: 20, avgOccupancy: 0.6, model: 'occupancy' })
   })
 
+  it('日はどれか1つの型にだけ入る（同じ稼働率の日が境目の両側に数えられない）', () => {
+    // 満室（100%）が続く日は同じ値が並ぶ。型の日数の合計は区分の日数と一致し、ADR はその型の日だけで出す
+    const tied = [...days(12, 0.6), ...days(8, 1, 'weekday', '2025-08-01'), ...days(8, 1, 'weekday', '2025-09-01')]
+    const built = buildDayTypes(tied)
+    expect(built.reduce((a, t) => a + t.days, 0)).toBe(tied.length)
+    const full = built.find((t) => t.avgOccupancy === 1)
+    expect(full).toMatchObject({ days: 16, avgAdr: 22000 })
+    expect(built.find((t) => t.avgOccupancy === 0.6)).toMatchObject({ days: 12, avgAdr: 15000 })
+  })
+
   it('型ごとの典型カーブ（最終に対する予約の割合の中央値）を持つ', () => {
     expect(types[0].curveShare).toEqual(
       expect.arrayContaining([

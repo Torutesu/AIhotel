@@ -41,7 +41,8 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       },
       select: { date: true, price1P: true },
     }),
-    loadMonthContext(hotelId, hotel.totalRooms, year, month),
+    // 前年同曜日の予約積上はカレンダーでは使わない（日のタイプは型の典型カーブで判定する）
+    loadMonthContext(hotelId, hotel.totalRooms, year, month, { lastYearCurves: false }),
     loadDayTypeModel(hotelId, today),
   ])
 

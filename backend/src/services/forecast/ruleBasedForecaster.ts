@@ -359,7 +359,7 @@ export const ruleBasedForecaster: DemandForecaster = {
       previous.filter((p) => p.recommendedRank != null).map((p) => [p.date.getTime(), p.recommendedRank as number])
     )
 
-    // 戦略設定が無いホテルは従来どおり稼働率のみで決定する
+    // 戦略設定が無いホテルの初期値の重みは稼働率のみ。日のタイプによる寄せは設定画面の初期値（寄せる）と同じく行う
     const weights: StrategyWeights = strategyConfig
       ? {
           weightOccupancy: strategyConfig.weightOccupancy,

@@ -180,14 +180,23 @@ export function buildDayTypes(history: DayTypeHistoryDay[]): DayTypeProfile[] {
     const days = history.filter((d) => d.category === category)
     const classes = chooseOccupancyClasses(days.map((d) => d.occupancy))
     if (classes.length === 0 || days.length < MIN_DAYS_PER_TYPE) continue
+    // 群は稼働率を小さい順に並べた値の切れ目なので、日も同じ順に並べて群の大きさで切り分ける
+    // （範囲で振り分けると、同じ値が境目の両側に入ったとき1日が2つの型に数えられる）
+    const sortedDays = [...days].sort((a, b) => a.occupancy - b.occupancy)
+    let offset = 0
+    const memberGroups = classes.map((c) => {
+      const group = sortedDays.slice(offset, offset + c.length)
+      offset += c.length
+      return group
+    })
     // 稼働の高い群から A
     const ordered = [...classes].reverse()
-    const bounds = ordered.map((c) => ({ min: c[0], max: c[c.length - 1] }))
+    const orderedMembers = [...memberGroups].reverse()
     ordered.forEach((values, index) => {
       const letter = String.fromCharCode(65 + index)
-      const { min, max } = bounds[index]
-      // 同じ値が群の境目をまたぐことはない（自然分類は並べた値を切る）が、値の重複に備えて範囲で振り分ける
-      const members = days.filter((d) => d.occupancy >= min && d.occupancy <= max)
+      const min = values[0]
+      const max = values[values.length - 1]
+      const members = orderedMembers[index]
       const adrs = members.map((d) => d.adr).filter((v): v is number => v != null)
       const avgOccupancy = round3(mean(values))
       profiles.push({

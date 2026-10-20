@@ -104,7 +104,7 @@ async function loadMonthPerformanceDays(hotelId: string, year: number, month: nu
   const future = allDays.filter((d) => d >= today)
 
   const [context, actuals, recommendations] = await Promise.all([
-    loadMonthContext(hotelId, totalRooms, year, month, { curves: future }),
+    loadMonthContext(hotelId, totalRooms, year, month, { curves: future, lastYearCurves: false }),
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: start, lt: end } },
       select: { date: true, soldRooms: true, totalRevenue: true },
@@ -150,8 +150,10 @@ export async function getDayOfWeekBreakdownService(hotelId: string, year: number
 
 /** 日のタイプ別（平日A型など）。日ごとの型は料金カレンダーと同じ判定（結果の出た日は結果、先の日は今の予約の入り方） */
 export async function getDayTypeBreakdownService(hotelId: string, year: number, month: number) {
-  const { totalRooms, today, days, lastYear, curves, predictedByDate } = await loadMonthPerformanceDays(hotelId, year, month)
-  const model = await loadDayTypeModel(hotelId, today)
+  const [{ totalRooms, today, days, lastYear, curves, predictedByDate }, model] = await Promise.all([
+    loadMonthPerformanceDays(hotelId, year, month),
+    loadDayTypeModel(hotelId, todayJst()),
+  ])
   const typed = days.map((d) => {
     const current = buildDayTypeTimeline({
       stayDate: d.date,

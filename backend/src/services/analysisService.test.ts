@@ -63,6 +63,18 @@ describe('aggregateRoomTypes（#88）', () => {
     expect(rows[0]).toMatchObject({ soldRooms: 14, revenue: 280_000, adr: 20_000, occupancy: 0.7, revenueShare: 100, roomsShare: 100, revenueYoy: 40 })
     expect(rows[1]).toMatchObject({ soldRooms: 0, revenue: 0, adr: null, occupancy: 0, revenueShare: 0, lastYearRevenue: null, revenueYoy: null })
   })
+
+  it('一覧に無い（無効にした）部屋タイプの実績は構成比の分母に入れない', () => {
+    const rows = aggregateRoomTypes(
+      [{ id: 't1', name: 'ツイン', code: 'TWN', count: 10 }],
+      [
+        { roomTypeId: 't1', soldRooms: 8, revenue: 160_000 },
+        { roomTypeId: 'gone', soldRooms: 8, revenue: 160_000 },
+      ],
+      1
+    )
+    expect(rows[0]).toMatchObject({ revenueShare: 100, roomsShare: 100 })
+  })
 })
 
 describe('onHandMetrics（予約実数 — 2026-10）', () => {

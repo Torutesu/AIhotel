@@ -53,7 +53,7 @@ export async function getDayInsightService(hotelId: string, date: Date) {
   const to = addUtcDays(date, SIMILAR_DAY_RANGE)
   const curveFrom = from > today ? from : today
 
-  const [model, daily, recommendations, curveRows, events] = await Promise.all([
+  const [model, daily, recommendations, curveRows, events, strategy] = await Promise.all([
     loadDayTypeModel(hotelId, today),
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: from, lte: to } },
@@ -73,6 +73,7 @@ export async function getDayInsightService(hotelId: string, date: Date) {
       select: { name: true, type: true, location: true, expectedImpact: true, excludeFromHistory: true },
       orderBy: { startDate: 'asc' },
     }),
+    prisma.pricingStrategyConfig.findUnique({ where: { hotelId }, select: { dayModelAdjust: true } }),
   ])
 
   const curves = new Map<number, BookingCurvePoint[]>()
@@ -123,6 +124,8 @@ export async function getDayInsightService(hotelId: string, date: Date) {
     date: iso(date),
     category: DAY_CATEGORY_LABELS[model.categoryOf(date)],
     dayType: current ? { name: current.name, model: current.model, typicalOccupancy: current.typicalOccupancy } : null,
+    /** AI が推奨に優先モデルを使っているか（価格戦略の「日のタイプに合わせて重みを寄せる」。設定が無ければ既定の寄せる） */
+    modelApplied: strategy?.dayModelAdjust ?? true,
     history: timeline.history,
     /** 選んだ日の型の典型（平均稼働・典型カーブ） */
     typeProfile: profile
