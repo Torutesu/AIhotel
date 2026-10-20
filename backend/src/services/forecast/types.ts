@@ -13,6 +13,11 @@ export interface ForecastInput {
   hotelId: string
   startDate: Date
   endDate: Date
+  /**
+   * 試算用（保存しない日単位のシミュレーション — 2026-10）: 日のタイプで決まる優先モデルの代わりに使うモデル。
+   * 省略時は日のタイプのモデル
+   */
+  modelOverride?: 'occupancy' | 'balanced' | 'adr'
 }
 
 export interface DailyForecast {

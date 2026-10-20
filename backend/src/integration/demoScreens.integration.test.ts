@@ -6,7 +6,7 @@ import { PrismaClient } from '@prisma/client'
 import { addUtcDays, todayJst } from '../lib/date.js'
 
 // 2026-10 のデモ画面の修正で足した API。
-//   - 料金カレンダー: 日割り予算・オンハンド・想定売上・日のタイプとその推移
+//   - 料金カレンダー: 日割り予算・オンハンド・想定売上・日のタイプ（日のモデル）とその推移
 //   - ブッキングカーブ: 前年同曜日の参考カーブ・日割り予算・AI の予測
 //   - 日別パフォーマンス: 実績と日割り予算・AI の予測・前年同曜日
 //   - イベントの取り込み・周辺の新規ホテル（登録・取り込み・権限・テナント分離・監査ログ）
@@ -166,31 +166,85 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
       expect(day15.expectedRevenue).toBe(770_000)
     })
 
-    it('先の日はオンハンド（今の予約室数）と日のタイプ・推移を返す', async () => {
+    it('先の日はオンハンド（今の予約室数）と日のタイプ（日のモデル）・推移を返す', async () => {
       const res = await get('/api/v1/pricing/calendar', tokens.operator, { hotelId: HOTEL_A, year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 })
       const day15 = res.body.data.calendar[14]
       expect(day15.onHandRooms).toBe(36)
       expect(day15.currentOccupancy).toBe(0.36)
       expect(day15.currentRevenue).toBeNull()
-      // 着地見込み 36 + (80 − 30) = 86室 → B、ペース 36 / 30 = 1.2 → 1
-      expect(day15.dayType).toBe('B1')
-      expect(day15.dayTypeExpectedOccupancy).toBe(0.86)
-      expect(day15.dayTypePaceRatio).toBe(1.2)
+      // 過去の結果（前年 40%・80%、先月 60%）から区分ごとに型を作り、今の予約の入り方に近い型にする
+      expect(day15.dayType).toMatch(/^(平日|週末|特日)[A-D]型$/)
+      expect(['occupancy', 'balanced', 'adr']).toContain(day15.dayTypeModel)
+      expect(typeof day15.dayTypeTypicalOccupancy).toBe('number')
       if (targetLead < 90) {
-        // 90日前: 10室 vs 10室 → ペース 1.0 → 3、着地 10 + 70 = 80室 → C
-        expect(day15.dayTypeHistory[0]).toEqual({ daysBefore: 90, dayType: 'C3', otbRooms: 10, paceRatio: 1 })
+        expect(day15.dayTypeHistory[0]).toMatchObject({ daysBefore: 90, otbRooms: 10 })
       }
-      // 予約積上の無い日は AI の予測で英字だけ（70% → C）
-      expect(res.body.data.calendar[0].dayType).toBe('C')
     })
 
-    it('結果の出た日は実績をオンハンド・現在値にする', async () => {
+    it('結果の出た日は結果で型を決め、推移は 90日前〜当日', async () => {
       const res = await get('/api/v1/pricing/calendar', tokens.operator, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })
       const day = res.body.data.calendar[0]
       expect(day).toMatchObject({ onHandRooms: 60, currentOccupancy: 0.6, currentRevenue: 720_000 })
-      // 結果 60室 vs 前年 40室 → 1.5 → 1、着地 60% → D
-      expect(day.dayType).toBe('D1')
+      // 結果 60% はどの区分でも稼働の高いほうの群 → A型
+      expect(day.dayType).toMatch(/^(平日|週末|特日)A型$/)
       expect(day.dayTypeHistory.map((h: { daysBefore: number }) => h.daysBefore)).toEqual([90, 60, 30, 14, 7, 3, 1, 0])
+    })
+
+    it('過去の実績が無いホテルは型を作らない（日のタイプは null）', async () => {
+      const res = await get('/api/v1/pricing/calendar', tokens.otherManager, { hotelId: HOTEL_B, year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 })
+      expect(res.status, JSON.stringify(res.body)).toBe(200)
+      expect(res.body.data.calendar.every((d: { dayType: string | null }) => d.dayType === null)).toBe(true)
+    })
+  })
+
+  describe('日のAI分析（PDF b01・b03）', () => {
+    it('日のタイプと推移・型の典型カーブ・同じタイプの日（5日まで）・その日のイベントを返す', async () => {
+      const event = await prisma.event.create({
+        data: { tenantId: TENANT_A, hotelId: HOTEL_A, name: '港まつり（分析）', type: 'festival', startDate: target, endDate: target, expectedImpact: 'high' },
+      })
+      try {
+        const res = await get('/api/v1/pricing/day-insight', tokens.operator, { hotelId: HOTEL_A, date: iso(target) })
+        expect(res.status, JSON.stringify(res.body)).toBe(200)
+        const data = res.body.data
+        expect(data.dayType.name).toMatch(/^(平日|週末|特日)[A-D]型$/)
+        expect(data.typeProfile.name).toBe(data.dayType.name)
+        expect(Array.isArray(data.typeProfile.referenceCurve)).toBe(true)
+        expect(data.categoryTypes.length).toBeGreaterThan(0)
+        expect(data.similarDays.length).toBeLessThanOrEqual(5)
+        for (const d of data.similarDays) expect(d.dayType).toBe(data.dayType.name)
+        expect(data.events.map((e: { name: string }) => e.name)).toEqual(['港まつり（分析）'])
+        // 天候は外部データの取り込み前
+        expect(data.weather).toBeNull()
+      } finally {
+        await prisma.event.delete({ where: { id: event.id } })
+      }
+    })
+
+    it('日単位のシミュレーションは優先モデル3つと AI の推奨を返し、ランクを指定するとその試算も返す（保存しない）', async () => {
+      await prisma.priceRank.createMany({
+        data: Array.from({ length: 30 }, (_, i) => ({ tenantId: TENANT_A, hotelId: HOTEL_A, rank: i + 1, label: `R${i + 1}`, price1P: 6_000 + i * 500, price2P: 10_000 + i * 800 })),
+      })
+      const before = await prisma.aiPriceRecommendation.findMany({ where: { hotelId: HOTEL_A, date: target } })
+      try {
+        const res = await get('/api/v1/pricing/day-simulation', tokens.operator, { hotelId: HOTEL_A, date: iso(target), rank: 25 })
+        expect(res.status, JSON.stringify(res.body)).toBe(200)
+        const data = res.body.data
+        expect(data.options.map((o: { model: string }) => o.model)).toEqual(['occupancy', 'balanced', 'adr'])
+        expect(data.elasticity).toBe(1)
+        expect(data.base.rooms).toBeGreaterThanOrEqual(data.otbRooms ?? 0)
+        expect(data.manual).toMatchObject({ model: 'manual', rank: 25, price: 18_000 })
+        // 推奨は保存しない
+        expect(await prisma.aiPriceRecommendation.findMany({ where: { hotelId: HOTEL_A, date: target } })).toEqual(before)
+      } finally {
+        await prisma.priceRank.deleteMany({ where: { hotelId: HOTEL_A } })
+      }
+    })
+
+    it('過去の日は試算できず、登録の無いランクは 400、他テナントは 403', async () => {
+      expect((await get('/api/v1/pricing/day-simulation', tokens.operator, { hotelId: HOTEL_A, date: iso(prev) })).status).toBe(400)
+      expect((await get('/api/v1/pricing/day-simulation', tokens.operator, { hotelId: HOTEL_A, date: iso(target), rank: 39 })).status).toBe(400)
+      expect((await get('/api/v1/pricing/day-insight', tokens.otherManager, { hotelId: HOTEL_A, date: iso(target) })).status).toBe(403)
+      expect((await get('/api/v1/pricing/day-simulation', tokens.otherManager, { hotelId: HOTEL_A, date: iso(target) })).status).toBe(403)
     })
   })
 

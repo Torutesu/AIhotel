@@ -4,13 +4,14 @@ import { monthRange, todayJst } from '../lib/date.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
 import { loadMonthContext } from './dayContextService.js'
 import { buildDayTypeTimeline } from './forecast/dayType.js'
-import { lastYearSameWeekday, leadDaysBetween, otbAtLead } from './forecast/pace.js'
+import { leadDaysBetween, otbAtLead } from './forecast/pace.js'
+import { loadDayTypeModel } from './dayTypeService.js'
 
 /**
  * 日別価格カレンダー（F-DP-01）
  * 現在価格・AI推奨ランク・需要レベル・競合平均を日別に返す。
  * 2026-10 の画面修正（DP02 / DP03 / DP04）で、オペレーターが価格を決める材料として
- * 日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプとその推移を足した
+ * 日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプ（日のモデル）とその推移を足した
  */
 export async function getPricingCalendarService(hotelId: string, year: number, month: number) {
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
@@ -18,7 +19,8 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
 
   const { start, end } = monthRange(year, month)
 
-  const [recommendations, dailyData, priceRanks, competitorPrices, context] = await Promise.all([
+  const today = todayJst()
+  const [recommendations, dailyData, priceRanks, competitorPrices, context, dayTypeModel] = await Promise.all([
     prisma.aiPriceRecommendation.findMany({
       where: { hotelId, date: { gte: start, lt: end }, roomTypeId: null },
       orderBy: { date: 'asc' },
@@ -40,9 +42,9 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       select: { date: true, price1P: true },
     }),
     loadMonthContext(hotelId, hotel.totalRooms, year, month),
+    loadDayTypeModel(hotelId, today),
   ])
 
-  const today = todayJst()
   const totalRooms = hotel.totalRooms
   const rankByNumber = new Map(priceRanks.map((r) => [r.rank, r]))
   const actualByDate = new Map(dailyData.map((d) => [d.date.toISOString().slice(0, 10), d]))
@@ -67,7 +69,6 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     const rank = rec?.recommendedRank != null ? rankByNumber.get(rec.recommendedRank) : undefined
     const compPrices = competitorByDate.get(key)
     const budget = context.budgets[index]
-    const lastYearKey = lastYearSameWeekday(day).getTime()
     const points = context.curves.get(day.getTime()) ?? []
 
     // オンハンド: 結果が出た日は販売室数、先の日は今の予約室数（直近3日以内の予約積上）
@@ -83,13 +84,13 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
         ? Math.round(Math.round(totalRooms * rec.predictedOccupancy) * expectedAdr)
         : null
 
+    // 日のタイプ（日のモデル）: 区分（平日・週末・特日）の型のうち、今の予約の入り方に近い型。予約が進むと型が変わる
     const dayType = buildDayTypeTimeline({
       stayDate: day,
       today,
       totalRooms,
+      types: dayTypeModel.typesFor(day),
       points,
-      lastYearPoints: context.lastYearCurves.get(lastYearKey) ?? [],
-      lastYearFinalRooms: context.lastYearDaily.get(lastYearKey)?.soldRooms ?? null,
       actualSoldRooms: actual?.soldRooms ?? null,
       predictedOccupancy: rec?.predictedOccupancy ?? null,
     })
@@ -125,9 +126,9 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       onHandAdr: actual?.adr ?? null,
       currentRevenue: actual?.totalRevenue ?? null,
       expectedRevenue,
-      dayType: dayType.current.dayType,
-      dayTypeExpectedOccupancy: dayType.current.expectedOccupancy,
-      dayTypePaceRatio: dayType.current.paceRatio,
+      dayType: dayType.current?.name ?? null,
+      dayTypeModel: dayType.current?.model ?? null,
+      dayTypeTypicalOccupancy: dayType.current?.typicalOccupancy ?? null,
       dayTypeHistory: dayType.history,
     }
   })
@@ -158,6 +159,8 @@ export async function getStrategyService(hotelId: string) {
     maxRank: null,
     maxDailyRankChange: 3,
     hysteresisRanks: 1,
+    dayModelAdjust: true,
+    priceElasticity: 1,
     updatedByUserId: null,
     updatedAt: null,
   }
@@ -173,6 +176,8 @@ export interface StrategyUpdate {
   maxRank?: number | null
   maxDailyRankChange?: number | null
   hysteresisRanks?: number
+  dayModelAdjust?: boolean
+  priceElasticity?: number
 }
 
 /**

@@ -22,7 +22,8 @@ const HOTEL = `${PREFIX}-hotel`
 const PASSWORD = 'Test1234'
 const MANAGER_EMAIL = `${PREFIX}-manager@example.com`
 const FORECAST_DAYS = 7
-const NO_GUARDRAILS = { maxDailyRankChange: null, hysteresisRanks: 0, minRank: null, maxRank: null, competitorOffsetPct: 0 }
+// 重みの効き方だけを見るため、前回推奨からの変動幅・ヒステリシス（#17）と日のタイプによる重みの寄せ（2026-10）は切る
+const NO_GUARDRAILS = { maxDailyRankChange: null, hysteresisRanks: 0, minRank: null, maxRank: null, competitorOffsetPct: 0, dayModelAdjust: false }
 
 describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
   let app: Express
@@ -196,11 +197,29 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       }
     })
 
+    it('日のタイプの優先モデルで日ごとに重みを寄せ、推奨理由に型とモデルが残る（切ると初期値の重みのまま — 2026-10）', async () => {
+      // 過去28日はどの日も稼働50% → 平日A型・週末A型とも平均50%の「稼働優先」。ADR 100% の重みから 20 ポイントが稼働へ寄る
+      await setWeights(0, 100, 0, { dayModelAdjust: true })
+      const adjusted = await recomputeAndReadRanks()
+      const rows = await prisma.aiPriceRecommendation.findMany({ where: { hotelId: HOTEL, roomTypeId: null }, orderBy: { date: 'asc' } })
+      for (const row of rows) {
+        const rationale = row.rationale as { dayType?: { name: string; model: string }; factors: Array<{ key: string; weight: number }> }
+        expect(rationale.dayType?.name).toMatch(/^(平日|週末|特日)A型$/)
+        expect(rationale.dayType?.model).toBe('occupancy')
+        expect(rationale.factors.find((f) => f.key === 'occupancy')?.weight).toBe(20)
+      }
+      // 稼働率観点（ランク9 ではない）が混ざるので、ADR だけのランク9 から動く
+      expect(adjusted.some((r) => r !== 9)).toBe(true)
+
+      await setWeights(0, 100, 0, { dayModelAdjust: false })
+      expect((await recomputeAndReadRanks()).every((r) => r === 9)).toBe(true)
+    })
+
     it('推奨行に新しいモデルバージョンが記録される', async () => {
       await setWeights(60, 20, 20)
       await recomputeAndReadRanks()
       const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL } })
-      expect(row.modelVersion).toBe('rule-based-v4')
+      expect(row.modelVersion).toBe('rule-based-v5')
     })
   })
 

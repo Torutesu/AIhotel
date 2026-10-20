@@ -328,6 +328,10 @@ model PricingStrategyConfig {
   maxDailyRankChange  Int? @default(3)
   // 前回の推奨との差がこのランク数以内なら据え置く（0 は常に更新）
   hysteresisRanks     Int  @default(1)
+  // 日のタイプ（平日A型など）の優先モデル（稼働優先・単価優先）に合わせて、日ごとに重みを寄せる（2026-10）
+  dayModelAdjust      Boolean @default(true)
+  // 日単位のシミュレーションで使う価格弾力性: 価格を1%上げると予約が何%減るか（ヒアリングで決める初期値 — 2026-10）
+  priceElasticity     Float   @default(1)
 
   updatedByUserId String?
   createdAt       DateTime @default(now())

@@ -10,6 +10,8 @@ import {
   createPricingLockSchema,
   createPriceBoundSchema,
   idParamSchema,
+  dayInsightQuerySchema,
+  daySimulationQuerySchema,
 } from '../lib/validators.js'
 import {
   getCalendar,
@@ -25,6 +27,8 @@ import {
   createPriceBound,
   deletePriceBound,
   getSaleOpenCheck,
+  getDayInsight,
+  getDaySimulation,
 } from '../controllers/pricingController.js'
 
 export const pricingRouter: ExpressRouter = Router()
@@ -146,4 +150,21 @@ pricingRouter.get(
   validate(monthQuerySchema, 'query'),
   requireHotelAccess((req) => req.query.hotelId),
   getSaleOpenCheck
+)
+
+// 日のAI分析（2026-10）。閲覧と保存しない試算なので全ロール
+// GET /api/v1/pricing/day-insight?hotelId=&date=
+pricingRouter.get(
+  '/day-insight',
+  validate(dayInsightQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  getDayInsight
+)
+
+// GET /api/v1/pricing/day-simulation?hotelId=&date=&rank=
+pricingRouter.get(
+  '/day-simulation',
+  validate(daySimulationQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  getDaySimulation
 )

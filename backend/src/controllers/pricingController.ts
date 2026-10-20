@@ -17,6 +17,7 @@ import {
 } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
 import { getSaleOpenCheckService } from '../services/saleOpenCheckService.js'
+import { getDayInsightService, getDaySimulationService } from '../services/dayInsightService.js'
 import type { CreatePriceBoundInput, CreatePricingLockInput, MonthTargetInput, UpdateStrategyInput } from '../lib/validators.js'
 
 /**
@@ -223,4 +224,22 @@ export const deletePriceBound = asyncHandler(async (req: Request, res: Response)
 export const getSaleOpenCheck = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId, year, month } = req.query as unknown as { hotelId: string; year: number; month: number }
   sendSuccess(res, await getSaleOpenCheckService(hotelId, year, month))
+})
+
+/**
+ * 日のAI分析: 日のタイプと推移・型の典型・同じタイプの日・その日の外部要因（2026-10）
+ * GET /api/v1/pricing/day-insight?hotelId=&date=
+ */
+export const getDayInsight = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, date } = req.query as unknown as { hotelId: string; date: Date }
+  sendSuccess(res, await getDayInsightService(hotelId, date))
+})
+
+/**
+ * 日単位のシミュレーション: 優先モデル・料金ランクを変えたときの見込み（保存しない — 2026-10）
+ * GET /api/v1/pricing/day-simulation?hotelId=&date=&rank=
+ */
+export const getDaySimulation = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, date, rank } = req.query as unknown as { hotelId: string; date: Date; rank?: number }
+  sendSuccess(res, await getDaySimulationService(hotelId, date, rank))
 })
