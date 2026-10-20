@@ -9,6 +9,7 @@ const insight = (over: Partial<DayInsight> = {}): DayInsight => ({
   date: "2026-11-20",
   category: "平日",
   dayType: { name: "平日B型", model: "occupancy", typicalOccupancy: 0.62 },
+  modelApplied: true,
   history: [{ daysBefore: 90, dayType: "平日A型", otbRooms: 30 }],
   typeProfile: {
     name: "平日B型",

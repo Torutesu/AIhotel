@@ -393,6 +393,8 @@ export interface DayInsight {
   /** 日の区分（平日・週末・特日） */
   category: string
   dayType: { name: string; model: DayModel; typicalOccupancy: number } | null
+  /** AI が推奨に優先モデルを使っているか（価格戦略の「日のタイプに合わせて重みを寄せる」） */
+  modelApplied: boolean
   history: DayTypeHistoryPoint[]
   /** 選んだ日の型の典型（平均稼働・典型カーブ） */
   typeProfile: {

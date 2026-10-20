@@ -61,6 +61,7 @@ const INSIGHT: DayInsight = {
   date: FUTURE,
   category: "平日",
   dayType: { name: "平日A型", model: "balanced", typicalOccupancy: 0.82 },
+  modelApplied: true,
   history: [
     { daysBefore: 90, dayType: "平日B型", otbRooms: 12 },
     { daysBefore: 60, dayType: "平日A型", otbRooms: 30 },
@@ -131,6 +132,15 @@ describe("DayAnalysisDialog", () => {
     const factors = screen.getByTestId("external-factors")
     expect(factors.textContent).toContain("港まつり・港湾・影響度 高")
     expect(factors.textContent).toContain("天候データは未連携です")
+  })
+
+  it("価格戦略で日のタイプによる寄せを切っていれば、AI が優先モデルを使っているとは書かない", async () => {
+    mocks.dayInsight.mockReset().mockResolvedValue({ ...INSIGHT, date: FUTURE, modelApplied: false })
+    render(<DayAnalysisDialog day={day(FUTURE)} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/この型の優先モデル/)).toBeTruthy())
+    expect(screen.queryByText(/AI が割り当てた優先モデル/)).toBeNull()
+    expect(screen.queryByText(/AI は「バランス」で推奨価格を決めています/)).toBeNull()
+    expect(screen.getAllByText(/「寄せない」にしているため/).length).toBeGreaterThan(0)
   })
 
   it("先の日は日単位のシミュレーション（AI の推奨と優先モデル3つ）を出す", async () => {

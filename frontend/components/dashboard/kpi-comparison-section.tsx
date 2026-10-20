@@ -177,12 +177,20 @@ export function KpiComparisonSection({ year: dashboardYear, month: dashboardMont
   const targetPeriod = picked && picked.base === dashboardPeriod ? picked.value : dashboardPeriod
   const { year, month } = parseMonthStr(targetPeriod)
   const isDashboardMonth = targetPeriod === dashboardPeriod
-  const { data: pickedKpi } = useApiQuery<DashboardKpi | null>(
+  const {
+    data: pickedKpi,
+    loading: pickedLoading,
+    error: pickedError,
+    reload: reloadPicked,
+  } = useApiQuery<DashboardKpi | null>(
     hotelId && !isDashboardMonth ? () => api.dashboardKpi(hotelId, year, month) : null,
     [hotelId, year, month, isDashboardMonth],
     "対象月の実績の取得に失敗しました",
   )
   const summary = isDashboardMonth ? dashboardSummary : (pickedKpi?.summary ?? null)
+  // 別の月の実績の取得中・失敗は「実績なし」と見せない（ローディングとエラー＋再試行を出す）
+  const summaryLoading = !isDashboardMonth && pickedLoading
+  const summaryError = isDashboardMonth ? null : pickedError
 
   const [comparisonDate, setComparisonDate] = useState<Date | undefined>(undefined)
 
@@ -279,13 +287,15 @@ export function KpiComparisonSection({ year: dashboardYear, month: dashboardMont
         )}
       </CardHeader>
       <CardContent className="pt-0">
-        {loading ? (
+        {loading || summaryLoading ? (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Skeleton className="h-40 w-full" />
             <Skeleton className="h-40 w-full" />
           </div>
         ) : error ? (
           <ErrorState message={error} onRetry={load} />
+        ) : summaryError ? (
+          <ErrorState message={summaryError} onRetry={reloadPicked} />
         ) : (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div className="space-y-3">

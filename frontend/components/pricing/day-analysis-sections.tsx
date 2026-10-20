@@ -41,6 +41,9 @@ const shortDate = (date: string) => {
 
 // ---- 日のタイプと優先モデル ----
 
+/** 価格戦略の初期値の項目名（設定画面と同じ表記） */
+const MODEL_ADJUST_LABEL = "日のタイプに合わせて重みを寄せる"
+
 export function DayTypeSection({ insight, isPast }: { insight: DayInsight; isPast: boolean }) {
   const current = insight.dayType
   return (
@@ -57,8 +60,13 @@ export function DayTypeSection({ insight, isPast }: { insight: DayInsight; isPas
             <div className="text-sm">
               <p className="font-medium">{describeDayType(current.name, current.model, current.typicalOccupancy)}</p>
               <p className="text-xs text-muted-foreground">
-                AI が割り当てた優先モデル: <DayModelBadge model={current.model} className="ml-0.5" />（{DAY_MODEL_DESCRIPTIONS[current.model]}）。
-                {isPast ? "結果で決めた型です。" : "予約の入り方が変わると型と優先モデルも変わります。"}
+                {insight.modelApplied ? "AI が割り当てた優先モデル" : "この型の優先モデル"}: <DayModelBadge model={current.model} className="ml-0.5" />（
+                {DAY_MODEL_DESCRIPTIONS[current.model]}）。
+                {insight.modelApplied
+                  ? isPast
+                    ? "結果で決めた型です。"
+                    : "予約の入り方が変わると型と優先モデルも変わります。"
+                  : `価格戦略の初期値で「${MODEL_ADJUST_LABEL}」を「寄せない」にしているため、推奨は初期値の重みのままです。`}
               </p>
             </div>
           </div>
@@ -450,6 +458,7 @@ export function DaySimulationSection({ date, ranks }: { date: string; ranks: Pri
             <p className="text-[11px] text-muted-foreground">
               稼働の見込みは、AI の推奨からの単価の差に価格弾力性 {data.elasticity.toFixed(1)}（価格を1%上げると予約が{data.elasticity.toFixed(1)}%減る想定）をかけて出します。
               {data.otbRooms != null && `今の予約 ${data.otbRooms.toLocaleString()}室は下回りません。`}
+              各モデルの料金ランクは、AI の推奨と同じく前回の推奨からの1日の変動幅・据え置く差をかけた値です（差が小さいモデルは同じランクになることがあります）。
               価格弾力性と重みの初期値は設定画面の「価格戦略の初期値」で変えられます。
             </p>
           </>
@@ -492,7 +501,9 @@ export function buildDayTypeInsights(insight: DayInsight | null): DayInsightItem
     {
       type: "info",
       title: `この日は「${current.name}」・${DAY_MODEL_LABELS[current.model]}`,
-      content: `${describeDayType(current.name, current.model, current.typicalOccupancy)}。AI は「${DAY_MODEL_LABELS[current.model]}」で推奨価格を決めています（${DAY_MODEL_DESCRIPTIONS[current.model]}）。`,
+      content: insight.modelApplied
+        ? `${describeDayType(current.name, current.model, current.typicalOccupancy)}。AI は「${DAY_MODEL_LABELS[current.model]}」で推奨価格を決めています（${DAY_MODEL_DESCRIPTIONS[current.model]}）。`
+        : `${describeDayType(current.name, current.model, current.typicalOccupancy)}。価格戦略の初期値で「${MODEL_ADJUST_LABEL}」を「寄せない」にしているため、AI は優先モデルを使わず初期値の重みで推奨価格を決めています。`,
     },
   ]
   const oldest = insight.history.find((h) => h.dayType != null)

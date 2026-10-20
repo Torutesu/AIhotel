@@ -328,6 +328,7 @@ export function mockDayInsight(hotelId: string, date: string): DayInsight {
     date,
     category,
     dayType: type ? { name: type.name, model: type.model, typicalOccupancy: type.avgOccupancy } : null,
+    modelApplied: mockStrategy.dayModelAdjust,
     history: self?.dayTypeHistory ?? [],
     typeProfile: type
       ? {
