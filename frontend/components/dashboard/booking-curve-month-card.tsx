@@ -1,14 +1,19 @@
 "use client"
 
-// OCC・ADR月間BCグラフ（ブッキングカーブ — 2026-10 の画面修正 DB01）。
+// 稼働・ADR月間推移（2026-10 の画面修正 PDF a01・xlsx DB01「OCC・ADR月間BCグラフ」）。
+// 先方の指示「左の軸に室数（稼働率ではなく室数）・右の軸にADR・室数は各日の積み上げ折れ線。表題の稼働・ADR月間推移は現状でOK」に合わせ、
+// 稼働率の月間推移グラフをこのブッキングカーブに置き換えた（表題はそのまま）。
 // 対象月の宿泊日を1日選び、予約日（横軸）ごとの予約室数の積み上がりを、前年同曜日の参考カーブ・客室数・予算ADRと並べる。
 // 左軸 = 室数、右軸 = 円。実データ: GET /daily/booking-curve。
 // ADR の推移・販売価格の履歴（HR）・団体（GROUP）は PMS・サイトコントローラー連携（Phase 4）で入る系列で、
 // 今はデモデータだけが持つ。実データに無いときは凡例から外し、その旨を表示する。
 
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
+import { Download, ImageDown } from "lucide-react"
+import { toast } from "sonner"
 import { Area, CartesianGrid, ComposedChart, Legend, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -18,6 +23,8 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { DAY_NAMES, toDateStr } from "@/lib/date"
 import { formatPercent, formatRooms, formatYen } from "@/lib/format"
+import { downloadCsv } from "@/lib/csv-export"
+import { svgToPngBlob } from "@/lib/svg-export"
 import type { ChartTooltipEntry, ChartTooltipProps } from "@/lib/chart-tooltip"
 import { api, type BookingCurve } from "@/lib/api"
 
@@ -119,18 +126,55 @@ export function BookingCurveMonthCard({ year, month }: BookingCurveMonthCardProp
   const latest = curve?.points.length ? curve.points.reduce((a, b) => (b.daysBefore < a.daysBefore ? b : a)) : null
   const referenceAtLatest = latest ? curve?.reference?.points.find((p) => p.daysBefore === latest.daysBefore) ?? null : null
   const totalRooms = curve?.totalRooms ?? null
+  const chartWrapperRef = useRef<HTMLDivElement>(null)
+  const fileStem = `稼働ADR月間推移_${stayDate}`
+
+  // 表のCSV（予約日ごとの予約室数・参考カーブ・団体・ADR・販売価格）
+  const exportCsv = useCallback(() => {
+    downloadCsv(`${fileStem}.csv`, [
+      ["予約日", "残日数", "予約室数", "参考カーブ（前年同曜日）", "GROUP", "ADR", "HR（販売価格）"],
+      ...rows.map((r) => [r.label, r.daysBefore, r.rooms, r.reference, r.group, r.adr, r.rate]),
+    ])
+  }, [rows, fileStem])
+
+  // グラフのPNG（描画済みSVGをcanvasに転写。線色は書き出し前に実色へ解決する — U-10）
+  const exportImage = useCallback(async () => {
+    const svg = chartWrapperRef.current?.querySelector("svg")
+    if (!svg) return
+    try {
+      const blob = await svgToPngBlob(svg)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `${fileStem}.png`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "画像の書き出しに失敗しました")
+    }
+  }, [fileStem])
 
   return (
     <Card>
       <CardHeader className="pb-1">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <CardTitle className="text-base font-medium">OCC・ADR月間BCグラフ</CardTitle>
+            <CardTitle className="text-base font-medium">稼働・ADR月間推移</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              選んだ宿泊日の予約室数が、予約日ごとにどう積み上がったかを前年同曜日（参考カーブ）と比べます。左軸: 室数／右軸: 円
+              選んだ宿泊日の予約室数が、予約日ごとにどう積み上がったか（ブッキングカーブ）を前年同曜日（参考カーブ）と比べます。左軸: 室数／右軸: ADR（円）
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={exportCsv} disabled={rows.length === 0}>
+              <Download className="h-3.5 w-3.5" aria-hidden />
+              CSV
+            </Button>
+            <Button variant="outline" size="sm" className="h-8 gap-1 text-xs" onClick={() => void exportImage()} disabled={rows.length === 0}>
+              <ImageDown className="h-3.5 w-3.5" aria-hidden />
+              画像
+            </Button>
             <Label htmlFor="bc-stay-day" className="whitespace-nowrap text-xs">
               宿泊日
             </Label>
@@ -195,6 +239,7 @@ export function BookingCurveMonthCard({ year, month }: BookingCurveMonthCardProp
                 </dd>
               </div>
             </dl>
+            <div ref={chartWrapperRef}>
             <ResponsiveContainer width="100%" height={340}>
               <ComposedChart data={rows} margin={{ top: 10, right: 12, left: 0, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
@@ -236,6 +281,7 @@ export function BookingCurveMonthCard({ year, month }: BookingCurveMonthCardProp
                 )}
               </ComposedChart>
             </ResponsiveContainer>
+            </div>
             {(!hasAdr || !hasRate || !hasGroup) && (
               <p className="text-[11px] text-muted-foreground">
                 {[!hasAdr && "予約のADRの推移", !hasRate && "販売価格の履歴（HR）", !hasGroup && "団体（GROUP）"].filter(Boolean).join("・")}
