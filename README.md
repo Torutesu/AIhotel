@@ -610,10 +610,12 @@ TRUST_PROXY=1
 
 ### Pricing (`backend/src/routes/pricing.ts`)
 
-- `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）。日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプとその推移を含む（2026-10）
+- `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）。日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプ（平日A型など）と優先モデル・その推移を含む（2026-10）
+- `GET /api/v1/pricing/day-insight` - 日のAI分析（`hotelId`, `date`）。日のタイプと履歴、型の一覧と典型カーブ、同じタイプの日5日、この日のイベント（2026-10 b03）
+- `GET /api/v1/pricing/day-simulation` - 日単位のシミュレーション（`hotelId`, `date`, 任意で `rank`）。AI の推奨と優先モデル3つ・手動ランクの稼働・売上・REV-Per を価格弾力性モデルで試算（2026-10 b01）
 - `GET /api/v1/pricing/strategy` - 価格戦略の重み付け取得（`hotelId`）
 - `PUT /api/v1/pricing/strategy` - 価格戦略の更新（**MANAGER以上**）。重みは3つ揃えて送る（合計100%必須）か、送らない。
-  推奨の調整（比較人数・競合との価格差・ランクの下限/上限・1回の変動幅・ヒステリシス — #17）は送った項目だけが変わる
+  推奨の調整（比較人数・競合との価格差・ランクの下限/上限・1回の変動幅・ヒステリシス — #17）と、日のタイプで重みをずらすか（`dayModelAdjust`）・価格弾力性（`priceElasticity`）は送った項目だけが変わる
 - `GET /api/v1/pricing/locks` / `POST /api/v1/pricing/locks` / `DELETE /api/v1/pricing/locks/:id` - 推奨を固定する期間（変更は **MANAGER以上** — #17）
 - `GET /api/v1/pricing/simulation` - 月間着地シミュレーション取得（`hotelId`, `year`, `month`）
 - `POST /api/v1/pricing/recompute` - ルールベース需要予測の再計算（**MANAGER以上**）
@@ -647,7 +649,9 @@ TRUST_PROXY=1
 - `GET /api/v1/analysis/monthly` - 年間の月次推移取得（`hotelId`, `year`）
 - `GET /api/v1/analysis/competitor` - 競合分析取得（`hotelId`, `startDate`, `endDate`）
 - `GET /api/v1/analysis/reviews` - 口コミ評価点取得（`hotelId`。現状はシードデータ、収集バッチは未実装）
-- `GET /api/v1/analysis/daily-performance` - 日別パフォーマンス（`hotelId`, `year`, `month`。実績と日割り予算・AI の予測・前年同曜日 — 2026-10）
+- `GET /api/v1/analysis/channels` / `GET /api/v1/analysis/room-types` - チャネル別・部屋タイプ別（`hotelId`, `year`, `month`。構成比・稼働率・前年同月比 — 2026-10 c分析02）
+- `GET /api/v1/analysis/day-of-week` / `GET /api/v1/analysis/day-type` - 曜日別・日のタイプ別パフォーマンス（`hotelId`, `year`, `month`。前月以前は実績、当月以降は実績＋予約。前年同曜日と対象日つき — 2026-10 c分析01）
+- `GET /api/v1/analysis/daily-performance` - 日別パフォーマンス（`hotelId`, `year`, `month`。実績・予約実数（結果の出ていない日の今の予約室数）と日割り予算・AI の予測・前年同曜日 — 2026-10）
 - `GET /api/v1/analysis/month-pace` - 月の予約の積み上がり（`hotelId`, `year`, `month`。月の各宿泊日の N日前の予約室数の合計を 180日前→結果 で返し、予算・AI の予測・前年同曜日と比べる — 2026-10）
 
 ### Users (`backend/src/routes/users.ts`)
@@ -693,7 +697,7 @@ TRUST_PROXY=1
 - `POST /api/v1/settings/price-ranks` - 料金ランク作成（**MANAGER以上**）
 - `PUT /api/v1/settings/price-ranks/:id` - 料金ランク更新（**MANAGER以上**）
 - `DELETE /api/v1/settings/price-ranks/:id` - 料金ランク削除（**MANAGER以上**、論理削除）
-- `PUT /api/v1/settings/hotel/:id` - ホテル設定更新（週末定義等。**MANAGER以上**）
+- `PUT /api/v1/settings/hotel/:id` - ホテル設定更新（週末定義・販売開始（宿泊日の何日前 `saleOpenDaysBefore` — 2026-10 b04）等。**MANAGER以上**）
 - `GET /api/v1/settings/budgets` - 月次予算の取得（`hotelId`, `year`。12か月分を返す）
 - `PUT /api/v1/settings/budgets` - 月次予算の年単位一括更新（**MANAGER以上**）
 - `GET /api/v1/settings/competitors` - 競合ホテル一覧（`hotelId`）
