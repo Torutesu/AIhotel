@@ -1,19 +1,23 @@
 "use client"
 
 // 在庫表（日別・タイプ別残室推移 — U-15 で dashboard-tab.tsx から分割。2026-10 の画面修正 DB02 で作り直し）。
-// 今後14日を列に、部屋タイプ別の残室と比較時点からの増減、団体の予約室数・wash想定・想定室数、販売可能室数を並べる。
+// 選んだ日から14日を列に、部屋タイプ別の残室と比較時点からの増減、故障部屋、個人・団体の予約室数・団体のwash想定、
+// 残室想定（販売可能室数 = 残室＋wash想定）を並べる（PDF a02・xlsx DB02）。表示する日は選んで移動できる。
 // 団体の取り扱いが多い施設向けに、団体をセグメント別（一般団体・募集・修学旅行・スポーツ団体）にも表示できる。
 // PMS連携と残室推移の記録が未実装のため、数値はサンプル表示。
 
 import { Fragment, useMemo, useState } from "react"
+import { ChevronLeft, ChevronRight } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { SampleDataNotice } from "@/components/sample-data-notice"
 import { useWeekend } from "@/hooks/use-weekend"
-import { DAY_NAMES } from "@/lib/date"
+import { DAY_NAMES, parseDateStr, toDateStr } from "@/lib/date"
 import { createSeededRandom } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
@@ -49,12 +53,16 @@ interface GroupFigures {
 export interface InventoryDay {
   date: Date
   dow: number
-  types: Array<{ key: string; capacity: number; remaining: number; diff: number }>
+  types: Array<{ key: string; capacity: number; remaining: number; diff: number; outOfOrder: number }>
   totalRemaining: number
   totalDiff: number
+  /** 故障部屋（販売できない部屋。残室に含めない） */
+  totalOutOfOrder: number
+  /** 個人の予約室数（予約室数の合計 − 団体の予約室数） */
+  individualBooked: number
   group: GroupFigures
   segments: Record<string, GroupFigures>
-  /** 販売可能室数 = 残室 ＋ wash想定（団体の取消見込みは売り直せる） */
+  /** 残室想定（販売可能室数）= 残室 ＋ wash想定（団体の取消見込みは売り直せる） */
   sellable: number
 }
 
@@ -69,11 +77,13 @@ export function buildSampleInventory(totalRooms: number, snapshotDays: number, w
     const types = INVENTORY_ROOM_TYPES.map((t, ti) => {
       const capacity = capacities[ti]
       const occ = Math.min(0.97, Math.max(0.25, (weekend ? 0.84 : 0.62) - i * 0.012 + (rng() - 0.5) * 0.1))
-      const remaining = Math.max(0, Math.round(capacity * (1 - occ)))
+      // 故障部屋: 2割ほどの日に1〜2室（販売できないので残室から除く）
+      const outOfOrder = rng() > 0.8 ? 1 + Math.floor(rng() * 2) : 0
+      const remaining = Math.max(0, Math.round(capacity * (1 - occ)) - outOfOrder)
       // 比較時点の残室（過去ほど残室が多い＝その後の予約の進みぶん）
       const pace = capacity * (0.004 + rng() * 0.012)
       const snapshotRemaining = Math.min(capacity, remaining + Math.round(pace * snapshotDays))
-      return { key: t.key, capacity, remaining, diff: remaining - snapshotRemaining }
+      return { key: t.key, capacity, remaining, diff: remaining - snapshotRemaining, outOfOrder }
     })
     // 団体: 4割ほどの日は無し。あれば客室の3〜12%
     const segments: Record<string, GroupFigures> = {}
@@ -90,12 +100,16 @@ export function buildSampleInventory(totalRooms: number, snapshotDays: number, w
       { booked: 0, wash: 0, expected: 0 },
     )
     const totalRemaining = types.reduce((a, t) => a + t.remaining, 0)
+    const totalOutOfOrder = types.reduce((a, t) => a + t.outOfOrder, 0)
+    const bookedTotal = types.reduce((a, t) => a + t.capacity - t.remaining - t.outOfOrder, 0)
     return {
       date,
       dow,
       types,
       totalRemaining,
       totalDiff: types.reduce((a, t) => a + t.diff, 0),
+      totalOutOfOrder,
+      individualBooked: Math.max(0, bookedTotal - group.booked),
       group,
       segments,
       sellable: totalRemaining + group.wash,
@@ -133,9 +147,16 @@ export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
   const { weekendDays, isWeekendDow } = useWeekend()
   const [snapshotPeriod, setSnapshotPeriod] = useState("7")
   const [bySegment, setBySegment] = useState(false)
+  // 表示を始める日（"yyyy-MM-dd"）。既定は今日。前後の14日へ移動できる
+  const [startDate, setStartDate] = useState(() => toDateStr(new Date()))
   const rooms = totalRooms ?? 200
+  const start = parseDateStr(startDate)
+  const shift = (days: number) => setStartDate(toDateStr(new Date(start.getFullYear(), start.getMonth(), start.getDate() + days)))
 
-  const days = useMemo(() => buildSampleInventory(rooms, Number(snapshotPeriod), weekendDays), [rooms, snapshotPeriod, weekendDays])
+  const days = useMemo(
+    () => buildSampleInventory(rooms, Number(snapshotPeriod), weekendDays, parseDateStr(startDate)),
+    [rooms, snapshotPeriod, weekendDays, startDate],
+  )
   const capacities = days[0]?.types.map((t) => t.capacity) ?? []
   const snapshotLabel = SNAPSHOT_OPTIONS.find((o) => o.value === snapshotPeriod)?.label ?? ""
 
@@ -178,6 +199,27 @@ export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1">
+              <Label htmlFor="inventory-start" className="whitespace-nowrap text-xs">
+                対象日
+              </Label>
+              <Button variant="outline" size="icon" className="h-8 w-8" aria-label="前の14日" onClick={() => shift(-INVENTORY_DAYS)}>
+                <ChevronLeft className="h-4 w-4" aria-hidden />
+              </Button>
+              <Input
+                id="inventory-start"
+                type="date"
+                className="h-8 w-36 text-xs"
+                value={startDate}
+                onChange={(e) => e.target.value && setStartDate(e.target.value)}
+              />
+              <Button variant="outline" size="icon" className="h-8 w-8" aria-label="次の14日" onClick={() => shift(INVENTORY_DAYS)}>
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setStartDate(toDateStr(new Date()))}>
+                今日
+              </Button>
+            </div>
             <div className="flex items-center gap-1.5">
               <Switch id="inventory-segment" checked={bySegment} onCheckedChange={setBySegment} />
               <Label htmlFor="inventory-segment" className="whitespace-nowrap text-xs">
@@ -252,6 +294,13 @@ export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
                   </tr>
                 </Fragment>
               ))}
+              <tr className="border-b">
+                <th scope="row" className="whitespace-nowrap border-r px-2 py-1 text-left font-medium">故障部屋</th>
+                <th scope="row" className="px-2 py-1 text-left font-normal text-muted-foreground">室数</th>
+                {days.map((d) => (
+                  <NumberCell key={d.date.toISOString()} value={d.totalOutOfOrder} muted />
+                ))}
+              </tr>
               <tr className="border-b border-dashed bg-muted/20">
                 <th rowSpan={2} scope="rowgroup" className="whitespace-nowrap border-r px-2 py-1 text-left align-top font-semibold">
                   合計
@@ -271,6 +320,18 @@ export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
 
               <tr>
                 <td colSpan={days.length + 2} className="px-2 pb-1 pt-3 text-[11px] font-medium text-muted-foreground">
+                  予約の内訳（個人・団体）
+                </td>
+              </tr>
+              <tr className="border-b">
+                <th scope="row" className="whitespace-nowrap border-r px-2 py-1 text-left font-medium">個人</th>
+                <th scope="row" className="px-2 py-1 text-left font-normal text-muted-foreground">予約室数</th>
+                {days.map((d) => (
+                  <NumberCell key={d.date.toISOString()} value={d.individualBooked} />
+                ))}
+              </tr>
+              <tr>
+                <td colSpan={days.length + 2} className="px-2 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">
                   内 団体分{bySegment ? "（セグメント別）" : ""}
                 </td>
               </tr>
@@ -286,7 +347,7 @@ export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
               )}
               <tr className="border-t-2 bg-primary/5">
                 <th colSpan={2} scope="row" className="whitespace-nowrap px-2 py-1.5 text-left font-semibold">
-                  販売可能室数
+                  残室想定（販売可能室数）
                   <span className="ml-1 text-[10px] font-normal text-muted-foreground">（残室＋wash想定）</span>
                 </th>
                 {days.map((d) => (
@@ -297,7 +358,8 @@ export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
           </table>
         </div>
         <p className="mt-2 text-[10px] text-muted-foreground">
-          ※ 増減は{snapshotLabel}からの残室数の増減です（マイナス＝予約が進んで残室が減少）。団体の取り扱いが多い施設は「団体をセグメント別に表示」で内訳を確認できます
+          ※ 増減は{snapshotLabel}からの残室数の増減です（マイナス＝予約が進んで残室が減少）。故障部屋は販売できないため残室に含めません。
+          団体の取り扱いが多い施設は「団体をセグメント別に表示」で内訳を確認できます
         </p>
       </CardContent>
     </Card>

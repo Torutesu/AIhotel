@@ -576,6 +576,16 @@ describeIntegration('API 統合テスト', () => {
         expect(res.body.data.name).toBe('統合テストホテルA')
       })
 
+      it('販売開始（宿泊日の何日前）を保存でき、範囲外は 400・null で未設定に戻せる（2026-10）', async () => {
+        const put = (body: object) =>
+          request(app).put(`/api/v1/settings/hotel/${HOTEL_A}`).set('Authorization', `Bearer ${tokens.admin}`).send(body)
+        const saved = await put({ saleOpenDaysBefore: 330 })
+        expect(saved.status).toBe(200)
+        expect(saved.body.data.saleOpenDaysBefore).toBe(330)
+        expect((await put({ saleOpenDaysBefore: 0 })).status).toBe(400)
+        expect((await put({ saleOpenDaysBefore: null })).body.data.saleOpenDaysBefore).toBeNull()
+      })
+
       it('POST /hotels は tenantId を送らなくても自テナントに作られる', async () => {
         const res = await request(app)
           .post('/api/v1/hotels')

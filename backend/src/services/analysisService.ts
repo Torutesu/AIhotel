@@ -1,9 +1,9 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
-import { DEFAULT_WEEKEND_DAYS, monthRange, todayJst } from '../lib/date.js'
+import { eachUtcDay, monthRange, todayJst } from '../lib/date.js'
 import { loadMonthContext } from './dayContextService.js'
-import { lastYearSameWeekday } from './forecast/pace.js'
+import { lastYearSameWeekday, leadDaysBetween, otbAtLead, type BookingCurvePoint } from './forecast/pace.js'
 import { buildMonthPace } from './monthPace.js'
 import { monthBudgetRooms } from './budgetAllocation.js'
 
@@ -102,16 +102,21 @@ export async function getReviewScoresService(hotelId: string) {
 }
 
 // ======================================
-// 内訳の集計（#88）: チャネル別・部屋タイプ別・曜日別
+// 内訳の集計（#88）: チャネル別・部屋タイプ別（曜日別・日のタイプ別は monthPerformance.ts）
 // ======================================
-// いずれも対象月の実績だけを集計する（予測は含めない）。
+// いずれも対象月の実績だけを集計する（予測は含めない）。比較は前年同月（2026-10 PDF c分析02）。
 // 集計は DB から行を取ってから純関数で行い、単体テストで固定する。
 
 const round1 = (v: number) => Math.round(v * 10) / 10
 
-/** 前月（1月なら前年12月） */
-function previousMonth(year: number, month: number) {
-  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 }
+/** 前年同月比（%）。前年の値が無ければ null（2026-10 の画面修正: 前月比はやめて前年同月比にする） */
+function yoyPercent(current: number, lastYear: number | undefined): number | null {
+  return lastYear && lastYear > 0 ? round1(((current - lastYear) / lastYear) * 100) : null
+}
+
+/** 構成比（%） */
+function sharePercent(value: number, total: number): number {
+  return total > 0 ? round1((value / total) * 100) : 0
 }
 
 export interface ChannelRow {
@@ -119,38 +124,53 @@ export interface ChannelRow {
   roomsSold: number
   revenue: number
   adr: number | null
+  /** 稼働率への寄与 = そのチャネルの販売室数 ÷（客室数 × 実績のある日数） */
+  occupancy: number | null
   /** 室料売上に占める割合（%） */
   revenueShare: number
-  /** 前月比（%）。前月の実績が無ければ null */
-  revenueGrowth: number | null
+  /** 販売室数に占める割合（%） */
+  roomsShare: number
+  /** 前年同月の実績（無ければ null） */
+  lastYearRoomsSold: number | null
+  lastYearRevenue: number | null
+  /** 室料売上の前年同月比（%）。前年の実績が無ければ null */
+  revenueYoy: number | null
 }
 
-/** チャネル別の集計（純関数） */
+/** チャネル別の集計（純関数）。capacity = 客室数 × 実績のある日数 */
 export function aggregateChannels(
   current: Array<{ channel: string; roomsSold: number | null; revenue: number | null }>,
-  previous: Array<{ channel: string; revenue: number | null }>
+  lastYear: Array<{ channel: string; roomsSold: number | null; revenue: number | null }>,
+  capacity: number
 ): ChannelRow[] {
-  const sum = new Map<string, { roomsSold: number; revenue: number }>()
-  for (const row of current) {
-    const acc = sum.get(row.channel) ?? { roomsSold: 0, revenue: 0 }
-    acc.roomsSold += row.roomsSold ?? 0
-    acc.revenue += row.revenue ?? 0
-    sum.set(row.channel, acc)
+  const sumBy = (rows: typeof current) => {
+    const sum = new Map<string, { roomsSold: number; revenue: number }>()
+    for (const row of rows) {
+      const acc = sum.get(row.channel) ?? { roomsSold: 0, revenue: 0 }
+      acc.roomsSold += row.roomsSold ?? 0
+      acc.revenue += row.revenue ?? 0
+      sum.set(row.channel, acc)
+    }
+    return sum
   }
-  const prev = new Map<string, number>()
-  for (const row of previous) prev.set(row.channel, (prev.get(row.channel) ?? 0) + (row.revenue ?? 0))
-
-  const total = [...sum.values()].reduce((a, b) => a + b.revenue, 0)
+  const sum = sumBy(current)
+  const ly = sumBy(lastYear)
+  const totalRevenue = [...sum.values()].reduce((a, b) => a + b.revenue, 0)
+  const totalRooms = [...sum.values()].reduce((a, b) => a + b.roomsSold, 0)
   return [...sum.entries()]
     .map(([channel, v]) => {
-      const before = prev.get(channel)
+      const before = ly.get(channel)
       return {
         channel,
         roomsSold: v.roomsSold,
         revenue: Math.round(v.revenue),
         adr: v.roomsSold > 0 ? Math.round(v.revenue / v.roomsSold) : null,
-        revenueShare: total > 0 ? round1((v.revenue / total) * 100) : 0,
-        revenueGrowth: before && before > 0 ? round1(((v.revenue - before) / before) * 100) : null,
+        occupancy: capacity > 0 ? Math.round((v.roomsSold / capacity) * 1000) / 1000 : null,
+        revenueShare: sharePercent(v.revenue, totalRevenue),
+        roomsShare: sharePercent(v.roomsSold, totalRooms),
+        lastYearRoomsSold: before ? before.roomsSold : null,
+        lastYearRevenue: before ? Math.round(before.revenue) : null,
+        revenueYoy: yoyPercent(v.revenue, before?.revenue),
       }
     })
     .sort((a, b) => b.revenue - a.revenue)
@@ -160,20 +180,20 @@ export async function getChannelBreakdownService(hotelId: string, year: number, 
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
   const { start, end } = monthRange(year, month)
-  const before = previousMonth(year, month)
-  const prevRange = monthRange(before.year, before.month)
+  const lastYearRange = monthRange(year - 1, month)
 
-  const [current, previous] = await Promise.all([
+  const [current, lastYear] = await Promise.all([
     prisma.otaChannelData.findMany({
       where: { hotelId, date: { gte: start, lt: end } },
-      select: { channel: true, roomsSold: true, revenue: true },
+      select: { date: true, channel: true, roomsSold: true, revenue: true },
     }),
     prisma.otaChannelData.findMany({
-      where: { hotelId, date: { gte: prevRange.start, lt: prevRange.end } },
-      select: { channel: true, revenue: true },
+      where: { hotelId, date: { gte: lastYearRange.start, lt: lastYearRange.end } },
+      select: { channel: true, roomsSold: true, revenue: true },
     }),
   ])
-  return { hotelId, year, month, channels: aggregateChannels(current, previous) }
+  const days = new Set(current.map((r) => r.date.getTime())).size
+  return { hotelId, year, month, totalRooms: hotel.totalRooms, days, channels: aggregateChannels(current, lastYear, hotel.totalRooms * days) }
 }
 
 export interface RoomTypeRow {
@@ -186,18 +206,37 @@ export interface RoomTypeRow {
   adr: number | null
   /** その部屋タイプの室数に対する稼働率（実績日数ぶん） */
   occupancy: number | null
+  revenueShare: number
+  roomsShare: number
+  lastYearSoldRooms: number | null
+  lastYearRevenue: number | null
+  /** 室料売上の前年同月比（%） */
+  revenueYoy: number | null
 }
 
 /** 部屋タイプ別の集計（純関数） */
 export function aggregateRoomTypes(
   roomTypes: Array<{ id: string; name: string; code: string; count: number }>,
   rows: Array<{ roomTypeId: string; soldRooms: number | null; revenue: number | null }>,
-  actualDays: number
+  actualDays: number,
+  lastYearRows: Array<{ roomTypeId: string; soldRooms: number | null; revenue: number | null }> = []
 ): RoomTypeRow[] {
+  const sumOf = (list: typeof rows, id: string) => {
+    const mine = list.filter((r) => r.roomTypeId === id)
+    return {
+      count: mine.length,
+      soldRooms: mine.reduce((a, r) => a + (r.soldRooms ?? 0), 0),
+      revenue: mine.reduce((a, r) => a + (r.revenue ?? 0), 0),
+    }
+  }
+  // 構成比の分母は一覧に出す部屋タイプだけ（無効にしたタイプの実績を含めると構成比の合計が100%にならない）
+  const listed = new Set(roomTypes.map((t) => t.id))
+  const shown = rows.filter((r) => listed.has(r.roomTypeId))
+  const totalRevenue = shown.reduce((a, r) => a + (r.revenue ?? 0), 0)
+  const totalRooms = shown.reduce((a, r) => a + (r.soldRooms ?? 0), 0)
   return roomTypes.map((t) => {
-    const mine = rows.filter((r) => r.roomTypeId === t.id)
-    const soldRooms = mine.reduce((a, r) => a + (r.soldRooms ?? 0), 0)
-    const revenue = mine.reduce((a, r) => a + (r.revenue ?? 0), 0)
+    const { soldRooms, revenue } = sumOf(rows, t.id)
+    const ly = sumOf(lastYearRows, t.id)
     const capacity = t.count * actualDays
     return {
       roomTypeId: t.id,
@@ -208,6 +247,11 @@ export function aggregateRoomTypes(
       revenue: Math.round(revenue),
       adr: soldRooms > 0 ? Math.round(revenue / soldRooms) : null,
       occupancy: capacity > 0 ? Math.round((soldRooms / capacity) * 1000) / 1000 : null,
+      revenueShare: sharePercent(revenue, totalRevenue),
+      roomsShare: sharePercent(soldRooms, totalRooms),
+      lastYearSoldRooms: ly.count > 0 ? ly.soldRooms : null,
+      lastYearRevenue: ly.count > 0 ? Math.round(ly.revenue) : null,
+      revenueYoy: ly.count > 0 ? yoyPercent(revenue, ly.revenue) : null,
     }
   })
 }
@@ -216,8 +260,9 @@ export async function getRoomTypeBreakdownService(hotelId: string, year: number,
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
   const { start, end } = monthRange(year, month)
+  const lastYearRange = monthRange(year - 1, month)
 
-  const [roomTypes, rows, actualDays] = await Promise.all([
+  const [roomTypes, rows, lastYearRows] = await Promise.all([
     prisma.roomType.findMany({
       where: { hotelId, isActive: true },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -225,65 +270,15 @@ export async function getRoomTypeBreakdownService(hotelId: string, year: number,
     }),
     prisma.dailyRoomData.findMany({
       where: { dailyData: { hotelId, date: { gte: start, lt: end } } },
+      select: { dailyDataId: true, roomTypeId: true, soldRooms: true, revenue: true },
+    }),
+    prisma.dailyRoomData.findMany({
+      where: { dailyData: { hotelId, date: { gte: lastYearRange.start, lt: lastYearRange.end } } },
       select: { roomTypeId: true, soldRooms: true, revenue: true },
     }),
-    prisma.dailyRoomData
-      .findMany({
-        where: { dailyData: { hotelId, date: { gte: start, lt: end } } },
-        distinct: ['dailyDataId'],
-        select: { dailyDataId: true },
-      })
-      .then((d) => d.length),
   ])
-  return { hotelId, year, month, actualDays, roomTypes: aggregateRoomTypes(roomTypes, rows, actualDays) }
-}
-
-export interface DayOfWeekRow {
-  /** 0=日〜6=土 */
-  dayOfWeek: number
-  isWeekend: boolean
-  days: number
-  soldRooms: number
-  revenue: number
-  occupancy: number | null
-  adr: number | null
-  revPar: number | null
-}
-
-/** 曜日別の集計（純関数）。週末は Hotel.weekendDays で判定する（ハードコードしない） */
-export function aggregateDayOfWeek(
-  rows: Array<{ date: Date; soldRooms: number | null; totalRevenue: number | null }>,
-  totalRooms: number,
-  weekendDays: number[]
-): DayOfWeekRow[] {
-  return [0, 1, 2, 3, 4, 5, 6].map((dow) => {
-    const mine = rows.filter((r) => r.date.getUTCDay() === dow && r.totalRevenue != null)
-    const soldRooms = mine.reduce((a, r) => a + (r.soldRooms ?? 0), 0)
-    const revenue = mine.reduce((a, r) => a + (r.totalRevenue ?? 0), 0)
-    const roomNights = totalRooms * mine.length
-    return {
-      dayOfWeek: dow,
-      isWeekend: weekendDays.includes(dow),
-      days: mine.length,
-      soldRooms,
-      revenue: Math.round(revenue),
-      occupancy: roomNights > 0 ? Math.round((soldRooms / roomNights) * 1000) / 1000 : null,
-      adr: soldRooms > 0 ? Math.round(revenue / soldRooms) : null,
-      revPar: roomNights > 0 ? Math.round(revenue / roomNights) : null,
-    }
-  })
-}
-
-export async function getDayOfWeekBreakdownService(hotelId: string, year: number, month: number) {
-  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
-  if (!hotel) throw new NotFoundError('ホテル')
-  const { start, end } = monthRange(year, month)
-  const rows = await prisma.dailyData.findMany({
-    where: { hotelId, date: { gte: start, lt: end } },
-    select: { date: true, soldRooms: true, totalRevenue: true },
-  })
-  const weekendDays = Array.isArray(hotel.weekendDays) ? (hotel.weekendDays as number[]) : [...DEFAULT_WEEKEND_DAYS]
-  return { hotelId, year, month, days: aggregateDayOfWeek(rows, hotel.totalRooms, weekendDays) }
+  const actualDays = new Set(rows.map((r) => r.dailyDataId)).size
+  return { hotelId, year, month, actualDays, roomTypes: aggregateRoomTypes(roomTypes, rows, actualDays, lastYearRows) }
 }
 
 // ======================================
@@ -317,6 +312,15 @@ export function aiDayMetrics(
   }
 }
 
+/** 結果の出ていない日の予約実数（今の予約室数。今日より前の日・記録の無い日は null）。純関数 */
+export function onHandMetrics(day: Date, today: Date, points: BookingCurvePoint[], totalRooms: number): DayMetrics | null {
+  const lead = leadDaysBetween(today, day)
+  if (lead < 0) return null
+  const rooms = otbAtLead(points, lead)
+  if (rooms == null) return null
+  return { soldRooms: rooms, occupancy: totalRooms > 0 ? Math.round((rooms / totalRooms) * 1000) / 1000 : null, adr: null, revPar: null, revenue: null }
+}
+
 /**
  * 対象月の日ごとの実績と、比べる相手（日割り予算・AI の予測・前年同曜日の実績）。
  * 実績はまだ結果の出ていない日は null。AI の予測は推奨を作った日だけ（過去の日の推奨は再計算しても残る）
@@ -327,8 +331,11 @@ export async function getDailyPerformanceService(hotelId: string, year: number, 
   const totalRooms = hotel.totalRooms
   const { start, end } = monthRange(year, month)
 
+  const today = todayJst()
+  // 先の日の今の予約室数（予約実数）を出すため、今日以降の宿泊日の予約積上だけ読む
+  const future = eachUtcDay(start, end).filter((d) => d >= today)
   const [context, actuals, recommendations] = await Promise.all([
-    loadMonthContext(hotelId, totalRooms, year, month, { curves: 'none' }),
+    loadMonthContext(hotelId, totalRooms, year, month, { curves: future, lastYearCurves: false }),
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: start, lt: end } },
       select: { date: true, soldRooms: true, occupancy: true, adr: true, revPar: true, totalRevenue: true },
@@ -358,6 +365,8 @@ export async function getDailyPerformanceService(hotelId: string, year: number, 
             revenue: actual.totalRevenue == null ? null : Math.round(actual.totalRevenue),
           }
         : null,
+      // 予約実数（結果の出ていない日の今の予約室数）。予約の単価・売上は PMS 連携後
+      onHand: actual ? null : onHandMetrics(day, today, context.curves.get(day.getTime()) ?? [], totalRooms),
       budget: { soldRooms: budget.rooms, occupancy: budget.occupancy, adr: budget.adr, revPar: budget.revPar, revenue: budget.revenue },
       ai: aiDayMetrics(recByDate.get(day.getTime()), totalRooms),
       lastYearDate: lastYearDate.toISOString().slice(0, 10),

@@ -172,19 +172,26 @@ export interface PricingCalendarDay {
   currentRevenue: number | null
   /** 想定売上 = AI の予測稼働率 × 客室数 × 予測ADR */
   expectedRevenue: number | null
-  /** 日のタイプ（例 "C3"。英字 = 着地見込みの需要、数字 = 前年同曜日と比べたペース） */
+  /**
+   * 日のタイプ（日のモデル。例 "平日A型"）。平日・週末・特日ごとに過去の結果から作った型のうち、今の予約の入り方に近い型。
+   * 過去の実績が足りず型を作れないホテルは null
+   */
   dayType: string | null
-  dayTypeExpectedOccupancy: number | null
-  dayTypePaceRatio: number | null
+  /** 日のタイプの優先モデル（稼働優先・バランス・単価優先） */
+  dayTypeModel: DayModel | null
+  /** 型の平均の最終稼働率 */
+  dayTypeTypicalOccupancy: number | null
   /** 今より前の残日数ごとの日のタイプ（残日数の大きい順） */
   dayTypeHistory: DayTypeHistoryPoint[]
 }
+
+/** 稼働と単価のどちらを優先して価格を決めるか（日のタイプで決まる — 2026-10） */
+export type DayModel = "occupancy" | "balanced" | "adr"
 
 export interface DayTypeHistoryPoint {
   daysBefore: number
   dayType: string | null
   otbRooms: number | null
-  paceRatio: number | null
 }
 
 export interface PricingCalendar {
@@ -267,6 +274,10 @@ export interface PricingStrategy {
   maxDailyRankChange: number | null
   /** 前回の推奨との差がこのランク数以内なら据え置く */
   hysteresisRanks: number
+  /** 日のタイプの優先モデル（稼働優先・単価優先）に合わせて日ごとに重みを寄せるか（2026-10） */
+  dayModelAdjust: boolean
+  /** 日単位のシミュレーションの価格弾力性（価格を1%上げると予約が何%減るか） */
+  priceElasticity: number
 }
 
 /** PUT /pricing/strategy に送る値。送った項目だけが変わる（重みは3つ揃えて送るか、まったく送らない） */
@@ -306,38 +317,6 @@ export interface CreatePriceBoundInput {
   minRank?: number | null
   maxRank?: number | null
   reason?: string
-}
-
-/** 販売開始チェック（D-11）の1日ぶん */
-export interface SaleOpenCheckDay {
-  date: string
-  weekday: number
-  demandLevel: string
-  recommendedRank: number | null
-  recommendedPrice: number | null
-  predictedAdr: number | null
-  lastYearDate: string
-  lastYearAdr: number | null
-  lastYearOccupancy: number | null
-  diffPct: number | null
-  status: "ok" | "below_last_year" | "no_comparison"
-  events: string[]
-}
-
-/** GET /pricing/sale-open-check の結果 */
-export interface SaleOpenCheck {
-  year: number
-  month: number
-  days: SaleOpenCheckDay[]
-  summary: {
-    averagePredictedAdr: number | null
-    lastYearMonthAdr: number | null
-    budgetAdr: number | null
-    comparableDays: number
-    belowLastYearDays: number
-    verdict: "ok" | "review" | "insufficient"
-  }
-  modelVersion: string
 }
 
 /** 推奨理由（#24 E4）。バックエンドの services/forecast/rationale.ts と同じ形 */
@@ -398,6 +377,72 @@ export interface BookingCurve {
   adrHistory?: Array<{ daysBefore: number; adr: number | null }>
   rateHistory?: Array<{ daysBefore: number; price: number | null }>
   groupRooms?: Array<{ daysBefore: number; rooms: number }>
+  /** 部屋タイプ別・利用人数別の予約の積み上がりと ADR の推移（予約明細 — PMS 連携後。実 API はまだ返さず、デモデータだけが持つ） */
+  breakdowns?: { roomType: BookingCurveSeries[]; guests: BookingCurveSeries[] }
+}
+
+export interface BookingCurveSeries {
+  label: string
+  points: Array<{ daysBefore: number; roomsBooked: number; adr: number | null }>
+}
+
+// ---- 日のAI分析（GET /pricing/day-insight・/pricing/day-simulation — 2026-10 PDF b01・b03）----
+
+export interface DayInsight {
+  date: string
+  /** 日の区分（平日・週末・特日） */
+  category: string
+  dayType: { name: string; model: DayModel; typicalOccupancy: number } | null
+  /** AI が推奨に優先モデルを使っているか（価格戦略の「日のタイプに合わせて重みを寄せる」） */
+  modelApplied: boolean
+  history: DayTypeHistoryPoint[]
+  /** 選んだ日の型の典型（平均稼働・典型カーブ） */
+  typeProfile: {
+    name: string
+    model: DayModel
+    days: number
+    avgOccupancy: number
+    minOccupancy: number
+    maxOccupancy: number
+    avgAdr: number | null
+    referenceCurve: Array<{ daysBefore: number; roomsBooked: number }>
+  } | null
+  /** 同じ区分の型の一覧（AI が作った型の数と構成） */
+  categoryTypes: Array<{ name: string; model: DayModel; days: number; avgOccupancy: number; avgAdr: number | null }>
+  /** 同じタイプの日（参考に5日まで。結果の出た日は実績、先の日は AI の予測） */
+  similarDays: Array<{ date: string; dayType: string; isActual: boolean; occupancy: number | null; adr: number | null; recommendedPrice: number | null }>
+  /** その日の外部要因（登録したイベント） */
+  events: Array<{ name: string; type: string; location: string | null; expectedImpact: string | null; excludeFromHistory: boolean }>
+  /** 天候（外部データの取り込み前のため null） */
+  weather: null
+}
+
+export interface DaySimulationOption {
+  /** 優先モデル。ランクを指定した試算は "manual" */
+  model: DayModel | "manual"
+  rank: number | null
+  price: number | null
+  adr: number | null
+  weights: { occupancy: number; adr: number; competitor: number } | null
+  isCurrent: boolean
+  occupancy: number
+  rooms: number
+  revenue: number
+  revPar: number
+}
+
+export interface DaySimulation {
+  date: string
+  totalRooms: number
+  otbRooms: number | null
+  /** 価格弾力性（価格を1%上げると予約が何%減るか） */
+  elasticity: number
+  /** AI が今この日に割り当てているモデル */
+  aiModel: DayModel | null
+  dayType: string | null
+  base: { rank: number | null; price: number | null; adr: number | null; occupancy: number; rooms: number; revenue: number; revPar: number }
+  options: DaySimulationOption[]
+  manual: DaySimulationOption | null
 }
 
 // ---- 日別パフォーマンス（GET /analysis/daily-performance — 2026-10）----
@@ -414,6 +459,8 @@ export interface DailyPerformanceDay {
   date: string
   /** 実績（まだ結果の出ていない日は null） */
   actual: DayMetrics | null
+  /** 予約実数（結果の出ていない日の今の予約室数・稼働率。予約の単価・売上は PMS 連携後のため null） */
+  onHand: DayMetrics | null
   /** 日割り予算 */
   budget: DayMetrics
   /** AI の予測（推奨を作った日だけ） */
@@ -608,6 +655,8 @@ export interface UpdateHotelSettingsInput {
   prefectureCode?: string | null
   municipalityCode?: string | null
   marketArea?: string | null
+  /** 販売開始: 宿泊日の何日前（2026-10）。null で未設定に戻す */
+  saleOpenDaysBefore?: number | null
 }
 
 /** 初期設定の進み具合（#13）。GET /hotels/:id/setup-status */
@@ -654,15 +703,25 @@ export interface ChannelBreakdown {
   hotelId: string
   year: number
   month: number
+  totalRooms: number
+  /** 実績のある日数 */
+  days: number
+  /** 売上順 */
   channels: Array<{
     channel: string
     roomsSold: number
     revenue: number
     adr: number | null
+    /** 稼働率への寄与 = 販売室数 ÷（客室数 × 実績のある日数） */
+    occupancy: number | null
     /** 室料売上に占める割合（%） */
     revenueShare: number
-    /** 前月比（%）。前月の実績が無ければ null */
-    revenueGrowth: number | null
+    /** 販売室数に占める割合（%） */
+    roomsShare: number
+    lastYearRoomsSold: number | null
+    lastYearRevenue: number | null
+    /** 室料売上の前年同月比（%）。前年の実績が無ければ null（2026-10: 前月比はやめた） */
+    revenueYoy: number | null
   }>
 }
 
@@ -681,7 +740,36 @@ export interface RoomTypeBreakdown {
     revenue: number
     adr: number | null
     occupancy: number | null
+    revenueShare: number
+    roomsShare: number
+    lastYearSoldRooms: number | null
+    lastYearRevenue: number | null
+    /** 室料売上の前年同月比（%） */
+    revenueYoy: number | null
   }>
+}
+
+/**
+ * 曜日別・日のタイプ別パフォーマンスの1行（2026-10: 前月以前は実績、当月以降は実績＋予約）。
+ * 販売室数・稼働率は実績＋予約、ADR・REV-Per・室料売上は結果の出た日だけ（予約の単価は PMS 連携後）
+ */
+export interface PerformanceRow {
+  /** 数えた日数（実績か予約の記録がある日） */
+  days: number
+  /** うち結果の出た日 */
+  actualDays: number
+  /** 販売室数 = 実績＋予約 */
+  soldRooms: number
+  /** うち予約（結果の出ていない日の今の予約室数） */
+  onHandRooms: number
+  revenue: number
+  occupancy: number | null
+  adr: number | null
+  revPar: number | null
+  /** 前年同曜日（364日前）の実績の合計（比べられる日だけ） */
+  lastYear: { days: number; soldRooms: number; revenue: number; occupancy: number | null; adr: number | null } | null
+  /** 対象の日（"yyyy-MM-dd"） */
+  dates: string[]
 }
 
 /** GET /api/v1/analysis/day-of-week（#88） */
@@ -689,16 +777,17 @@ export interface DayOfWeekBreakdown {
   hotelId: string
   year: number
   month: number
-  days: Array<{
-    dayOfWeek: number
-    isWeekend: boolean
-    days: number
-    soldRooms: number
-    revenue: number
-    occupancy: number | null
-    adr: number | null
-    revPar: number | null
-  }>
+  days: Array<PerformanceRow & { dayOfWeek: number; isWeekend: boolean }>
+}
+
+/** GET /api/v1/analysis/day-type（日のタイプ別パフォーマンス — 2026-10） */
+export interface DayTypeBreakdown {
+  hotelId: string
+  year: number
+  month: number
+  /** 型を作れなかった日（過去の実績が足りない） */
+  untypedDays: number
+  types: Array<PerformanceRow & { dayType: string; model: DayModel }>
 }
 
 // ---- 初期設定を速くする仕組み（#13） ----

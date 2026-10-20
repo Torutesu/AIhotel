@@ -31,6 +31,8 @@ import {
   type PaceInput,
   type PaceResult,
 } from './pace.js'
+import { buildDayTypeTimeline, weightsForModel } from './dayType.js'
+import { loadDayTypeModel } from '../dayTypeService.js'
 
 // ルールベース需要予測（F-DP-05 の前段。将来 ML モデルに差し替え予定）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
@@ -49,7 +51,10 @@ import {
 // v4 での変更（D-11。IDeaS の運用を参考に）: 前年同曜日と比べた予約の入り方（ブッキングペース）と
 // 予約済み室数の下限を予測稼働率に反映し、特殊日（年末年始・台風など）の実績を基準から外し、
 // 期間・曜日ごとの価格の幅（下限・上限ランク）を推奨にかけるようにした。
-export const MODEL_VERSION = 'rule-based-v4'
+//
+// v5 での変更（2026-10 の画面修正 PDF b01）: 日のタイプ（平日A型など。dayType.ts）で日ごとの優先モデル
+// （稼働優先・バランス・単価優先）を決め、価格戦略の初期値の重みを稼働寄り・単価寄りに寄せて推奨ランクを合成する。
+export const MODEL_VERSION = 'rule-based-v5'
 // ガードレールの既定値（設定を保存していないホテル向け。PricingStrategyConfig の列の既定値と揃える — #17）
 const DEFAULT_MAX_DAILY_RANK_CHANGE = 3
 const DEFAULT_HYSTERESIS_RANKS = 1
@@ -254,7 +259,8 @@ export const ruleBasedForecaster: DemandForecaster = {
     const lastYearStart = lastYearSameWeekday(startDate)
     const lastYearEnd = lastYearSameWeekday(endDate)
 
-    const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily] =
+    const today = todayJst()
+    const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily, dayTypeModel] =
       await Promise.all([
       prisma.dailyData.findMany({
         where: {
@@ -312,6 +318,8 @@ export const ruleBasedForecaster: DemandForecaster = {
         where: { hotelId, date: { gte: lastYearStart, lte: lastYearEnd } },
         select: { date: true, soldRooms: true },
       }),
+      // 日のタイプ（日のモデル — 2026-10）。型ごとの優先モデル（稼働・バランス・単価）で重みを寄せる
+      loadDayTypeModel(hotelId, today),
     ])
 
     const events = allEvents.filter((e) => e.endDate >= startDate)
@@ -325,7 +333,6 @@ export const ruleBasedForecaster: DemandForecaster = {
     const lastYearSoldByDate = new Map(
       lastYearDaily.filter((d) => d.soldRooms != null).map((d) => [d.date.getTime(), d.soldRooms as number])
     )
-    const today = todayJst()
 
     const usualDays = dailyData.filter((d) => !isInRanges(d.date, specialDays))
     const history: OccupancyRecord[] = usualDays
@@ -352,7 +359,7 @@ export const ruleBasedForecaster: DemandForecaster = {
       previous.filter((p) => p.recommendedRank != null).map((p) => [p.date.getTime(), p.recommendedRank as number])
     )
 
-    // 戦略設定が無いホテルは従来どおり稼働率のみで決定する
+    // 戦略設定が無いホテルの初期値の重みは稼働率のみ。日のタイプによる寄せは設定画面の初期値（寄せる）と同じく行う
     const weights: StrategyWeights = strategyConfig
       ? {
           weightOccupancy: strategyConfig.weightOccupancy,
@@ -391,6 +398,20 @@ export const ruleBasedForecaster: DemandForecaster = {
           : undefined
       const { pace: paceResult, ...core } = computeDailyForecastCore(date, history, events, weekendDays, maxRank, pace)
 
+      // 日のタイプで優先モデルを決め、初期値の重みを稼働寄り・単価寄りに寄せる（予約が進んで型が変わればモデルも変わる）
+      const dayType = buildDayTypeTimeline({
+        stayDate: date,
+        today,
+        totalRooms: hotel.totalRooms,
+        types: dayTypeModel.typesFor(date),
+        points: curveByStayDate.get(date.getTime()) ?? [],
+        actualSoldRooms: null,
+        predictedOccupancy: core.predictedOccupancy,
+      }).current
+      // 「日のタイプに合わせて重みを寄せる」を切ったホテルは、試算でモデルを指定したとき以外は初期値の重みのまま
+      const dayModel = input.modelOverride ?? (strategyConfig?.dayModelAdjust ?? true ? (dayType?.model ?? null) : null)
+      const dayWeights = weightsForModel(weights, dayModel)
+
       const baseAdr = computeBaseAdr(adrHistory, date)
       const adrRank = computeAdrRank(adrHistory, date, rankPrices)
       const competitor = computeCompetitorRank(competitorHistory, date, competitorRankPrices, {
@@ -402,7 +423,7 @@ export const ruleBasedForecaster: DemandForecaster = {
         occupancyRank: core.recommendedRank ?? 1,
         adrRank,
         competitorRank: competitor.rank,
-        weights,
+        weights: dayWeights,
         maxRank,
       })
       const guarded = applyRankGuardrails({
@@ -425,7 +446,7 @@ export const ruleBasedForecaster: DemandForecaster = {
           core,
           blended,
           guarded,
-          weights,
+          weights: dayWeights,
           baseAdr,
           adrRank,
           competitor,
@@ -435,6 +456,7 @@ export const ruleBasedForecaster: DemandForecaster = {
           weekendDays,
           pace,
           paceResult,
+          dayType: dayType || input.modelOverride ? { name: dayType?.name ?? null, model: dayModel } : undefined,
         }),
       })
     }
@@ -458,6 +480,7 @@ function buildRationale(params: {
   weekendDays: number[]
   pace?: PaceInput
   paceResult?: PaceResult
+  dayType?: RationaleV1['dayType']
 }): RationaleV1 {
   const { blended, weights, competitor } = params
   const factors: RationaleV1['factors'] = [
@@ -531,5 +554,6 @@ function buildRationale(params: {
     adjustments,
     excluded,
     guardrails: params.guarded.applied,
+    ...(params.dayType ? { dayType: params.dayType } : {}),
   }
 }

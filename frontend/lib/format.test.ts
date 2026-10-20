@@ -8,7 +8,7 @@ import {
   formatPt,
   formatRatio,
   formatRooms,
-  formatSignedPt,
+  formatSignedPercent,
   formatSignedYen,
   formatYen,
   isRatioNegative,
@@ -80,10 +80,10 @@ describe("formatPercent", () => {
   })
 })
 
-describe("formatSignedPt / formatPt", () => {
-  it("比率の差はポイント表記で符号を付ける", () => {
-    expect(formatSignedPt(0.032)).toBe("+3.2pt")
-    expect(formatSignedPt(-0.032)).toBe("-3.2pt")
+describe("formatSignedPercent / formatPt", () => {
+  it("比率の差は符号付きの % 表記にする", () => {
+    expect(formatSignedPercent(0.032)).toBe("+3.2%")
+    expect(formatSignedPercent(-0.032)).toBe("-3.2%")
   })
 
   it("すでにパーセント値の数値は符号付きの % 表記にする", () => {
@@ -92,7 +92,7 @@ describe("formatSignedPt / formatPt", () => {
   })
 
   it("値なしは「-」", () => {
-    expect(formatSignedPt(null)).toBe("-")
+    expect(formatSignedPercent(null)).toBe("-")
     expect(formatPt(undefined)).toBe("-")
   })
 })

@@ -2,12 +2,13 @@
 
 // 分析タブ（U-15 で各セクションを components/analysis/* へ分割したコンテナ）
 //
-// 分析の切り口が重複しないよう、見る軸ごとに5つへ再編している。
-//  - 実績推移 : いつ（日別・曜日別・年間の時系列）
-//  - 需要構成 : 誰が・どこから・何を（チャネル/部屋タイプ/セグメント）
-//  - 予約動向 : いつ予約が入るか（ブッキングカーブ・予約期間）
+// 分析の切り口が重複しないよう、見る軸ごとに6つへ再編している。
+//  - 実績推移 : いつ（日別・曜日別・日のタイプ別・年間の時系列）
+//  - 需要構成 : 誰が・どこから・何を（チャネル/部屋タイプ/利用人数）
+//  - 予約動向 : いつ予約が入るか（ブッキングカーブ・リードタイム）
 //  - 競合比較 : 外部との比較（競合価格・口コミ評価点）
-//  - フリー分析: 自由軸の分析と販促データ管理
+//  - OTA販促状況: OTA の販促の参加状況と実績（2026-10 PDF c分析06 でフリー分析から独立）
+//  - フリー分析: 自由軸の分析
 
 import { useState } from "react"
 import { BarChart3, Settings } from "lucide-react"
@@ -21,20 +22,21 @@ import { useAppState, usePeriod } from "@/components/app-state-provider"
 import type { AnalysisView } from "@/lib/alert-link"
 
 import { DailyAiInsightSection } from "@/components/analysis/daily-ai-insight-section"
-import { LowAlertsSection } from "@/components/analysis/low-alerts-section"
 import { DailyPerformanceSection } from "@/components/analysis/daily-performance-section"
 import { BookingCurveSection } from "@/components/analysis/booking-curve-section"
 import { WeekdayPerformanceSection } from "@/components/analysis/weekday-performance-section"
+import { DayTypePerformanceSection } from "@/components/analysis/day-type-performance-section"
 import { DailyCompetitorSection } from "@/components/analysis/daily-competitor-section"
+import { CompositionInsightSection } from "@/components/analysis/composition-insight-section"
 import { ChannelAnalysisSection } from "@/components/analysis/channel-analysis-section"
 import { RoomTypeAnalysisSection } from "@/components/analysis/room-type-analysis-section"
+import { GuestCountAnalysisSection } from "@/components/analysis/guest-count-analysis-section"
 import { BookingPeriodAnalysisSection } from "@/components/analysis/booking-period-analysis-section"
-import { SegmentAnalysisSection } from "@/components/analysis/segment-analysis-section"
 import { CompetitorAnalysisSection } from "@/components/analysis/competitor-analysis-section"
 import { ReviewScoreSection } from "@/components/analysis/review-score-section"
 import { YearlyTrendSection } from "@/components/analysis/yearly-trend-section"
 import { FreeAnalysisSection } from "@/components/analysis/free-analysis-section"
-import { OtaCampaignSection } from "@/components/analysis/ota-campaign-section"
+import { OtaPromotionSection } from "@/components/analysis/ota-promotion-section"
 
 interface AnalysisTabProps {
   /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
@@ -42,24 +44,20 @@ interface AnalysisTabProps {
 }
 
 /**
- * 分析タブ（旧「日別分析」＋「各種分析」の統合）。
- * 分析の切り口が重複しないよう、見る軸ごとに5つへ再編している。
- *  - 実績推移 : いつ（日別・曜日別・年間の時系列）
- *  - 需要構成 : 誰が・どこから・何を（チャネル/部屋タイプ/セグメント）
- *  - 予約動向 : いつ予約が入るか（ブッキングカーブ・予約期間）
- *  - 競合比較 : 外部との比較（競合価格・口コミ評価点）
- *  - フリー分析: 自由軸の分析と販促データ管理
+ * 分析タブ（旧「日別分析」＋「各種分析」の統合）。並びは 2026-10 PDF c分析06 の順:
+ * 実績推移 → 需要構成 → 予約動向 → 競合比較 → OTA販促状況 → フリー分析
  */
 const ANALYSIS_VIEWS = [
-  { value: "performance", label: "実績推移", description: "日別・曜日別・年間の時系列で実績を見る" },
-  { value: "composition", label: "需要構成", description: "チャネル・部屋タイプ・顧客セグメント別に需要の内訳を見る" },
-  { value: "booking", label: "予約動向", description: "宿泊日までのリードタイムで予約の入り方を見る" },
+  { value: "performance", label: "実績推移", description: "日別・曜日別・日のタイプ別・年間の時系列で実績を見る（当月以降は実績＋予約）" },
+  { value: "composition", label: "需要構成", description: "チャネル・部屋タイプ・利用人数別に需要の構成比を見る（前年同月比）" },
+  { value: "booking", label: "予約動向", description: "宿泊日までのリードタイムで予約・キャンセルの入り方を見る" },
   {
     value: "competitor",
     label: "競合比較",
     description: "競合ホテルとの価格を日別・期間集計で比較し、OTA別の口コミ評価点を確認する",
   },
-  { value: "free", label: "フリー分析", description: "任意の軸を組み合わせて分析し、販促参画データを管理する" },
+  { value: "ota", label: "OTA販促状況", description: "OTA の販促の参加状況と実績を一覧で見る（毎週火曜日に更新）" },
+  { value: "free", label: "フリー分析", description: "任意の軸を組み合わせて分析する" },
 ]
 
 export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
@@ -105,10 +103,8 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
         </Button>
       </div>
 
+      {/* アラートの欄は置かない（2026-10 PDF c分析01実績推移1「ここは不要」。アラートはダッシュボードで確認し、対応・解決で外す） */}
       <DailyAiInsightSection />
-
-      {/* ダッシュボードが表示しない Level 3以下のアラート（X-4） */}
-      <LowAlertsSection />
 
       <Tabs
         value={activeView}
@@ -149,7 +145,7 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
           </CardContent>
         </Card>
 
-        {/* 実績推移: 日別 → 曜日別 → 年間の順で粒度を粗くしていく */}
+        {/* 実績推移: 日別 → 曜日別 → 日のタイプ別 → 年間の順で粒度を粗くしていく */}
         <TabsContent value="performance" className="space-y-4">
           {/* 対象期間は画面上部のセレクタに一本化する（同じ "YYYY-MM" 形式） */}
           <DailyPerformanceSection
@@ -160,14 +156,16 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
             onOpenBookingCurve={() => setAnalysisView("booking")}
           />
           <WeekdayPerformanceSection />
+          <DayTypePerformanceSection />
           <YearlyTrendSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
         </TabsContent>
 
-        {/* 需要構成: どこから・何を・誰が */}
+        {/* 需要構成: どこから・何を・誰が（3つを同じ表・グラフで — c分析02） */}
         <TabsContent value="composition" className="space-y-4">
+          <CompositionInsightSection />
           <ChannelAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
           <RoomTypeAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
-          <SegmentAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
+          <GuestCountAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
         </TabsContent>
 
         {/* 予約動向: 宿泊日までのリードタイム */}
@@ -184,10 +182,14 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
           <ReviewScoreSection />
         </TabsContent>
 
-        {/* フリー分析と販促データ管理 */}
+        {/* OTA販促状況（c分析06） */}
+        <TabsContent value="ota" className="space-y-4">
+          <OtaPromotionSection />
+        </TabsContent>
+
+        {/* フリー分析 */}
         <TabsContent value="free" className="space-y-4">
           <FreeAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
-          <OtaCampaignSection />
         </TabsContent>
       </Tabs>
     </div>

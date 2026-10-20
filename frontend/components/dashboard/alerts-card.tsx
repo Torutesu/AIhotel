@@ -60,7 +60,7 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-base font-medium">アラート</CardTitle>
           <p className="text-xs text-muted-foreground">
-            重要度5段階のうち Level 5・4 を表示（Level 3以下は各分析画面で確認）
+            重要度5段階のうち Level 5・4 を表示（「解決済み」にすると一覧から外れます。「確認済み」は表示したまま）
           </p>
         </div>
       </CardHeader>

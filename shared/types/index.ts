@@ -122,6 +122,8 @@ export interface Hotel {
   prefectureCode: string | null
   municipalityCode: string | null
   marketArea: string | null
+  /** 販売開始: 宿泊日の何日前から売り始めるか（ホテル単位で固定 — 2026-10）。未設定は null */
+  saleOpenDaysBefore: number | null
   isActive: boolean
   createdAt: Date
   updatedAt: Date
@@ -270,20 +272,6 @@ export interface Campaign {
   adrImpact?: number
   revParImpact?: number
   isActive: boolean
-}
-
-// Legacy support
-export interface CampaignData {
-  id: string
-  campaignName: string
-  channel: string
-  startDate: Date | null
-  endDate: Date | null
-  source: 'ota' | 'manual'
-  rooms: number
-  adrImpact: number
-  revParImpact: number
-  description: string
 }
 
 // ======================================

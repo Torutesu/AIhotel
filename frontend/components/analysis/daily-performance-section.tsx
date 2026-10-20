@@ -1,9 +1,11 @@
 "use client"
 
 // 日別パフォーマンス＋月間サマリー（U-7 / U-11 / U-15）
-// 月間サマリーは GET /api/v1/dashboard/kpi の summary / comparison / dailyTrend を出所とする。
+// 月間サマリーは事実のみ（PDF c分析01実績推移1）: 前月以前は実績、当月以降は 実績＋今の予約。AI の予測は含めない。
+// 販売室数・稼働率は GET /api/v1/analysis/daily-performance の実績＋予約実数、ADR・REV-Per・売上と対予算・対前年は
+// GET /api/v1/dashboard/kpi の summary / comparison（結果の出た日だけ。予約の単価は PMS 連携後）。
 // 日別の表とグラフは GET /api/v1/analysis/daily-performance（2026-10 の画面修正）:
-// 実績・予算差異・AI想定差異・前年比の表、月のグラフ（差異の推移）、日のグラフ（180日前 → 結果）。
+// 実数と想定値／差異の表、月のグラフ（差異の推移）、日のグラフ（180日前 → 結果）。
 
 import { useMemo, useState } from "react"
 import { TrendingUp } from "lucide-react"
@@ -17,21 +19,19 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, type DailyPerformance, type DashboardKpi } from "@/lib/api"
 import { DailyVarianceTable } from "@/components/analysis/daily-variance-table"
+import { summarizeFigures } from "@/components/analysis/performance-variance"
 import { VarianceDayCharts, VarianceMonthCharts } from "@/components/analysis/variance-charts"
 import { DAY_NAMES, monthLabel, parseDateStr, parseMonthStr } from "@/lib/date"
-import { formatPercent, formatYen } from "@/lib/format"
+import { formatPercent, formatRooms, formatYen } from "@/lib/format"
 
 interface DailyRow {
   /** "yyyy-MM-dd" */
   date: string
   day: number
   dow: number
-  isActual: boolean
   occupancy: number | null
   adr: number | null
-  soldRooms: number | null
   revPar: number | null
-  revenue: number | null
 }
 
 interface DailyPerformanceSectionProps {
@@ -46,13 +46,13 @@ interface DailyPerformanceSectionProps {
   onOpenBookingCurve?: () => void
 }
 
-/** 実績のある行から最大／最小の日を選ぶ */
+/** 実績の行から最大／最小の日を選ぶ */
 function pickExtreme(
   rows: DailyRow[],
   key: "adr" | "occupancy" | "revPar",
   mode: "max" | "min",
 ): DailyRow | null {
-  const candidates = rows.filter((r) => r.isActual && r[key] != null)
+  const candidates = rows.filter((r) => r[key] != null)
   if (candidates.length === 0) return null
   return candidates.reduce((best, row) => {
     const a = row[key] as number
@@ -73,7 +73,7 @@ export function DailyPerformanceSection({
   onSelectStayDate,
   onOpenBookingCurve,
 }: DailyPerformanceSectionProps = {}) {
-  const { hotelId, hotel } = useAuth()
+  const { hotelId } = useAuth()
 
   const [internalTargetMonth, setInternalTargetMonth] = useState(() => {
     const now = new Date()
@@ -126,31 +126,24 @@ export function DailyPerformanceSection({
     onSelectStayDate?.(new Date(y, m - 1, d))
   }
 
-  const totalRooms = hotel?.totalRooms ?? null
+  // 月間最高・最低の日は結果の出た日だけ（AI の予測は含めない）
+  const rows = useMemo<DailyRow[]>(
+    () =>
+      (performance?.days ?? [])
+        .filter((d) => d.actual != null)
+        .map((d) => ({
+          date: d.date,
+          day: Number(d.date.slice(8, 10)),
+          dow: parseDateStr(d.date).getDay(),
+          occupancy: d.actual?.occupancy ?? null,
+          adr: d.actual?.adr ?? null,
+          revPar: d.actual?.revPar ?? null,
+        })),
+    [performance],
+  )
 
-  const rows = useMemo<DailyRow[]>(() => {
-    if (!kpi) return []
-    return kpi.dailyTrend.map((row) => {
-      const [, , d] = row.date.split("-")
-      const occupancy = row.isActual ? row.occupancy : row.predictedOccupancy
-      const adr = row.isActual ? row.adr : row.predictedAdr
-      const soldRooms =
-        totalRooms != null && occupancy != null ? Math.round(occupancy * totalRooms) : null
-      const revPar = occupancy != null && adr != null ? occupancy * adr : null
-      const revenue = soldRooms != null && adr != null ? soldRooms * adr : null
-      return {
-        date: row.date,
-        day: Number(d),
-        dow: parseDateStr(row.date).getDay(),
-        isActual: row.isActual,
-        occupancy,
-        adr,
-        soldRooms,
-        revPar,
-        revenue,
-      }
-    })
-  }, [kpi, totalRooms])
+  // 販売室数・稼働率 = 実績＋今の予約（事実のみ。先の月は予約の分だけなので低く出る）
+  const booked = useMemo(() => (performance ? summarizeFigures(performance.days, performance.totalRooms) : null), [performance])
 
   const extremes = useMemo(
     () => ({
@@ -166,6 +159,7 @@ export function DailyPerformanceSection({
 
   const summary = kpi?.summary ?? null
   const hasActuals = (summary?.actualDays ?? 0) > 0
+  const hasBookings = (booked?.onHandDays ?? 0) > 0
   const toDate = kpi?.comparison?.toDate ?? null
 
   if (error) {
@@ -200,29 +194,59 @@ export function DailyPerformanceSection({
               <h3 className="text-sm font-medium">{targetMonthLabel}のサマリー</h3>
             )}
             <p className="ml-auto text-[10px] text-muted-foreground">
-              ※ 実績が確定した日のみを集計しています（AI予測は含みません）
+              ※ 事実のみを集計しています（AIの予測は含みません）。前月以前は実績、当月以降は 実績＋今の予約 のため、先の月は低く出ます。
+              ADR・REV-Per・売上は結果の出た日だけです（予約の単価は PMS 連携後）
             </p>
           </div>
 
-          {loading ? (
+          {loading || performanceLoading ? (
             <div className="grid grid-cols-1 gap-3 border-t pt-2.5 sm:grid-cols-3">
               {Array.from({ length: 9 }).map((_, i) => (
                 <Skeleton key={i} className="h-14 w-full" />
               ))}
             </div>
-          ) : !summary || !hasActuals ? (
+          ) : (!summary || !hasActuals) && !hasBookings ? (
             <div className="rounded-lg border border-dashed bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">
-              <p className="font-medium text-foreground">{targetMonthLabel}の実績は未登録です</p>
+              <p className="font-medium text-foreground">{targetMonthLabel}の実績・予約は未登録です</p>
               <p className="mt-1">
-                日次実績（DailyData）がまだ1日も登録されていないため、月間サマリーを算出できません。
+                日次実績（DailyData）も予約の記録もまだ無いため、月間サマリーを算出できません。
                 「0」は実績ゼロではなく未登録を意味するため表示していません。
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-3 border-t pt-2.5 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 border-t pt-2.5 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="flex flex-col" data-testid="summary-sold-rooms">
+                <p className="mb-0.5 text-xs text-muted-foreground">
+                  月間販売室数{hasBookings ? "（実績＋予約）" : ""}
+                </p>
+                <div className="mb-0.5 text-lg font-semibold">{formatRooms(booked?.cells.soldRooms.value)}</div>
+                {hasBookings && (
+                  <span className="text-xs text-muted-foreground">
+                    実績{booked?.actualDays ?? 0}日・予約{booked?.onHandDays ?? 0}日
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-col" data-testid="summary-occupancy">
+                <p className="mb-0.5 text-xs text-muted-foreground">
+                  月間稼働率{hasBookings ? "（実績＋予約）" : ""}
+                </p>
+                <div className="mb-0.5 text-lg font-semibold">{formatPercent(booked?.cells.occupancy.value ?? summary?.occupancyRate)}</div>
+                {toDate?.budgetOccupancyRatio != null && (
+                  <span className="text-xs text-muted-foreground">
+                    実績の日の対予算 {formatPercent(toDate.budgetOccupancyRatio)}
+                  </span>
+                )}
+                {toDate?.lastYearOccupancyRatio != null && (
+                  <span className="text-xs text-muted-foreground">
+                    実績の日の対前年 {formatPercent(toDate.lastYearOccupancyRatio)}
+                  </span>
+                )}
+              </div>
+
               <div className="flex flex-col">
                 <p className="mb-0.5 text-xs text-muted-foreground">月間ADR</p>
-                <div className="mb-0.5 text-lg font-semibold">{formatYen(summary.adr)}</div>
+                <div className="mb-0.5 text-lg font-semibold">{hasActuals ? formatYen(summary?.adr) : "-"}</div>
                 {toDate?.budgetAdrRatio != null && (
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
                     <TrendingUp className="h-3 w-3" aria-hidden />
@@ -237,30 +261,17 @@ export function DailyPerformanceSection({
               </div>
 
               <div className="flex flex-col">
-                <p className="mb-0.5 text-xs text-muted-foreground">月間稼働率</p>
-                <div className="mb-0.5 text-lg font-semibold">
-                  {formatPercent(summary.occupancyRate)}
-                </div>
-                {toDate?.budgetOccupancyRatio != null && (
-                  <span className="text-xs text-muted-foreground">
-                    対予算 {formatPercent(toDate.budgetOccupancyRatio)}
-                  </span>
-                )}
-                {toDate?.lastYearOccupancyRatio != null && (
-                  <span className="text-xs text-muted-foreground">
-                    対前年 {formatPercent(toDate.lastYearOccupancyRatio)}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex flex-col">
                 <p className="mb-0.5 text-xs text-muted-foreground">月間REV-Per</p>
-                <div className="mb-0.5 text-lg font-semibold">{formatYen(summary.revPar)}</div>
+                <div className="mb-0.5 text-lg font-semibold">{hasActuals ? formatYen(summary?.revPar) : "-"}</div>
                 <span className="text-xs text-muted-foreground">
-                  室料売上 {formatYen(summary.roomRevenue)}
+                  室料売上 {hasActuals ? formatYen(summary?.roomRevenue) : "-"}
                 </span>
               </div>
+            </div>
+          )}
 
+          {!loading && !performanceLoading && (hasActuals || hasBookings) && (
+            <div className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {[
                 { label: "月間最高ADR日", row: extremes.highestAdr, value: formatYen(extremes.highestAdr?.adr) },
                 {
@@ -296,14 +307,15 @@ export function DailyPerformanceSection({
         </CardContent>
       </Card>
 
-      {/* 日別パフォーマンス（実績・予算差異・AI想定差異・前年比 — 2026-10） */}
+      {/* 日別パフォーマンス（実数と想定値／差異 — 2026-10） */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium">
             日別パフォーマンス（{targetMonthLabel}）
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            結果の出た日の実績と、日割り予算・AIの想定・前年同曜日との差を並べます（料金カレンダーの「結果」「想定差異」はここへ移しました）。
+            過去は実績、先の日は今の予約実数を、AIの想定・日割り予算・予算差異と項目ごとに並べます。「差異で見る」で予算差異・AI想定差異・前年比に切り替えます
+            （料金カレンダーの「結果」「想定差異」はここへ移しました）。
             行をクリックすると、下の日のグラフにその日を表示します。日付からダイナミックプライシングの同じ日へ移動できます。
           </p>
         </CardHeader>

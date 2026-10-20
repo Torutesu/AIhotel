@@ -4,6 +4,8 @@
 // GET /api/v1/dashboard/kpi/comparison が返す KpiSnapshot を唯一の出所とする。
 // スナップショットが未取得の月は空配列が返るため、値を生成せず空状態を表示する。
 // MANAGER 以上は POST /dashboard/kpi/snapshot で当日時点のスナップショットを手動取得できる（X-7）。
+// 対象年月はカードの中でも選べる（2026-10 PDF aダッシュボード02「対象年月選択」）。既定はダッシュボードの対象年月で、
+// 別の月を選んだときはその月の実績（GET /dashboard/kpi の summary）を取り直して「現在」側にする。
 
 import { useMemo, useState } from "react"
 import { CalendarIcon, CameraIcon, Loader2 } from "lucide-react"
@@ -18,9 +20,10 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
+import { LabeledMonthPicker } from "@/components/month-picker"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type DashboardKpi, type KpiSnapshot } from "@/lib/api"
-import { toDateStr } from "@/lib/date"
+import { parseMonthStr, toDateStr } from "@/lib/date"
 import { formatPercent, formatYen } from "@/lib/format"
 import { canManage } from "@shared/types"
 
@@ -163,10 +166,31 @@ function SnapshotEmptyState({ detail }: { detail: string }) {
   )
 }
 
-export function KpiComparisonSection({ year, month, summary }: KpiComparisonSectionProps) {
+export function KpiComparisonSection({ year: dashboardYear, month: dashboardMonth, summary: dashboardSummary }: KpiComparisonSectionProps) {
   const { hotelId, user } = useAuth()
   const canTakeSnapshot = canManage(user?.role)
   const [takingSnapshot, setTakingSnapshot] = useState(false)
+
+  // カードで選んだ対象年月。ダッシュボードの対象年月が変わったら、そちらに戻す（選んだときの基準と比べて判定）
+  const dashboardPeriod = `${dashboardYear}-${String(dashboardMonth).padStart(2, "0")}`
+  const [picked, setPicked] = useState<{ base: string; value: string } | null>(null)
+  const targetPeriod = picked && picked.base === dashboardPeriod ? picked.value : dashboardPeriod
+  const { year, month } = parseMonthStr(targetPeriod)
+  const isDashboardMonth = targetPeriod === dashboardPeriod
+  const {
+    data: pickedKpi,
+    loading: pickedLoading,
+    error: pickedError,
+    reload: reloadPicked,
+  } = useApiQuery<DashboardKpi | null>(
+    hotelId && !isDashboardMonth ? () => api.dashboardKpi(hotelId, year, month) : null,
+    [hotelId, year, month, isDashboardMonth],
+    "対象月の実績の取得に失敗しました",
+  )
+  const summary = isDashboardMonth ? dashboardSummary : (pickedKpi?.summary ?? null)
+  // 別の月の実績の取得中・失敗は「実績なし」と見せない（ローディングとエラー＋再試行を出す）
+  const summaryLoading = !isDashboardMonth && pickedLoading
+  const summaryError = isDashboardMonth ? null : pickedError
 
   const [comparisonDate, setComparisonDate] = useState<Date | undefined>(undefined)
 
@@ -228,6 +252,16 @@ export function KpiComparisonSection({ year, month, summary }: KpiComparisonSect
               日次で記録したKPIスナップショットと現在の実績を比較します
             </p>
           </div>
+          <LabeledMonthPicker
+            id="comparison-month"
+            label="対象年月"
+            value={targetPeriod}
+            onChange={(value) => {
+              setPicked({ base: dashboardPeriod, value })
+              setComparisonDate(undefined)
+            }}
+            className="h-8 text-xs"
+          />
           {canTakeSnapshot && (
             <Button
               variant="outline"
@@ -253,13 +287,15 @@ export function KpiComparisonSection({ year, month, summary }: KpiComparisonSect
         )}
       </CardHeader>
       <CardContent className="pt-0">
-        {loading ? (
+        {loading || summaryLoading ? (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <Skeleton className="h-40 w-full" />
             <Skeleton className="h-40 w-full" />
           </div>
         ) : error ? (
           <ErrorState message={error} onRetry={load} />
+        ) : summaryError ? (
+          <ErrorState message={summaryError} onRetry={reloadPicked} />
         ) : (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div className="space-y-3">

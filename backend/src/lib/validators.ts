@@ -223,6 +223,8 @@ export const updateHotelSettingsSchema = z.object({
   prefectureCode: hotelBaseSchema.shape.prefectureCode,
   municipalityCode: hotelBaseSchema.shape.municipalityCode,
   marketArea: hotelBaseSchema.shape.marketArea,
+  // 販売開始（宿泊日の何日前 — 2026-10 PDF b04）。null で未設定に戻す
+  saleOpenDaysBefore: z.number().int().min(1, '販売開始は1日前以上で指定してください').max(540, '販売開始は540日前以下で指定してください').nullable().optional(),
 }).refine(municipalityMatchesPrefecture, municipalityMismatch)
 
 // ======================================
@@ -672,6 +674,19 @@ export const bookingCurveQuerySchema = z.object({
   date: dateOnlyInputSchema,
 })
 
+// 日のAI分析（2026-10）: 日の詳細と日単位のシミュレーション
+export const dayInsightQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  date: dateOnlyInputSchema,
+})
+
+export const daySimulationQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  date: dateOnlyInputSchema,
+  // 指定するとそのランクでも試算する
+  rank: z.coerce.number().int().min(1, 'ランクは1以上です').max(40, 'ランクは40以下です').optional(),
+})
+
 export const competitorPricesQuerySchema = z.object({
   hotelId: entityIdSchema,
   startDate: dateOnlyInputSchema,
@@ -756,6 +771,10 @@ export const updateStrategySchema = z.object({
   maxRank: rankBoundSchema.nullable().optional(),
   maxDailyRankChange: z.number().int().min(1).max(40).nullable().optional(),
   hysteresisRanks: z.number().int().min(0).max(5).optional(),
+  // 日のタイプの優先モデルで日ごとに重みを寄せるか（2026-10）
+  dayModelAdjust: z.boolean().optional(),
+  // 日単位のシミュレーションの価格弾力性（価格1%あたりの予約の増減 %）
+  priceElasticity: z.number().min(0, '価格弾力性は0以上で指定してください').max(3, '価格弾力性は3以下で指定してください').optional(),
 }).refine(data => {
   const weights = [data.weightOccupancy, data.weightAdr, data.weightCompetitor]
   if (weights.every((w) => w === undefined)) return true

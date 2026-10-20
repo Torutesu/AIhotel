@@ -8,7 +8,7 @@
 import type { Tab } from "@shared/types"
 
 /** 分析タブ内のサブビュー（analysis-tab.tsx の ANALYSIS_VIEWS と対応） */
-export type AnalysisView = "performance" | "composition" | "booking" | "competitor" | "free"
+export type AnalysisView = "performance" | "composition" | "booking" | "competitor" | "ota" | "free"
 
 export interface AlertLinkTarget {
   tab: Tab

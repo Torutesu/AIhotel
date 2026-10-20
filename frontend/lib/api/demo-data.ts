@@ -32,8 +32,6 @@ import {
   PricingStrategy,
   PriceBoundPeriod,
   CreatePriceBoundInput,
-  SaleOpenCheck,
-  SaleOpenCheckDay,
   CompetitorPrices,
   MonthlyTrend,
   CompetitorAnalysis,
@@ -42,7 +40,6 @@ import {
   PricingSimulation,
   ChannelBreakdown,
   RoomTypeBreakdown,
-  DayOfWeekBreakdown,
   DashboardPreference,
 } from "./types"
 
@@ -332,7 +329,7 @@ export function mockAiSummary(section?: string): AiSummary {
 export type MockPricingCalendarBaseDay = Omit<
   PricingCalendarDay,
   | "budgetRooms" | "budgetOccupancy" | "budgetAdr" | "budgetRevenue" | "onHandRooms" | "currentOccupancy" | "onHandAdr"
-  | "currentRevenue" | "expectedRevenue" | "dayType" | "dayTypeExpectedOccupancy" | "dayTypePaceRatio" | "dayTypeHistory"
+  | "currentRevenue" | "expectedRevenue" | "dayType" | "dayTypeModel" | "dayTypeTypicalOccupancy" | "dayTypeHistory"
 >
 
 export function mockPricingCalendar(
@@ -547,6 +544,8 @@ export let mockStrategy: PricingStrategy = {
   maxRank: null,
   maxDailyRankChange: 3,
   hysteresisRanks: 1,
+  dayModelAdjust: true,
+  priceElasticity: 1,
 }
 
 export let mockEvents: HotelEvent[] | null = null
@@ -619,50 +618,6 @@ export function addMockPriceBound(input: CreatePriceBoundInput): PriceBoundPerio
 
 export function removeMockPriceBound(id: string): void {
   mockPriceBounds = mockPriceBounds.filter((b) => b.id !== id)
-}
-
-/** 販売開始チェックのサンプル。料金カレンダーのサンプルを前年同曜日の ADR（推奨の 85〜115%）と比べる */
-export function mockSaleOpenCheck(hotelId: string, year: number, month: number): SaleOpenCheck {
-  const { calendar } = mockPricingCalendar(hotelId, year, month)
-  const rng = createSeededRandom(year * 100 + month + 31)
-  const days: SaleOpenCheckDay[] = calendar.map((day) => {
-    const date = new Date(`${day.date}T00:00:00`)
-    const lastYear = new Date(date.getTime() - 364 * 86_400_000)
-    const lastYearAdr = Math.round((day.predictedAdr ?? 0) * (0.85 + rng() * 0.3))
-    const diffPct = day.predictedAdr ? Math.round((day.predictedAdr / lastYearAdr - 1) * 1000) / 10 : null
-    return {
-      date: day.date,
-      weekday: date.getDay(),
-      demandLevel: day.demandLevel ?? "C",
-      recommendedRank: day.recommendedRank,
-      recommendedPrice: day.recommendedPrice,
-      predictedAdr: day.predictedAdr,
-      lastYearDate: toLocalDateStr(lastYear),
-      lastYearAdr,
-      lastYearOccupancy: Number(Math.min(1, (day.predictedOccupancy ?? 0.7) * (0.9 + rng() * 0.15)).toFixed(3)),
-      diffPct,
-      status: diffPct == null ? "no_comparison" : diffPct < 0 ? "below_last_year" : "ok",
-      events: [],
-    }
-  })
-  const values = days.map((d) => d.predictedAdr).filter((v): v is number => v != null)
-  const lastYears = days.map((d) => d.lastYearAdr).filter((v): v is number => v != null)
-  const average = (list: number[]) => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null)
-  const belowLastYearDays = days.filter((d) => d.status === "below_last_year").length
-  return {
-    year,
-    month,
-    days,
-    summary: {
-      averagePredictedAdr: average(values),
-      lastYearMonthAdr: average(lastYears),
-      budgetAdr: null,
-      comparableDays: days.filter((d) => d.status !== "no_comparison").length,
-      belowLastYearDays,
-      verdict: belowLastYearDays > 0 ? "review" : "ok",
-    },
-    modelVersion: "rule-based-v4",
-  }
 }
 
 /** デモモードで編集したイベント一覧を差し替える */
@@ -784,33 +739,48 @@ export function mockPricingSimulation(hotelId: string, year: number, month: numb
   }
 }
 
+// チャネル数が多い施設もあるため（100を超えることもある）、上位10社＋その他の表示が確かめられる数にしている
 const MOCK_CHANNELS = [
-  { channel: "公式サイト", share: 0.3, adrFactor: 1.05 },
-  { channel: "楽天トラベル", share: 0.25, adrFactor: 0.98 },
-  { channel: "じゃらん", share: 0.2, adrFactor: 0.97 },
-  { channel: "一休", share: 0.1, adrFactor: 1.15 },
-  { channel: "Expedia", share: 0.08, adrFactor: 0.95 },
-  { channel: "Agoda", share: 0.07, adrFactor: 0.92 },
+  { channel: "公式サイト", share: 0.26, adrFactor: 1.05 },
+  { channel: "楽天トラベル", share: 0.21, adrFactor: 0.98 },
+  { channel: "じゃらん", share: 0.17, adrFactor: 0.97 },
+  { channel: "一休", share: 0.08, adrFactor: 1.15 },
+  { channel: "Booking.com", share: 0.06, adrFactor: 0.96 },
+  { channel: "Expedia", share: 0.05, adrFactor: 0.95 },
+  { channel: "Agoda", share: 0.04, adrFactor: 0.92 },
+  { channel: "るるぶトラベル", share: 0.03, adrFactor: 0.99 },
+  { channel: "JTB", share: 0.03, adrFactor: 1.02 },
+  { channel: "近畿日本ツーリスト", share: 0.02, adrFactor: 1.0 },
+  { channel: "Trip.com", share: 0.02, adrFactor: 0.9 },
+  { channel: "Yahoo!トラベル", share: 0.015, adrFactor: 0.97 },
+  { channel: "日本旅行", share: 0.01, adrFactor: 1.01 },
+  { channel: "電話・直接", share: 0.005, adrFactor: 1.08 },
 ]
 
-/** チャネル別の実績（対象月の実績を seed と同じ比率で分ける） */
+/** チャネル別の実績（対象月の実績を seed と同じ比率で分ける。前年同月は 5〜10% 低い水準） */
 export function mockChannelBreakdown(hotelId: string, year: number, month: number): ChannelBreakdown {
   const { summary } = mockDashboardKpi(hotelId, year, month)
+  const totalRooms = MOCK_HOTEL.totalRooms
   const rng = createSeededRandom(year * 100 + month + 11)
   const weightSum = MOCK_CHANNELS.reduce((sum, c) => sum + c.share * c.adrFactor, 0)
-  const channels = summary.soldRooms === 0 ? [] : MOCK_CHANNELS.map((c) => {
+  const rows = summary.soldRooms === 0 ? [] : MOCK_CHANNELS.map((c) => {
     const roomsSold = Math.round(summary.soldRooms * c.share)
     const revenue = Math.round((summary.roomRevenue * c.share * c.adrFactor) / weightSum)
+    const lastYearRevenue = Math.round(revenue * (0.82 + rng() * 0.26))
     return {
       channel: c.channel,
       roomsSold,
       revenue,
       adr: roomsSold > 0 ? Math.round(revenue / roomsSold) : null,
+      occupancy: summary.actualDays > 0 ? Number((roomsSold / (totalRooms * summary.actualDays)).toFixed(3)) : null,
       revenueShare: Number(((revenue / summary.roomRevenue) * 100).toFixed(1)),
-      revenueGrowth: Number(((rng() - 0.4) * 20).toFixed(1)),
+      roomsShare: Number(((roomsSold / summary.soldRooms) * 100).toFixed(1)),
+      lastYearRoomsSold: Math.round(roomsSold * (lastYearRevenue / revenue) * 1.02),
+      lastYearRevenue,
+      revenueYoy: Number((((revenue - lastYearRevenue) / lastYearRevenue) * 100).toFixed(1)),
     }
   })
-  return { hotelId, year, month, channels }
+  return { hotelId, year, month, totalRooms, days: summary.actualDays, channels: rows.sort((a, b) => b.revenue - a.revenue) }
 }
 
 const MOCK_ROOM_TYPE_DEFS = [
@@ -857,40 +827,13 @@ export function mockRoomTypeBreakdown(hotelId: string, year: number, month: numb
         revenue,
         adr: soldRooms > 0 ? Math.round(revenue / soldRooms) : null,
         occupancy: summary.actualDays > 0 ? Number((soldRooms / (t.count * summary.actualDays)).toFixed(3)) : null,
+        revenueShare: summary.roomRevenue > 0 ? Number(((revenue / summary.roomRevenue) * 100).toFixed(1)) : 0,
+        roomsShare: summary.soldRooms > 0 ? Number(((soldRooms / summary.soldRooms) * 100).toFixed(1)) : 0,
+        lastYearSoldRooms: Math.round(soldRooms * 0.94),
+        lastYearRevenue: Math.round(revenue * (0.88 + t.sortOrder * 0.015)),
+        revenueYoy: revenue > 0 ? Number(((1 / (0.88 + t.sortOrder * 0.015) - 1) * 100).toFixed(1)) : null,
       }
     }),
-  }
-}
-
-/** 曜日別の実績（ダッシュボードのモックの日別実績を曜日ごとに集計） */
-export function mockDayOfWeekBreakdown(hotelId: string, year: number, month: number): DayOfWeekBreakdown {
-  const { dailyTrend } = mockDashboardKpi(hotelId, year, month)
-  const totalRooms = MOCK_HOTEL.totalRooms
-  const buckets = Array.from({ length: 7 }, () => ({ days: 0, soldRooms: 0, revenue: 0 }))
-  for (const day of dailyTrend) {
-    if (!day.isActual || day.occupancy == null || day.adr == null) continue
-    const [y, m, d] = day.date.split("-").map(Number)
-    const bucket = buckets[new Date(y, m - 1, d).getDay()]
-    const soldRooms = Math.round(day.occupancy * totalRooms)
-    bucket.days += 1
-    bucket.soldRooms += soldRooms
-    bucket.revenue += soldRooms * day.adr
-  }
-  const weekendDays = parseWeekendDays(MOCK_HOTEL.weekendDays)
-  return {
-    hotelId,
-    year,
-    month,
-    days: buckets.map((b, dayOfWeek) => ({
-      dayOfWeek,
-      isWeekend: weekendDays.includes(dayOfWeek),
-      days: b.days,
-      soldRooms: b.soldRooms,
-      revenue: b.revenue,
-      occupancy: b.days > 0 ? Number((b.soldRooms / (totalRooms * b.days)).toFixed(3)) : null,
-      adr: b.soldRooms > 0 ? Math.round(b.revenue / b.soldRooms) : null,
-      revPar: b.days > 0 ? Math.round(b.revenue / (totalRooms * b.days)) : null,
-    })),
   }
 }
 

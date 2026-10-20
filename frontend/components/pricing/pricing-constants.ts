@@ -162,3 +162,26 @@ export interface MonthCalendar {
 export function rankLabelOf(rank: number): string {
   return `R${String(rank).padStart(2, "0")}`
 }
+
+/**
+ * 表示月の販売開始の状況（2026-10 PDF b04「販売開始日はホテル単位で何日前と固定」）。
+ * 宿泊日の daysBefore 日前に販売を始めるので、月の1日と末日の販売開始日から「販売開始前／一部販売中／全日販売中」を決める
+ */
+export function saleOpenStatus(
+  year: number,
+  month: number,
+  daysBefore: number | null | undefined,
+  today = new Date(),
+): { state: "before" | "partial" | "open"; firstOpen: Date; lastOpen: Date; openedThrough: Date | null } | null {
+  if (daysBefore == null || daysBefore <= 0) return null
+  const start = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const first = new Date(year, month - 1, 1)
+  const last = new Date(year, month, 0)
+  const firstOpen = new Date(year, month - 1, 1 - daysBefore)
+  const lastOpen = new Date(year, month - 1, last.getDate() - daysBefore)
+  if (start >= lastOpen) return { state: "open", firstOpen, lastOpen, openedThrough: last }
+  if (start < firstOpen) return { state: "before", firstOpen, lastOpen, openedThrough: null }
+  // 今日販売を始めた宿泊日 = 今日 + daysBefore
+  const through = new Date(start.getFullYear(), start.getMonth(), start.getDate() + daysBefore)
+  return { state: "partial", firstOpen, lastOpen, openedThrough: through < first ? null : through }
+}

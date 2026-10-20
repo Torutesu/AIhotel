@@ -50,4 +50,20 @@ describe("buildSampleInventory", () => {
       for (const t of d.types) expect(t.remaining).toBeLessThanOrEqual(t.capacity)
     }
   })
+
+  it("故障部屋は残室に含めず、個人 = 予約室数の合計 − 団体の予約室数（PDF a02）", () => {
+    for (const d of days) {
+      expect(d.totalOutOfOrder).toBe(d.types.reduce((a, t) => a + t.outOfOrder, 0))
+      const booked = d.types.reduce((a, t) => a + t.capacity - t.remaining - t.outOfOrder, 0)
+      expect(d.individualBooked).toBe(Math.max(0, booked - d.group.booked))
+      for (const t of d.types) expect(t.remaining + t.outOfOrder).toBeLessThanOrEqual(t.capacity)
+    }
+    expect(days.some((d) => d.totalOutOfOrder > 0)).toBe(true)
+  })
+
+  it("表示を始める日を変えると、その日から14日になる", () => {
+    const moved = buildSampleInventory(200, 1, [5, 6], new Date(2026, 10, 2))
+    expect(moved[0].date).toEqual(new Date(2026, 10, 2))
+    expect(moved.at(-1)?.date).toEqual(new Date(2026, 10, 15))
+  })
 })

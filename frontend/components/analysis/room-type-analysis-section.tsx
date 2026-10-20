@@ -1,7 +1,10 @@
 "use client"
 
-// 部屋タイプ別分析（#88 / GET /analysis/room-types）。対象月の実績を部屋タイプごとに集計する。
+// 部屋タイプ別（#88 / GET /analysis/room-types）。対象月の実績を部屋タイプごとに集計する。
+// 2026-10 PDF c分析02: チャネル別・利用人数別と同じ表・グラフ。すべての部屋タイプを出す（多い施設で 20〜25 タイプ）。
 // 部屋タイプは設定タブで登録する（#81）。稼働率の分母はその部屋タイプの室数 × 実績日数。
+
+import { useMemo } from "react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,8 +13,8 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, type RoomTypeBreakdown } from "@/lib/api"
 import { monthLabel, parseMonthStr } from "@/lib/date"
-import { formatPercent, formatYen } from "@/lib/format"
 import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysis/section-props"
+import { CompositionShareCharts, CompositionTable, SegmentMonthCurveChart, type CompositionRow } from "@/components/analysis/composition-view"
 
 export function RoomTypeAnalysisSection(props: AnalysisSectionProps) {
   const { hotelId } = useAuth()
@@ -23,18 +26,44 @@ export function RoomTypeAnalysisSection(props: AnalysisSectionProps) {
     [hotelId, year, month],
     "部屋タイプ別の実績の取得に失敗しました",
   )
-  const roomTypes = data?.roomTypes ?? []
+  const roomTypes = useMemo(() => data?.roomTypes ?? [], [data])
   const hasActuals = roomTypes.some((t) => t.soldRooms > 0)
+  const rows = useMemo<CompositionRow[]>(
+    () =>
+      roomTypes.map((t) => ({
+        key: t.roomTypeId,
+        name: t.name,
+        label: (
+          <>
+            {t.name}
+            <span className="ml-1 font-mono text-[10px] text-muted-foreground">{t.code}</span>
+            <span className="ml-1 text-[10px] text-muted-foreground">{t.count}室</span>
+          </>
+        ),
+        soldRooms: t.soldRooms,
+        occupancy: t.occupancy,
+        adr: t.adr,
+        guestUnitPrice: null,
+        revenue: t.revenue,
+        revenueShare: t.revenueShare,
+        roomsShare: t.roomsShare,
+        dor: null,
+        avgNights: null,
+        yoy: t.revenueYoy,
+      })),
+    [roomTypes],
+  )
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-medium">部屋タイプ別パフォーマンス（{monthLabel(year, month)}）</CardTitle>
+        <CardTitle className="text-base font-medium">部屋タイプ別（{monthLabel(year, month)}）</CardTitle>
         <p className="text-xs text-muted-foreground">
-          稼働率はその部屋タイプの室数に対する割合です{data ? `（実績 ${data.actualDays}日分）` : ""}。
+          すべての部屋タイプを出します。稼働率はその部屋タイプの室数に対する割合です{data ? `（実績 ${data.actualDays}日分）` : ""}。
+          前年同月比は室料売上の比較です。
         </p>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="space-y-3 pt-0">
         {loading ? (
           <Skeleton className="h-40 w-full" />
         ) : error ? (
@@ -48,35 +77,16 @@ export function RoomTypeAnalysisSection(props: AnalysisSectionProps) {
             この月の部屋タイプ別の実績はまだありません（PMS 連携後に表示されます）。
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b">
-                  <th className="px-2 py-2 text-left font-medium">部屋タイプ</th>
-                  <th className="px-2 py-2 text-right font-medium">室数</th>
-                  <th className="px-2 py-2 text-right font-medium">販売室数</th>
-                  <th className="px-2 py-2 text-right font-medium">稼働率</th>
-                  <th className="px-2 py-2 text-right font-medium">ADR</th>
-                  <th className="px-2 py-2 text-right font-medium">室料売上</th>
-                </tr>
-              </thead>
-              <tbody>
-                {roomTypes.map((row) => (
-                  <tr key={row.roomTypeId} className="border-b hover:bg-muted/50">
-                    <td className="px-2 py-2 font-medium">
-                      {row.name}
-                      <span className="ml-1 font-mono text-[10px] text-muted-foreground">{row.code}</span>
-                    </td>
-                    <td className="px-2 py-2 text-right">{row.count.toLocaleString()}室</td>
-                    <td className="px-2 py-2 text-right">{row.soldRooms.toLocaleString()}室</td>
-                    <td className="px-2 py-2 text-right">{formatPercent(row.occupancy)}</td>
-                    <td className="px-2 py-2 text-right">{formatYen(row.adr)}</td>
-                    <td className="px-2 py-2 text-right font-medium">{formatYen(row.revenue)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <CompositionShareCharts rows={rows} />
+            <CompositionTable
+              labelHeader="部屋タイプ"
+              rows={rows}
+              testId="room-type-composition-table"
+              note="客単価・DOR・平均宿泊数は宿泊人数・泊数の入った予約データ（PMS/サイトコントローラー連携）後に表示します。"
+            />
+            <SegmentMonthCurveChart rows={rows} title="部屋タイプ別の月のブッキングカーブ" />
+          </>
         )}
       </CardContent>
     </Card>

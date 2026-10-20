@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 
-import { buildDayPaceRows, buildMonthPaceRows, buildVarianceRows, differenceOf, summarizeVariance, yearOverYearOf } from "./performance-variance"
+import { buildDayPaceRows, buildFigureRows, buildMonthPaceRows, buildVarianceRows, differenceOf, summarizeFigures, summarizeVariance, yearOverYearOf } from "./performance-variance"
 import type { BookingCurve, DailyPerformanceDay, DayMetrics } from "@/lib/api"
 
 // 日別パフォーマンスの差異（実績 − 予算・AI、前年比）と日のグラフ（2026-10）
@@ -31,9 +31,9 @@ describe("differenceOf / yearOverYearOf", () => {
 
 describe("buildVarianceRows / summarizeVariance", () => {
   const days: DailyPerformanceDay[] = [
-    { date: "2026-10-01", actual: m(80, 12000), budget: m(70, 10000), ai: m(75, 11000), lastYearDate: "2025-10-02", lastYear: m(60, 10000) },
-    { date: "2026-10-02", actual: m(60, 10000), budget: m(70, 10000), ai: null, lastYearDate: "2025-10-03", lastYear: null },
-    { date: "2026-10-03", actual: null, budget: m(70, 10000), ai: m(75, 11000), lastYearDate: "2025-10-04", lastYear: m(60, 10000) },
+    { date: "2026-10-01", actual: m(80, 12000), onHand: null, budget: m(70, 10000), ai: m(75, 11000), lastYearDate: "2025-10-02", lastYear: m(60, 10000) },
+    { date: "2026-10-02", actual: m(60, 10000), onHand: null, budget: m(70, 10000), ai: null, lastYearDate: "2025-10-03", lastYear: null },
+    { date: "2026-10-03", actual: null, onHand: { soldRooms: 30, occupancy: 0.3, adr: null, revPar: null, revenue: null }, budget: m(70, 10000), ai: m(75, 11000), lastYearDate: "2025-10-04", lastYear: m(60, 10000) },
   ]
 
   it("結果の出ていない日は差異を出さない", () => {
@@ -76,6 +76,38 @@ describe("buildVarianceRows / summarizeVariance", () => {
     expect(s.budget.occupancy).toBeCloseTo(0)
     expect(s.budget.revenue).toBeNull()
     expect(s.budget.adr).toBeNull()
+  })
+})
+
+describe("buildFigureRows / summarizeFigures（実数と想定値で見る）", () => {
+  const days: DailyPerformanceDay[] = [
+    { date: "2026-10-01", actual: m(80, 12000), onHand: null, budget: m(70, 10000), ai: m(75, 11000), lastYearDate: "2025-10-02", lastYear: m(60, 10000) },
+    { date: "2026-10-02", actual: null, onHand: { soldRooms: 30, occupancy: 0.3, adr: null, revPar: null, revenue: null }, budget: m(70, 10000), ai: m(75, 11000), lastYearDate: "2025-10-03", lastYear: m(60, 10000) },
+  ]
+
+  it("実数は過去が実績・先の日が予約実数。予算差異は 結果（先の日は AI の想定）− 予算", () => {
+    const rows = buildFigureRows(days)
+    expect(rows[0]).toMatchObject({ hasActual: true, hasOnHand: false })
+    expect(rows[0].cells.soldRooms).toEqual({ value: 80, ai: 75, budget: 70, budgetDiff: 10 })
+    expect(rows[1]).toMatchObject({ hasActual: false, hasOnHand: true })
+    expect(rows[1].cells.soldRooms).toEqual({ value: 30, ai: 75, budget: 70, budgetDiff: 5 })
+    expect(rows[1].cells.adr.value).toBeNull()
+    expect(rows[1].cells.adr.budgetDiff).toBe(1000)
+    // 前年比は結果の出た日だけ
+    expect(rows[1].yoy.revenue).toBeNull()
+  })
+
+  it("月計の実数は 実績＋予約、ADR・売上は結果の出た日だけ。予算差異は着地の見込み − 予算", () => {
+    const s = summarizeFigures(days, 100)
+    expect(s).toMatchObject({ actualDays: 1, onHandDays: 1 })
+    expect(s.cells.soldRooms.value).toBe(110)
+    expect(s.cells.occupancy.value).toBeCloseTo(0.55)
+    expect(s.cells.adr.value).toBe(12000)
+    expect(s.cells.revenue.value).toBe(960000)
+    // 着地の見込み = 実績 80 室 + 想定 75 室 − 予算 140 室
+    expect(s.cells.soldRooms.budgetDiff).toBe(15)
+    expect(s.cells.soldRooms.ai).toBe(150)
+    expect(s.yoy.revenue).toBeCloseTo(0.6)
   })
 })
 

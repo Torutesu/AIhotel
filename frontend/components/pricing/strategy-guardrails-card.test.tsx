@@ -50,6 +50,8 @@ const STRATEGY: PricingStrategy = {
   maxRank: null,
   maxDailyRankChange: 3,
   hysteresisRanks: 1,
+  dayModelAdjust: true,
+  priceElasticity: 1,
 }
 
 const baseForm = {
@@ -59,6 +61,8 @@ const baseForm = {
   maxRank: "",
   maxDailyRankChange: "3",
   hysteresisRanks: "1",
+  dayModelAdjust: "true" as const,
+  priceElasticity: "1",
 }
 
 describe("validateGuardrailForm（#17）", () => {
@@ -69,6 +73,8 @@ describe("validateGuardrailForm（#17）", () => {
     expect(validateGuardrailForm({ ...baseForm, minRank: "10", maxRank: "5" })).toContain("下限は上限以下")
     expect(validateGuardrailForm({ ...baseForm, hysteresisRanks: "6" })).toContain("0〜5")
     expect(validateGuardrailForm({ ...baseForm, maxDailyRankChange: "" })).toBeNull()
+    expect(validateGuardrailForm({ ...baseForm, priceElasticity: "3.5" })).toContain("価格弾力性")
+    expect(validateGuardrailForm({ ...baseForm, priceElasticity: "0.8" })).toBeNull()
   })
 })
 
@@ -89,8 +95,18 @@ describe("StrategyGuardrailsCard（#17）", () => {
     await waitFor(() => expect(mocks.updatePricingStrategy).toHaveBeenCalled())
     const [hotelId, input] = mocks.updatePricingStrategy.mock.calls[0]
     expect(hotelId).toBe("h1")
-    expect(input).toMatchObject({ minRank: 5, maxDailyRankChange: 3, competitorOccupancy: null })
+    expect(input).toMatchObject({ minRank: 5, maxDailyRankChange: 3, competitorOccupancy: null, dayModelAdjust: true, priceElasticity: 1 })
     expect(input).not.toHaveProperty("weightOccupancy")
+  })
+
+  it("日のタイプで重みを寄せる・価格弾力性（価格戦略の初期値 — 2026-10）を保存する", async () => {
+    mocks.updatePricingStrategy.mockResolvedValue({ ...STRATEGY, dayModelAdjust: false, priceElasticity: 0.8 })
+    render(<StrategyGuardrailsCard />)
+    fireEvent.change(await screen.findByLabelText("日のタイプに合わせて重みを寄せる"), { target: { value: "false" } })
+    fireEvent.change(screen.getByLabelText("価格弾力性"), { target: { value: "0.8" } })
+    fireEvent.click(screen.getByRole("button", { name: /保存/ }))
+    await waitFor(() => expect(mocks.updatePricingStrategy).toHaveBeenCalled())
+    expect(mocks.updatePricingStrategy.mock.calls[0][1]).toMatchObject({ dayModelAdjust: false, priceElasticity: 0.8 })
   })
 
   it("入力が不正なら保存できずエラーを出す", async () => {

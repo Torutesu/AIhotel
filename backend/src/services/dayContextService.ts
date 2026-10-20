@@ -47,13 +47,14 @@ function groupCurves(rows: Array<{ stayDate: Date; daysBefore: number; roomsBook
 /**
  * @param options.curves 読む予約積上。'all' = 月の全宿泊日（既定）、'none' = 読まない、Date[] = その宿泊日だけ。
  *   予約積上は毎日取り込むと1宿泊日あたり最大数百行になるため、使わない画面では読まない
+ * @param options.lastYearCurves 前年同曜日の予約積上も読むか（既定 true）。今年の分だけ使う画面は false
  */
 export async function loadMonthContext(
   hotelId: string,
   totalRooms: number,
   year: number,
   month: number,
-  options: { curves?: 'all' | 'none' | Date[] } = {}
+  options: { curves?: 'all' | 'none' | Date[]; lastYearCurves?: boolean } = {}
 ): Promise<MonthContext> {
   const { start, end } = monthRange(year, month)
   const days = eachUtcDay(start, end)
@@ -84,7 +85,7 @@ export async function loadMonthContext(
           where: { hotelId, ...curveFilter(start, days[days.length - 1], ownStayDates) },
           select: { stayDate: true, daysBefore: true, roomsBooked: true },
         }),
-    curves === 'none'
+    curves === 'none' || options.lastYearCurves === false
       ? Promise.resolve([])
       : prisma.bookingCurveData.findMany({
           where: { hotelId, ...curveFilter(lastYearStart, lastYearEnd, lastYearStayDates) },

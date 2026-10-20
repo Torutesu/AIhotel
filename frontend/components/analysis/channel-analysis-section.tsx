@@ -1,9 +1,11 @@
 "use client"
 
-// チャネル別分析（#88 / GET /analysis/channels）。対象月の実績を販売チャネルごとに集計する。
+// チャネル別（#88 / GET /analysis/channels）。対象月の実績を販売チャネルごとに集計する。
+// 2026-10 PDF c分析02: 表とグラフを部屋タイプ別・利用人数別と同じ見方にそろえ、前月比ではなく前年同月比を出す。
+// チャネルは 100 を超えることもあるため上位10社を出し、残りは「その他」にまとめる。
 // チャネル別の実績は PMS/OTA 連携（Phase 4）まで CSV 取り込みや seed で入る。
 
-import { TrendingDown, TrendingUp } from "lucide-react"
+import { useMemo } from "react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -12,20 +14,17 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, type ChannelBreakdown } from "@/lib/api"
 import { monthLabel, parseMonthStr } from "@/lib/date"
-import { formatYen } from "@/lib/format"
 import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysis/section-props"
+import {
+  CompositionShareCharts,
+  CompositionTable,
+  SegmentMonthCurveChart,
+  topWithOthers,
+  type CompositionRow,
+} from "@/components/analysis/composition-view"
 
-function Growth({ value }: { value: number | null }) {
-  if (value == null) return <span className="text-muted-foreground">—</span>
-  const up = value >= 0
-  return (
-    <span className={`inline-flex items-center gap-1 ${up ? "text-positive" : "text-negative"}`}>
-      {up ? <TrendingUp className="h-3 w-3" aria-hidden /> : <TrendingDown className="h-3 w-3" aria-hidden />}
-      {up ? "+" : ""}
-      {value.toFixed(1)}%
-    </span>
-  )
-}
+/** 表とグラフに出すチャネルの数（c分析02「上位10社を掲示」） */
+export const TOP_CHANNELS = 10
 
 export function ChannelAnalysisSection(props: AnalysisSectionProps) {
   const { hotelId } = useAuth()
@@ -37,18 +36,41 @@ export function ChannelAnalysisSection(props: AnalysisSectionProps) {
     [hotelId, year, month],
     "チャネル別の実績の取得に失敗しました",
   )
-  const channels = data?.channels ?? []
-  const topRevenue = channels[0]
-  const topAdr = [...channels].filter((c) => c.adr != null).sort((a, b) => (b.adr ?? 0) - (a.adr ?? 0))[0]
-  const topGrowth = [...channels]
-    .filter((c) => c.revenueGrowth != null)
-    .sort((a, b) => (b.revenueGrowth ?? 0) - (a.revenueGrowth ?? 0))[0]
+  const channels = useMemo(() => data?.channels ?? [], [data])
+  const rows = useMemo<CompositionRow[]>(
+    () =>
+      topWithOthers(
+        channels.map((c) => ({
+          key: c.channel,
+          name: c.channel,
+          soldRooms: c.roomsSold,
+          occupancy: c.occupancy,
+          adr: c.adr,
+          // 人数・泊数は予約データ（PMS/サイトコントローラー連携）後
+          guestUnitPrice: null,
+          revenue: c.revenue,
+          revenueShare: c.revenueShare,
+          roomsShare: c.roomsShare,
+          dor: null,
+          avgNights: null,
+          yoy: c.revenueYoy,
+          lastYearRevenue: c.lastYearRevenue,
+        })),
+        TOP_CHANNELS,
+        "社",
+        true,
+      ),
+    [channels],
+  )
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-medium">チャネル別パフォーマンス（{monthLabel(year, month)}）</CardTitle>
-        <p className="text-xs text-muted-foreground">販売チャネルごとの実績です。前月比は室料売上の比較です。</p>
+        <CardTitle className="text-base font-medium">チャネル別（{monthLabel(year, month)}）</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          販売チャネルごとの実績です（室料売上の多い順に上位{TOP_CHANNELS}社。11社目以降は「その他」）。
+          稼働率は客室数に対するそのチャネルの販売室数の割合、前年同月比は室料売上の比較です。
+        </p>
       </CardHeader>
       <CardContent className="space-y-3 pt-0">
         {loading ? (
@@ -61,51 +83,14 @@ export function ChannelAnalysisSection(props: AnalysisSectionProps) {
           </p>
         ) : (
           <>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="rounded-lg border px-3 py-2.5">
-                <p className="mb-1 text-xs font-medium text-muted-foreground">最高収益チャネル</p>
-                <div className="text-lg font-semibold">{topRevenue.channel}</div>
-                <p className="text-xs text-muted-foreground">売上の{topRevenue.revenueShare.toFixed(1)}%</p>
-              </div>
-              <div className="rounded-lg border px-3 py-2.5">
-                <p className="mb-1 text-xs font-medium text-muted-foreground">最高ADRチャネル</p>
-                <div className="text-lg font-semibold">{topAdr?.channel ?? "—"}</div>
-                <p className="text-xs text-muted-foreground">{formatYen(topAdr?.adr)}</p>
-              </div>
-              <div className="rounded-lg border px-3 py-2.5">
-                <p className="mb-1 text-xs font-medium text-muted-foreground">前月比の伸びが最も大きいチャネル</p>
-                <div className="text-lg font-semibold">{topGrowth?.channel ?? "—"}</div>
-                <p className="text-xs">{topGrowth ? <Growth value={topGrowth.revenueGrowth} /> : "前月の実績がありません"}</p>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b">
-                    <th className="px-2 py-2 text-left font-medium">チャネル</th>
-                    <th className="px-2 py-2 text-right font-medium">販売室数</th>
-                    <th className="px-2 py-2 text-right font-medium">売上構成比</th>
-                    <th className="px-2 py-2 text-right font-medium">ADR</th>
-                    <th className="px-2 py-2 text-right font-medium">室料売上</th>
-                    <th className="px-2 py-2 text-right font-medium">前月比</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {channels.map((row) => (
-                    <tr key={row.channel} className="border-b hover:bg-muted/50">
-                      <td className="px-2 py-2 font-medium">{row.channel}</td>
-                      <td className="px-2 py-2 text-right">{row.roomsSold.toLocaleString()}室</td>
-                      <td className="px-2 py-2 text-right">{row.revenueShare.toFixed(1)}%</td>
-                      <td className="px-2 py-2 text-right">{formatYen(row.adr)}</td>
-                      <td className="px-2 py-2 text-right font-medium">{formatYen(row.revenue)}</td>
-                      <td className="px-2 py-2 text-right">
-                        <Growth value={row.revenueGrowth} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <CompositionShareCharts rows={rows} />
+            <CompositionTable
+              labelHeader="チャネル"
+              rows={rows}
+              testId="channel-composition-table"
+              note={`全${channels.length}社。客単価・DOR・平均宿泊数は宿泊人数・泊数の入った予約データ（PMS/サイトコントローラー連携）後に表示します。`}
+            />
+            <SegmentMonthCurveChart rows={rows} title="チャネル別の月のブッキングカーブ" />
           </>
         )}
       </CardContent>

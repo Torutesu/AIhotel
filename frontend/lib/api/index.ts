@@ -20,7 +20,8 @@ import {
 import type {
   LoginResult, DashboardKpi, KpiSnapshot, AlertItem, AiSummary, PricingCalendar, PricingSimulation,
   RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, PricingStrategyInput, PricingLockPeriod, BookingCurve,
-  PriceBoundPeriod, CreatePriceBoundInput, SaleOpenCheck,
+  DayInsight, DaySimulation,
+  PriceBoundPeriod, CreatePriceBoundInput,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
   CreatePriceRankInput, UpdateHotelSettingsInput, SetupStatus, CreateCompetitorInput, UpdateCompetitorInput,
   DashboardPreference, UserPreferences, CompetitorFetchSourceStatus, EventImportRow, ImportResult, NewHotelInput,
@@ -31,10 +32,10 @@ import {
   mockCompetitorPrices, mockMonthlyTrend, mockCompetitorAnalysis, getMockPriceRanks, mockStrategy,
   setMockStrategy, setMockEvents, getMockEvents, mockKpiSnapshots, mockPricingSimulation, mockBudgetYear,
   mockCompetitorSettings, mockUsers, mockReviewScores, updateMockAlertStatus, getMockDashboardPreference,
-  setMockDashboardPreference, getMockPriceBounds, addMockPriceBound, removeMockPriceBound, mockSaleOpenCheck
+  setMockDashboardPreference, getMockPriceBounds, addMockPriceBound, removeMockPriceBound
 } from "./demo-data"
 import {
-  enrichMockPricingCalendar, mockBookingCurveDetail, getMockNewHotels, addMockNewHotel,
+  enrichMockPricingCalendar, mockBookingCurveDetail, mockDayInsight, mockDaySimulation, getMockNewHotels, addMockNewHotel,
   updateMockNewHotel, removeMockNewHotel, importMockNewHotels, importMockEvents
 } from "./demo-revenue"
 import { adminEndpoints } from "./admin"
@@ -262,6 +263,24 @@ export const api = {
     )
   },
 
+  /** 日のAI分析: 日のタイプと推移・型の典型・同じタイプの日・その日の外部要因（2026-10 PDF b03） */
+  dayInsight(hotelId: string, date: string): Promise<DayInsight> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/day-insight?hotelId=${hotelId}&date=${date}`),
+      () => mockDayInsight(hotelId, date)
+    )
+  },
+
+  /** 日単位のシミュレーション（保存しない — 2026-10 PDF b01）。rank を渡すとそのランクでも試算する */
+  daySimulation(hotelId: string, date: string, rank?: number): Promise<DaySimulation> {
+    const params = new URLSearchParams({ hotelId, date })
+    if (rank != null) params.set("rank", String(rank))
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/day-simulation?${params.toString()}`),
+      () => mockDaySimulation(hotelId, date, rank)
+    )
+  },
+
   pricingStrategy(hotelId: string): Promise<PricingStrategy> {
     return withDemoFallback(
       () => rawRequest(`/api/v1/pricing/strategy?hotelId=${hotelId}`),
@@ -317,14 +336,6 @@ export const api = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/pricing/bounds/${id}?hotelId=${hotelId}`, { method: "DELETE" }),
       () => removeMockPriceBound(id)
-    )
-  },
-
-  /** 販売開始チェック（D-11）。対象月の推奨（保存しない試算）を前年同曜日・前年同月・予算の ADR と比べる */
-  saleOpenCheck(hotelId: string, year: number, month: number): Promise<SaleOpenCheck> {
-    return withDemoFallback(
-      () => rawRequest(`/api/v1/pricing/sale-open-check?hotelId=${hotelId}&year=${year}&month=${month}`),
-      () => mockSaleOpenCheck(hotelId, year, month)
     )
   },
 

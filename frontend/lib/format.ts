@@ -22,10 +22,10 @@ export function formatPercent(value: number | null | undefined, digits = 1): str
   return `${(value * 100).toFixed(digits)}%`
 }
 
-/** 比率（0〜1）の差分をポイント表記にする */
-export function formatSignedPt(value: number | null | undefined, digits = 1): string {
+/** 比率（0〜1）の差分を符号付きの % 表記にする（稼働率の差など。2026-10 の画面修正で pt 表記から % 表記へ） */
+export function formatSignedPercent(value: number | null | undefined, digits = 1): string {
   if (value == null || Number.isNaN(value)) return DASH
-  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)}pt`
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(digits)}%`
 }
 
 /** すでにパーセント値（0〜100）になっている数値を符号付きで表記する */

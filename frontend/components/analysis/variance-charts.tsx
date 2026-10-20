@@ -17,7 +17,7 @@ import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { DAY_NAMES, toDateStr } from "@/lib/date"
-import { formatPercent, formatPt, formatSignedPt } from "@/lib/format"
+import { formatPercent, formatPt, formatSignedPercent } from "@/lib/format"
 import type { ChartTooltipProps } from "@/lib/chart-tooltip"
 import { api, type BookingCurve, type MonthPace } from "@/lib/api"
 import { buildDayPaceRows, buildMonthPaceRows, type DayPaceRow } from "./performance-variance"
@@ -28,7 +28,7 @@ const GROUP_COLORS: Record<Group, string> = { budget: "var(--positive)", ai: "va
 
 function formatValue(group: Group, value: number | null): string {
   if (value == null) return "-"
-  return group === "yoy" ? formatPt(value * 100) : formatSignedPt(value)
+  return group === "yoy" ? formatPt(value * 100) : formatSignedPercent(value)
 }
 
 /** 180日前 → 結果 の推移のグラフ（月・日で共通） */
@@ -68,7 +68,7 @@ function PaceChart({ rows, group, resultLabel }: { rows: DayPaceRow[]; group: Gr
             />
             <YAxis
               tick={{ fontSize: 9 }}
-              tickFormatter={(v) => `${(v * 100).toFixed(0)}${group === "yoy" ? "%" : "pt"}`}
+              tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
               stroke="currentColor"
               opacity={0.5}
               width={44}

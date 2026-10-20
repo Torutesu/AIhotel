@@ -1,7 +1,7 @@
 "use client"
 
 // ブッキングカーブ（U-15 で daily-analysis-tab.tsx から分割）
-// 稼働率の実測カーブは GET /daily/booking-curve の実データ。
+// 予約室数（稼働室数）の実測カーブは GET /daily/booking-curve の実データ。縦軸は稼働室数（2026-10 PDF c分析03）。
 // ADR・前年・予算の系列と表示区分の内訳は対応APIが未実装のためサンプル表示。
 
 import { useCallback, useEffect, useMemo, useState } from "react"
@@ -127,7 +127,7 @@ export function BookingCurveSection({
   }, [selectedStayDate, todayDateOnly])
 
   // X軸: daysBefore を右肩上がり（宿泊日に近づくほど右）に表示するため降順のまま reversed 指定。
-  // 現在ADR・現在稼働率とそれぞれのAI予測（当日以降は破線）、前年実績・予算を表示する。
+  // 現在ADR・現在の稼働室数とそれぞれのAI予測（当日以降は破線）、前年実績・予算を表示する。
   // ADR・前年・予算は対応APIが未整備のため実測カーブから決定的に導出したモック値
   const bookingCurveData = useMemo(() => {
     if (!bookingCurve) return []
@@ -137,11 +137,11 @@ export function BookingCurveSection({
       const observed = p.daysBefore >= daysUntilStay
       const next = sorted[idx + 1]
       const isBoundary = observed && !!next && next.daysBefore < daysUntilStay
-      const occ = Math.round(p.occupancy * curveSegment.occFactor * 1000) / 10
+      const occ = Math.round(p.roomsBooked * curveSegment.occFactor)
       const adr = Math.round(((14000 + p.occupancy * 5500) * curveSegment.adrFactor) / 10) * 10
       const progress = maxDays > 0 ? (maxDays - p.daysBefore) / maxDays : 1
-      const lastYearOcc = Math.round(occ * 0.92 * 10) / 10
-      const budgetOcc = Math.round(85 * curveSegment.occFactor * Math.pow(progress, 0.7) * 10) / 10
+      const lastYearOcc = Math.round(occ * 0.92)
+      const budgetOcc = Math.round(bookingCurve.totalRooms * 0.85 * curveSegment.occFactor * Math.pow(progress, 0.7))
       return {
         daysBefore: p.daysBefore,
         occActual: observed ? occ : null,
@@ -170,7 +170,7 @@ export function BookingCurveSection({
                 <p key={index} className="text-xs flex items-center gap-2">
                   <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
                   <span>
-                    {name}: {name.includes("ADR") ? yen(value) : `${value}%`}
+                    {name}: {name.includes("ADR") ? yen(value) : `${value.toLocaleString()}室`}
                   </span>
                 </p>
               )
@@ -333,8 +333,8 @@ export function BookingCurveSection({
                   tick={{ fontSize: 11 }}
                   stroke="currentColor"
                   opacity={0.5}
-                  tickFormatter={(value) => `${value}%`}
-                  label={{ value: '稼働率', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fontSize: 12 } }}
+                  tickFormatter={(value) => `${value}室`}
+                  label={{ value: '稼働室数', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fontSize: 12 } }}
                 />
                 <YAxis
                   yAxisId="right"
@@ -357,15 +357,15 @@ export function BookingCurveSection({
                     label={{ value: "本日", position: "top", fill: "#666", fontSize: 11 }}
                   />
                 )}
-                <Line yAxisId="left" type="monotone" dataKey="occActual" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3 }} name="現在稼働率" connectNulls={false} />
-                <Line yAxisId="left" type="monotone" dataKey="occForecast" stroke="#2563eb" strokeWidth={2.5} strokeDasharray="5 5" dot={false} name="稼働率（AI予測）" connectNulls={false} />
+                <Line yAxisId="left" type="monotone" dataKey="occActual" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3 }} name="現在の稼働室数" connectNulls={false} />
+                <Line yAxisId="left" type="monotone" dataKey="occForecast" stroke="#2563eb" strokeWidth={2.5} strokeDasharray="5 5" dot={false} name="稼働室数（AI予測）" connectNulls={false} />
                 <Line yAxisId="right" type="monotone" dataKey="adrActual" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3 }} name="現在ADR" connectNulls={false} />
                 <Line yAxisId="right" type="monotone" dataKey="adrForecast" stroke="#ef4444" strokeWidth={2.5} strokeDasharray="5 5" dot={false} name="ADR（AI予測）" connectNulls={false} />
-                <Line yAxisId="left" type="monotone" dataKey="lastYearOcc" stroke="#9ca3af" strokeWidth={1.5} strokeDasharray="3 3" dot={false} name="前年稼働率" />
-                <Line yAxisId="left" type="monotone" dataKey="budgetOcc" stroke="#16a34a" strokeWidth={1.5} strokeDasharray="8 4" dot={false} name="予算稼働率" />
+                <Line yAxisId="left" type="monotone" dataKey="lastYearOcc" stroke="#9ca3af" strokeWidth={1.5} strokeDasharray="3 3" dot={false} name="前年の稼働室数" />
+                <Line yAxisId="left" type="monotone" dataKey="budgetOcc" stroke="#16a34a" strokeWidth={1.5} strokeDasharray="8 4" dot={false} name="予算の稼働室数" />
               </LineChart>
             </ResponsiveContainer>
-            <SampleDataNotice detail="稼働率の実測カーブは実データですが、ADR・前年・予算の系列と表示区分（部屋タイプ別・利用人数別）の内訳は対応APIが未実装のためサンプルです。" />
+            <SampleDataNotice detail="稼働室数の実測カーブは実データですが、ADR・前年・予算の系列と表示区分（部屋タイプ別・利用人数別）の内訳は対応APIが未実装のためサンプルです。" />
           </div>
         ) : (
           <div className="text-center py-8 text-sm text-muted-foreground">

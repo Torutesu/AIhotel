@@ -37,4 +37,9 @@ export interface RationaleV1 {
   excluded: Array<{ key: RationaleFactorKey; reason: 'no_data' | 'stale' | 'zero_weight' }>
   /** かかったガードレール（#17）。from → to の順にかかった */
   guardrails: Array<{ key: GuardrailKey; from: number; to: number }>
+  /**
+   * 日のタイプ（日のモデル — 2026-10）と、それに合わせて寄せた重み。型を作れないホテル・この項目を足す前の推奨では無い。
+   * model = 稼働優先（occupancy）・バランス（balanced）・単価優先（adr）
+   */
+  dayType?: { name: string | null; model: 'occupancy' | 'balanced' | 'adr' | null }
 }

@@ -1,145 +1,181 @@
 import { describe, it, expect } from 'vitest'
-import { buildDayTypeTimeline, classifyDayType, gradePace } from './dayType.js'
+import {
+  buildDayTypes,
+  buildDayTypeTimeline,
+  chooseOccupancyClasses,
+  classifyDay,
+  modelForOccupancy,
+  naturalBreaks,
+  shareAtLead,
+  weightsForModel,
+  type DayTypeHistoryDay,
+  type DayTypeProfile,
+} from './dayType.js'
 
-// 日のタイプ（英字 = 着地見込みの需要、数字 = 前年同曜日と比べたペース）
+// 日のタイプ（日のモデル — 2026-10）。平日A型・週末A型・特日A型…のように、区分ごとに過去の結果から型を作り、
+// 先の日は今の予約の入り方に近い型にする（予約が進むと型が変わる）
 
-const d = (s: string) => new Date(`${s}T00:00:00.000Z`)
+const DAY = 86_400_000
+const d = (iso: string) => new Date(`${iso}T00:00:00Z`)
 
-describe('gradePace', () => {
-  it('±5%未満を前年並み（3）にし、境目ちょうどは外側に入れる', () => {
-    expect(gradePace(1.25)).toBe(1)
-    expect(gradePace(1.2)).toBe(1)
-    expect(gradePace(1.19)).toBe(2)
-    expect(gradePace(1.05)).toBe(2)
-    expect(gradePace(1.04)).toBe(3)
-    expect(gradePace(0.96)).toBe(3)
-    expect(gradePace(0.95)).toBe(4)
-    expect(gradePace(0.81)).toBe(4)
-    expect(gradePace(0.8)).toBe(5)
+/** 最終 finalRooms 室の日の、残日数ごとの予約積上（share は最終に対する割合） */
+function curve(stayDate: Date, finalRooms: number, shares: Record<number, number>) {
+  return Object.entries(shares).map(([lead, share]) => ({ stayDate, daysBefore: Number(lead), roomsBooked: Math.round(finalRooms * share) }))
+}
+
+/** 稼働 occupancy の過去の平日（客室100室）を n 日 */
+function days(n: number, occupancy: number, category: DayTypeHistoryDay['category'] = 'weekday', start = '2025-06-01'): DayTypeHistoryDay[] {
+  return Array.from({ length: n }, (_, i) => {
+    const date = new Date(d(start).getTime() + i * DAY)
+    const finalRooms = Math.round(occupancy * 100)
+    return {
+      date,
+      category,
+      occupancy,
+      adr: occupancy > 0.8 ? 22000 : 15000,
+      finalRooms,
+      points: curve(date, finalRooms, { 90: 0.2, 30: 0.6, 7: 0.9, 0: 1 }),
+    }
+  })
+}
+
+describe('naturalBreaks / chooseOccupancyClasses', () => {
+  it('はっきり分かれた値は切れ目で分ける', () => {
+    expect(naturalBreaks([0.5, 0.52, 0.55, 0.9, 0.92, 0.95], 2)).toEqual([[0.5, 0.52, 0.55], [0.9, 0.92, 0.95]])
+  })
+
+  it('ばらつきが小さい・日数が少ない区分は1つの型にする', () => {
+    expect(chooseOccupancyClasses(Array(30).fill(0.7).map((v, i) => v + (i % 3) * 0.005))).toHaveLength(1)
+    expect(chooseOccupancyClasses([0.5, 0.9, 0.6])).toHaveLength(1)
+  })
+
+  it('2つの山がある区分は2つの型に分ける（型の数はデータで決まる）', () => {
+    const values = [...Array(20).fill(0.6), ...Array(15).fill(0.92)].map((v, i) => v + (i % 4) * 0.004)
+    const classes = chooseOccupancyClasses(values)
+    expect(classes).toHaveLength(2)
+    expect(classes[0].every((v) => v < 0.7)).toBe(true)
   })
 })
 
-describe('classifyDayType', () => {
-  const base = { totalRooms: 100 }
+describe('buildDayTypes', () => {
+  const history = [...days(20, 0.6), ...days(15, 0.92, 'weekday', '2025-08-01'), ...days(12, 0.88, 'weekend')]
+  const types = buildDayTypes(history)
 
-  it('今の予約＋前年の残りの伸びで着地を見込み、前年とのペースを数字にする', () => {
-    // 今年 残30日で60室、前年 同時点50室・最終80室 → 着地 60+30=90室（B: 90%はA未満）、ペース 1.2 → 1
-    expect(classifyDayType({ ...base, otbRooms: 60, lastYearOtbRooms: 50, lastYearFinalRooms: 80 })).toEqual({
-      dayType: 'B1',
-      demandGrade: 'B',
-      paceGrade: 1,
-      expectedOccupancy: 0.9,
-      paceRatio: 1.2,
-    })
-    // 今年 40室、前年 同時点50室・最終70室 → 着地 60室（D）、ペース 0.8 → 5
-    expect(classifyDayType({ ...base, otbRooms: 40, lastYearOtbRooms: 50, lastYearFinalRooms: 70 }).dayType).toBe('D5')
+  it('区分ごとに稼働の高い群から A・B と名付け、優先モデルを割り当てる', () => {
+    expect(types.map((t) => t.name)).toEqual(['平日A型', '平日B型', '週末A型'])
+    const [a, b] = types
+    expect(a).toMatchObject({ id: 'weekday-A', days: 15, avgOccupancy: 0.92, model: 'adr', avgAdr: 22000 })
+    expect(b).toMatchObject({ id: 'weekday-B', days: 20, avgOccupancy: 0.6, model: 'occupancy' })
   })
 
-  it('着地見込みは客室数で頭打ちにする', () => {
-    const r = classifyDayType({ ...base, otbRooms: 90, lastYearOtbRooms: 40, lastYearFinalRooms: 95 })
-    expect(r.expectedOccupancy).toBe(1)
-    expect(r.dayType).toBe('A1')
+  it('日はどれか1つの型にだけ入る（同じ稼働率の日が境目の両側に数えられない）', () => {
+    // 満室（100%）が続く日は同じ値が並ぶ。型の日数の合計は区分の日数と一致し、ADR はその型の日だけで出す
+    const tied = [...days(12, 0.6), ...days(8, 1, 'weekday', '2025-08-01'), ...days(8, 1, 'weekday', '2025-09-01')]
+    const built = buildDayTypes(tied)
+    expect(built.reduce((a, t) => a + t.days, 0)).toBe(tied.length)
+    const full = built.find((t) => t.avgOccupancy === 1)
+    expect(full).toMatchObject({ days: 16, avgAdr: 22000 })
+    expect(built.find((t) => t.avgOccupancy === 0.6)).toMatchObject({ days: 12, avgAdr: 15000 })
   })
 
-  it('前年と比べられなければ AI の予測で英字だけを出す（予約済みは下回らない）', () => {
-    expect(classifyDayType({ ...base, otbRooms: 20, lastYearOtbRooms: null, lastYearFinalRooms: null, fallbackOccupancy: 0.7 })).toMatchObject({
-      dayType: 'C',
-      paceGrade: null,
-      paceRatio: null,
-    })
-    expect(classifyDayType({ ...base, otbRooms: 85, lastYearOtbRooms: null, lastYearFinalRooms: null, fallbackOccupancy: 0.6 }).dayType).toBe('B')
+  it('型ごとの典型カーブ（最終に対する予約の割合の中央値）を持つ', () => {
+    expect(types[0].curveShare).toEqual(
+      expect.arrayContaining([
+        { daysBefore: 90, share: expect.closeTo(0.2, 1) },
+        { daysBefore: 30, share: expect.closeTo(0.6, 1) },
+        { daysBefore: 0, share: 1 },
+      ])
+    )
   })
 
-  it('前年の予約が少なすぎるときはペースを出さない', () => {
-    const r = classifyDayType({ ...base, otbRooms: 10, lastYearOtbRooms: 2, lastYearFinalRooms: 60 })
-    expect(r.paceGrade).toBeNull()
-    expect(r.dayType).toBe('C') // 着地は 10 + (60 − 2) = 68室
+  it('稼働に応じて優先モデルを決める（85%以上 = 単価優先、65%以下 = 稼働優先）', () => {
+    expect(modelForOccupancy(0.9)).toBe('adr')
+    expect(modelForOccupancy(0.75)).toBe('balanced')
+    expect(modelForOccupancy(0.6)).toBe('occupancy')
+  })
+})
+
+const profile = (over: Partial<DayTypeProfile>): DayTypeProfile => ({
+  id: 'weekday-A',
+  name: '平日A型',
+  category: 'weekday',
+  letter: 'A',
+  days: 10,
+  avgOccupancy: 0.9,
+  minOccupancy: 0.85,
+  maxOccupancy: 0.95,
+  avgAdr: 20000,
+  model: 'adr',
+  curveShare: [
+    { daysBefore: 90, share: 0.2 },
+    { daysBefore: 30, share: 0.6 },
+    { daysBefore: 0, share: 1 },
+  ],
+  ...over,
+})
+const A = profile({})
+const B = profile({ id: 'weekday-B', name: '平日B型', letter: 'B', avgOccupancy: 0.6, model: 'occupancy' })
+
+describe('shareAtLead / classifyDay', () => {
+  it('典型カーブの間の残日数は直線で補い、範囲外は null', () => {
+    expect(shareAtLead(A, 60)).toBe(0.4)
+    expect(shareAtLead(A, 200)).toBeNull()
   })
 
-  it('何も分からなければ null', () => {
-    expect(classifyDayType({ ...base, otbRooms: null, lastYearOtbRooms: null, lastYearFinalRooms: null }).dayType).toBeNull()
-    expect(classifyDayType({ totalRooms: 0, otbRooms: 5, lastYearOtbRooms: 5, lastYearFinalRooms: 5 }).dayType).toBeNull()
+  it('予約の記録があれば、その残日数の典型の予約室数に近い型にする', () => {
+    // 30日前の典型: A = 0.6 × 90室 = 54室、B = 0.6 × 60室 = 36室
+    expect(classifyDay({ types: [A, B], lead: 30, totalRooms: 100, otbRooms: 50 })?.name).toBe('平日A型')
+    expect(classifyDay({ types: [A, B], lead: 30, totalRooms: 100, otbRooms: 38 })?.name).toBe('平日B型')
+  })
+
+  it('結果の出た日は最終の稼働率、記録の無い日は予測稼働率で決める', () => {
+    expect(classifyDay({ types: [A, B], lead: 0, totalRooms: 100, otbRooms: 88, finalOccupancy: 0.88 })?.name).toBe('平日A型')
+    expect(classifyDay({ types: [A, B], lead: 200, totalRooms: 100, otbRooms: null, predictedOccupancy: 0.65 })?.name).toBe('平日B型')
+  })
+
+  it('型が無い（過去の実績が足りない）日は null', () => {
+    expect(classifyDay({ types: [], lead: 10, totalRooms: 100, otbRooms: 10 })).toBeNull()
   })
 })
 
 describe('buildDayTypeTimeline', () => {
-  const totalRooms = 100
-  // 前年同曜日: 90日前20室 → 30日前50室 → 7日前70室 → 最終80室
-  const lastYearPoints = [
-    { stayDate: d('2025-11-21'), daysBefore: 90, roomsBooked: 20 },
-    { stayDate: d('2025-11-21'), daysBefore: 30, roomsBooked: 50 },
-    { stayDate: d('2025-11-21'), daysBefore: 7, roomsBooked: 70 },
-  ]
   const stayDate = d('2026-11-20')
-  const points = [
-    { stayDate, daysBefore: 90, roomsBooked: 24 },
-    { stayDate, daysBefore: 30, roomsBooked: 45 },
-    { stayDate, daysBefore: 10, roomsBooked: 52 },
-  ]
+  const today = d('2026-10-21') // 30日前
 
-  it('今より前の残日数だけを履歴にし、今のタイプは直近の予約で出す', () => {
-    const t = buildDayTypeTimeline({
-      stayDate,
-      today: d('2026-11-10'), // 残10日
-      totalRooms,
-      points,
-      lastYearPoints,
-      lastYearFinalRooms: 80,
-      actualSoldRooms: null,
-      predictedOccupancy: 0.7,
-    })
-    expect(t.history.map((h) => h.daysBefore)).toEqual([90, 60, 30, 14])
-    // 90日前: 24室 vs 20室（1.2 → 1）、着地 24+60=84 → B
-    expect(t.history[0]).toEqual({ daysBefore: 90, dayType: 'B1', otbRooms: 24, paceRatio: 1.2 })
-    // 60日前・14日前は記録が無い（前後3日以内に予約の記録が無い）
-    expect(t.history[1].dayType).toBeNull()
-    expect(t.history[3].dayType).toBeNull()
-    // 30日前: 45 vs 50（0.9 → 4）、着地 45+30=75 → C
-    expect(t.history[2].dayType).toBe('C4')
-    // 今（残10日）: 前年の残10日に近い記録は無い → AI の予測（70% → C）で英字だけ
-    expect(t.current.dayType).toBe('C')
+  it('予約の入り方で型が変わり、推移に残る（90日前は B の入り方 → 今は A の入り方）', () => {
+    const points = [
+      { stayDate, daysBefore: 90, roomsBooked: 12 }, // B の典型 12室・A の典型 18室 → B
+      { stayDate, daysBefore: 60, roomsBooked: 32 }, // A の典型 36室・B 24室 → A
+      { stayDate, daysBefore: 30, roomsBooked: 55 },
+    ]
+    const t = buildDayTypeTimeline({ stayDate, today, totalRooms: 100, types: [A, B], points, actualSoldRooms: null, predictedOccupancy: 0.8 })
+    expect(t.history).toEqual([
+      { daysBefore: 90, dayType: '平日B型', otbRooms: 12 },
+      { daysBefore: 60, dayType: '平日A型', otbRooms: 32 },
+    ])
+    expect(t.current).toEqual({ id: 'weekday-A', name: '平日A型', model: 'adr', typicalOccupancy: 0.9 })
   })
 
-  it('宿泊日を過ぎた日は結果（販売室数）で判定し、残日数0の前年は前年の結果と比べる', () => {
-    const t = buildDayTypeTimeline({
-      stayDate,
-      today: d('2026-11-25'),
-      totalRooms,
-      points,
-      lastYearPoints,
-      lastYearFinalRooms: 80,
-      actualSoldRooms: 92,
-      predictedOccupancy: 0.7,
-    })
-    expect(t.history.map((h) => h.daysBefore)).toEqual([90, 60, 30, 14, 7, 3, 1, 0])
-    expect(t.history.at(-1)).toEqual({ daysBefore: 0, dayType: 'A2', otbRooms: 92, paceRatio: 1.15 })
-    // 92 vs 80 = 1.15 → 2。着地は結果そのもの（92%）→ A
-    expect(t.current).toMatchObject({ dayType: 'A2', expectedOccupancy: 0.92 })
-  })
-
-  it('当日でも結果（販売室数）が入っていれば結果で判定する', () => {
-    const today = { stayDate, today: stayDate, totalRooms, lastYearPoints, lastYearFinalRooms: 80, predictedOccupancy: 0.7 }
-    const withToday = [...points, { stayDate, daysBefore: 0, roomsBooked: 60 }]
-    expect(buildDayTypeTimeline({ ...today, points: withToday, actualSoldRooms: 92 }).current).toMatchObject({ dayType: 'A2', expectedOccupancy: 0.92 })
-    // 結果がまだ無ければ今日の取り込み（60室）で見る
-    expect(buildDayTypeTimeline({ ...today, points: withToday, actualSoldRooms: null }).current.expectedOccupancy).toBe(0.6)
-  })
-
-  it('結果の出た日は、前年に当日直前の予約の記録があっても前年の結果と比べる（着地を結果より高く見ない）', () => {
-    const stay = d('2026-10-10')
-    const t = buildDayTypeTimeline({
-      stayDate: stay,
-      today: d('2026-10-15'),
-      totalRooms: 100,
-      points: [{ stayDate: stay, daysBefore: 1, roomsBooked: 75 }],
-      // 前年は1日前に60室、結果80室
-      lastYearPoints: [{ stayDate: d('2025-10-11'), daysBefore: 1, roomsBooked: 60 }],
-      lastYearFinalRooms: 80,
-      actualSoldRooms: 80,
-      predictedOccupancy: 0.7,
-    })
-    expect(t.current).toMatchObject({ dayType: 'C3', expectedOccupancy: 0.8, paceRatio: 1 })
-    expect(t.history.at(-1)).toMatchObject({ daysBefore: 0, dayType: 'C3', otbRooms: 80 })
+  it('結果の出た日は結果で決め、推移の「当日」も結果', () => {
+    const past = d('2026-10-10')
+    const points = [{ stayDate: past, daysBefore: 30, roomsBooked: 40 }]
+    const t = buildDayTypeTimeline({ stayDate: past, today, totalRooms: 100, types: [A, B], points, actualSoldRooms: 62, predictedOccupancy: 0.9 })
+    expect(t.current?.name).toBe('平日B型')
+    expect(t.history.at(-1)).toEqual({ daysBefore: 0, dayType: '平日B型', otbRooms: 62 })
   })
 })
 
+describe('weightsForModel', () => {
+  const base = { weightOccupancy: 40, weightAdr: 40, weightCompetitor: 20 }
+  it('稼働優先は単価の重みから、単価優先は稼働の重みから 20 ポイント移す（合計は 100 のまま）', () => {
+    expect(weightsForModel(base, 'occupancy')).toEqual({ weightOccupancy: 60, weightAdr: 20, weightCompetitor: 20 })
+    expect(weightsForModel(base, 'adr')).toEqual({ weightOccupancy: 20, weightAdr: 60, weightCompetitor: 20 })
+    expect(weightsForModel(base, 'balanced')).toEqual(base)
+    // 移せる重みが無ければ動かさない
+    expect(weightsForModel({ weightOccupancy: 100, weightAdr: 0, weightCompetitor: 0 }, 'occupancy')).toEqual({
+      weightOccupancy: 100,
+      weightAdr: 0,
+      weightCompetitor: 0,
+    })
+  })
+})

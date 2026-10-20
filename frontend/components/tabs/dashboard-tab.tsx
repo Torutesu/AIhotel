@@ -17,7 +17,6 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { AlertsCard } from "@/components/dashboard/alerts-card"
 import { AiSummaryCard } from "@/components/dashboard/ai-summary-card"
-import { TrendChartCard } from "@/components/dashboard/trend-chart-card"
 import { KpiComparisonSection } from "@/components/dashboard/kpi-comparison-section"
 import { KpiProgressSection, ALL_KPI_KEYS } from "@/components/dashboard/kpi-progress-section"
 import { InventoryTableCard } from "@/components/dashboard/inventory-table-card"
@@ -34,7 +33,7 @@ interface DashboardTabProps {
 /**
  * ダッシュボードに表示するアラートの最小レベル（F-DASH-05）。
  * 重要度は1〜5の5段階で管理し、ダッシュボードにはLevel 5・4のみを表示する。
- * Level 3以下は各分析画面側で確認する運用。
+ * Level 3以下は画面に出さない（2026-10: 分析タブのアラート欄は不要との指示で外した）。
  */
 const DASHBOARD_MIN_ALERT_LEVEL = 4
 
@@ -105,7 +104,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       ? async () => {
           const [kpi, alerts, aiSummary] = await Promise.all([
             api.dashboardKpi(hotelId, year, month),
-            // ダッシュボードはLevel 5・4のみ表示（F-DASH-05）。Level 3以下は各分析画面で確認する
+            // ダッシュボードはLevel 5・4のみ表示（F-DASH-05）
             api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL),
             api.aiSummary(hotelId),
           ])
@@ -183,9 +182,7 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
 
         <AiSummaryCard summary={aiSummary} loading={loading} />
 
-        <TrendChartCard kpi={kpi} loading={loading} year={year} month={month} />
-
-        {/* OCC・ADR月間BCグラフ（DB01 — GET /daily/booking-curve） */}
+        {/* 稼働・ADR月間推移（PDF a01・xlsx DB01: 左軸＝室数・右軸＝ADR の積み上げ折れ線 — GET /daily/booking-curve） */}
         <BookingCurveMonthCard year={year} month={month} />
 
         {/* 月初比較・日付比較（U-5 — GET /dashboard/kpi/comparison） */}

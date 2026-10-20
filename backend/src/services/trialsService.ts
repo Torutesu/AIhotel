@@ -153,6 +153,7 @@ export async function createTrialService(
         prefectureCode: '13',
         municipalityCode: '131016',
         marketArea: '丸の内',
+        saleOpenDaysBefore: 330,
       },
     })
     await tx.user.create({
