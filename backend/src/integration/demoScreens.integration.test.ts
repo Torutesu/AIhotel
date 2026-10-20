@@ -300,6 +300,34 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
       expect((await get('/api/v1/analysis/month-pace', tokens.otherManager, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })).status).toBe(403)
     })
 
+    it('先の日は予約実数（今の予約室数）を返す（PDF c分析01実績推移2 — 未来は予約実数と AI 想定値を分けて表示）', async () => {
+      const res = await get('/api/v1/analysis/daily-performance', tokens.operator, { hotelId: HOTEL_A, year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 })
+      const day15 = res.body.data.days[14]
+      expect(day15.actual).toBeNull()
+      expect(day15.onHand).toEqual({ soldRooms: 36, occupancy: 0.36, adr: null, revPar: null, revenue: null })
+      // 予約積上の記録の無い日は予約実数なし
+      expect(res.body.data.days[0].onHand).toBeNull()
+    })
+
+    it('曜日別・日のタイプ別: 当月以降は実績＋予約で数え、前年同曜日の実績も返す', async () => {
+      const dow = await get('/api/v1/analysis/day-of-week', tokens.operator, { hotelId: HOTEL_A, year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 })
+      expect(dow.status, JSON.stringify(dow.body)).toBe(200)
+      const targetRow = dow.body.data.days.find((r: { dayOfWeek: number }) => r.dayOfWeek === target.getUTCDay())
+      expect(targetRow).toMatchObject({ days: 1, actualDays: 0, soldRooms: 36, onHandRooms: 36 })
+      expect(targetRow.dates).toEqual([iso(target)])
+      expect(targetRow.lastYear).toMatchObject({ days: 1, soldRooms: 80 })
+
+      const byType = await get('/api/v1/analysis/day-type', tokens.operator, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })
+      expect(byType.status, JSON.stringify(byType.body)).toBe(200)
+      const types = byType.body.data.types as Array<{ dayType: string; days: number; dates: string[]; soldRooms: number }>
+      expect(types.length).toBeGreaterThan(0)
+      for (const t of types) expect(t.dayType).toMatch(/^(平日|週末|特日)[A-D]型$/)
+      // 先月は全日が結果（60室）→ どの日もどれかの型に入り、日数の合計は月の日数
+      expect(types.reduce((a, t) => a + t.days, 0) + byType.body.data.untypedDays).toBe(daysIn(prev))
+      expect(types.reduce((a, t) => a + t.soldRooms, 0)).toBe(60 * (daysIn(prev) - byType.body.data.untypedDays))
+      expect((await get('/api/v1/analysis/day-type', tokens.otherManager, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })).status).toBe(403)
+    })
+
     it('他テナントは 403', async () => {
       const res = await get('/api/v1/analysis/daily-performance', tokens.otherManager, { hotelId: HOTEL_A, year: prev.getUTCFullYear(), month: prev.getUTCMonth() + 1 })
       expect(res.status).toBe(403)

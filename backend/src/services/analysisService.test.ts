@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { aggregateChannels, aggregateDayOfWeek, aggregateRoomTypes } from './analysisService.js'
+import { aggregateChannels, aggregateRoomTypes, onHandMetrics } from './analysisService.js'
 
 const d = (y: number, m: number, day: number) => new Date(Date.UTC(y, m - 1, day))
 
@@ -41,22 +41,13 @@ describe('aggregateRoomTypes（#88）', () => {
   })
 })
 
-describe('aggregateDayOfWeek（#88）', () => {
-  it('曜日ごとに集計し、週末はホテルの週末定義で判定する', () => {
-    // 2026-09-04（金）と 2026-09-11（金）、2026-09-06（日）
-    const rows = aggregateDayOfWeek(
-      [
-        { date: d(2026, 9, 4), soldRooms: 90, totalRevenue: 2_250_000 },
-        { date: d(2026, 9, 11), soldRooms: 70, totalRevenue: 1_750_000 },
-        { date: d(2026, 9, 6), soldRooms: 40, totalRevenue: 600_000 },
-      ],
-      100,
-      [5, 6]
-    )
-    expect(rows[5]).toEqual({
-      dayOfWeek: 5, isWeekend: true, days: 2, soldRooms: 160, revenue: 4_000_000, occupancy: 0.8, adr: 25_000, revPar: 20_000,
-    })
-    expect(rows[0]).toMatchObject({ isWeekend: false, days: 1, occupancy: 0.4 })
-    expect(rows[1]).toMatchObject({ days: 0, occupancy: null, adr: null })
+describe('onHandMetrics（予約実数 — 2026-10）', () => {
+  it('結果の出ていない日は今の予約室数を返し、過去の日・記録の無い日は null', () => {
+    const today = d(2026, 10, 20)
+    const stay = d(2026, 10, 25)
+    const points = [{ stayDate: stay, daysBefore: 5, roomsBooked: 42 }]
+    expect(onHandMetrics(stay, today, points, 100)).toEqual({ soldRooms: 42, occupancy: 0.42, adr: null, revPar: null, revenue: null })
+    expect(onHandMetrics(d(2026, 10, 19), today, points, 100)).toBeNull()
+    expect(onHandMetrics(stay, today, [], 100)).toBeNull()
   })
 })

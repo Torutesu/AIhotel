@@ -1,9 +1,9 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
-import { DEFAULT_WEEKEND_DAYS, monthRange, todayJst } from '../lib/date.js'
+import { eachUtcDay, monthRange, todayJst } from '../lib/date.js'
 import { loadMonthContext } from './dayContextService.js'
-import { lastYearSameWeekday } from './forecast/pace.js'
+import { lastYearSameWeekday, leadDaysBetween, otbAtLead, type BookingCurvePoint } from './forecast/pace.js'
 import { buildMonthPace } from './monthPace.js'
 import { monthBudgetRooms } from './budgetAllocation.js'
 
@@ -238,54 +238,6 @@ export async function getRoomTypeBreakdownService(hotelId: string, year: number,
   return { hotelId, year, month, actualDays, roomTypes: aggregateRoomTypes(roomTypes, rows, actualDays) }
 }
 
-export interface DayOfWeekRow {
-  /** 0=日〜6=土 */
-  dayOfWeek: number
-  isWeekend: boolean
-  days: number
-  soldRooms: number
-  revenue: number
-  occupancy: number | null
-  adr: number | null
-  revPar: number | null
-}
-
-/** 曜日別の集計（純関数）。週末は Hotel.weekendDays で判定する（ハードコードしない） */
-export function aggregateDayOfWeek(
-  rows: Array<{ date: Date; soldRooms: number | null; totalRevenue: number | null }>,
-  totalRooms: number,
-  weekendDays: number[]
-): DayOfWeekRow[] {
-  return [0, 1, 2, 3, 4, 5, 6].map((dow) => {
-    const mine = rows.filter((r) => r.date.getUTCDay() === dow && r.totalRevenue != null)
-    const soldRooms = mine.reduce((a, r) => a + (r.soldRooms ?? 0), 0)
-    const revenue = mine.reduce((a, r) => a + (r.totalRevenue ?? 0), 0)
-    const roomNights = totalRooms * mine.length
-    return {
-      dayOfWeek: dow,
-      isWeekend: weekendDays.includes(dow),
-      days: mine.length,
-      soldRooms,
-      revenue: Math.round(revenue),
-      occupancy: roomNights > 0 ? Math.round((soldRooms / roomNights) * 1000) / 1000 : null,
-      adr: soldRooms > 0 ? Math.round(revenue / soldRooms) : null,
-      revPar: roomNights > 0 ? Math.round(revenue / roomNights) : null,
-    }
-  })
-}
-
-export async function getDayOfWeekBreakdownService(hotelId: string, year: number, month: number) {
-  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
-  if (!hotel) throw new NotFoundError('ホテル')
-  const { start, end } = monthRange(year, month)
-  const rows = await prisma.dailyData.findMany({
-    where: { hotelId, date: { gte: start, lt: end } },
-    select: { date: true, soldRooms: true, totalRevenue: true },
-  })
-  const weekendDays = Array.isArray(hotel.weekendDays) ? (hotel.weekendDays as number[]) : [...DEFAULT_WEEKEND_DAYS]
-  return { hotelId, year, month, days: aggregateDayOfWeek(rows, hotel.totalRooms, weekendDays) }
-}
-
 // ======================================
 // 日別パフォーマンス（2026-10 の画面修正: 実績・予算差異・AI想定差異・前年比）
 // ======================================
@@ -317,6 +269,15 @@ export function aiDayMetrics(
   }
 }
 
+/** 結果の出ていない日の予約実数（今の予約室数。今日より前の日・記録の無い日は null）。純関数 */
+export function onHandMetrics(day: Date, today: Date, points: BookingCurvePoint[], totalRooms: number): DayMetrics | null {
+  const lead = leadDaysBetween(today, day)
+  if (lead < 0) return null
+  const rooms = otbAtLead(points, lead)
+  if (rooms == null) return null
+  return { soldRooms: rooms, occupancy: totalRooms > 0 ? Math.round((rooms / totalRooms) * 1000) / 1000 : null, adr: null, revPar: null, revenue: null }
+}
+
 /**
  * 対象月の日ごとの実績と、比べる相手（日割り予算・AI の予測・前年同曜日の実績）。
  * 実績はまだ結果の出ていない日は null。AI の予測は推奨を作った日だけ（過去の日の推奨は再計算しても残る）
@@ -327,8 +288,11 @@ export async function getDailyPerformanceService(hotelId: string, year: number, 
   const totalRooms = hotel.totalRooms
   const { start, end } = monthRange(year, month)
 
+  const today = todayJst()
+  // 先の日の今の予約室数（予約実数）を出すため、今日以降の宿泊日の予約積上だけ読む
+  const future = eachUtcDay(start, end).filter((d) => d >= today)
   const [context, actuals, recommendations] = await Promise.all([
-    loadMonthContext(hotelId, totalRooms, year, month, { curves: 'none' }),
+    loadMonthContext(hotelId, totalRooms, year, month, { curves: future }),
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: start, lt: end } },
       select: { date: true, soldRooms: true, occupancy: true, adr: true, revPar: true, totalRevenue: true },
@@ -358,6 +322,8 @@ export async function getDailyPerformanceService(hotelId: string, year: number, 
             revenue: actual.totalRevenue == null ? null : Math.round(actual.totalRevenue),
           }
         : null,
+      // 予約実数（結果の出ていない日の今の予約室数）。予約の単価・売上は PMS 連携後
+      onHand: actual ? null : onHandMetrics(day, today, context.curves.get(day.getTime()) ?? [], totalRooms),
       budget: { soldRooms: budget.rooms, occupancy: budget.occupancy, adr: budget.adr, revPar: budget.revPar, revenue: budget.revenue },
       ai: aiDayMetrics(recByDate.get(day.getTime()), totalRooms),
       lastYearDate: lastYearDate.toISOString().slice(0, 10),

@@ -7,10 +7,10 @@ import {
   getReviewScoresService,
   getChannelBreakdownService,
   getRoomTypeBreakdownService,
-  getDayOfWeekBreakdownService,
   getDailyPerformanceService,
   getMonthPaceService,
 } from '../services/analysisService.js'
+import { getDayOfWeekBreakdownService, getDayTypeBreakdownService } from '../services/monthPerformance.js'
 
 /**
  * 年間推移（月単位 — F-ANA-03）
@@ -67,7 +67,7 @@ export const getRoomTypeBreakdown = asyncHandler(async (req: Request, res: Respo
 })
 
 /**
- * 曜日別の実績（#88）
+ * 曜日別パフォーマンス（#88。2026-10: 当月以降は実績＋予約、前年同曜日との比較）
  * GET /api/v1/analysis/day-of-week?hotelId=&year=&month=
  */
 export const getDayOfWeekBreakdown = asyncHandler(async (req: Request, res: Response) => {
@@ -91,4 +91,13 @@ export const getDailyPerformance = asyncHandler(async (req: Request, res: Respon
 export const getMonthPace = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId, year, month } = req.query as unknown as MonthQuery
   sendSuccess(res, await getMonthPaceService(hotelId, year, month))
+})
+
+/**
+ * 日のタイプ別パフォーマンス（平日A型など — 2026-10 PDF c分析01実績推移2）
+ * GET /api/v1/analysis/day-type?hotelId=&year=&month=
+ */
+export const getDayTypeBreakdown = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as MonthQuery
+  sendSuccess(res, await getDayTypeBreakdownService(hotelId, year, month))
 })
