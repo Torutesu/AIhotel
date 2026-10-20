@@ -223,6 +223,8 @@ export const updateHotelSettingsSchema = z.object({
   prefectureCode: hotelBaseSchema.shape.prefectureCode,
   municipalityCode: hotelBaseSchema.shape.municipalityCode,
   marketArea: hotelBaseSchema.shape.marketArea,
+  // 販売開始（宿泊日の何日前 — 2026-10 PDF b04）。null で未設定に戻す
+  saleOpenDaysBefore: z.number().int().min(1, '販売開始は1日前以上で指定してください').max(540, '販売開始は540日前以下で指定してください').nullable().optional(),
 }).refine(municipalityMatchesPrefecture, municipalityMismatch)
 
 // ======================================

@@ -514,47 +514,5 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
         await prisma.dailyData.deleteMany({ where: { hotelId: HOTEL, date: lastYear } })
       }
     })
-
-    it('販売開始チェック: 前年同曜日のADRを割る日を数え、前年の特殊日は比べない', async () => {
-      await setWeights(0, 100, 0) // 予測ADRは 47,000円前後
-      const year = today.getUTCMonth() === 11 ? today.getUTCFullYear() + 1 : today.getUTCFullYear()
-      const month = ((today.getUTCMonth() + 1) % 12) + 1 // 来月
-      const first = new Date(Date.UTC(year, month - 1, 1))
-      const days = new Date(Date.UTC(year, month, 0)).getUTCDate()
-      const lastYearDates = Array.from({ length: days }, (_, i) => addUtcDays(addUtcDays(first, i), -364))
-      // 前年同曜日の実績 ADR を高く置く（推奨は前年割れになる）。1日目の前年同曜日は特殊日にする
-      await prisma.dailyData.createMany({
-        data: lastYearDates.map((date) => ({ tenantId: TENANT, hotelId: HOTEL, date, adr: 100_000, soldRooms: 50, totalRevenue: 5_000_000 })),
-        skipDuplicates: true,
-      })
-      await prisma.event.create({
-        data: { tenantId: TENANT, hotelId: HOTEL, name: '前年の年末年始', type: 'holiday', startDate: lastYearDates[0], endDate: lastYearDates[0], excludeFromHistory: true },
-      })
-      try {
-        const res = await request(app)
-          .get('/api/v1/pricing/sale-open-check')
-          .query({ hotelId: HOTEL, year, month })
-          .set(auth())
-        expect(res.status, JSON.stringify(res.body)).toBe(200)
-        const { days: rows, summary } = res.body.data
-        expect(rows).toHaveLength(days)
-        expect(rows[0].status).toBe('no_comparison')
-        expect(rows.slice(1).every((d: { status: string }) => d.status === 'below_last_year')).toBe(true)
-        expect(summary).toMatchObject({ belowLastYearDays: days - 1, comparableDays: days - 1, verdict: 'review' })
-
-        // 推奨は保存しない（料金カレンダーは変わらない）
-        const saved = await prisma.aiPriceRecommendation.count({ where: { hotelId: HOTEL, date: { gte: first } } })
-        expect(saved).toBe(0)
-
-        const past = await request(app)
-          .get('/api/v1/pricing/sale-open-check')
-          .query({ hotelId: HOTEL, year: today.getUTCFullYear() - 1, month: 1 })
-          .set(auth())
-        expect(past.status).toBe(400)
-      } finally {
-        await prisma.dailyData.deleteMany({ where: { hotelId: HOTEL, date: { in: lastYearDates } } })
-        await prisma.event.deleteMany({ where: { hotelId: HOTEL } })
-      }
-    })
   })
 })

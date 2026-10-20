@@ -16,7 +16,6 @@ import {
   deletePriceBoundService,
 } from '../services/pricingService.js'
 import { recomputeForecastService } from '../services/forecast/forecastService.js'
-import { getSaleOpenCheckService } from '../services/saleOpenCheckService.js'
 import { getDayInsightService, getDaySimulationService } from '../services/dayInsightService.js'
 import type { CreatePriceBoundInput, CreatePricingLockInput, MonthTargetInput, UpdateStrategyInput } from '../lib/validators.js'
 
@@ -215,15 +214,6 @@ export const deletePriceBound = asyncHandler(async (req: Request, res: Response)
     userAgent: req.headers['user-agent'],
   })
   sendDeleted(res)
-})
-
-/**
- * 販売開始チェック（D-11）。対象月の推奨（保存しない試算）を前年同曜日・前年同月・予算の ADR と比べる
- * GET /api/v1/pricing/sale-open-check?hotelId=&year=&month=
- */
-export const getSaleOpenCheck = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId, year, month } = req.query as unknown as { hotelId: string; year: number; month: number }
-  sendSuccess(res, await getSaleOpenCheckService(hotelId, year, month))
 })
 
 /**

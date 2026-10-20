@@ -26,7 +26,6 @@ import {
   getPriceBounds,
   createPriceBound,
   deletePriceBound,
-  getSaleOpenCheck,
   getDayInsight,
   getDaySimulation,
 } from '../controllers/pricingController.js'
@@ -143,14 +142,6 @@ pricingRouter.delete(
   deletePriceBound
 )
 
-// 販売開始チェック（D-11）。閲覧のみ（推奨は保存しない）なので全ロール
-// GET /api/v1/pricing/sale-open-check?hotelId=&year=&month=
-pricingRouter.get(
-  '/sale-open-check',
-  validate(monthQuerySchema, 'query'),
-  requireHotelAccess((req) => req.query.hotelId),
-  getSaleOpenCheck
-)
 
 // 日のAI分析（2026-10）。閲覧と保存しない試算なので全ロール
 // GET /api/v1/pricing/day-insight?hotelId=&date=

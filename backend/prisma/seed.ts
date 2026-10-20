@@ -42,6 +42,8 @@ async function main() {
     prefectureCode: '13',
     municipalityCode: '131016', // 千代田区
     marketArea: '丸の内',
+    // 販売開始は宿泊日の330日前（2026-10 PDF b04 の例）
+    saleOpenDaysBefore: 330,
   }
   const hotel = await prisma.hotel.upsert({
     where: { id: HOTEL_ID },

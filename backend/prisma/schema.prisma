@@ -182,6 +182,8 @@ model Hotel {
   municipalityCode String?
   // 観光エリア名（任意。例: 箱根、湯布院）
   marketArea       String?
+  // 販売開始: 宿泊日の何日前から売り始めるか（ホテル単位で固定。例 330・300・180 — 2026-10 PDF b04）。未設定は null
+  saleOpenDaysBefore Int?
   isActive         Boolean    @default(true)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt

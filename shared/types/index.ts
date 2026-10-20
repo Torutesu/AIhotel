@@ -122,6 +122,8 @@ export interface Hotel {
   prefectureCode: string | null
   municipalityCode: string | null
   marketArea: string | null
+  /** 販売開始: 宿泊日の何日前から売り始めるか（ホテル単位で固定 — 2026-10）。未設定は null */
+  saleOpenDaysBefore: number | null
   isActive: boolean
   createdAt: Date
   updatedAt: Date
