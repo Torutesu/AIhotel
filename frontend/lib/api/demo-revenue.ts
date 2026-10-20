@@ -2,7 +2,7 @@
 // 料金カレンダーの予算・オンハンド・日のタイプ、ブッキングカーブの参考カーブ・予算・料金履歴、
 // 日別パフォーマンス、周辺の新規ホテル、イベントの取り込みを、バックエンドと同じ形で返す。
 // NEXT_PUBLIC_DEMO_MODE=true でバックエンドに接続できないときだけ使われる（実データではない）。
-// 日のタイプの判定の正は backend/src/services/forecast/dayType.ts。ここはデモ表示のための同じ考え方の簡易版。
+// 日のタイプの判定の正は backend/src/services/forecast/dayType.ts。ここはデモ表示のための同じ手順の簡易版（型は固定）。
 
 import type { Event as HotelEvent } from "@shared/types"
 import { createSeededRandom } from "@/lib/format"
@@ -13,6 +13,8 @@ import {
   mockBudgetValues,
   mockDaysInMonth,
   mockSeasonBoost,
+  mockRankToPrice1P,
+  mockStrategy,
   setMockEvents,
   toLocalDateStr,
   mockPricingCalendar,
@@ -21,7 +23,9 @@ import type {
   BookingCurve,
   BookingCurvePoint,
   DailyPerformance,
+  DayInsight,
   DayMetrics,
+  DayModel,
   DayTypeHistoryPoint,
   EventImportRow,
   ImportResult,
@@ -29,6 +33,7 @@ import type {
   NewHotelInput,
   NewHotelOpening,
   PricingCalendar,
+  DaySimulation,
 } from "./types"
 
 const DAY_MS = 86_400_000
@@ -49,41 +54,49 @@ function curveProgress(lead: number, weekend: boolean): number {
   return Math.pow(1 - lead / 190, weekend ? 1.5 : 1.9)
 }
 
-function grade(occupancy: number): string {
-  if (occupancy > 0.9) return "A"
-  if (occupancy > 0.8) return "B"
-  if (occupancy > 0.65) return "C"
-  if (occupancy > 0.5) return "D"
-  return "E"
+export type DemoDayCategory = "平日" | "週末" | "特日"
+
+/** デモの日のタイプ。実データではバックエンドが過去の結果から型を作る（型の数もデータで決まる）。デモは固定の型を使う */
+export const MOCK_DAY_TYPES: Array<{ name: string; category: DemoDayCategory; avgOccupancy: number; avgAdr: number; model: DayModel }> = [
+  { name: "平日A型", category: "平日", avgOccupancy: 0.82, avgAdr: 18_400, model: "balanced" },
+  { name: "平日B型", category: "平日", avgOccupancy: 0.7, avgAdr: 16_600, model: "balanced" },
+  { name: "平日C型", category: "平日", avgOccupancy: 0.58, avgAdr: 15_200, model: "occupancy" },
+  { name: "週末A型", category: "週末", avgOccupancy: 0.93, avgAdr: 25_800, model: "adr" },
+  { name: "週末B型", category: "週末", avgOccupancy: 0.82, avgAdr: 22_300, model: "balanced" },
+  { name: "特日A型", category: "特日", avgOccupancy: 0.95, avgAdr: 28_500, model: "adr" },
+]
+
+/** 特日（祝日・お盆・年末年始・GW。画面の曜日欄の色と同じ一覧）・週末・平日 */
+export function demoDayCategory(date: Date): DemoDayCategory {
+  const m = date.getMonth() + 1
+  const d = date.getDate()
+  const holidays = ["1-1", "2-11", "2-23", "4-29", "5-3", "5-4", "5-5", "8-11", "11-3", "11-23"]
+  const special =
+    holidays.includes(`${m}-${d}`) || (m === 8 && d >= 13 && d <= 16) || (m === 12 && d >= 29) || (m === 1 && d <= 3) || (m === 4 && d >= 29) || (m === 5 && d <= 5)
+  if (special) return "特日"
+  return isMockWeekend(date) ? "週末" : "平日"
 }
 
-function gradePace(ratio: number): number {
-  if (ratio >= 1.2) return 1
-  if (ratio >= 1.05) return 2
-  if (ratio > 0.95) return 3
-  if (ratio > 0.8) return 4
-  return 5
-}
-
-/** 日のタイプ（英字 = 着地見込みの需要、数字 = 前年同曜日と比べたペース） */
-export function demoDayType(
-  otb: number | null,
-  lastYearOtb: number | null,
-  lastYearFinal: number | null,
-  totalRooms: number,
-  fallbackOccupancy: number | null = null,
-): { dayType: string | null; expectedOccupancy: number | null; paceRatio: number | null } {
-  const paceRatio = otb != null && lastYearOtb != null && lastYearOtb >= 3 ? otb / lastYearOtb : null
-  let expected: number | null = null
-  if (otb != null && lastYearOtb != null && lastYearFinal != null) expected = otb + Math.max(0, lastYearFinal - lastYearOtb)
-  else if (fallbackOccupancy != null) expected = Math.max(otb ?? 0, fallbackOccupancy * totalRooms)
-  if (expected == null || totalRooms <= 0) return { dayType: null, expectedOccupancy: null, paceRatio: null }
-  const expectedOccupancy = Math.round(Math.min(1, expected / totalRooms) * 1000) / 1000
-  return {
-    dayType: `${grade(expectedOccupancy)}${paceRatio == null ? "" : gradePace(paceRatio)}`,
-    expectedOccupancy,
-    paceRatio: paceRatio == null ? null : Math.round(paceRatio * 100) / 100,
+/**
+ * デモの日のタイプの判定（バックエンドの classifyDay と同じ手順）。
+ * 結果があれば最終の稼働率、予約の記録があればその残日数の典型の予約室数との近さ、無ければ予測稼働率で一番近い型
+ */
+export function demoClassifyDay(
+  stay: Date,
+  input: { lead: number; otbRooms: number | null; finalRooms?: number | null; predictedOccupancy?: number | null },
+): (typeof MOCK_DAY_TYPES)[number] | null {
+  const totalRooms = MOCK_HOTEL.totalRooms
+  const types = MOCK_DAY_TYPES.filter((t) => t.category === demoDayCategory(stay))
+  if (types.length === 0) return null
+  const nearestBy = (value: (t: (typeof types)[number]) => number, target: number) =>
+    types.reduce((best, t) => (Math.abs(value(t) - target) < Math.abs(value(best) - target) ? t : best))
+  if (input.finalRooms != null) return nearestBy((t) => t.avgOccupancy, input.finalRooms / totalRooms)
+  if (input.otbRooms != null && input.lead < 190) {
+    const share = curveProgress(input.lead, isMockWeekend(stay))
+    return nearestBy((t) => share * t.avgOccupancy * totalRooms, input.otbRooms)
   }
+  if (input.predictedOccupancy != null) return nearestBy((t) => t.avgOccupancy, input.predictedOccupancy)
+  return null
 }
 
 /** 1日ぶんの予約の入り方（今年・前年）。日付から決まる */
@@ -143,15 +156,15 @@ export function enrichMockPricingCalendar(calendar: ReturnType<typeof mockPricin
       const lead = leadDays(stay, today)
       const isPast = lead < 0
       const rng = createSeededRandom(stay.getTime() / DAY_MS + 11)
-      const [otbNow, lastYearNow] = curve.at(Math.max(0, lead))
+      const [otbNow] = curve.at(Math.max(0, lead))
       const onHandRooms = isPast ? curve.finalRooms : otbNow
       const current = isPast
-        ? demoDayType(curve.finalRooms, curve.lastYearFinal, curve.lastYearFinal, totalRooms)
-        : demoDayType(otbNow, lastYearNow, curve.lastYearFinal, totalRooms, day.predictedOccupancy)
+        ? demoClassifyDay(stay, { lead: 0, otbRooms: curve.finalRooms, finalRooms: curve.finalRooms })
+        : demoClassifyDay(stay, { lead, otbRooms: otbNow, predictedOccupancy: day.predictedOccupancy })
       const history: DayTypeHistoryPoint[] = HISTORY_LEADS.filter((l) => l > lead).map((l) => {
-        const [otb, ly] = curve.at(l)
-        const r = demoDayType(otb, ly, curve.lastYearFinal, totalRooms)
-        return { daysBefore: l, dayType: r.dayType, otbRooms: otb, paceRatio: r.paceRatio }
+        const [otb] = curve.at(l)
+        const type = demoClassifyDay(stay, { lead: l, otbRooms: otb, finalRooms: l === 0 ? otb : null })
+        return { daysBefore: l, dayType: type?.name ?? null, otbRooms: otb }
       })
       // 予約の単価（PMS 連携後に入る値のデモ）。先の日は予測ADRの 9割前後から
       const onHandAdr = day.actualAdr ?? (day.predictedAdr != null ? Math.round(day.predictedAdr * (0.88 + rng() * 0.1)) : null)
@@ -168,9 +181,9 @@ export function enrichMockPricingCalendar(calendar: ReturnType<typeof mockPricin
         onHandAdr,
         currentRevenue: onHandAdr != null ? Math.round(onHandRooms * onHandAdr) : null,
         expectedRevenue: expectedRooms != null && expectedAdr != null ? expectedRooms * expectedAdr : null,
-        dayType: current.dayType,
-        dayTypeExpectedOccupancy: current.expectedOccupancy,
-        dayTypePaceRatio: current.paceRatio,
+        dayType: current?.name ?? null,
+        dayTypeModel: current?.model ?? null,
+        dayTypeTypicalOccupancy: current?.avgOccupancy ?? null,
         dayTypeHistory: history,
       }
     }),
@@ -243,6 +256,179 @@ export function mockBookingCurveDetail(hotelId: string, date: string): BookingCu
     adrHistory,
     rateHistory,
     groupRooms,
+    breakdowns: demoCurveBreakdowns(points, adrHistory),
+  }
+}
+
+/** 部屋タイプ別・利用人数別の予約の積み上がり（デモ。実データは予約明細 — PMS 連携後） */
+function demoCurveBreakdowns(points: BookingCurvePoint[], adrHistory: Array<{ daysBefore: number; adr: number | null }>) {
+  const adrAt = new Map(adrHistory.map((a) => [a.daysBefore, a.adr]))
+  const split = (shares: Array<{ label: string; share: number; adrFactor: number }>) =>
+    shares.map(({ label, share, adrFactor }) => ({
+      label,
+      points: points.map((p) => {
+        const adr = adrAt.get(p.daysBefore)
+        return { daysBefore: p.daysBefore, roomsBooked: Math.round(p.roomsBooked * share), adr: adr != null ? Math.round(adr * adrFactor) : null }
+      }),
+    }))
+  return {
+    roomType: split([
+      { label: "スタンダードダブル", share: 0.5, adrFactor: 0.9 },
+      { label: "デラックスツイン", share: 0.35, adrFactor: 1.08 },
+      { label: "スイート", share: 0.15, adrFactor: 1.45 },
+    ]),
+    guests: split([
+      { label: "1名", share: 0.38, adrFactor: 0.82 },
+      { label: "2名", share: 0.5, adrFactor: 1.06 },
+      { label: "3名以上", share: 0.12, adrFactor: 1.3 },
+    ]),
+  }
+}
+
+/** デモの月の料金カレンダー（予算・日のタイプ入り） */
+function demoCalendarMonth(year: number, month: number) {
+  return enrichMockPricingCalendar(mockPricingCalendar(MOCK_HOTEL.id, year, month)).calendar
+}
+
+/** 日のAI分析のデモ（バックエンドの getDayInsightService と同じ形） */
+export function mockDayInsight(hotelId: string, date: string): DayInsight {
+  void hotelId
+  const totalRooms = MOCK_HOTEL.totalRooms
+  const stay = new Date(`${date}T00:00:00`)
+  // 前後60日（同じタイプの日を探す範囲）にかかる月のカレンダー
+  const months = new Set<string>()
+  for (let i = -60; i <= 60; i += 15) {
+    const d = new Date(stay.getFullYear(), stay.getMonth(), stay.getDate() + i)
+    months.add(`${d.getFullYear()}-${d.getMonth() + 1}`)
+  }
+  const last = new Date(stay.getFullYear(), stay.getMonth(), stay.getDate() + 60)
+  months.add(`${last.getFullYear()}-${last.getMonth() + 1}`)
+  const days = [...months].flatMap((key) => {
+    const [y, m] = key.split("-").map(Number)
+    return demoCalendarMonth(y, m)
+  })
+  const self = days.find((d) => d.date === date)
+  const type = MOCK_DAY_TYPES.find((t) => t.name === self?.dayType) ?? null
+  const category = demoDayCategory(stay)
+  const range = days.filter((d) => Math.abs(new Date(`${d.date}T00:00:00`).getTime() - stay.getTime()) <= 60 * DAY_MS && d.date !== date)
+  const distance = (d: string) => Math.abs(new Date(`${d}T00:00:00`).getTime() - stay.getTime())
+  const similar = type
+    ? range
+        .filter((d) => d.dayType === type.name)
+        .sort((a, b) => distance(a.date) - distance(b.date))
+        .slice(0, 5)
+        .sort((a, b) => a.date.localeCompare(b.date))
+    : []
+  const weekendCurve = category !== "平日"
+  return {
+    date,
+    category,
+    dayType: type ? { name: type.name, model: type.model, typicalOccupancy: type.avgOccupancy } : null,
+    history: self?.dayTypeHistory ?? [],
+    typeProfile: type
+      ? {
+          name: type.name,
+          model: type.model,
+          days: 40,
+          avgOccupancy: type.avgOccupancy,
+          minOccupancy: Math.max(0, type.avgOccupancy - 0.05),
+          maxOccupancy: Math.min(1, type.avgOccupancy + 0.05),
+          avgAdr: type.avgAdr,
+          referenceCurve: [180, 120, 90, 60, 45, 30, 21, 14, 7, 3, 1, 0].map((l) => ({
+            daysBefore: l,
+            roomsBooked: Math.round(curveProgress(l, weekendCurve) * type.avgOccupancy * totalRooms),
+          })),
+        }
+      : null,
+    categoryTypes: MOCK_DAY_TYPES.filter((t) => t.category === category).map((t) => ({
+      name: t.name,
+      model: t.model,
+      days: 40,
+      avgOccupancy: t.avgOccupancy,
+      avgAdr: t.avgAdr,
+    })),
+    similarDays: similar.map((d) => ({
+      date: d.date,
+      dayType: d.dayType as string,
+      isActual: d.actualOccupancy != null,
+      occupancy: d.actualOccupancy ?? d.predictedOccupancy,
+      adr: d.actualAdr ?? d.predictedAdr,
+      recommendedPrice: d.recommendedPrice,
+    })),
+    events: getMockEvents(MOCK_HOTEL.id)
+      .filter((e) => {
+        const key = (v: Date | string) => (typeof v === "string" ? v : v.toISOString()).slice(0, 10)
+        return key(e.startDate) <= date && date <= key(e.endDate)
+      })
+      .map((e) => ({
+        name: e.name,
+        type: e.type,
+        location: e.location ?? null,
+        expectedImpact: e.expectedImpact ?? null,
+        excludeFromHistory: Boolean(e.excludeFromHistory),
+      })),
+    weather: null,
+  }
+}
+
+const MODEL_RANK_OFFSET: Record<DayModel, number> = { occupancy: -2, balanced: 0, adr: 2 }
+
+/** 日単位のシミュレーションのデモ（バックエンドの getDaySimulationService と同じ形・同じ価格弾力性の考え方） */
+export function mockDaySimulation(hotelId: string, date: string, rank?: number): DaySimulation {
+  void hotelId
+  const totalRooms = MOCK_HOTEL.totalRooms
+  const stay = new Date(`${date}T00:00:00`)
+  const day = demoCalendarMonth(stay.getFullYear(), stay.getMonth() + 1).find((d) => d.date === date)
+  const aiModel = day?.dayTypeModel ?? null
+  const elasticity = 1
+  const otbRooms = day?.onHandRooms ?? null
+  const baseRank = day?.recommendedRank ?? 20
+  const baseAdr = day?.predictedAdr ?? day?.recommendedPrice ?? 15_000
+  const baseOccupancy = day?.predictedOccupancy ?? 0.7
+  const balancedRank = baseRank - (aiModel ? MODEL_RANK_OFFSET[aiModel] : 0)
+  const basePrice = mockRankToPrice1P(baseRank)
+  const occupancyAt = (adr: number) => {
+    const floor = otbRooms != null ? Math.min(1, otbRooms / totalRooms) : 0
+    return Math.round(Math.max(floor, Math.min(1, baseOccupancy * Math.pow(adr / baseAdr, -elasticity))) * 1000) / 1000
+  }
+  const outcome = (occupancy: number, adr: number) => {
+    const rooms = Math.round(occupancy * totalRooms)
+    const revenue = Math.round(rooms * adr)
+    return { occupancy, rooms, revenue, revPar: Math.round(revenue / totalRooms) }
+  }
+  const at = (r: number) => {
+    const clamped = Math.min(40, Math.max(1, r))
+    const price = mockRankToPrice1P(clamped)
+    const adr = Math.round(baseAdr * (price / basePrice))
+    return { rank: clamped, price, adr, ...outcome(occupancyAt(adr), adr) }
+  }
+  const w = mockStrategy
+  const weightsFor = (model: DayModel) => {
+    if (model === "occupancy") {
+      const move = Math.min(20, w.weightAdr)
+      return { occupancy: w.weightOccupancy + move, adr: w.weightAdr - move, competitor: w.weightCompetitor }
+    }
+    if (model === "adr") {
+      const move = Math.min(20, w.weightOccupancy)
+      return { occupancy: w.weightOccupancy - move, adr: w.weightAdr + move, competitor: w.weightCompetitor }
+    }
+    return { occupancy: w.weightOccupancy, adr: w.weightAdr, competitor: w.weightCompetitor }
+  }
+  return {
+    date,
+    totalRooms,
+    otbRooms,
+    elasticity,
+    aiModel,
+    dayType: day?.dayType ?? null,
+    base: { rank: baseRank, price: basePrice, adr: baseAdr, ...outcome(baseOccupancy, baseAdr) },
+    options: (["occupancy", "balanced", "adr"] as const).map((model) => ({
+      model,
+      ...at(balancedRank + MODEL_RANK_OFFSET[model]),
+      weights: weightsFor(model),
+      isCurrent: aiModel === model,
+    })),
+    manual: rank != null ? { model: "manual" as const, ...at(rank), weights: null, isCurrent: false } : null,
   }
 }
 

@@ -20,6 +20,7 @@ import {
 import type {
   LoginResult, DashboardKpi, KpiSnapshot, AlertItem, AiSummary, PricingCalendar, PricingSimulation,
   RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, PricingStrategyInput, PricingLockPeriod, BookingCurve,
+  DayInsight, DaySimulation,
   PriceBoundPeriod, CreatePriceBoundInput, SaleOpenCheck,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
   CreatePriceRankInput, UpdateHotelSettingsInput, SetupStatus, CreateCompetitorInput, UpdateCompetitorInput,
@@ -34,7 +35,7 @@ import {
   setMockDashboardPreference, getMockPriceBounds, addMockPriceBound, removeMockPriceBound, mockSaleOpenCheck
 } from "./demo-data"
 import {
-  enrichMockPricingCalendar, mockBookingCurveDetail, getMockNewHotels, addMockNewHotel,
+  enrichMockPricingCalendar, mockBookingCurveDetail, mockDayInsight, mockDaySimulation, getMockNewHotels, addMockNewHotel,
   updateMockNewHotel, removeMockNewHotel, importMockNewHotels, importMockEvents
 } from "./demo-revenue"
 import { adminEndpoints } from "./admin"
@@ -259,6 +260,24 @@ export const api = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/pricing/calendar?hotelId=${hotelId}&year=${year}&month=${month}`),
       () => enrichMockPricingCalendar(mockPricingCalendar(hotelId, year, month))
+    )
+  },
+
+  /** 日のAI分析: 日のタイプと推移・型の典型・同じタイプの日・その日の外部要因（2026-10 PDF b03） */
+  dayInsight(hotelId: string, date: string): Promise<DayInsight> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/day-insight?hotelId=${hotelId}&date=${date}`),
+      () => mockDayInsight(hotelId, date)
+    )
+  },
+
+  /** 日単位のシミュレーション（保存しない — 2026-10 PDF b01）。rank を渡すとそのランクでも試算する */
+  daySimulation(hotelId: string, date: string, rank?: number): Promise<DaySimulation> {
+    const params = new URLSearchParams({ hotelId, date })
+    if (rank != null) params.set("rank", String(rank))
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/pricing/day-simulation?${params.toString()}`),
+      () => mockDaySimulation(hotelId, date, rank)
     )
   },
 

@@ -234,11 +234,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         onClose={() => setSelectedDay(null)}
       />
 
-      <DayAnalysisDialog
-        day={selectedRowForAnalysis}
-        days={monthsData[0]?.calendar ?? []}
-        onClose={() => setSelectedRowForAnalysis(null)}
-      />
+      <DayAnalysisDialog day={selectedRowForAnalysis} onClose={() => setSelectedRowForAnalysis(null)} />
     </div>
   )
 }

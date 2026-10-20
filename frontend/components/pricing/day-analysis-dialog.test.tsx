@@ -1,18 +1,23 @@
-import { describe, it, expect, vi } from "vitest"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
-import { adjacentMonthsNeeded, DayAnalysisDialog, neighborDates } from "./day-analysis-dialog"
-import type { PricingCalendarDay } from "@/lib/api"
+import { DayAnalysisDialog } from "./day-analysis-dialog"
+import type { DayInsight, DaySimulation, PricingCalendarDay } from "@/lib/api"
 
-// 日のAI分析（2026-10 の画面修正 DP03: 日のタイプとその推移、月をまたぐ前後2日ずつの周辺日）
+// 日のAI分析（2026-10 の画面修正 PDF b01・b03、xlsx DP03）: 日のタイプと優先モデル、同じタイプの日、
+// この日の外部要因（イベント・天候）、日単位のシミュレーション
 
-const mocks = vi.hoisted(() => ({ pricingCalendar: vi.fn() }))
+const mocks = vi.hoisted(() => ({ dayInsight: vi.fn(), daySimulation: vi.fn(), bookingCurve: vi.fn(), priceRanks: vi.fn() }))
 
 vi.mock("@/components/auth-provider", () => ({ useAuth: () => ({ hotelId: "hotel-a" }) }))
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>()
-  return { ...actual, api: { ...actual.api, pricingCalendar: mocks.pricingCalendar } }
+  return { ...actual, api: { ...actual.api, ...mocks } }
 })
+
+const future = new Date()
+future.setDate(future.getDate() + 30)
+const FUTURE = `${future.getFullYear()}-${String(future.getMonth() + 1).padStart(2, "0")}-${String(future.getDate()).padStart(2, "0")}`
 
 function day(date: string, overrides: Partial<PricingCalendarDay> = {}): PricingCalendarDay {
   return {
@@ -41,94 +46,116 @@ function day(date: string, overrides: Partial<PricingCalendarDay> = {}): Pricing
     onHandAdr: null,
     currentRevenue: null,
     expectedRevenue: 3100000,
-    dayType: "C3",
-    dayTypeExpectedOccupancy: 0.72,
-    dayTypePaceRatio: 1.01,
-    dayTypeHistory: [],
+    dayType: "平日A型",
+    dayTypeModel: "balanced",
+    dayTypeTypicalOccupancy: 0.82,
+    dayTypeHistory: [
+      { daysBefore: 90, dayType: "平日B型", otbRooms: 12 },
+      { daysBefore: 60, dayType: "平日A型", otbRooms: 30 },
+    ],
     ...overrides,
   }
 }
 
-describe("neighborDates / adjacentMonthsNeeded", () => {
-  it("前後2日ずつの5日を、月をまたいで並べる", () => {
-    expect(neighborDates("2026-10-01")).toEqual(["2026-09-29", "2026-09-30", "2026-10-01", "2026-10-02", "2026-10-03"])
-    expect(neighborDates("2026-12-31")).toEqual(["2026-12-29", "2026-12-30", "2026-12-31", "2027-01-01", "2027-01-02"])
-  })
-  it("月の端の日だけ、前後の月の取得が要る", () => {
-    expect(adjacentMonthsNeeded("2026-10-01")).toEqual([{ year: 2026, month: 9 }])
-    expect(adjacentMonthsNeeded("2026-12-31")).toEqual([{ year: 2027, month: 1 }])
-    expect(adjacentMonthsNeeded("2026-10-15")).toEqual([])
-  })
-})
+const INSIGHT: DayInsight = {
+  date: FUTURE,
+  category: "平日",
+  dayType: { name: "平日A型", model: "balanced", typicalOccupancy: 0.82 },
+  history: [
+    { daysBefore: 90, dayType: "平日B型", otbRooms: 12 },
+    { daysBefore: 60, dayType: "平日A型", otbRooms: 30 },
+  ],
+  typeProfile: {
+    name: "平日A型",
+    model: "balanced",
+    days: 42,
+    avgOccupancy: 0.82,
+    minOccupancy: 0.76,
+    maxOccupancy: 0.9,
+    avgAdr: 18400,
+    referenceCurve: [
+      { daysBefore: 90, roomsBooked: 30 },
+      { daysBefore: 0, roomsBooked: 164 },
+    ],
+  },
+  categoryTypes: [
+    { name: "平日A型", model: "balanced", days: 42, avgOccupancy: 0.82, avgAdr: 18400 },
+    { name: "平日B型", model: "occupancy", days: 80, avgOccupancy: 0.62, avgAdr: 15200 },
+  ],
+  similarDays: ["2026-11-02", "2026-11-04", "2026-11-09", "2026-11-11", "2026-11-16"].map((d, i) => ({
+    date: d,
+    dayType: "平日A型",
+    isActual: i < 2,
+    occupancy: 0.8,
+    adr: 18000,
+    recommendedPrice: i < 2 ? null : 19000,
+  })),
+  events: [{ name: "港まつり", type: "festival", location: "港湾", expectedImpact: "high", excludeFromHistory: false }],
+  weather: null,
+}
+
+const SIMULATION: DaySimulation = {
+  date: FUTURE,
+  totalRooms: 200,
+  otbRooms: 62,
+  elasticity: 1,
+  aiModel: "balanced",
+  dayType: "平日A型",
+  base: { rank: 28, price: 22769, adr: 22000, occupancy: 0.71, rooms: 142, revenue: 3124000, revPar: 15620 },
+  options: [
+    { model: "occupancy", rank: 26, price: 21000, adr: 20300, weights: { occupancy: 60, adr: 20, competitor: 20 }, isCurrent: false, occupancy: 0.77, rooms: 154, revenue: 3126200, revPar: 15631 },
+    { model: "balanced", rank: 28, price: 22769, adr: 22000, weights: { occupancy: 40, adr: 40, competitor: 20 }, isCurrent: true, occupancy: 0.71, rooms: 142, revenue: 3124000, revPar: 15620 },
+    { model: "adr", rank: 30, price: 24500, adr: 23700, weights: { occupancy: 20, adr: 60, competitor: 20 }, isCurrent: false, occupancy: 0.66, rooms: 132, revenue: 3128400, revPar: 15642 },
+  ],
+  manual: null,
+}
 
 describe("DayAnalysisDialog", () => {
-  it("日のタイプと推移を出し、月初の日は前月の日も周辺日に並べる", async () => {
-    mocks.pricingCalendar.mockResolvedValue({
-      hotelId: "hotel-a",
-      year: 2026,
-      month: 9,
-      calendar: [day("2026-09-29", { dayType: "B2" }), day("2026-09-30", { dayType: "B1" })],
-    })
-    const selected = day("2026-10-01", {
-      dayType: "D4",
-      demandLevel: "B",
-      dayTypePaceRatio: 0.88,
-      dayTypeHistory: [
-        { daysBefore: 90, dayType: "D3", otbRooms: 12, paceRatio: 1 },
-        { daysBefore: 60, dayType: "D4", otbRooms: 20, paceRatio: 0.9 },
-      ],
-    })
-    const days = [selected, day("2026-10-02"), day("2026-10-03")]
-    render(<DayAnalysisDialog day={selected} days={days} onClose={vi.fn()} />)
-
-    expect(screen.getByText("2026年10月1日（木）のAI分析")).toBeTruthy()
-    expect(mocks.pricingCalendar).toHaveBeenCalledWith("hotel-a", 2026, 9)
-    await waitFor(() => expect(screen.getByText("9/29")).toBeTruthy())
-    expect(screen.getAllByTestId("neighbor-day")).toHaveLength(5)
-    expect(screen.getByText("9/30")).toBeTruthy()
-
-    // 見出しの横に、今の日のタイプと90日前のタイプ
-    const header = screen.getByTestId("day-type-header")
-    expect(header.textContent).toBe("日のタイプD490日前D3")
-
-    // 日のタイプ（今と推移）
-    const history = screen.getByRole("list", { name: "日のタイプの推移" })
-    expect(history.textContent).toContain("90日前")
-    expect(history.textContent).toContain("D3")
-    expect(history.textContent).toContain("現在")
-    expect(screen.getAllByText(/着地見込み 50〜65%・前年より5〜20%遅れ/).length).toBeGreaterThan(0)
-    // アラート（AI の予測 B）と日のタイプ（D）のずれ・ペースの遅れをインサイトに出す
-    expect(screen.getByText("予約の実数とAIの予測がずれています")).toBeTruthy()
-    expect(screen.getByText("前年より予約の入りが遅れています")).toBeTruthy()
+  beforeEach(() => {
+    mocks.dayInsight.mockReset().mockResolvedValue({ ...INSIGHT, date: FUTURE })
+    mocks.daySimulation.mockReset().mockResolvedValue(SIMULATION)
+    mocks.bookingCurve.mockReset().mockResolvedValue({ hotelId: "hotel-a", stayDate: FUTURE, totalRooms: 200, points: [{ daysBefore: 30, roomsBooked: 62, occupancy: 0.31 }] })
+    mocks.priceRanks.mockReset().mockResolvedValue([{ id: "r", rank: 28, label: "R28", price1P: 22769 }])
   })
 
-  it("前後の月の取得に失敗したらその旨と再試行を出し、再試行で取り直す", async () => {
-    mocks.pricingCalendar.mockReset()
-    mocks.pricingCalendar.mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce({
-      hotelId: "hotel-a",
-      year: 2026,
-      month: 9,
-      calendar: [day("2026-09-29"), day("2026-09-30")],
-    })
-    const selected = day("2026-10-01")
-    render(<DayAnalysisDialog day={selected} days={[selected, day("2026-10-02"), day("2026-10-03")]} onClose={vi.fn()} />)
+  it("見出しの横に今の日のタイプ・優先モデルと90日前のタイプ、本文に型の一覧・同じタイプの日5日・外部要因を出す", async () => {
+    render(<DayAnalysisDialog day={day(FUTURE)} onClose={vi.fn()} />)
+    expect(screen.getByTestId("day-type-header").textContent).toBe("日のタイプ平日A型バランス90日前平日B型")
+    expect(mocks.dayInsight).toHaveBeenCalledWith("hotel-a", FUTURE)
 
-    const alert = await screen.findByRole("alert")
-    expect(alert.textContent).toContain("前後の月のカレンダーの取得に失敗しました")
-    expect(screen.getAllByText("データなし")).toHaveLength(2)
-
-    fireEvent.click(screen.getByRole("button", { name: "再試行" }))
-    await waitFor(() => expect(screen.getByText("9/29").parentElement?.textContent).not.toContain("データなし"))
-    expect(screen.queryByRole("alert")).toBeNull()
-    expect(mocks.pricingCalendar).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(screen.getAllByTestId("similar-day")).toHaveLength(5))
+    expect(screen.getByText("AI が作った平日の型（過去の結果から。型の数はデータで決まります）")).toBeTruthy()
+    // 推移で型が上がった見立て
+    expect(screen.getByText("予約が想定より強く入り、型が上がりました")).toBeTruthy()
+    // この日の外部要因（イベント・天候を項目別に）
+    const factors = screen.getByTestId("external-factors")
+    expect(factors.textContent).toContain("港まつり・港湾・影響度 高")
+    expect(factors.textContent).toContain("天候データは未連携です")
   })
 
-  it("月の途中の日は前後の月を取りに行かない", () => {
-    mocks.pricingCalendar.mockClear()
-    const days = ["2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17"].map((d) => day(d))
-    render(<DayAnalysisDialog day={days[2]} days={days} onClose={vi.fn()} />)
-    expect(mocks.pricingCalendar).not.toHaveBeenCalled()
-    expect(screen.getAllByTestId("neighbor-day")).toHaveLength(5)
-    expect(screen.getByText("90日前より後に予約の記録が始まった日のため、推移はまだありません。")).toBeTruthy()
+  it("先の日は日単位のシミュレーション（AI の推奨と優先モデル3つ）を出す", async () => {
+    render(<DayAnalysisDialog day={day(FUTURE)} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText("この日のシミュレーション")).toBeTruthy())
+    expect(mocks.daySimulation).toHaveBeenCalledWith("hotel-a", FUTURE, undefined)
+    await waitFor(() => expect(screen.getByText("AI の推奨（バランス）")).toBeTruthy())
+    const card = within(screen.getByTestId("day-simulation"))
+    expect(card.getByText("稼働優先")).toBeTruthy()
+    expect(card.getByText("単価優先")).toBeTruthy()
+    expect(card.getByText("← AI が今使っているモデル")).toBeTruthy()
+    expect(card.getByText(/価格弾力性 1.0/)).toBeTruthy()
+  })
+
+  it("結果の出た日はシミュレーションを出さない", async () => {
+    render(<DayAnalysisDialog day={day("2025-01-15", { actualAdr: 18000, actualOccupancy: 0.8 })} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText("結果の出た日のため、シミュレーションはありません。")).toBeTruthy())
+    expect(mocks.daySimulation).not.toHaveBeenCalled()
+  })
+
+  it("日の分析の取得に失敗したらその旨と再試行を出し、再試行で取り直す", async () => {
+    mocks.dayInsight.mockReset().mockRejectedValueOnce(new Error("network")).mockResolvedValueOnce({ ...INSIGHT, date: FUTURE })
+    render(<DayAnalysisDialog day={day(FUTURE)} onClose={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText("日の分析の取得に失敗しました")).toBeTruthy())
+    fireEvent.click(screen.getAllByRole("button", { name: "再試行" })[0])
+    await waitFor(() => expect(screen.getAllByTestId("similar-day")).toHaveLength(5))
   })
 })

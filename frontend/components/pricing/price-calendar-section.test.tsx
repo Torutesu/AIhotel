@@ -36,9 +36,9 @@ function day(date: string, overrides: Partial<PricingCalendarDay> = {}): Pricing
     onHandAdr: null,
     currentRevenue: null,
     expectedRevenue: 71 * 16150,
-    dayType: "A1",
-    dayTypeExpectedOccupancy: 0.93,
-    dayTypePaceRatio: 1.25,
+    dayType: "平日A型",
+    dayTypeModel: "balanced",
+    dayTypeTypicalOccupancy: 0.82,
     dayTypeHistory: [],
     ...overrides,
   }
@@ -46,7 +46,7 @@ function day(date: string, overrides: Partial<PricingCalendarDay> = {}): Pricing
 
 const DAYS = [
   day("2026-12-01"),
-  day("2026-12-02", { dayType: "D3", onHandRooms: 28, currentOccupancy: 0.28 }),
+  day("2026-12-02", { dayType: "平日C型", dayTypeModel: "occupancy", onHandRooms: 28, currentOccupancy: 0.28 }),
   day("2026-12-03", { actualAdr: 16453, actualOccupancy: 0.696, onHandAdr: 16453, onHandRooms: 70, currentOccupancy: 0.7, currentRevenue: 70 * 16453 }),
 ]
 
@@ -115,8 +115,8 @@ describe("PriceCalendarSection", () => {
       expect(headers.some((h) => h?.startsWith(label)), label).toBe(true)
     }
     expect(headers.some((h) => h?.includes("ADR結果") || h?.includes("差異"))).toBe(false)
-    expect(screen.getAllByLabelText(/日のタイプ A1/)).toHaveLength(2)
-    expect(screen.getByLabelText(/日のタイプ D3/)).toBeTruthy()
+    expect(screen.getAllByLabelText(/日のタイプ 平日A型（平日の中で需要がいちばん強い型（平均稼働 82.0%）・バランス）/)).toHaveLength(2)
+    expect(screen.getByLabelText(/日のタイプ 平日C型/)).toBeTruthy()
     expect(screen.getByText("月計")).toBeTruthy()
     expect(screen.getByText("個人団体別 オンハンド状況")).toBeTruthy()
     expect(screen.queryByText("価格推移グラフ")).toBeNull()

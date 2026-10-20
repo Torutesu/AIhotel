@@ -2,19 +2,22 @@ import { describe, it, expect } from "vitest"
 
 import { eventsOnDate } from "@/components/pricing/pricing-constants"
 import { getMockEvents, mockPricingCalendar } from "./demo-data"
-import { demoDayType, enrichMockPricingCalendar, importMockEvents, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockMonthPace } from "./demo-revenue"
+import { demoClassifyDay, enrichMockPricingCalendar, importMockEvents, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockMonthPace } from "./demo-revenue"
 
-// デモモードのデータ（2026-10）。日のタイプはバックエンド（services/forecast/dayType.test.ts）と同じ例で同じ答えになること
+// デモモードのデータ（2026-10）。日のタイプはバックエンド（services/forecast/dayType.ts）と同じ手順で判定する（型はデモ用の固定）
 
-describe("demoDayType（バックエンドの判定と同じ考え方）", () => {
-  it("バックエンドのテストと同じ入力で同じタイプになる", () => {
-    expect(demoDayType(60, 50, 80, 100)).toEqual({ dayType: "B1", expectedOccupancy: 0.9, paceRatio: 1.2 })
-    expect(demoDayType(40, 50, 70, 100).dayType).toBe("D5")
-    expect(demoDayType(90, 40, 95, 100).dayType).toBe("A1")
-    expect(demoDayType(20, null, null, 100, 0.7).dayType).toBe("C")
-    expect(demoDayType(85, null, null, 100, 0.6).dayType).toBe("B")
-    expect(demoDayType(10, 2, 60, 100).dayType).toBe("C")
-    expect(demoDayType(null, null, null, 100).dayType).toBeNull()
+describe("demoClassifyDay（バックエンドの classifyDay と同じ手順・型は固定）", () => {
+  it("結果は最終の稼働率、予約の記録はその残日数の典型の予約室数、無ければ予測稼働率で一番近い型にする", () => {
+    const weekday = new Date(2026, 10, 18) // 2026-11-18（水）
+    const saturday = new Date(2026, 10, 21)
+    const holiday = new Date(2026, 10, 3) // 文化の日
+    expect(demoClassifyDay(weekday, { lead: 0, otbRooms: 140, finalRooms: 140 })?.name).toBe("平日B型") // 70%
+    expect(demoClassifyDay(saturday, { lead: 0, otbRooms: 188, finalRooms: 188 })?.name).toBe("週末A型") // 94%
+    expect(demoClassifyDay(holiday, { lead: 0, otbRooms: 150, finalRooms: 150 })?.name).toBe("特日A型")
+    // 予測だけの日（予約の記録なし）
+    expect(demoClassifyDay(weekday, { lead: 200, otbRooms: null, predictedOccupancy: 0.6 })).toMatchObject({ name: "平日C型", model: "occupancy" })
+    // 当日まで 0 日・予約の記録あり: 典型（割合 1）× 平均稼働 × 客室数 に一番近い型
+    expect(demoClassifyDay(weekday, { lead: 0, otbRooms: 165 })?.name).toBe("平日A型")
   })
 })
 
@@ -28,7 +31,8 @@ describe("enrichMockPricingCalendar", () => {
       expect(d.budgetAdr).not.toBeNull()
       expect(d.onHandRooms).toBeGreaterThanOrEqual(0)
       expect(d.onHandRooms).toBeLessThanOrEqual(200)
-      expect(d.dayType).toMatch(/^[A-E][1-5]?$/)
+      expect(d.dayType).toMatch(/^(平日|週末|特日)[A-C]型$/)
+      expect(["occupancy", "balanced", "adr"]).toContain(d.dayTypeModel)
       // 推移は今より前の残日数だけ（大きい順）
       const leads = d.dayTypeHistory.map((h) => h.daysBefore)
       expect([...leads].sort((a, b) => b - a)).toEqual(leads)

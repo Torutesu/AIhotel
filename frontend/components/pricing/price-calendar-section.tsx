@@ -241,11 +241,7 @@ export function PriceCalendarSection({
                           )}
                         </td>
                         <td className="text-center py-2 px-2">
-                          <DayTypeBadge
-                            dayType={day.dayType}
-                            expectedOccupancy={day.dayTypeExpectedOccupancy}
-                            paceRatio={day.dayTypePaceRatio}
-                          />
+                          <DayTypeBadge dayType={day.dayType} model={day.dayTypeModel} typicalOccupancy={day.dayTypeTypicalOccupancy} />
                         </td>
                         <td className="text-center py-2 px-2">
                           {day.demandLevel ? (

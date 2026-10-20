@@ -332,7 +332,7 @@ export function mockAiSummary(section?: string): AiSummary {
 export type MockPricingCalendarBaseDay = Omit<
   PricingCalendarDay,
   | "budgetRooms" | "budgetOccupancy" | "budgetAdr" | "budgetRevenue" | "onHandRooms" | "currentOccupancy" | "onHandAdr"
-  | "currentRevenue" | "expectedRevenue" | "dayType" | "dayTypeExpectedOccupancy" | "dayTypePaceRatio" | "dayTypeHistory"
+  | "currentRevenue" | "expectedRevenue" | "dayType" | "dayTypeModel" | "dayTypeTypicalOccupancy" | "dayTypeHistory"
 >
 
 export function mockPricingCalendar(
@@ -661,7 +661,7 @@ export function mockSaleOpenCheck(hotelId: string, year: number, month: number):
       belowLastYearDays,
       verdict: belowLastYearDays > 0 ? "review" : "ok",
     },
-    modelVersion: "rule-based-v4",
+    modelVersion: "rule-based-v5",
   }
 }
 
