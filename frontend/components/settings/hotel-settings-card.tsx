@@ -63,6 +63,13 @@ const hotelFormSchema = z.object({
     .trim()
     .refine((v) => v === "" || /^\d{6}$/.test(v), { message: "市区町村コードは6桁の数字で入力してください" }),
   marketArea: z.string().trim().max(100, "観光エリアは100文字以内で入力してください"),
+  // 販売開始: 宿泊日の何日前（2026-10 PDF b04）。空文字は未設定
+  saleOpenDaysBefore: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || (/^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 540), {
+      message: "販売開始は 1〜540 の整数（宿泊日の何日前）で入力してください",
+    }),
 }).refine((v) => !v.municipalityCode || !v.prefectureCode || v.municipalityCode.startsWith(v.prefectureCode), {
   message: "市区町村コードの先頭2桁が都道府県と一致しません",
   path: ["municipalityCode"],
@@ -81,6 +88,7 @@ function toFormValues(hotel: Hotel): HotelFormValues {
     prefectureCode: hotel.prefectureCode ?? "",
     municipalityCode: hotel.municipalityCode ?? "",
     marketArea: hotel.marketArea ?? "",
+    saleOpenDaysBefore: hotel.saleOpenDaysBefore == null ? "" : String(hotel.saleOpenDaysBefore),
   }
 }
 
@@ -109,6 +117,7 @@ export function HotelSettingsCard() {
       prefectureCode: "",
       municipalityCode: "",
       marketArea: "",
+      saleOpenDaysBefore: "",
     },
     mode: "onBlur",
   })
@@ -166,6 +175,7 @@ export function HotelSettingsCard() {
         prefectureCode: values.prefectureCode || null,
         municipalityCode: values.municipalityCode.trim() || null,
         marketArea: values.marketArea.trim() || null,
+        saleOpenDaysBefore: values.saleOpenDaysBefore === "" ? null : Number(values.saleOpenDaysBefore),
       })
       setHotel(updated)
       // 週末定義などは AuthProvider が全画面へ配っているため、保存後に差し替える（U-6）
@@ -260,6 +270,19 @@ export function HotelSettingsCard() {
                   {...register("totalRooms", { valueAsNumber: true })}
                 />
                 <FormFieldError message={errors.totalRooms?.message} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="saleOpenDaysBefore">販売開始（宿泊日の何日前）</Label>
+                <Input
+                  id="saleOpenDaysBefore"
+                  inputMode="numeric"
+                  placeholder="例: 330"
+                  disabled={!canManage}
+                  aria-invalid={errors.saleOpenDaysBefore ? true : undefined}
+                  {...register("saleOpenDaysBefore")}
+                />
+                <p className="text-xs text-muted-foreground">ホテル単位で固定の日数です。料金カレンダーに月ごとの販売開始日を出します（空欄は未設定）</p>
+                <FormFieldError message={errors.saleOpenDaysBefore?.message} />
               </div>
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="hotelAddress">住所</Label>

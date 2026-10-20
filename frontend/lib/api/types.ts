@@ -274,6 +274,10 @@ export interface PricingStrategy {
   maxDailyRankChange: number | null
   /** 前回の推奨との差がこのランク数以内なら据え置く */
   hysteresisRanks: number
+  /** 日のタイプの優先モデル（稼働優先・単価優先）に合わせて日ごとに重みを寄せるか（2026-10） */
+  dayModelAdjust: boolean
+  /** 日単位のシミュレーションの価格弾力性（価格を1%上げると予約が何%減るか） */
+  priceElasticity: number
 }
 
 /** PUT /pricing/strategy に送る値。送った項目だけが変わる（重みは3つ揃えて送るか、まったく送らない） */
@@ -313,38 +317,6 @@ export interface CreatePriceBoundInput {
   minRank?: number | null
   maxRank?: number | null
   reason?: string
-}
-
-/** 販売開始チェック（D-11）の1日ぶん */
-export interface SaleOpenCheckDay {
-  date: string
-  weekday: number
-  demandLevel: string
-  recommendedRank: number | null
-  recommendedPrice: number | null
-  predictedAdr: number | null
-  lastYearDate: string
-  lastYearAdr: number | null
-  lastYearOccupancy: number | null
-  diffPct: number | null
-  status: "ok" | "below_last_year" | "no_comparison"
-  events: string[]
-}
-
-/** GET /pricing/sale-open-check の結果 */
-export interface SaleOpenCheck {
-  year: number
-  month: number
-  days: SaleOpenCheckDay[]
-  summary: {
-    averagePredictedAdr: number | null
-    lastYearMonthAdr: number | null
-    budgetAdr: number | null
-    comparableDays: number
-    belowLastYearDays: number
-    verdict: "ok" | "review" | "insufficient"
-  }
-  modelVersion: string
 }
 
 /** 推奨理由（#24 E4）。バックエンドの services/forecast/rationale.ts と同じ形 */
@@ -679,6 +651,8 @@ export interface UpdateHotelSettingsInput {
   prefectureCode?: string | null
   municipalityCode?: string | null
   marketArea?: string | null
+  /** 販売開始: 宿泊日の何日前（2026-10）。null で未設定に戻す */
+  saleOpenDaysBefore?: number | null
 }
 
 /** 初期設定の進み具合（#13）。GET /hotels/:id/setup-status */

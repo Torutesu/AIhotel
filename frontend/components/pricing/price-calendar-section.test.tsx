@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react"
 
 import { PriceCalendarSection, summarizeCalendar } from "./price-calendar-section"
 import { toOnHandRows } from "./on-hand-chart"
+import { saleOpenStatus } from "./pricing-constants"
 import type { PricingCalendarDay } from "@/lib/api"
 
 // 日別価格カレンダー（2026-10 の画面修正 DP02 / DP04）
@@ -120,5 +121,18 @@ describe("PriceCalendarSection", () => {
     expect(screen.getByText("月計")).toBeTruthy()
     expect(screen.getByText("個人団体別 オンハンド状況")).toBeTruthy()
     expect(screen.queryByText("価格推移グラフ")).toBeNull()
+  })
+})
+
+describe("saleOpenStatus（販売開始は宿泊日の N日前 — 2026-10 PDF b04）", () => {
+  it("月の1日・末日の販売開始日から、販売開始前・一部販売中・全日販売中を決める", () => {
+    const today = new Date(2026, 9, 20) // 2026-10-20
+    // 2027年9月: 1日の330日前 = 2026-10-06、30日の330日前 = 2026-11-04 → 一部販売中（今日 + 330日 = 2027-09-15 まで）
+    const partial = saleOpenStatus(2027, 9, 330, today)
+    expect(partial?.state).toBe("partial")
+    expect(partial?.openedThrough).toEqual(new Date(2027, 8, 15))
+    expect(saleOpenStatus(2027, 12, 330, today)?.state).toBe("before")
+    expect(saleOpenStatus(2026, 11, 330, today)?.state).toBe("open")
+    expect(saleOpenStatus(2027, 9, null, today)).toBeNull()
   })
 })

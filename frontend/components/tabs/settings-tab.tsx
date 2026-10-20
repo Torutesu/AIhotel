@@ -41,6 +41,8 @@ import { CompetitorPriceImportSection, OtbImportSection } from "@/components/set
 import { AccountSecurityCard } from "@/components/settings/account-security-card"
 import { AuditLogSection } from "@/components/settings/audit-log-section"
 import { IpRestrictionSection } from "@/components/settings/ip-restriction-section"
+import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
+import { StrategyGuardrailsCard } from "@/components/pricing/strategy-guardrails-card"
 
 // ダッシュボードKPI進捗表に表示する指標（施設ごとに選択可能。F-DASH-01）
 const DASHBOARD_KPI_ITEMS = [
@@ -131,7 +133,7 @@ export function SettingsTab() {
       <div>
         <h1 className="font-heading text-2xl font-medium tracking-tight">設定</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          ホテル情報・部屋タイプ・料金ランク・予算・競合ホテル・ユーザー・画面表示の設定を管理します
+          ホテル情報・部屋タイプ・料金ランク・価格戦略の初期値・予算・競合ホテル・ユーザー・画面表示の設定を管理します
         </p>
       </div>
 
@@ -146,6 +148,19 @@ export function SettingsTab() {
       <RoomTypeSection />
 
       <PriceRankSection />
+
+      {/* 価格戦略の初期値（ヒアリング内容に応じて設定。2026-10 PDF b01 で料金設定画面から移した） */}
+      <section aria-labelledby="strategy-initial-heading" className="space-y-3">
+        <div>
+          <h2 id="strategy-initial-heading" className="text-lg font-medium">価格戦略の初期値</h2>
+          <p className="text-sm text-muted-foreground">
+            ヒアリング内容に応じて設定する初期値です。日によって稼働と単価のどちらを優先するかは、日のタイプで AI が割り当て、
+            予約の進み方で変えます（料金設定の日のAI分析で確認・シミュレーションできます）。
+          </p>
+        </div>
+        <StrategyWeightsCard />
+        <StrategyGuardrailsCard />
+      </section>
 
       <BudgetSection />
 

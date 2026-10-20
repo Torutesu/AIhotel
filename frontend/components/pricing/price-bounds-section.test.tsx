@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest"
 
 import { describePriceBound, validatePriceBoundDraft } from "./price-bounds-section"
 import { paceNote } from "./day-detail-dialog"
-import { defaultSaleOpenMonth } from "./sale-open-check-card"
 import type { RecommendationRationale } from "@/lib/api"
 
 // 価格の幅・予約の入り方・販売開始チェック（D-11）の表示ヘルパー
@@ -48,12 +47,5 @@ describe("paceNote", () => {
   it("予約済みの下限と、材料の無いとき", () => {
     expect(paceNote(rationale([{ key: "otbFloor", impact: 0.2, input: { leadDays: 5, otbRooms: 96 } }]))).toContain("すでに96室")
     expect(paceNote(rationale([{ key: "weekend", impact: 0.05 }]))).toBeNull()
-  })
-})
-
-describe("defaultSaleOpenMonth", () => {
-  it("今日から11か月先の月", () => {
-    expect(defaultSaleOpenMonth(new Date(2026, 9, 15))).toBe("2027-09")
-    expect(defaultSaleOpenMonth(new Date(2026, 0, 31))).toBe("2026-12")
   })
 })

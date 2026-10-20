@@ -21,7 +21,7 @@ import type {
   LoginResult, DashboardKpi, KpiSnapshot, AlertItem, AiSummary, PricingCalendar, PricingSimulation,
   RecomputeForecastResult, RecomputeSimulationResult, PricingStrategy, PricingStrategyInput, PricingLockPeriod, BookingCurve,
   DayInsight, DaySimulation,
-  PriceBoundPeriod, CreatePriceBoundInput, SaleOpenCheck,
+  PriceBoundPeriod, CreatePriceBoundInput,
   CompetitorPrices, MonthlyTrend, CompetitorAnalysis, CreateEventInput, UpdateEventInput,
   CreatePriceRankInput, UpdateHotelSettingsInput, SetupStatus, CreateCompetitorInput, UpdateCompetitorInput,
   DashboardPreference, UserPreferences, CompetitorFetchSourceStatus, EventImportRow, ImportResult, NewHotelInput,
@@ -32,7 +32,7 @@ import {
   mockCompetitorPrices, mockMonthlyTrend, mockCompetitorAnalysis, getMockPriceRanks, mockStrategy,
   setMockStrategy, setMockEvents, getMockEvents, mockKpiSnapshots, mockPricingSimulation, mockBudgetYear,
   mockCompetitorSettings, mockUsers, mockReviewScores, updateMockAlertStatus, getMockDashboardPreference,
-  setMockDashboardPreference, getMockPriceBounds, addMockPriceBound, removeMockPriceBound, mockSaleOpenCheck
+  setMockDashboardPreference, getMockPriceBounds, addMockPriceBound, removeMockPriceBound
 } from "./demo-data"
 import {
   enrichMockPricingCalendar, mockBookingCurveDetail, mockDayInsight, mockDaySimulation, getMockNewHotels, addMockNewHotel,
@@ -336,14 +336,6 @@ export const api = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/pricing/bounds/${id}?hotelId=${hotelId}`, { method: "DELETE" }),
       () => removeMockPriceBound(id)
-    )
-  },
-
-  /** 販売開始チェック（D-11）。対象月の推奨（保存しない試算）を前年同曜日・前年同月・予算の ADR と比べる */
-  saleOpenCheck(hotelId: string, year: number, month: number): Promise<SaleOpenCheck> {
-    return withDemoFallback(
-      () => rawRequest(`/api/v1/pricing/sale-open-check?hotelId=${hotelId}&year=${year}&month=${month}`),
-      () => mockSaleOpenCheck(hotelId, year, month)
     )
   },
 

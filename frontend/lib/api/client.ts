@@ -94,6 +94,7 @@ export const MOCK_HOTEL: Hotel = {
   prefectureCode: "13",
   municipalityCode: "131016",
   marketArea: "丸の内",
+  saleOpenDaysBefore: 330,
   isActive: true,
   createdAt: new Date(),
   updatedAt: new Date(),

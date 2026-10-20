@@ -4,6 +4,8 @@
 // 既定値は想定値で、運用しながらホテルごとに変える前提。
 // 変更は MANAGER 以上。OPERATOR には読み取り専用で表示する。
 // 推奨を固定する期間（団体・契約レートの日など）と、期間・曜日ごとの価格の幅（D-11）もここで登録する。
+// 2026-10（PDF b01）: 価格戦略の初期値（ヒアリングで決める）として設定画面へ移し、日のタイプで重みを寄せるか・
+// 日単位のシミュレーションの価格弾力性もここで決める。
 
 import { useEffect, useState } from "react"
 import { Loader2, Lock, Save, SlidersHorizontal, Trash2 } from "lucide-react"
@@ -29,6 +31,10 @@ interface FormState {
   maxRank: string
   maxDailyRankChange: string
   hysteresisRanks: string
+  /** 日のタイプの優先モデルで日ごとに重みを寄せるか */
+  dayModelAdjust: "true" | "false"
+  /** 価格弾力性（価格1%あたりの予約の増減 %） */
+  priceElasticity: string
 }
 
 function toForm(s: PricingStrategy): FormState {
@@ -39,6 +45,8 @@ function toForm(s: PricingStrategy): FormState {
     maxRank: s.maxRank == null ? "" : String(s.maxRank),
     maxDailyRankChange: s.maxDailyRankChange == null ? "" : String(s.maxDailyRankChange),
     hysteresisRanks: String(s.hysteresisRanks),
+    dayModelAdjust: s.dayModelAdjust ? "true" : "false",
+    priceElasticity: String(s.priceElasticity),
   }
 }
 
@@ -65,6 +73,10 @@ export function validateGuardrailForm(f: FormState): string | null {
   const min = optionalInt(f.minRank)
   const max = optionalInt(f.maxRank)
   if (min != null && max != null && min > max) return "推奨ランクの下限は上限以下にしてください"
+  const elasticity = Number(f.priceElasticity)
+  if (f.priceElasticity.trim() === "" || !Number.isFinite(elasticity) || elasticity < 0 || elasticity > 3) {
+    return "価格弾力性は 0〜3 の数で入力してください"
+  }
   return null
 }
 
@@ -108,6 +120,8 @@ export function StrategyGuardrailsCard() {
         maxRank: optionalInt(form.maxRank),
         maxDailyRankChange: optionalInt(form.maxDailyRankChange),
         hysteresisRanks: Number(form.hysteresisRanks),
+        dayModelAdjust: form.dayModelAdjust === "true",
+        priceElasticity: Number(form.priceElasticity),
       })
       setStrategy(updated)
       toast.success("推奨の調整を保存しました。次の再計算から反映されます")
@@ -190,6 +204,29 @@ export function StrategyGuardrailsCard() {
             </Field>
             <Field id="guard-hysteresis" label="据え置く差（ランク）" help="前回の推奨との差がこのランク数以内なら変えません（0 は常に更新）">
               <Input id="guard-hysteresis" inputMode="numeric" value={form.hysteresisRanks} disabled={disabled} onChange={(e) => update("hysteresisRanks", e.target.value)} />
+            </Field>
+            <Field
+              id="guard-day-model"
+              label="日のタイプに合わせて重みを寄せる"
+              help="「寄せる」にすると、稼働優先の型の日は稼働へ、単価優先の型の日は単価へ、上の重みから20ポイントまで移します（日のAI分析で日ごとに確認できます）"
+            >
+              <select
+                id="guard-day-model"
+                value={form.dayModelAdjust}
+                disabled={disabled}
+                onChange={(e) => update("dayModelAdjust", e.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm disabled:opacity-60"
+              >
+                <option value="true">寄せる（AI が日ごとにモデルを割り当てる）</option>
+                <option value="false">寄せない（どの日も上の重みのまま）</option>
+              </select>
+            </Field>
+            <Field
+              id="guard-elasticity"
+              label="価格弾力性"
+              help="日単位のシミュレーションで使います。価格を1%上げると予約が何%減るか（0〜3。1.0 なら1%減る）"
+            >
+              <Input id="guard-elasticity" inputMode="decimal" value={form.priceElasticity} disabled={disabled} onChange={(e) => update("priceElasticity", e.target.value)} />
             </Field>
             {validationError && (
               <p role="alert" className="text-xs text-negative sm:col-span-2">

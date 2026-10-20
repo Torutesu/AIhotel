@@ -22,6 +22,7 @@ import {
   eventsOnDate,
   getRankBadgeColor,
   holidayNameOf,
+  saleOpenStatus,
   specialDayNameOf,
   type MonthCalendar,
 } from "@/components/pricing/pricing-constants"
@@ -44,6 +45,8 @@ interface PriceCalendarSectionProps {
   onSelectRowForAnalysis: (day: PricingCalendarDay) => void
   /** カレンダーのセルクリックで詳細ダイアログを開く */
   onSelectDay: (day: PricingCalendarDay) => void
+  /** 販売開始: 宿泊日の何日前（ホテル設定。未設定は null — 2026-10 PDF b04） */
+  saleOpenDaysBefore?: number | null
 }
 
 /**
@@ -85,6 +88,24 @@ export function summarizeCalendar(days: PricingCalendarDay[], totalRooms: number
   }
 }
 
+/** 表示月の販売開始の状況（宿泊日の N日前に販売開始 — ホテル設定） */
+function SaleOpenNote({ year, month, daysBefore }: { year: number; month: number; daysBefore: number | null }) {
+  const status = saleOpenStatus(year, month, daysBefore)
+  if (!status) return null
+  const md = (d: Date) => `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`
+  const text =
+    status.state === "open"
+      ? "この月は全日販売中です。"
+      : status.state === "before"
+        ? `この月は ${md(status.firstOpen)} から順に販売開始します（月末の宿泊分は ${md(status.lastOpen)}）。`
+        : `この月は ${status.openedThrough ? `${status.openedThrough.getMonth() + 1}/${status.openedThrough.getDate()} の宿泊分まで` : "一部を"}販売中です。`
+  return (
+    <p className="text-xs text-muted-foreground" data-testid="sale-open-note">
+      販売開始は宿泊日の {daysBefore}日前（ホテル設定）。{text}
+    </p>
+  )
+}
+
 function HeaderHelp({ label, help, align = "right" }: { label: string; help: string; align?: "right" | "center" }) {
   return (
     <TooltipProvider>
@@ -110,6 +131,7 @@ export function PriceCalendarSection({
   events,
   onSelectRowForAnalysis,
   onSelectDay,
+  saleOpenDaysBefore = null,
 }: PriceCalendarSectionProps) {
   const { isWeekendDow } = useWeekend()
   const [calendarViewMode, setCalendarViewMode] = useState<"table" | "grid">("table")
@@ -144,9 +166,10 @@ export function PriceCalendarSection({
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            オペレーターが予算・現在の予約・AIの推奨を見比べ、シミュレーションも含めて価格を決める表です。行をクリックすると日のAI分析（日のタイプの推移）を開きます。
-            結果と想定との差異は「分析 &gt; 日別パフォーマンス」で確認できます。
+            オペレーターが予算・現在の予約・AIの推奨を見比べ、価格を決める表です。行をクリックすると日のAI分析（日のタイプの推移・その日のシミュレーション）を開きます。
+            結果と想定との差異は「分析 &gt; 日別パフォーマンス」で確認できます。数値は全タイプの合計、料金ランクは基準の部屋タイプ（1名料金）のランクです。
           </p>
+          <SaleOpenNote year={monthData.year} month={monthData.month} daysBefore={saleOpenDaysBefore} />
           <p className="text-xs text-muted-foreground mb-2">
             曜日欄の色: <span className="text-negative font-medium">祝日</span> / <span className="text-warning font-medium">特日（お盆・年末年始等）</span>
             。特日はAIが候補を提示し、オペレーターがマスタ設定画面で修正できます。
@@ -181,7 +204,13 @@ export function PriceCalendarSection({
                       現在料金ランク
                       <span className="block text-[10px] font-normal text-muted-foreground">（サイトコントローラー）</span>
                     </th>
-                    <th className="text-center py-2 px-2 font-medium whitespace-nowrap">推奨料金ランク</th>
+                    <th className="text-center py-2 px-2 font-medium whitespace-nowrap">
+                      <HeaderHelp
+                        label="推奨料金ランク"
+                        align="center"
+                        help="基準の部屋タイプ（デフォルトのタイプ）の推奨ランクです。ほかのタイプはタイプ別人数別カレンダーで確認します。"
+                      />
+                    </th>
                     <th className="text-right py-2 px-2 font-medium whitespace-nowrap bg-muted/40">
                       <HeaderHelp label="予算売上" help="月次予算を前年同曜日の販売室数の比で日に配った値です（予算ADRは月の値）。" />
                     </th>

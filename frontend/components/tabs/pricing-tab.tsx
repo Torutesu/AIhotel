@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorCard } from "@/components/error-state"
@@ -17,12 +18,9 @@ import { useAppState, usePeriod } from "@/components/app-state-provider"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 
-import { StrategyWeightsCard } from "@/components/pricing/strategy-weights-card"
-import { StrategyGuardrailsCard } from "@/components/pricing/strategy-guardrails-card"
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
 import { PriceCalendarSection } from "@/components/pricing/price-calendar-section"
 import { EventListCard } from "@/components/pricing/event-list-card"
-import { SaleOpenCheckCard } from "@/components/pricing/sale-open-check-card"
 import { DayDetailDialog } from "@/components/pricing/day-detail-dialog"
 import { DayAnalysisDialog } from "@/components/pricing/day-analysis-dialog"
 import {
@@ -168,11 +166,14 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         </CardContent>
       </Card>
 
-      {/* 価格戦略の重み付け（U-1 — GET/PUT /pricing/strategy） */}
-      <StrategyWeightsCard />
-
-      {/* 推奨ランクの調整と、推奨を固定する期間（#17） */}
-      <StrategyGuardrailsCard />
+      {/* 価格戦略の重み付け・推奨の調整・価格の幅・固定期間は、ヒアリングで決める初期値として設定画面へ移した（2026-10 PDF b01） */}
+      <p className="text-xs text-muted-foreground">
+        価格戦略の重み付け・推奨の調整（価格の幅・推奨を固定する期間）は、ヒアリング内容に応じた初期値として
+        <Button variant="link" className="h-auto px-1 py-0 text-xs" onClick={() => setTab("settings")}>
+          設定画面の「価格戦略の初期値」
+        </Button>
+        で設定します。日ごとの優先モデル（稼働優先・単価優先）は日のタイプで AI が割り当て、行をクリックした日のAI分析で確認・試算できます。
+      </p>
 
       <Card>
         <CardContent className="px-3 py-2.5">
@@ -206,6 +207,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                 key={`${monthData.year}-${monthData.month}`}
                 monthData={monthData}
                 totalRooms={monthData.totalRooms ?? hotel?.totalRooms ?? null}
+                saleOpenDaysBefore={hotel?.saleOpenDaysBefore ?? null}
                 highlightedDate={highlightedDate}
                 events={events}
                 onSelectRowForAnalysis={setSelectedRowForAnalysis}
@@ -215,9 +217,6 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
           )}
         </CardContent>
       </Card>
-
-      {/* 販売開始チェック（先々の月を前年同曜日・前年同月・予算の ADR と突き合わせる — D-11） */}
-      <SaleOpenCheckCard />
 
       {/* 当月のイベント情報（参照のみ。登録・取り込みは外部需要動向 — 2026-10） */}
       <EventListCard
