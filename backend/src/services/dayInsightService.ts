@@ -177,18 +177,17 @@ export async function getDaySimulationService(hotelId: string, date: Date, rank?
   if (!hotel) throw new NotFoundError('ホテル')
   const totalRooms = hotel.totalRooms
 
-  const run = (modelOverride?: DayModel) =>
-    ruleBasedForecaster.forecast({ hotelId, startDate: date, endDate: date, modelOverride }).then((r) => r[0])
-  const [base, byOccupancy, byBalanced, byAdr, config, ranks, curve] = await Promise.all([
-    run(),
-    run('occupancy'),
-    run('balanced'),
-    run('adr'),
+  // AI の推奨（日のタイプのモデル）と優先モデル3つを、データを1回読むだけで出す
+  const [forecasts, config, ranks, curve] = await Promise.all([
+    ruleBasedForecaster
+      .forecastByModels({ hotelId, startDate: date, endDate: date }, [undefined, 'occupancy', 'balanced', 'adr'])
+      .then((byModel) => byModel.map((r) => r[0])),
     prisma.pricingStrategyConfig.findUnique({ where: { hotelId } }),
     prisma.priceRank.findMany({ where: { hotelId, isActive: true }, select: { rank: true, price1P: true }, orderBy: { rank: 'asc' } }),
     prisma.bookingCurveData.findMany({ where: { hotelId, stayDate: date }, select: { stayDate: true, daysBefore: true, roomsBooked: true } }),
   ])
   if (rank != null && !ranks.some((r) => r.rank === rank)) throw new BadRequestError('指定した料金ランクは登録されていません')
+  const [base, byOccupancy, byBalanced, byAdr] = forecasts
 
   const elasticity = config?.priceElasticity ?? 1
   const weights = config
