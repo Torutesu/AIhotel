@@ -100,6 +100,14 @@ export function weekendDaysLabel(weekendDays: number[]): string {
   return weekendDays.map((d) => DAY_NAMES[d]).join("・")
 }
 
+/**
+ * 日本時間の今日（"yyyy-MM-dd"）。バックエンドは日本時間で「今日」を決める（`todayJst()`）ため、
+ * API が過去の日を受け付けないかどうかを画面で先に判定するときはこちらを使う（ブラウザの時間帯に左右されない）
+ */
+export function todayJstStr(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tokyo", year: "numeric", month: "2-digit", day: "2-digit" }).format(now)
+}
+
 /** 今日の 0 時（ローカルタイム） */
 export function startOfToday(): Date {
   const now = new Date()
