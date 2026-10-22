@@ -4,6 +4,7 @@ import type { Express } from 'express'
 import bcrypt from 'bcryptjs'
 import { PrismaClient } from '@prisma/client'
 import { addUtcDays, todayJst } from '../lib/date.js'
+import { ruleBasedForecaster } from '../services/forecast/ruleBasedForecaster.js'
 
 // 需要予測・推奨価格の統合テスト（#76 / #77 / #90）。
 // DATABASE_URL が無ければスキップし、専用テナント（プレフィクス ftest）で検証する。
@@ -213,6 +214,21 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
 
       await setWeights(0, 100, 0, { dayModelAdjust: false })
       expect((await recomputeAndReadRanks()).every((r) => r === 9)).toBe(true)
+    })
+
+    it('日単位のシミュレーション用にデータを1回読んでモデルごとに出した推奨は、モデルごとに予測を動かした結果と同じ', async () => {
+      await setWeights(40, 40, 20, { dayModelAdjust: true })
+      const range = { hotelId: HOTEL, startDate: today, endDate }
+      const models = [undefined, 'occupancy', 'balanced', 'adr'] as const
+      const shared = await ruleBasedForecaster.forecastByModels(range, [...models])
+      const separate = await Promise.all(models.map((modelOverride) => ruleBasedForecaster.forecast({ ...range, modelOverride })))
+      const pick = (list: Awaited<ReturnType<typeof ruleBasedForecaster.forecast>>) =>
+        list.map((f) => ({ date: f.date.getTime(), rank: f.recommendedRank, occupancy: f.predictedOccupancy, adr: f.predictedAdr, model: f.rationale?.dayType?.model }))
+      expect(shared.map(pick)).toEqual(separate.map(pick))
+      // 単価優先は稼働優先より高いランクを狙う（重みが ADR に寄るため、少なくとも下回らない）
+      const occupancyRanks = shared[1].map((f) => f.recommendedRank ?? 0)
+      const adrRanks = shared[3].map((f) => f.recommendedRank ?? 0)
+      expect(adrRanks.every((r, i) => r >= occupancyRanks[i])).toBe(true)
     })
 
     it('推奨行に新しいモデルバージョンが記録される', async () => {

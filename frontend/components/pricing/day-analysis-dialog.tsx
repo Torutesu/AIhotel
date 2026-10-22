@@ -29,7 +29,7 @@ import {
   type DayInsightItem,
 } from "@/components/pricing/day-analysis-sections"
 import { useApiQuery } from "@/hooks/use-api-query"
-import { DAY_NAMES, parseDateStr, startOfToday } from "@/lib/date"
+import { DAY_NAMES, parseDateStr, todayJstStr } from "@/lib/date"
 import { formatPercent as pct, formatSignedYen as signedYen, formatYen as yen } from "@/lib/format"
 import { api, type DayInsight, type PriceRank, type PricingCalendarDay } from "@/lib/api"
 
@@ -95,7 +95,8 @@ const DOT_CLASS: Record<DayInsightItem["type"], string> = {
 function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose: () => void }) {
   const { hotelId } = useAuth()
   const date = parseDateStr(day.date)
-  const isPast = date < startOfToday()
+  // 日単位のシミュレーションの API は日本時間の今日より前を受け付けないので、同じ基準で「結果の出た日」を決める
+  const isPast = day.date < todayJstStr()
   const { data: insight, loading, error, reload } = useApiQuery<DayInsight>(
     hotelId ? () => api.dayInsight(hotelId, day.date) : null,
     [hotelId, day.date],

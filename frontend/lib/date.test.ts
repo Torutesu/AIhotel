@@ -12,6 +12,7 @@ import {
   parseWeekendDays,
   startOfToday,
   toDateStr,
+  todayJstStr,
   toMonthStr,
   weekendDaysLabel,
 } from "./date"
@@ -110,5 +111,13 @@ describe("startOfToday", () => {
     expect(start.getHours()).toBe(0)
     expect(start.getMinutes()).toBe(0)
     expect(toDateStr(start)).toBe(toDateStr(now))
+  })
+})
+
+describe("todayJstStr", () => {
+  it("ブラウザの時間帯によらず日本時間の日付を返す（UTC 15時以降は日本では翌日）", () => {
+    expect(todayJstStr(new Date("2026-10-20T14:59:59Z"))).toBe("2026-10-20")
+    expect(todayJstStr(new Date("2026-10-20T15:00:00Z"))).toBe("2026-10-21")
+    expect(todayJstStr(new Date("2026-12-31T16:00:00Z"))).toBe("2027-01-01")
   })
 })

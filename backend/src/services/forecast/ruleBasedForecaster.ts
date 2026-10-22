@@ -240,227 +240,308 @@ export function computeDailyForecastCore(
   }
 }
 
-export const ruleBasedForecaster: DemandForecaster = {
+/**
+ * 予測に使うデータをまとめて読む。日単位のシミュレーションでモデルを変えて何度も計算するとき、読み込みを1回で済ませるために分けている
+ */
+async function loadForecastContext(input: Pick<ForecastInput, 'hotelId' | 'startDate' | 'endDate'>) {
+  const { hotelId, startDate, endDate } = input
+
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+  const weekendDays = Array.isArray(hotel.weekendDays)
+    ? (hotel.weekendDays as number[])
+    : [...DEFAULT_WEEKEND_DAYS]
+
+  // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得
+  const historyWindowStart = addUtcDays(startDate, -400)
+
+  // ブッキングペースの前年同曜日（364日前）まで遡れるよう、予約積上は対象期間の1年前から取る（D-11）
+  const lastYearStart = lastYearSameWeekday(startDate)
+  const lastYearEnd = lastYearSameWeekday(endDate)
+
+  const today = todayJst()
+  const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily, dayTypeModel] =
+    await Promise.all([
+    prisma.dailyData.findMany({
+      where: {
+        hotelId,
+        date: { gte: historyWindowStart, lt: startDate },
+      },
+      select: { date: true, occupancy: true, adr: true },
+      orderBy: { date: 'asc' },
+    }),
+    // 対象期間のイベント（影響度の加算）と、過去の特殊日（基準から外す期間 — D-11）
+    prisma.event.findMany({
+      where: {
+        hotelId,
+        startDate: { lte: endDate },
+        OR: [{ endDate: { gte: startDate } }, { excludeFromHistory: true, endDate: { gte: historyWindowStart } }],
+      },
+      select: { startDate: true, endDate: true, expectedImpact: true, excludeFromHistory: true },
+    }),
+    prisma.priceRank.findMany({
+      where: { hotelId, isActive: true },
+      orderBy: { rank: 'asc' },
+    }),
+    prisma.pricingStrategyConfig.findUnique({ where: { hotelId } }),
+    // 対象期間の競合価格。論理削除した競合は含めない（#90）
+    prisma.competitorPriceData.findMany({
+      where: {
+        competitor: { hotelId, isActive: true },
+        date: { gte: startDate, lte: endDate },
+      },
+      select: { date: true, price1P: true, price2P: true, observedAt: true, updatedAt: true },
+    }),
+    // 前回の推奨（ガードレールの基準 — #17）
+    prisma.aiPriceRecommendation.findMany({
+      where: { hotelId, roomTypeId: null, date: { gte: startDate, lte: endDate } },
+      select: { date: true, recommendedRank: true },
+    }),
+    // 期間・曜日ごとの価格の幅（D-11）
+    prisma.priceBoundPeriod.findMany({
+      where: { hotelId, startDate: { lte: endDate }, endDate: { gte: startDate } },
+      select: { startDate: true, endDate: true, weekdays: true, minRank: true, maxRank: true, createdAt: true },
+    }),
+    // 予約積上（今年の対象期間と、前年同曜日 — D-11）
+    prisma.bookingCurveData.findMany({
+      where: {
+        hotelId,
+        OR: [
+          { stayDate: { gte: startDate, lte: endDate } },
+          { stayDate: { gte: lastYearStart, lte: lastYearEnd } },
+        ],
+      },
+      select: { stayDate: true, daysBefore: true, roomsBooked: true },
+    }),
+    // 前年同曜日の最終の販売室数（D-11）
+    prisma.dailyData.findMany({
+      where: { hotelId, date: { gte: lastYearStart, lte: lastYearEnd } },
+      select: { date: true, soldRooms: true },
+    }),
+    // 日のタイプ（日のモデル — 2026-10）。型ごとの優先モデル（稼働・バランス・単価）で重みを寄せる
+    loadDayTypeModel(hotelId, today),
+  ])
+
+  const events = allEvents.filter((e) => e.endDate >= startDate)
+  // 特殊日の実績は、同曜日平均・前年比較・ペースの基準に使わない（D-11）
+  const specialDays: DateRange[] = allEvents.filter((e) => e.excludeFromHistory)
+  const curveByStayDate = new Map<number, BookingCurvePoint[]>()
+  for (const point of curve) {
+    const key = point.stayDate.getTime()
+    curveByStayDate.set(key, [...(curveByStayDate.get(key) ?? []), point])
+  }
+  const lastYearSoldByDate = new Map(
+    lastYearDaily.filter((d) => d.soldRooms != null).map((d) => [d.date.getTime(), d.soldRooms as number])
+  )
+
+  const usualDays = dailyData.filter((d) => !isInRanges(d.date, specialDays))
+  const history: OccupancyRecord[] = usualDays
+    .filter((d): d is typeof d & { occupancy: number } => d.occupancy != null)
+    .map((d) => ({ date: d.date, occupancy: d.occupancy }))
+
+  const adrHistory: AdrRecord[] = usualDays
+    .filter((d): d is typeof d & { adr: number } => d.adr != null)
+    .map((d) => ({ date: d.date, adr: d.adr }))
+
+  // 競合と自館を同じ人数の料金で比べる（#17）
+  const competitorOccupancy = resolveCompetitorOccupancy(strategyConfig?.competitorOccupancy, hotel.hotelType)
+  const competitorHistory: CompetitorPriceRecord[] = competitorPrices.flatMap((c) => {
+    const price = competitorOccupancy === 2 ? c.price2P : c.price1P
+    return price == null ? [] : [{ date: c.date, price, observedAt: c.observedAt ?? c.updatedAt }]
+  })
+
+  const maxRank = priceRanks.length > 0 ? Math.max(...priceRanks.map((r) => r.rank)) : DEFAULT_MAX_RANK
+  const priceByRank = new Map(priceRanks.map((r) => [r.rank, r.price1P]))
+  const rankPrices: RankPrice[] = priceRanks.map((r) => ({ rank: r.rank, price: r.price1P }))
+  const competitorRankPrices: RankPrice[] =
+    competitorOccupancy === 2 ? priceRanks.map((r) => ({ rank: r.rank, price: r.price2P })) : rankPrices
+  const previousRankByDate = new Map(
+    previous.filter((p) => p.recommendedRank != null).map((p) => [p.date.getTime(), p.recommendedRank as number])
+  )
+
+  // 戦略設定が無いホテルの初期値の重みは稼働率のみ。日のタイプによる寄せは設定画面の初期値（寄せる）と同じく行う
+  const weights: StrategyWeights = strategyConfig
+    ? {
+        weightOccupancy: strategyConfig.weightOccupancy,
+        weightAdr: strategyConfig.weightAdr,
+        weightCompetitor: strategyConfig.weightCompetitor,
+      }
+    : OCCUPANCY_ONLY_WEIGHTS
+  const baseGuardrails: RankGuardrails = {
+    minRank: strategyConfig?.minRank ?? null,
+    maxRank: strategyConfig?.maxRank ?? null,
+    maxDailyRankChange: strategyConfig ? strategyConfig.maxDailyRankChange : DEFAULT_MAX_DAILY_RANK_CHANGE,
+    hysteresisRanks: strategyConfig?.hysteresisRanks ?? DEFAULT_HYSTERESIS_RANKS,
+  }
+  const bounds: PriceBoundRecord[] = priceBounds
+  const now = new Date()
+
+  return {
+    startDate,
+    endDate,
+    today,
+    now,
+    hotel,
+    weekendDays,
+    events,
+    specialDays,
+    curveByStayDate,
+    lastYearSoldByDate,
+    history,
+    adrHistory,
+    competitorOccupancy,
+    competitorHistory,
+    maxRank,
+    priceByRank,
+    rankPrices,
+    competitorRankPrices,
+    previousRankByDate,
+    strategyConfig,
+    weights,
+    baseGuardrails,
+    bounds,
+    dayTypeModel,
+  }
+}
+
+type ForecastContext = Awaited<ReturnType<typeof loadForecastContext>>
+
+/** 読んだデータから日ごとの予測と推奨を出す（DB を読まない）。modelOverride は試算用の優先モデル */
+function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['modelOverride']): DailyForecast[] {
+  const {
+    startDate,
+    endDate,
+    today,
+    now,
+    hotel,
+    weekendDays,
+    events,
+    specialDays,
+    curveByStayDate,
+    lastYearSoldByDate,
+    history,
+    adrHistory,
+    competitorOccupancy,
+    competitorHistory,
+    maxRank,
+    priceByRank,
+    rankPrices,
+    competitorRankPrices,
+    previousRankByDate,
+    strategyConfig,
+    weights,
+    baseGuardrails,
+    bounds,
+    dayTypeModel,
+  } = ctx
+  const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
+  const results: DailyForecast[] = []
+  for (let i = 0; i < totalDays; i++) {
+    const date = addUtcDays(startDate, i)
+    const lastYearDate = lastYearSameWeekday(date)
+    const leadDays = leadDaysBetween(today, date)
+    const lastYearIsSpecial = isInRanges(lastYearDate, specialDays)
+    const pace: PaceInput | undefined =
+      leadDays >= 0
+        ? {
+            leadDays,
+            otbRooms: otbAtLead(curveByStayDate.get(date.getTime()) ?? [], leadDays),
+            // 前年同曜日が特殊日なら比べない（予約済みの下限だけかける）
+            lastYearOtbRooms: lastYearIsSpecial
+              ? null
+              : otbAtLead(curveByStayDate.get(lastYearDate.getTime()) ?? [], leadDays),
+            lastYearFinalRooms: lastYearIsSpecial ? null : (lastYearSoldByDate.get(lastYearDate.getTime()) ?? null),
+            totalRooms: hotel.totalRooms,
+          }
+        : undefined
+    const { pace: paceResult, ...core } = computeDailyForecastCore(date, history, events, weekendDays, maxRank, pace)
+
+    // 日のタイプで優先モデルを決め、初期値の重みを稼働寄り・単価寄りに寄せる（予約が進んで型が変わればモデルも変わる）
+    const dayType = buildDayTypeTimeline({
+      stayDate: date,
+      today,
+      totalRooms: hotel.totalRooms,
+      types: dayTypeModel.typesFor(date),
+      points: curveByStayDate.get(date.getTime()) ?? [],
+      actualSoldRooms: null,
+      predictedOccupancy: core.predictedOccupancy,
+    }).current
+    // 「日のタイプに合わせて重みを寄せる」を切ったホテルは、試算でモデルを指定したとき以外は初期値の重みのまま
+    const dayModel = modelOverride ?? (strategyConfig?.dayModelAdjust ?? true ? (dayType?.model ?? null) : null)
+    const dayWeights = weightsForModel(weights, dayModel)
+
+    const baseAdr = computeBaseAdr(adrHistory, date)
+    const adrRank = computeAdrRank(adrHistory, date, rankPrices)
+    const competitor = computeCompetitorRank(competitorHistory, date, competitorRankPrices, {
+      offsetPct: strategyConfig?.competitorOffsetPct ?? 0,
+      now,
+    })
+
+    const blended = blendRanksByStrategy({
+      occupancyRank: core.recommendedRank ?? 1,
+      adrRank,
+      competitorRank: competitor.rank,
+      weights: dayWeights,
+      maxRank,
+    })
+    const guarded = applyRankGuardrails({
+      rank: blended.rank,
+      previousRank: previousRankByDate.get(date.getTime()) ?? null,
+      guardrails: { ...baseGuardrails, ...resolvePriceBounds(bounds, date, baseGuardrails) },
+      maxRank,
+    })
+
+    results.push({
+      ...core,
+      recommendedRank: guarded.rank,
+      recommendedPrice: priceByRank.get(guarded.rank) ?? null,
+      // 予測ADRは着地シミュレーション（F-DP-04）とダッシュボードの予測ADR系列の元になる。
+      // 書き込まないと再計算のたびに消え、着地が1名料金ベースで過小になっていた（#77）
+      predictedAdr: computePredictedAdr({ baseAdr, recommendedRank: guarded.rank, ranks: rankPrices }),
+      modelVersion: MODEL_VERSION,
+      rationale: buildRationale({
+        date,
+        core,
+        blended,
+        guarded,
+        weights: dayWeights,
+        baseAdr,
+        adrRank,
+        competitor,
+        competitorOccupancy,
+        offsetPct: strategyConfig?.competitorOffsetPct ?? 0,
+        events,
+        weekendDays,
+        pace,
+        paceResult,
+        dayType: dayType || modelOverride ? { name: dayType?.name ?? null, model: dayModel } : undefined,
+      }),
+    })
+  }
+  return results
+}
+
+export interface RuleBasedForecaster extends DemandForecaster {
+  /**
+   * 日単位のシミュレーション用（保存しない — 2026-10）: データを1回だけ読み、指定した優先モデルごとに予測と推奨を出す。
+   * undefined は日のタイプで決まるモデル（ふだんの推奨）。結果は models と同じ順
+   */
+  forecastByModels(
+    input: Pick<ForecastInput, 'hotelId' | 'startDate' | 'endDate'>,
+    models: Array<ForecastInput['modelOverride']>
+  ): Promise<DailyForecast[][]>
+}
+
+export const ruleBasedForecaster: RuleBasedForecaster = {
   name: MODEL_VERSION,
 
   async forecast(input: ForecastInput): Promise<DailyForecast[]> {
-    const { hotelId, startDate, endDate } = input
+    return computeForecasts(await loadForecastContext(input), input.modelOverride)
+  },
 
-    const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
-    if (!hotel) throw new NotFoundError('ホテル')
-    const weekendDays = Array.isArray(hotel.weekendDays)
-      ? (hotel.weekendDays as number[])
-      : [...DEFAULT_WEEKEND_DAYS]
-
-    // 移動平均(28日) + 前年同曜日比較(365日) の両方を賄えるだけ過去に遡って実績を取得
-    const historyWindowStart = addUtcDays(startDate, -400)
-
-    // ブッキングペースの前年同曜日（364日前）まで遡れるよう、予約積上は対象期間の1年前から取る（D-11）
-    const lastYearStart = lastYearSameWeekday(startDate)
-    const lastYearEnd = lastYearSameWeekday(endDate)
-
-    const today = todayJst()
-    const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily, dayTypeModel] =
-      await Promise.all([
-      prisma.dailyData.findMany({
-        where: {
-          hotelId,
-          date: { gte: historyWindowStart, lt: startDate },
-        },
-        select: { date: true, occupancy: true, adr: true },
-        orderBy: { date: 'asc' },
-      }),
-      // 対象期間のイベント（影響度の加算）と、過去の特殊日（基準から外す期間 — D-11）
-      prisma.event.findMany({
-        where: {
-          hotelId,
-          startDate: { lte: endDate },
-          OR: [{ endDate: { gte: startDate } }, { excludeFromHistory: true, endDate: { gte: historyWindowStart } }],
-        },
-        select: { startDate: true, endDate: true, expectedImpact: true, excludeFromHistory: true },
-      }),
-      prisma.priceRank.findMany({
-        where: { hotelId, isActive: true },
-        orderBy: { rank: 'asc' },
-      }),
-      prisma.pricingStrategyConfig.findUnique({ where: { hotelId } }),
-      // 対象期間の競合価格。論理削除した競合は含めない（#90）
-      prisma.competitorPriceData.findMany({
-        where: {
-          competitor: { hotelId, isActive: true },
-          date: { gte: startDate, lte: endDate },
-        },
-        select: { date: true, price1P: true, price2P: true, observedAt: true, updatedAt: true },
-      }),
-      // 前回の推奨（ガードレールの基準 — #17）
-      prisma.aiPriceRecommendation.findMany({
-        where: { hotelId, roomTypeId: null, date: { gte: startDate, lte: endDate } },
-        select: { date: true, recommendedRank: true },
-      }),
-      // 期間・曜日ごとの価格の幅（D-11）
-      prisma.priceBoundPeriod.findMany({
-        where: { hotelId, startDate: { lte: endDate }, endDate: { gte: startDate } },
-        select: { startDate: true, endDate: true, weekdays: true, minRank: true, maxRank: true, createdAt: true },
-      }),
-      // 予約積上（今年の対象期間と、前年同曜日 — D-11）
-      prisma.bookingCurveData.findMany({
-        where: {
-          hotelId,
-          OR: [
-            { stayDate: { gte: startDate, lte: endDate } },
-            { stayDate: { gte: lastYearStart, lte: lastYearEnd } },
-          ],
-        },
-        select: { stayDate: true, daysBefore: true, roomsBooked: true },
-      }),
-      // 前年同曜日の最終の販売室数（D-11）
-      prisma.dailyData.findMany({
-        where: { hotelId, date: { gte: lastYearStart, lte: lastYearEnd } },
-        select: { date: true, soldRooms: true },
-      }),
-      // 日のタイプ（日のモデル — 2026-10）。型ごとの優先モデル（稼働・バランス・単価）で重みを寄せる
-      loadDayTypeModel(hotelId, today),
-    ])
-
-    const events = allEvents.filter((e) => e.endDate >= startDate)
-    // 特殊日の実績は、同曜日平均・前年比較・ペースの基準に使わない（D-11）
-    const specialDays: DateRange[] = allEvents.filter((e) => e.excludeFromHistory)
-    const curveByStayDate = new Map<number, BookingCurvePoint[]>()
-    for (const point of curve) {
-      const key = point.stayDate.getTime()
-      curveByStayDate.set(key, [...(curveByStayDate.get(key) ?? []), point])
-    }
-    const lastYearSoldByDate = new Map(
-      lastYearDaily.filter((d) => d.soldRooms != null).map((d) => [d.date.getTime(), d.soldRooms as number])
-    )
-
-    const usualDays = dailyData.filter((d) => !isInRanges(d.date, specialDays))
-    const history: OccupancyRecord[] = usualDays
-      .filter((d): d is typeof d & { occupancy: number } => d.occupancy != null)
-      .map((d) => ({ date: d.date, occupancy: d.occupancy }))
-
-    const adrHistory: AdrRecord[] = usualDays
-      .filter((d): d is typeof d & { adr: number } => d.adr != null)
-      .map((d) => ({ date: d.date, adr: d.adr }))
-
-    // 競合と自館を同じ人数の料金で比べる（#17）
-    const competitorOccupancy = resolveCompetitorOccupancy(strategyConfig?.competitorOccupancy, hotel.hotelType)
-    const competitorHistory: CompetitorPriceRecord[] = competitorPrices.flatMap((c) => {
-      const price = competitorOccupancy === 2 ? c.price2P : c.price1P
-      return price == null ? [] : [{ date: c.date, price, observedAt: c.observedAt ?? c.updatedAt }]
-    })
-
-    const maxRank = priceRanks.length > 0 ? Math.max(...priceRanks.map((r) => r.rank)) : DEFAULT_MAX_RANK
-    const priceByRank = new Map(priceRanks.map((r) => [r.rank, r.price1P]))
-    const rankPrices: RankPrice[] = priceRanks.map((r) => ({ rank: r.rank, price: r.price1P }))
-    const competitorRankPrices: RankPrice[] =
-      competitorOccupancy === 2 ? priceRanks.map((r) => ({ rank: r.rank, price: r.price2P })) : rankPrices
-    const previousRankByDate = new Map(
-      previous.filter((p) => p.recommendedRank != null).map((p) => [p.date.getTime(), p.recommendedRank as number])
-    )
-
-    // 戦略設定が無いホテルの初期値の重みは稼働率のみ。日のタイプによる寄せは設定画面の初期値（寄せる）と同じく行う
-    const weights: StrategyWeights = strategyConfig
-      ? {
-          weightOccupancy: strategyConfig.weightOccupancy,
-          weightAdr: strategyConfig.weightAdr,
-          weightCompetitor: strategyConfig.weightCompetitor,
-        }
-      : OCCUPANCY_ONLY_WEIGHTS
-    const baseGuardrails: RankGuardrails = {
-      minRank: strategyConfig?.minRank ?? null,
-      maxRank: strategyConfig?.maxRank ?? null,
-      maxDailyRankChange: strategyConfig ? strategyConfig.maxDailyRankChange : DEFAULT_MAX_DAILY_RANK_CHANGE,
-      hysteresisRanks: strategyConfig?.hysteresisRanks ?? DEFAULT_HYSTERESIS_RANKS,
-    }
-    const bounds: PriceBoundRecord[] = priceBounds
-    const now = new Date()
-
-    const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
-    const results: DailyForecast[] = []
-    for (let i = 0; i < totalDays; i++) {
-      const date = addUtcDays(startDate, i)
-      const lastYearDate = lastYearSameWeekday(date)
-      const leadDays = leadDaysBetween(today, date)
-      const lastYearIsSpecial = isInRanges(lastYearDate, specialDays)
-      const pace: PaceInput | undefined =
-        leadDays >= 0
-          ? {
-              leadDays,
-              otbRooms: otbAtLead(curveByStayDate.get(date.getTime()) ?? [], leadDays),
-              // 前年同曜日が特殊日なら比べない（予約済みの下限だけかける）
-              lastYearOtbRooms: lastYearIsSpecial
-                ? null
-                : otbAtLead(curveByStayDate.get(lastYearDate.getTime()) ?? [], leadDays),
-              lastYearFinalRooms: lastYearIsSpecial ? null : (lastYearSoldByDate.get(lastYearDate.getTime()) ?? null),
-              totalRooms: hotel.totalRooms,
-            }
-          : undefined
-      const { pace: paceResult, ...core } = computeDailyForecastCore(date, history, events, weekendDays, maxRank, pace)
-
-      // 日のタイプで優先モデルを決め、初期値の重みを稼働寄り・単価寄りに寄せる（予約が進んで型が変わればモデルも変わる）
-      const dayType = buildDayTypeTimeline({
-        stayDate: date,
-        today,
-        totalRooms: hotel.totalRooms,
-        types: dayTypeModel.typesFor(date),
-        points: curveByStayDate.get(date.getTime()) ?? [],
-        actualSoldRooms: null,
-        predictedOccupancy: core.predictedOccupancy,
-      }).current
-      // 「日のタイプに合わせて重みを寄せる」を切ったホテルは、試算でモデルを指定したとき以外は初期値の重みのまま
-      const dayModel = input.modelOverride ?? (strategyConfig?.dayModelAdjust ?? true ? (dayType?.model ?? null) : null)
-      const dayWeights = weightsForModel(weights, dayModel)
-
-      const baseAdr = computeBaseAdr(adrHistory, date)
-      const adrRank = computeAdrRank(adrHistory, date, rankPrices)
-      const competitor = computeCompetitorRank(competitorHistory, date, competitorRankPrices, {
-        offsetPct: strategyConfig?.competitorOffsetPct ?? 0,
-        now,
-      })
-
-      const blended = blendRanksByStrategy({
-        occupancyRank: core.recommendedRank ?? 1,
-        adrRank,
-        competitorRank: competitor.rank,
-        weights: dayWeights,
-        maxRank,
-      })
-      const guarded = applyRankGuardrails({
-        rank: blended.rank,
-        previousRank: previousRankByDate.get(date.getTime()) ?? null,
-        guardrails: { ...baseGuardrails, ...resolvePriceBounds(bounds, date, baseGuardrails) },
-        maxRank,
-      })
-
-      results.push({
-        ...core,
-        recommendedRank: guarded.rank,
-        recommendedPrice: priceByRank.get(guarded.rank) ?? null,
-        // 予測ADRは着地シミュレーション（F-DP-04）とダッシュボードの予測ADR系列の元になる。
-        // 書き込まないと再計算のたびに消え、着地が1名料金ベースで過小になっていた（#77）
-        predictedAdr: computePredictedAdr({ baseAdr, recommendedRank: guarded.rank, ranks: rankPrices }),
-        modelVersion: MODEL_VERSION,
-        rationale: buildRationale({
-          date,
-          core,
-          blended,
-          guarded,
-          weights: dayWeights,
-          baseAdr,
-          adrRank,
-          competitor,
-          competitorOccupancy,
-          offsetPct: strategyConfig?.competitorOffsetPct ?? 0,
-          events,
-          weekendDays,
-          pace,
-          paceResult,
-          dayType: dayType || input.modelOverride ? { name: dayType?.name ?? null, model: dayModel } : undefined,
-        }),
-      })
-    }
-    return results
+  async forecastByModels(input, models) {
+    const ctx = await loadForecastContext(input)
+    return models.map((model) => computeForecasts(ctx, model))
   },
 }
 
