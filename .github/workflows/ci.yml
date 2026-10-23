@@ -125,9 +125,7 @@ jobs:
     # ブラウザを通したスモークテスト（#87）: 3ロールのログイン・主要タブの描画・
     # ロール別の表示・PDF ダウンロード・ログアウト
     name: E2E smoke (Playwright)
-    # ubuntu-latest が 26.04 になり、Playwright 1.56.1 はその OS 向けのブラウザと依存を入れられない。
-    # Playwright を上げるまでは対応している 24.04 に固定する
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     needs: verify
     services:
       postgres:
