@@ -323,7 +323,7 @@ export function KpiProgressSection({
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-heading font-medium tracking-tight">KPI進捗状況</h2>
         <div className="flex items-center gap-3 flex-wrap">
-          {/* 開始月は上部の対象年月。ここでは表示月数を選ぶ（F-DASH-01） */}
+          {/* 開始月はダッシュボード下部の先頭の対象年月（2026-10-23 a01）。ここでは表示月数を選ぶ（F-DASH-01） */}
           <div className="flex items-center gap-1.5">
             <Label htmlFor="kpi-month-span" className="text-xs whitespace-nowrap">
               {year}年{month}月から
