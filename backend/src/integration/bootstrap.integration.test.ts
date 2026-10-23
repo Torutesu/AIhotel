@@ -72,18 +72,21 @@ describeIntegration('環境の立ち上げ（運営アカウント・デモデ�
     // デモデータは今日を基準に作る（他のテストも同じデモホテルを使うため、日付は固定しない）
     await service.seedDemoTenantService()
     const today = todayJst()
-    const monthKey = (d: Date) => d.toISOString().slice(0, 7)
-    const nextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1))
-    const ahead = addUtcDays(today, 40)
+    const currentMonth = today.toISOString().slice(0, 7)
 
     const shown = await prisma.alert.findMany({ where: { hotelId: service.DEMO_HOTEL_ID, level: { gte: 4 } } })
-    const months = shown.map((a) => (a.targetDate ? monthKey(a.targetDate) : null))
-    expect(months).toContain(monthKey(addUtcDays(today, 4)))
-    expect(months).toContain(monthKey(nextMonth))
-    expect(months).toContain(monthKey(ahead))
+    // 直近（1週間以内）の注意点と、翌月以降の注意点の両方がある
+    expect(shown.some((a) => a.targetDate && a.targetDate >= today && a.targetDate < addUtcDays(today, 7))).toBe(true)
+    const upcoming = shown.filter((a) => a.targetDate && a.targetDate.toISOString().slice(0, 7) > currentMonth)
+    expect(upcoming.length).toBeGreaterThanOrEqual(2)
+    // 月単位のアラートは ":yyyy-MM" の ruleKey で月を表し、日次バッチの自動判定の名前と重ならない
+    const monthly = upcoming.find((a) => a.ruleKey)
+    expect(monthly?.ruleKey).toBe(`DEMO_WEEKDAY_PACE:${monthly?.targetDate?.toISOString().slice(0, 7)}`)
+    // 週末はホテルの設定で変わるため、曜日を決め打ちした「月〜木」は書かない
+    expect(shown.every((a) => !a.message.includes('月〜木'))).toBe(true)
+
     const comment = await prisma.aiComment.findFirstOrThrow({ where: { hotelId: service.DEMO_HOTEL_ID, section: 'dashboard-summary' } })
-    expect(comment.content).toMatch(/^【当月】/)
-    expect(comment.content).toContain(`\n【先々】${nextMonth.getUTCMonth() + 1}月は`)
-    expect(comment.content).toContain(`${ahead.getUTCMonth() + 1}/${ahead.getUTCDate()}（${'日月火水木金土'[ahead.getUTCDay()]}）`)
+    const lines = comment.content.split('\n')
+    expect(lines.map((l) => l.slice(0, 4))).toEqual(['【当月】', '【先々】'])
   })
 })

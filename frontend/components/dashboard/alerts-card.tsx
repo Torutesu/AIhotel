@@ -8,7 +8,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AlertActions } from "@/components/alert-actions"
 import { Skeleton } from "@/components/ui/skeleton"
-import { resolveAlertLink, type AlertLinkTarget } from "@/lib/alert-link"
+import { alertLinkFor, isMonthLevelAlert, type AlertLinkTarget } from "@/lib/alert-link"
 import type { AlertItem } from "@/lib/api"
 import { todayJstStr } from "@/lib/date"
 import { cn } from "@/lib/utils"
@@ -26,6 +26,14 @@ export function alertPeriodLabel(targetDate: string | null, today: string = toda
   const [y, m] = target.split("-").map(Number)
   const yearPrefix = y !== Number(current.slice(0, 4)) ? `${y}年` : ""
   return target > current ? { label: `${yearPrefix}${m}月（先々）`, future: true } : { label: `${yearPrefix}${m}月`, future: false }
+}
+
+/** リンクに出す対象日（月単位のアラートは年月だけ。1日を特定の日に見せない） */
+function alertDateLabel(alert: AlertItem): string {
+  if (!alert.targetDate) return ""
+  const [y, m, d] = alert.targetDate.slice(0, 10).split("-").map(Number)
+  if (isMonthLevelAlert(alert.ruleKey)) return `${y}年${m}月`
+  return format(new Date(y, m - 1, d), "yyyy/MM/dd")
 }
 
 interface AlertsCardProps {
@@ -95,7 +103,8 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
           <div className="space-y-3">
             {alerts.map((alert) => {
               const style = alertStyleFor(alert)
-              const link = resolveAlertLink(alert.linkTab)
+              // 対象日・対象月の年月で遷移する（先々のアラートを今月の画面で開かない）
+              const link = alertLinkFor(alert)
               const period = alertPeriodLabel(alert.targetDate)
               return (
                 <div key={alert.id} className={`border-l-4 ${style.border} ${style.bg} p-3 rounded-r`}>
@@ -119,7 +128,7 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
                             onClick={() => onAlertNavigate?.(link)}
                             className="text-xs text-primary hover:underline hover:text-[color:var(--cyan-edge)] transition-colors"
                           >
-                            {alert.targetDate ? format(new Date(alert.targetDate), "yyyy/MM/dd") : ""}
+                            {alertDateLabel(alert)}
                             {` (${link.label})`}
                           </button>
                         )}

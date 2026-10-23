@@ -49,12 +49,12 @@ export function AiSummaryCard({ summary, loading }: AiSummaryCardProps) {
             <div className="max-h-96 space-y-2 overflow-y-auto text-sm leading-relaxed">
               {splitSummaryParagraphs(summary.content).map((p, i) => (
                 <p key={i} className="whitespace-pre-wrap">
-                  {p.heading && <span className="mr-1.5 font-semibold">{p.heading}</span>}
+                  {p.heading && <span className="font-semibold">【{p.heading}】</span>}
                   {p.text}
                 </p>
               ))}
             </div>
-            {/* 表示している月ではなく、最新の1件を出している（対象月との対応づけは Claude API の導入時 — #92） */}
+            {/* 対象年月に連動させず、最新の1件を出す（当月と先々をまとめて知らせる — PDF a01） */}
             <p className="mt-2 text-xs text-muted-foreground">
               最新の解説（生成日時: {new Date(summary.generatedAt).toLocaleString("ja-JP")}）
             </p>

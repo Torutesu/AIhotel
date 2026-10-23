@@ -39,6 +39,7 @@ import { HotelSwitcher } from "@/components/hotel-switcher"
 import type { Tab } from "@shared/types"
 import type { AlertLinkTarget } from "@/lib/alert-link"
 import { APP_NAME, APP_NAME_EN } from "@/lib/brand"
+import { parseDateStr } from "@/lib/date"
 
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
@@ -96,9 +97,11 @@ export function MainLayout() {
     setMobileNavOpen(false)
   }
 
-  // アラートの linkTab は Tab と 1:1 ではないため変換表で解決する（F-4）
+  // アラートの linkTab は Tab と 1:1 ではないため変換表で解決する（F-4）。
+  // 対象日・対象月の年月で開き、料金設定ではその日を強調する（先々のアラートを今月で開かない — 2026-10-23 a01）
   const handleAlertNavigate = (target: AlertLinkTarget) => {
-    navigate({ tab: target.tab, analysisView: target.analysisView })
+    if (target.focusDate) setPricingFocusDate(parseDateStr(target.focusDate))
+    navigate({ tab: target.tab, analysisView: target.analysisView, periodMonth: target.periodMonth })
     setMobileNavOpen(false)
   }
 

@@ -16,6 +16,10 @@ export interface AlertLinkTarget {
   analysisView?: AnalysisView
   /** リンクに表示する日本語ラベル */
   label: string
+  /** 遷移先で開く対象年月（"yyyy-MM"）。アラートの対象日・対象月から決める（先々のアラートを今月で開かない） */
+  periodMonth?: string
+  /** 料金設定で強調する日（"yyyy-MM-dd"）。月単位のアラートには無い */
+  focusDate?: string
 }
 
 const ALERT_LINK_MAP: Record<string, AlertLinkTarget> = {
@@ -31,4 +35,30 @@ const ALERT_LINK_MAP: Record<string, AlertLinkTarget> = {
 export function resolveAlertLink(linkTab: string | null | undefined): AlertLinkTarget | null {
   if (!linkTab) return null
   return ALERT_LINK_MAP[linkTab] ?? null
+}
+
+/**
+ * 月単位のアラートか。ruleKey が ":yyyy-MM" で終わるもの（着地予測の予算未達 `LANDING_BELOW_BUDGET:2026-11` など）。
+ * 対象日はその月の1日になっているため、特定の日として見せない
+ */
+export function isMonthLevelAlert(ruleKey: string | null | undefined): boolean {
+  return /:\d{4}-\d{2}$/.test(ruleKey ?? "")
+}
+
+/** 対象年月を持つ画面（ここへは対象日・対象月の年月で遷移する） */
+const PERIOD_TABS: Tab[] = ["dashboard", "pricing", "analysis"]
+
+/**
+ * アラートの遷移先に対象年月と強調する日を足す（純関数）。
+ * targetDate は API の日付（UTC 0時の ISO 文字列）かデモの "yyyy-MM-dd" なので、先頭10文字で日付を決める
+ */
+export function alertLinkFor(alert: { linkTab: string | null; targetDate: string | null; ruleKey?: string | null }): AlertLinkTarget | null {
+  const link = resolveAlertLink(alert.linkTab)
+  if (!link || !alert.targetDate || !PERIOD_TABS.includes(link.tab)) return link
+  const date = alert.targetDate.slice(0, 10)
+  return {
+    ...link,
+    periodMonth: date.slice(0, 7),
+    ...(link.tab === "pricing" && !isMonthLevelAlert(alert.ruleKey) ? { focusDate: date } : {}),
+  }
 }
