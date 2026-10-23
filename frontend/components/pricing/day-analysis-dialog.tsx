@@ -121,13 +121,14 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
             <DialogDescription>日のタイプ・予約の入り方・外部要因・シミュレーションを表示します</DialogDescription>
           </DialogHeader>
           {/* 日のタイプと優先モデル、90日前（推移のいちばん古い時点）のタイプ（DP03 — 見出しの横に置く） */}
-          <div className="flex items-center gap-2 rounded-md border px-3 py-1.5" data-testid="day-type-header">
-            <span className="text-xs text-muted-foreground">日のタイプ</span>
+          {/* 狭い画面ではラベルを1文字ずつ折り返さず、項目ごとに次の行へ送る */}
+          <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5" data-testid="day-type-header">
+            <span className="whitespace-nowrap text-xs text-muted-foreground">日のタイプ</span>
             <DayTypeBadge dayType={day.dayType} model={day.dayTypeModel} typicalOccupancy={day.dayTypeTypicalOccupancy} />
             <DayModelBadge model={day.dayTypeModel} />
             {oldestHistory && (
               <>
-                <span className="text-xs text-muted-foreground">{leadLabel(oldestHistory.daysBefore)}</span>
+                <span className="whitespace-nowrap text-xs text-muted-foreground">{leadLabel(oldestHistory.daysBefore)}</span>
                 <DayTypeBadge dayType={oldestHistory.dayType} />
               </>
             )}

@@ -45,7 +45,8 @@ export function AiSummaryCard({ summary, loading }: AiSummaryCardProps) {
           </div>
         ) : summary?.content ? (
           <>
-            <div className="max-h-60 space-y-2 overflow-y-auto text-sm leading-relaxed">
+            {/* 当月・先々の2段がスマホ幅でも枠内スクロールにならない高さ。長い解説だけ枠内でスクロールする */}
+            <div className="max-h-96 space-y-2 overflow-y-auto text-sm leading-relaxed">
               {splitSummaryParagraphs(summary.content).map((p, i) => (
                 <p key={i} className="whitespace-pre-wrap">
                   {p.heading && <span className="mr-1.5 font-semibold">{p.heading}</span>}
