@@ -281,8 +281,16 @@ export async function evaluateAlertsService(
   const evaluatedLandingKeys = new Set(
     months.map(({ year, month }) => `${RULE_LANDING}:${year}-${String(month).padStart(2, '0')}`)
   )
+  // 終わった月（今月より前）の着地アラートは、もう打つ手が無いので解決する。
+  // 評価対象は今月以降のため、これが無いと前月のアラートが「10月」のまま残り続ける
+  const currentMonthKey = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, '0')}`
+  const isPastLanding = (ruleKey: string) =>
+    ruleKey.startsWith(`${RULE_LANDING}:`) && ruleKey.slice(RULE_LANDING.length + 1) < currentMonthKey
   const isEvaluated = (ruleKey: string) =>
-    ruleKey === RULE_HIGH_DEMAND || ruleKey === RULE_RECOMMENDATION_ANOMALY || evaluatedLandingKeys.has(ruleKey)
+    ruleKey === RULE_HIGH_DEMAND ||
+    ruleKey === RULE_RECOMMENDATION_ANOMALY ||
+    evaluatedLandingKeys.has(ruleKey) ||
+    isPastLanding(ruleKey)
 
   let created = 0
   let updated = 0
