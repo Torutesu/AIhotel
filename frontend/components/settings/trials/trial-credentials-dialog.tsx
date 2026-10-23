@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { APP_NAME, APP_NAME_EN } from "@/lib/brand"
 import type { TrialLoginInfo } from "@shared/types"
 
 export function credentialsText(credentials: TrialLoginInfo, loginUrl: string): string {
@@ -15,7 +16,7 @@ export function credentialsText(credentials: TrialLoginInfo, loginUrl: string): 
     day: "numeric",
   })
   return [
-    "AIレベニュー管理システム トライアルのご案内",
+    `${APP_NAME}（${APP_NAME_EN}）トライアルのご案内`,
     `ログイン画面: ${credentials.loginUrl ?? loginUrl}`,
     `ログイン ID: ${credentials.trial.loginEmail ?? ""}`,
     `パスワード: ${credentials.password ?? "再表示未対応（パスワード再発行が必要です）"}`,

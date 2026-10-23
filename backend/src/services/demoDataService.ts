@@ -399,9 +399,12 @@ export async function populateDemoHotelData(
         severity: AlertSeverity.YELLOW,
         level: 4,
         title: `${nextMonth.getUTCMonth() + 1}月の平日の予約の入りが前年より遅れています`,
-        message: `${nextMonth.getUTCMonth() + 1}月の平日（月〜木）の予約室数が前年同時期の88%です。早期割引の販売期間の延長や平日プランを検討してください。`,
+        message: `${nextMonth.getUTCMonth() + 1}月の平日の予約室数が前年同時期の88%です。早期割引の販売期間の延長や平日プランを検討してください。`,
         linkTab: 'pricing',
         targetDate: nextMonth,
+        // 月単位のアラート（":yyyy-MM" で終わる ruleKey。画面は対象日を年月で見せる）。
+        // 日次バッチの自動判定（LANDING_BELOW_BUDGET 等）とは別の名前なので、バッチが解決・更新することはない
+        ruleKey: `DEMO_WEEKDAY_PACE:${nextMonth.toISOString().slice(0, 7)}`,
       },
       {
         hotelId,

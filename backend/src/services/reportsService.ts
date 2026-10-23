@@ -4,6 +4,7 @@ import PDFDocument from 'pdfkit'
 import { prisma } from '../lib/prisma.js'
 import { storage } from '../lib/storage.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
+import { APP_NAME, APP_NAME_EN } from '../lib/brand.js'
 import { DEFAULT_WEEKEND_DAYS, monthRange, todayJst } from '../lib/date.js'
 
 // 月次レポート生成（F-REP-01: Excel / F-REP-02: PDF）。
@@ -149,7 +150,7 @@ function formatPercent(value: number | null): string {
  */
 async function generateExcelReport(data: MonthlyReportData): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = 'AI Revenue Management System'
+  workbook.creator = `${APP_NAME} (${APP_NAME_EN})`
   workbook.created = new Date()
 
   const summarySheet = workbook.addWorksheet('KPIサマリー')

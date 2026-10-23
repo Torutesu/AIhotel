@@ -54,4 +54,18 @@ describe("KpiComparisonSection", () => {
     fireEvent.click(screen.getByRole("button", { name: "再試行" }))
     await waitFor(() => expect(screen.getAllByText(/2026年9月のKPIスナップショットがまだ記録されていません/).length).toBeGreaterThan(0))
   })
+
+  it("カードで別の月を選んでも、ダッシュボードの対象年月を変えたらそちらに合わせ、元の月に戻しても選んだ月は復活しない（PDF a01）", async () => {
+    mocks.dashboardKpi.mockResolvedValue({ summary: SUMMARY })
+    const { rerender } = render(<KpiComparisonSection year={2026} month={10} summary={SUMMARY} />)
+    const input = () => (screen.getByLabelText("comparison-month") as HTMLInputElement).value
+    fireEvent.change(screen.getByLabelText("comparison-month"), { target: { value: "2026-12" } })
+    expect(input()).toBe("2026-12")
+
+    rerender(<KpiComparisonSection year={2026} month={11} summary={SUMMARY} />)
+    expect(input()).toBe("2026-11")
+    rerender(<KpiComparisonSection year={2026} month={10} summary={SUMMARY} />)
+    expect(input()).toBe("2026-10")
+    await waitFor(() => expect(mocks.kpiComparison).toHaveBeenLastCalledWith("hotel-a", 2026, 10))
+  })
 })

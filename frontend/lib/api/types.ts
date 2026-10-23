@@ -123,6 +123,8 @@ export interface AlertItem {
   message: string
   linkTab: string | null
   targetDate: string | null
+  /** 自動生成の識別子（`LANDING_BELOW_BUDGET:2026-11` など）。手動・seed は null。":yyyy-MM" で終わるものは月単位のアラート */
+  ruleKey?: string | null
   status: string
   detectedAt: string
 }

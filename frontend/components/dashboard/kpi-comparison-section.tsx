@@ -171,10 +171,19 @@ export function KpiComparisonSection({ year: dashboardYear, month: dashboardMont
   const canTakeSnapshot = canManage(user?.role)
   const [takingSnapshot, setTakingSnapshot] = useState(false)
 
-  // カードで選んだ対象年月。ダッシュボードの対象年月が変わったら、そちらに戻す（選んだときの基準と比べて判定）
+  // カードで選んだ対象年月。ダッシュボードの対象年月が変わったら、選んだ月は捨ててそちらに合わせる
+  // （PDF a01: 対象年月の変更で同期。行って戻ったときに前に選んだ月が復活しないよう、変わった時点で消す）
   const dashboardPeriod = `${dashboardYear}-${String(dashboardMonth).padStart(2, "0")}`
-  const [picked, setPicked] = useState<{ base: string; value: string } | null>(null)
-  const targetPeriod = picked && picked.base === dashboardPeriod ? picked.value : dashboardPeriod
+  const [picked, setPicked] = useState<string | null>(null)
+  // 日付比較で選んだ日（別の月に移ったら選び直す）
+  const [comparisonDate, setComparisonDate] = useState<Date | undefined>(undefined)
+  const [syncedPeriod, setSyncedPeriod] = useState(dashboardPeriod)
+  if (syncedPeriod !== dashboardPeriod) {
+    setSyncedPeriod(dashboardPeriod)
+    setPicked(null)
+    setComparisonDate(undefined)
+  }
+  const targetPeriod = picked ?? dashboardPeriod
   const { year, month } = parseMonthStr(targetPeriod)
   const isDashboardMonth = targetPeriod === dashboardPeriod
   const {
@@ -191,8 +200,6 @@ export function KpiComparisonSection({ year: dashboardYear, month: dashboardMont
   // 別の月の実績の取得中・失敗は「実績なし」と見せない（ローディングとエラー＋再試行を出す）
   const summaryLoading = !isDashboardMonth && pickedLoading
   const summaryError = isDashboardMonth ? null : pickedError
-
-  const [comparisonDate, setComparisonDate] = useState<Date | undefined>(undefined)
 
   // ホテル・期間を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
   const {
@@ -257,7 +264,7 @@ export function KpiComparisonSection({ year: dashboardYear, month: dashboardMont
             label="対象年月"
             value={targetPeriod}
             onChange={(value) => {
-              setPicked({ base: dashboardPeriod, value })
+              setPicked(value)
               setComparisonDate(undefined)
             }}
             className="h-8 text-xs"

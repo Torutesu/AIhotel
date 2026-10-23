@@ -93,4 +93,20 @@ describeIntegration('アラートの自動生成（#83）', () => {
     const manual = await prisma.alert.findFirstOrThrow({ where: { hotelId: HOTEL, ruleKey: null } })
     expect(manual.status).toBe('OPEN')
   })
+
+  it('終わった月（今月より前）の着地アラートは解決する。評価の対象外の先の月と、ほかの ruleKey には触れない', async () => {
+    const monthKey = (offset: number) => {
+      const d = new Date(Date.UTC(year, month - 1 + offset, 1))
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    }
+    const base = { tenantId: TENANT, hotelId: HOTEL, severity: 'YELLOW' as const, level: 4, message: 'm', linkTab: 'pricing' }
+    const lastMonth = await prisma.alert.create({ data: { ...base, title: '前月', ruleKey: `LANDING_BELOW_BUDGET:${monthKey(-1)}` } })
+    const farMonth = await prisma.alert.create({ data: { ...base, title: '半年先', ruleKey: `LANDING_BELOW_BUDGET:${monthKey(6)}` } })
+    const demo = await prisma.alert.create({ data: { ...base, title: 'デモ', ruleKey: `DEMO_WEEKDAY_PACE:${monthKey(-1)}` } })
+
+    expect(await evaluateAlertsService(HOTEL, months, today)).toEqual({ created: 0, updated: 0, resolved: 1 })
+    expect((await prisma.alert.findUniqueOrThrow({ where: { id: lastMonth.id } })).status).toBe('RESOLVED')
+    expect((await prisma.alert.findUniqueOrThrow({ where: { id: farMonth.id } })).status).toBe('OPEN')
+    expect((await prisma.alert.findUniqueOrThrow({ where: { id: demo.id } })).status).toBe('OPEN')
+  })
 })

@@ -281,9 +281,11 @@ export function mockAlerts(minLevel?: number): AlertItem[] {
       severity: "YELLOW",
       level: 4,
       title: `${upcoming.nextMonth.getMonth() + 1}月の平日の予約の入りが前年より遅れています`,
-      message: `${upcoming.nextMonth.getMonth() + 1}月の平日（月〜木）の予約室数が前年同時期の88%です。早期割引の販売期間の延長や平日プランを検討してください。`,
+      message: `${upcoming.nextMonth.getMonth() + 1}月の平日の予約室数が前年同時期の88%です。早期割引の販売期間の延長や平日プランを検討してください。`,
       linkTab: "pricing",
       targetDate: toLocalDateStr(upcoming.nextMonth),
+      // 月単位のアラート（バックエンドの seed と同じ ruleKey）
+      ruleKey: `DEMO_WEEKDAY_PACE:${toLocalDateStr(upcoming.nextMonth).slice(0, 7)}`,
       status: "OPEN",
       detectedAt: today.toISOString(),
     },

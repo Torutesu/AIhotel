@@ -45,10 +45,13 @@ export function LoginForm() {
     >
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <div className="mb-1 flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full bg-primary" aria-hidden />
-            <CardTitle className="text-2xl font-semibold tracking-tight">{APP_NAME}</CardTitle>
-            <span className="text-xs text-muted-foreground">{APP_NAME_EN}</span>
+          <div className="mb-1 flex items-start gap-2">
+            {/* 印はカタカナの行にそろえる（英字名はその下の行） */}
+            <span className="mt-3 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
+            <div>
+              <CardTitle className="text-2xl font-semibold tracking-tight">{APP_NAME}</CardTitle>
+              <p className="text-xs text-muted-foreground">{APP_NAME_EN}</p>
+            </div>
           </div>
           <CardDescription>{personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
         </CardHeader>
