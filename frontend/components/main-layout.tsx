@@ -38,6 +38,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { HotelSwitcher } from "@/components/hotel-switcher"
 import type { Tab } from "@shared/types"
 import type { AlertLinkTarget } from "@/lib/alert-link"
+import { APP_NAME, APP_NAME_EN } from "@/lib/brand"
 
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
@@ -48,8 +49,6 @@ const tabs = [
 ]
 
 const SIDEBAR_COLLAPSED_KEY = "hrms.sidebarCollapsed"
-
-const APP_NAME = "ホテレベ"
 
 /** タブごとのブラウザタブ表示名（F-8） */
 const TAB_TITLES: Record<Tab, string> = {
@@ -168,8 +167,9 @@ export function MainLayout() {
         >
           <div className={cn("flex min-w-0 items-center gap-2", collapsed && "md:hidden")}>
             <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
-            <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
-              ホテレベ
+            <h1 className="min-w-0 font-heading text-[15px] font-medium leading-tight tracking-tight text-sidebar-foreground">
+              <span className="block truncate">{APP_NAME}</span>
+              <span className="block truncate text-[11px] font-normal tracking-normal text-muted-foreground">{APP_NAME_EN}</span>
             </h1>
           </div>
 
@@ -274,7 +274,7 @@ export function MainLayout() {
           </div>
 
           <div className={cn("pt-2 text-xs text-muted-foreground", collapsed && "md:hidden")}>
-            <p>© 2026 ホテレベ</p>
+            <p>© 2026 {APP_NAME}</p>
           </div>
         </div>
       </aside>
@@ -294,7 +294,7 @@ export function MainLayout() {
           </Button>
           <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
           <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
-            ホテレベ
+            {APP_NAME}
           </h1>
           {/* ホテル切替（複数ホテルにアクセスできるユーザーのみ表示 — X-5） */}
           <HotelSwitcher compact className="ml-auto min-w-0 max-w-[55%]" />

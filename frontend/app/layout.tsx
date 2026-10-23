@@ -5,14 +5,15 @@ import { Inter } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
+import { APP_NAME, APP_NAME_EN } from "@/lib/brand"
 import "./globals.css"
 
 // Inter — OpenAI Sansの代替。単一書体をweightのみで使い分ける（OpenAI Developersスタイル）
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 
 export const metadata: Metadata = {
-  title: "ホテレベ",
-  description: "ホテレベ - AIホテル収益管理システム",
+  title: APP_NAME,
+  description: `${APP_NAME}（${APP_NAME_EN}）- AIホテル収益管理システム`,
 }
 
 export default async function RootLayout({

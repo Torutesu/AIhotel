@@ -9,6 +9,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Send, X, Sparkles } from "lucide-react"
 import { SampleDataNotice } from "@/components/sample-data-notice"
 import { cn } from "@/lib/utils"
+import { APP_NAME } from "@/lib/brand"
 import type { Message } from "@shared/types"
 
 type ChatInterfaceProps = {
@@ -22,7 +23,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
       id: "1",
       role: "assistant",
       content:
-        "こんにちは！ホテレベのAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。",
+        `こんにちは！${APP_NAME}のAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。`,
       timestamp: new Date(),
     },
   ])

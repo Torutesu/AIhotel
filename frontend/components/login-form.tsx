@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Loader2, AlertCircle } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { ApiClientError } from "@/lib/api"
+import { APP_NAME, APP_NAME_EN } from "@/lib/brand"
 
 export function LoginForm() {
   const { login } = useAuth()
@@ -46,7 +47,8 @@ export function LoginForm() {
         <CardHeader>
           <div className="mb-1 flex items-center gap-2">
             <span className="inline-block h-2 w-2 rounded-full bg-primary" aria-hidden />
-            <CardTitle className="text-2xl font-semibold tracking-tight">ホテレベ</CardTitle>
+            <CardTitle className="text-2xl font-semibold tracking-tight">{APP_NAME}</CardTitle>
+            <span className="text-xs text-muted-foreground">{APP_NAME_EN}</span>
           </div>
           <CardDescription>{personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
         </CardHeader>
