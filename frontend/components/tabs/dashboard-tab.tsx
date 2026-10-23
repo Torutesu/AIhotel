@@ -39,10 +39,12 @@ const DASHBOARD_MIN_ALERT_LEVEL = 4
 
 const NO_ALERTS: AlertItem[] = []
 
-/** ダッシュボードの取得結果。どのホテルのデータかを持たせ、後から届いたアラートの混入を防ぐ */
-interface DashboardData {
+/**
+ * 上部（アラート・AI解説）の取得結果。どのホテルのデータかを持たせ、後から届いたアラートの混入を防ぐ。
+ * 対象年月には連動しない（PDF a01: 当月に加えて先々も知らせる）ため、KPI とは別に取得する
+ */
+interface NoticesData {
   hotelId: string
-  kpi: DashboardKpi
   alerts: AlertItem[]
   aiSummary: AiSummary | null
 }
@@ -92,30 +94,40 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     }
   }, [hotelId])
 
-  // ホテル・年月を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  // 上部: アラート・AI解説。ホテルが変わったときだけ取り直す（対象年月を変えても消えない・取り直さない）
   const {
-    data: dashboard,
-    loading,
-    error,
-    reload: loadData,
-    setData: setDashboard,
-  } = useApiQuery<DashboardData>(
+    data: notices,
+    loading: noticesLoading,
+    error: noticesError,
+    reload: reloadNotices,
+    setData: setNotices,
+  } = useApiQuery<NoticesData>(
     hotelId
       ? async () => {
-          const [kpi, alerts, aiSummary] = await Promise.all([
-            api.dashboardKpi(hotelId, year, month),
+          const [alerts, aiSummary] = await Promise.all([
             // ダッシュボードはLevel 5・4のみ表示（F-DASH-05）
             api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL),
             api.aiSummary(hotelId),
           ])
-          return { hotelId, kpi, alerts, aiSummary }
+          return { hotelId, alerts, aiSummary }
         }
       : null,
-    [hotelId, year, month],
+    [hotelId],
+    "アラート・AI解説の取得に失敗しました",
   )
-  const kpi = dashboard?.kpi ?? null
-  const alerts = dashboard?.alerts ?? NO_ALERTS
-  const aiSummary = dashboard?.aiSummary ?? null
+  // 下部: 対象年月の KPI。ホテル・年月を切り替えた直後に前の条件のレスポンスが遅れて返っても使わない（#91）
+  const {
+    data: kpi,
+    loading: kpiLoading,
+    error: kpiError,
+    reload: reloadKpi,
+  } = useApiQuery<DashboardKpi>(
+    hotelId ? () => api.dashboardKpi(hotelId, year, month) : null,
+    [hotelId, year, month],
+    "対象年月の実績の取得に失敗しました",
+  )
+  const alerts = notices?.alerts ?? NO_ALERTS
+  const aiSummary = notices?.aiSummary ?? null
   // 客室数は認証コンテキストが持つ選択中のホテルから取る（一覧 API を取り直さない）
   const totalRooms = hotel?.totalRooms ?? null
 
@@ -125,26 +137,18 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     try {
       const next = await api.alerts(hotelId, DASHBOARD_MIN_ALERT_LEVEL)
       // 取り直している間にホテルが切り替わっていたら捨てる
-      setDashboard((prev) => (prev && prev.hotelId === hotelId ? { ...prev, alerts: next } : prev))
+      setNotices((prev) => (prev && prev.hotelId === hotelId ? { ...prev, alerts: next } : prev))
     } catch (err) {
       toast.error(
         err instanceof ApiClientError ? err.message : "アラートの再取得に失敗しました",
       )
     }
-  }, [hotelId, setDashboard])
+  }, [hotelId, setNotices])
 
   if (!hotelId) {
     return (
       <div className="p-4">
         <p className="text-sm text-muted-foreground">ホテル情報を読み込んでいます...</p>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="p-4">
-        <ErrorCard message={error} onRetry={loadData} />
       </div>
     )
   }
@@ -168,14 +172,20 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
           )}
         </div>
 
-        <AlertsCard
-          alerts={alerts}
-          loading={loading}
-          onAlertNavigate={onAlertNavigate}
-          onAlertUpdated={() => void reloadAlerts()}
-        />
+        {noticesError ? (
+          <ErrorCard message={noticesError} onRetry={reloadNotices} />
+        ) : (
+          <>
+            <AlertsCard
+              alerts={alerts}
+              loading={noticesLoading}
+              onAlertNavigate={onAlertNavigate}
+              onAlertUpdated={() => void reloadAlerts()}
+            />
 
-        <AiSummaryCard summary={aiSummary} loading={loading} />
+            <AiSummaryCard summary={aiSummary} loading={noticesLoading} />
+          </>
+        )}
 
         {/* ここから下は指定した月（PDF a01）。対象年月（全タブ共有・URL同期）を変えると、
             稼働・ADR月間推移・月初比較・日付比較・KPI進捗・在庫表が同じ月に切り替わる。既定は当月 */}
@@ -195,8 +205,11 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
           {/* 稼働・ADR月間推移（PDF a01・xlsx DB01: 左軸＝室数・右軸＝ADR の積み上げ折れ線 — GET /daily/booking-curve） */}
           <BookingCurveMonthCard year={year} month={month} />
 
+          {/* 対象年月の実績が取れないときは、実績を使う 月初比較・日付比較・KPI進捗 の代わりにエラーと再試行を出す */}
+          {kpiError && <ErrorCard message={kpiError} onRetry={reloadKpi} />}
+
           {/* 月初比較・日付比較（U-5 — GET /dashboard/kpi/comparison） */}
-          <KpiComparisonSection year={year} month={month} summary={kpi?.summary ?? null} />
+          {!kpiError && <KpiComparisonSection year={year} month={month} summary={kpi?.summary ?? null} />}
 
           {/* 伸び率の高いサイト上位3件（設定で有効化された場合のみ・対応APIなし） */}
           {showTopSitesSection && (
@@ -210,14 +223,16 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
             </Card>
           )}
 
-          <KpiProgressSection
-            hotelId={hotelId}
-            kpi={kpi}
-            loading={loading}
-            year={year}
-            month={month}
-            visibleKpiKeys={visibleKpiKeys}
-          />
+          {!kpiError && (
+            <KpiProgressSection
+              hotelId={hotelId}
+              kpi={kpi}
+              loading={kpiLoading}
+              year={year}
+              month={month}
+              visibleKpiKeys={visibleKpiKeys}
+            />
+          )}
 
           <InventoryTableCard totalRooms={totalRooms} year={year} month={month} />
         </section>

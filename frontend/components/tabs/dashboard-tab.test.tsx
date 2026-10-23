@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest"
-import { render, screen, waitFor } from "@testing-library/react"
+import { describe, it, expect, vi, beforeEach } from "vitest"
+import { render, screen, waitFor, within } from "@testing-library/react"
 
 import { DashboardTab } from "./dashboard-tab"
 
@@ -47,8 +47,12 @@ vi.mock("@/components/month-picker", () => ({
 }))
 // 各カードは目印だけにして、並び順と渡す対象年月を確かめる
 vi.mock("@/components/onboarding/setup-checklist-card", () => ({ SetupChecklistCard: () => null }))
-vi.mock("@/components/dashboard/alerts-card", () => ({ AlertsCard: () => <div data-testid="section">アラート</div> }))
-vi.mock("@/components/dashboard/ai-summary-card", () => ({ AiSummaryCard: () => <div data-testid="section">AI解説</div> }))
+vi.mock("@/components/dashboard/alerts-card", () => ({
+  AlertsCard: ({ loading }: { loading: boolean }) => <div data-testid="section">{loading ? "アラート（読込中）" : "アラート"}</div>,
+}))
+vi.mock("@/components/dashboard/ai-summary-card", () => ({
+  AiSummaryCard: ({ loading }: { loading: boolean }) => <div data-testid="section">{loading ? "AI解説（読込中）" : "AI解説"}</div>,
+}))
 vi.mock("@/components/dashboard/booking-curve-month-card", () => ({
   BookingCurveMonthCard: ({ year, month }: { year: number; month: number }) => (
     <div data-testid="section">稼働・ADR月間推移:{year}-{month}</div>
@@ -72,20 +76,29 @@ vi.mock("@/components/dashboard/inventory-table-card", () => ({
 }))
 
 describe("DashboardTab", () => {
-  it("上部にホテル名・アラート・AI解説、その下に対象年月と、対象年月に連動するカードを並べる", async () => {
-    mocks.dashboardKpi.mockResolvedValue({ summary: null })
-    mocks.alerts.mockResolvedValue([])
-    mocks.aiSummary.mockResolvedValue(null)
-    mocks.getPreferences.mockResolvedValue({ dashboard: { showTopSitesSection: false, kpiItems: [] } })
+  beforeEach(() => {
+    mocks.period = { year: 2026, month: 11 }
+    mocks.dashboardKpi.mockReset().mockResolvedValue({ summary: null })
+    mocks.alerts.mockReset().mockResolvedValue([])
+    mocks.aiSummary.mockReset().mockResolvedValue(null)
+    mocks.getPreferences.mockReset().mockResolvedValue({ dashboard: { showTopSitesSection: false, kpiItems: [] } })
+  })
 
+  it("上部にホテル名・アラート・AI解説、その下に対象年月と、対象年月に連動するカードを並べる", async () => {
     render(<DashboardTab />)
 
-    expect(screen.getByRole("heading", { name: "ホテルABCD" })).toBeTruthy()
+    const hotelName = screen.getByRole("heading", { name: "ホテルABCD" })
     expect(screen.getByText("客室数")).toBeTruthy()
-    await waitFor(() => expect(mocks.dashboardKpi).toHaveBeenCalledWith("hotel-a", 2026, 11))
+    await waitFor(() => expect(screen.getAllByTestId("section")[0].textContent).toBe("アラート"))
+    expect(mocks.dashboardKpi).toHaveBeenCalledWith("hotel-a", 2026, 11)
     // アラート・AI解説は対象年月を渡さずに取る（当月に加えて先々も出すため）
     expect(mocks.alerts).toHaveBeenCalledWith("hotel-a", 4)
     expect(mocks.aiSummary).toHaveBeenCalledWith("hotel-a")
+    // ホテル名はアラートより上。対象年月の選択と連動するカードは「対象年月の数値」の区切りの中
+    expect(hotelName.compareDocumentPosition(screen.getAllByTestId("section")[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const region = within(screen.getByRole("region", { name: "対象年月の数値" }))
+    expect(region.getByText("対象年月:dashboard-period:2026-11")).toBeTruthy()
+    expect(region.queryByText("アラート")).toBeNull()
 
     expect(screen.getAllByTestId("section").map((el) => el.textContent)).toEqual([
       "アラート",
@@ -97,5 +110,34 @@ describe("DashboardTab", () => {
       "在庫表:2026-11",
     ])
     expect(screen.getByText(/ここから下は対象年月の数値です/)).toBeTruthy()
+  })
+
+  it("対象年月を変えても、アラート・AI解説は取り直さず表示したまま。KPI だけその月を取り直す", async () => {
+    const { rerender } = render(<DashboardTab />)
+    await waitFor(() => expect(screen.getAllByTestId("section")[0].textContent).toBe("アラート"))
+
+    mocks.period = { year: 2026, month: 12 }
+    rerender(<DashboardTab />)
+    expect(screen.getAllByTestId("section").slice(0, 2).map((el) => el.textContent)).toEqual(["アラート", "AI解説"])
+    await waitFor(() => expect(mocks.dashboardKpi).toHaveBeenLastCalledWith("hotel-a", 2026, 12))
+    expect(mocks.alerts).toHaveBeenCalledTimes(1)
+    expect(mocks.aiSummary).toHaveBeenCalledTimes(1)
+    expect(screen.getByText("稼働・ADR月間推移:2026-12")).toBeTruthy()
+  })
+
+  it("対象年月の実績が取れないときは、下部にエラーと再試行を出し、上部のアラート・AI解説は残す", async () => {
+    mocks.dashboardKpi.mockReset().mockRejectedValue(new Error("network"))
+    render(<DashboardTab />)
+
+    await waitFor(() => expect(screen.getByText("対象年月の実績の取得に失敗しました")).toBeTruthy())
+    const region = within(screen.getByRole("region", { name: "対象年月の数値" }))
+    expect(region.getByText("対象年月の実績の取得に失敗しました")).toBeTruthy()
+    expect(region.getByRole("button", { name: "再試行" })).toBeTruthy()
+    // 実績を使わないカードは出したまま、実績を使う 月初比較・KPI進捗 は出さない（実績なしと見せない）
+    expect(region.getByText("稼働・ADR月間推移:2026-11")).toBeTruthy()
+    expect(region.getByText("在庫表:2026-11")).toBeTruthy()
+    expect(screen.queryByText(/月初比較:/)).toBeNull()
+    expect(screen.queryByText(/KPI進捗:/)).toBeNull()
+    await waitFor(() => expect(screen.getAllByTestId("section")[0].textContent).toBe("アラート"))
   })
 })
