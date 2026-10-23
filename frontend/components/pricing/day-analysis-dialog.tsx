@@ -111,8 +111,9 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] w-full overflow-y-auto sm:!max-w-[90vw] lg:!max-w-[64vw]">
-        <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
+      {/* 見出し（日付・日のタイプ）はスクロールの範囲から外し、本文だけをスクロールする（2026-10-23 の画面修正 b03） */}
+      <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden sm:!max-w-[90vw] lg:!max-w-[64vw]">
+        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b pb-4 pr-8" data-testid="day-analysis-header">
           <DialogHeader>
             <DialogTitle>
               {date.getFullYear()}年{date.getMonth() + 1}月{date.getDate()}日（{DAY_NAMES[date.getDay()]}）のAI分析
@@ -133,7 +134,7 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
           </div>
         </div>
 
-        <div className="mt-4 space-y-6">
+        <div className="-mx-6 min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pt-4" data-testid="day-analysis-body">
           {loading ? (
             <Skeleton className="h-[160px] w-full" />
           ) : error ? (
