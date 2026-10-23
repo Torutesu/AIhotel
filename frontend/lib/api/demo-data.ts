@@ -233,6 +233,17 @@ export function mockDashboardKpi(hotelId: string, year: number, month: number): 
   }
 }
 
+/** 先々の注意点に使う日（翌月1日・40日後）。アラートと AI 解説で同じ日を指す（2026-10-23 の画面修正 a01） */
+function demoUpcomingDates(today = new Date()) {
+  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1)
+  const ahead = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 40)
+  return {
+    nextMonth,
+    ahead,
+    aheadLabel: `${ahead.getMonth() + 1}/${ahead.getDate()}（${"日月火水木金土"[ahead.getDay()]}）`,
+  }
+}
+
 export function mockAlerts(minLevel?: number): AlertItem[] {
   const today = new Date()
   const plusDays = (n: number) => {
@@ -240,6 +251,7 @@ export function mockAlerts(minLevel?: number): AlertItem[] {
     d.setDate(d.getDate() + n)
     return toLocalDateStr(d)
   }
+  const upcoming = demoUpcomingDates(today)
   const all: AlertItem[] = [
     {
       id: "mock-alert-1",
@@ -260,6 +272,29 @@ export function mockAlerts(minLevel?: number): AlertItem[] {
       message: "今週末の自社価格が競合水準より 12% 高くなっています。経過観察してください。",
       linkTab: "daily",
       targetDate: plusDays(2),
+      status: "OPEN",
+      detectedAt: today.toISOString(),
+    },
+    // 先々（翌月以降）の注意点（バックエンドの seed と同じ内容）
+    {
+      id: "mock-alert-6",
+      severity: "YELLOW",
+      level: 4,
+      title: `${upcoming.nextMonth.getMonth() + 1}月の平日の予約の入りが前年より遅れています`,
+      message: `${upcoming.nextMonth.getMonth() + 1}月の平日（月〜木）の予約室数が前年同時期の88%です。早期割引の販売期間の延長や平日プランを検討してください。`,
+      linkTab: "pricing",
+      targetDate: toLocalDateStr(upcoming.nextMonth),
+      status: "OPEN",
+      detectedAt: today.toISOString(),
+    },
+    {
+      id: "mock-alert-7",
+      severity: "YELLOW",
+      level: 4,
+      title: `${upcoming.aheadLabel} の予約の入りが前年同曜日より早くなっています`,
+      message: "予約室数が前年同時期の1.3倍です。料金ランクの引き上げを検討してください。",
+      linkTab: "pricing",
+      targetDate: toLocalDateStr(upcoming.ahead),
       status: "OPEN",
       detectedAt: today.toISOString(),
     },
@@ -314,13 +349,17 @@ export function updateMockAlertStatus(id: string, status: AlertStatus): AlertIte
 }
 
 export function mockAiSummary(section?: string): AiSummary {
+  const upcoming = demoUpcomingDates()
   return {
     id: "mock-ai-summary",
     section: section ?? "dashboard-summary",
     content:
-      "今月の稼働率は予算比 +2.1pt と好調に推移しています。週末（金・土）のADRは前年比 +6% で、" +
+      "【当月】今月の稼働率は予算比 +2.1pt と好調に推移しています。週末（金・土）のADRは前年比 +6% で、" +
       "特に土曜日は満室に近い水準です。一方、平日火曜・水曜の稼働が予算を下回っており、" +
-      "平日限定プランまたは料金ランク引き下げの検討を推奨します。",
+      "平日限定プランまたは料金ランク引き下げの検討を推奨します。\n" +
+      `【先々】${upcoming.nextMonth.getMonth() + 1}月は平日の予約の入りが前年同時期の88%と遅れています。` +
+      "早期割引の販売期間の延長を検討してください。" +
+      `${upcoming.aheadLabel}は予約の入りが前年同曜日の1.3倍と早く、料金ランクの引き上げ余地があります。`,
     generatedAt: new Date().toISOString(),
   }
 }

@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest"
 
 import { buildMonthlyBcRows, defaultStayDay } from "./booking-curve-month-card"
-import { buildSampleInventory, GROUP_SEGMENTS, INVENTORY_DAYS } from "./inventory-table-card"
+import { buildSampleInventory, GROUP_SEGMENTS, INVENTORY_DAYS, inventoryStartFor } from "./inventory-table-card"
+import { alertPeriodLabel } from "./alerts-card"
+import { splitSummaryParagraphs } from "./ai-summary-card"
 import type { BookingCurve } from "@/lib/api"
 
 // ダッシュボードの月間ブッキングカーブ（DB01）と在庫表（DB02 — 2026-10）
@@ -65,5 +67,35 @@ describe("buildSampleInventory", () => {
     const moved = buildSampleInventory(200, 1, [5, 6], new Date(2026, 10, 2))
     expect(moved[0].date).toEqual(new Date(2026, 10, 2))
     expect(moved.at(-1)?.date).toEqual(new Date(2026, 10, 15))
+  })
+})
+
+// 2026-10-23 の画面修正 a01: 上部（アラート・AI解説）は当月に加えて先々も、下部は対象年月に連動
+describe("inventoryStartFor", () => {
+  it("対象年月が今月なら今日から、ほかの月はその月の1日から表示する", () => {
+    const today = new Date(2026, 9, 23)
+    expect(inventoryStartFor(2026, 10, today)).toBe("2026-10-23")
+    expect(inventoryStartFor(2026, 11, today)).toBe("2026-11-01")
+    expect(inventoryStartFor(2026, 9, today)).toBe("2026-09-01")
+  })
+})
+
+describe("alertPeriodLabel", () => {
+  it("当月・先々（翌月以降）・過去の月を見分ける。年が変われば年も付ける", () => {
+    expect(alertPeriodLabel("2026-10-27T00:00:00.000Z", "2026-10-23")).toEqual({ label: "当月", future: false })
+    expect(alertPeriodLabel("2026-11-01", "2026-10-23")).toEqual({ label: "11月（先々）", future: true })
+    expect(alertPeriodLabel("2027-01-05", "2026-10-23")).toEqual({ label: "2027年1月（先々）", future: true })
+    expect(alertPeriodLabel("2026-09-30", "2026-10-23")).toEqual({ label: "9月", future: false })
+    expect(alertPeriodLabel(null, "2026-10-23")).toBeNull()
+  })
+})
+
+describe("splitSummaryParagraphs", () => {
+  it("行ごとの段落に分け、行頭の【当月】【先々】を見出しにする", () => {
+    expect(splitSummaryParagraphs("【当月】好調です。\n\n【先々】11月は遅れています。\n補足")).toEqual([
+      { heading: "当月", text: "好調です。" },
+      { heading: "先々", text: "11月は遅れています。" },
+      { heading: null, text: "補足" },
+    ])
   })
 })
