@@ -119,7 +119,9 @@ describe("PriceCalendarSection", () => {
     expect(screen.getAllByLabelText(/日のタイプ 平日A型（平日の中で需要がいちばん強い型（平均稼働 82.0%）・バランス）/)).toHaveLength(2)
     expect(screen.getByLabelText(/日のタイプ 平日C型/)).toBeTruthy()
     expect(screen.getByText("月計")).toBeTruthy()
-    expect(screen.getByText("個人団体別 オンハンド状況")).toBeTruthy()
+    // 見出しは「オンハンド状況」のみ（2026-10-23 の画面修正 b04: 「個人団体別」を外す）
+    expect(screen.getByText("オンハンド状況")).toBeTruthy()
+    expect(screen.queryByText(/個人団体別/)).toBeNull()
     expect(screen.queryByText("価格推移グラフ")).toBeNull()
   })
 })
