@@ -9,7 +9,8 @@ const MAIL = { kind: 'invite' as const, to: 'new@example.com', name: '新人 太
 describe('buildTemporaryPasswordMail', () => {
   it('招待と再発行で件名を分け、ログイン URL・アドレス・一時パスワードを載せる', () => {
     const invite = buildTemporaryPasswordMail(MAIL, 'https://app.example.com')
-    expect(invite.subject).toContain('アカウントのご案内')
+    expect(invite.subject).toBe('【レブスト】アカウントのご案内')
+    expect(invite.text).toContain('レブスト（Revenue Stream）のアカウントが作成されました。')
     expect(invite.text).toContain('https://app.example.com')
     expect(invite.text).toContain('new@example.com')
     expect(invite.text).toContain('Abcdefgh2345')

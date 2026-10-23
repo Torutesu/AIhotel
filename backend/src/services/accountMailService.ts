@@ -1,3 +1,4 @@
+import { APP_NAME, APP_NAME_EN } from '../lib/brand.js'
 import { config } from '../lib/config.js'
 import { mailer, type Mailer } from '../lib/mailer.js'
 import { logger } from '../utils/logger.js'
@@ -23,12 +24,12 @@ export function buildTemporaryPasswordMail(
 ): { subject: string; text: string } {
   const intro =
     mail.kind === 'invite'
-      ? 'AIレベニュー管理システムのアカウントが作成されました。'
+      ? `${APP_NAME}（${APP_NAME_EN}）のアカウントが作成されました。`
       : '管理者があなたのアカウントの一時パスワードを発行しました。以前のパスワードと、ログイン中の端末のセッションは無効になっています。'
   const subject =
     mail.kind === 'invite'
-      ? '【AIレベニュー管理】アカウントのご案内'
-      : '【AIレベニュー管理】一時パスワードのお知らせ'
+      ? `【${APP_NAME}】アカウントのご案内`
+      : `【${APP_NAME}】一時パスワードのお知らせ`
   const text = [
     `${mail.name} 様`,
     '',

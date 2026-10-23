@@ -168,8 +168,9 @@ export function MainLayout() {
             collapsed ? "justify-center px-3" : "justify-between px-6",
           )}
         >
-          <div className={cn("flex min-w-0 items-center gap-2", collapsed && "md:hidden")}>
-            <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
+          <div className={cn("flex min-w-0 items-start gap-2", collapsed && "md:hidden")}>
+            {/* 印はカタカナの行にそろえる（英字名はその下の行） */}
+            <span className="mt-1.5 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
             <h1 className="min-w-0 font-heading text-[15px] font-medium leading-tight tracking-tight text-sidebar-foreground">
               <span className="block truncate">{APP_NAME}</span>
               <span className="block truncate text-[11px] font-normal tracking-normal text-muted-foreground">{APP_NAME_EN}</span>
@@ -295,10 +296,13 @@ export function MainLayout() {
           >
             <Menu className="h-5 w-5" aria-hidden />
           </Button>
-          <span className="inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
-          <h1 className="truncate font-heading text-[15px] font-medium tracking-tight text-sidebar-foreground">
-            {APP_NAME}
-          </h1>
+          <div className="flex min-w-0 items-start gap-2">
+            <span className="mt-1.5 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
+            <h1 className="min-w-0 font-heading text-[15px] font-medium leading-tight tracking-tight text-sidebar-foreground">
+              <span className="block truncate">{APP_NAME}</span>
+              <span className="block truncate text-[11px] font-normal tracking-normal text-muted-foreground">{APP_NAME_EN}</span>
+            </h1>
+          </div>
           {/* ホテル切替（複数ホテルにアクセスできるユーザーのみ表示 — X-5） */}
           <HotelSwitcher compact className="ml-auto min-w-0 max-w-[55%]" />
         </div>
