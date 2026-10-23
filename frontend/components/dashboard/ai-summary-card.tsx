@@ -2,10 +2,23 @@
 
 // ダッシュボードのAI解説（U-15 で dashboard-tab.tsx から分割）
 // GET /dashboard/ai-summary の実データ（現在は seed の AiComment）。
+// 当月だけでなく先々（翌月以降）の見通しも知らせる（PDF a01）。本文の行頭の【当月】【先々】は見出しとして表示する。
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { AiSummary } from "@/lib/api"
+
+/** 本文を段落に分け、行頭の【…】を見出しとして取り出す（純関数） */
+export function splitSummaryParagraphs(content: string): Array<{ heading: string | null; text: string }> {
+  return content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const m = /^【([^】]+)】\s*(.*)$/.exec(line)
+      return m ? { heading: m[1], text: m[2] } : { heading: null, text: line }
+    })
+}
 
 interface AiSummaryCardProps {
   summary: AiSummary | null
@@ -32,9 +45,15 @@ export function AiSummaryCard({ summary, loading }: AiSummaryCardProps) {
           </div>
         ) : summary?.content ? (
           <>
-            <p className="max-h-60 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed">
-              {summary.content}
-            </p>
+            {/* 当月・先々の2段がスマホ幅でも枠内スクロールにならない高さ。長い解説だけ枠内でスクロールする */}
+            <div className="max-h-96 space-y-2 overflow-y-auto text-sm leading-relaxed">
+              {splitSummaryParagraphs(summary.content).map((p, i) => (
+                <p key={i} className="whitespace-pre-wrap">
+                  {p.heading && <span className="mr-1.5 font-semibold">{p.heading}</span>}
+                  {p.text}
+                </p>
+              ))}
+            </div>
             {/* 表示している月ではなく、最新の1件を出している（対象月との対応づけは Claude API の導入時 — #92） */}
             <p className="mt-2 text-xs text-muted-foreground">
               最新の解説（生成日時: {new Date(summary.generatedAt).toLocaleString("ja-JP")}）

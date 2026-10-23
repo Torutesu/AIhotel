@@ -363,7 +363,10 @@ export async function populateDemoHotelData(
     })
   }
 
-  // 12. アラート・AIコメント（デモ用）
+  // 12. アラート・AIコメント（デモ用）。当月に加えて先々（翌月・40日後）の注意点も入れる
+  const nextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1))
+  const aheadDate = addDays(today, 40)
+  const aheadLabel = `${aheadDate.getUTCMonth() + 1}/${aheadDate.getUTCDate()}（${'日月火水木金土'[aheadDate.getUTCDay()]}）`
   await db.alert.deleteMany({ where: { hotelId } })
   await db.alert.createMany({
     data: [
@@ -388,6 +391,27 @@ export async function populateDemoHotelData(
         message: '今週末の自社価格が競合水準より 12% 高くなっています。経過観察してください。',
         linkTab: 'daily',
         targetDate: addDays(today, 2),
+      },
+      // 先々（翌月以降）の注意点（2026-10-23 の画面修正 a01: アラート・AI解説は当月だけでなく先々も知らせる）
+      {
+        hotelId,
+        tenantId,
+        severity: AlertSeverity.YELLOW,
+        level: 4,
+        title: `${nextMonth.getUTCMonth() + 1}月の平日の予約の入りが前年より遅れています`,
+        message: `${nextMonth.getUTCMonth() + 1}月の平日（月〜木）の予約室数が前年同時期の88%です。早期割引の販売期間の延長や平日プランを検討してください。`,
+        linkTab: 'pricing',
+        targetDate: nextMonth,
+      },
+      {
+        hotelId,
+        tenantId,
+        severity: AlertSeverity.YELLOW,
+        level: 4,
+        title: `${aheadLabel} の予約の入りが前年同曜日より早くなっています`,
+        message: '予約室数が前年同時期の1.3倍です。料金ランクの引き上げを検討してください。',
+        linkTab: 'pricing',
+        targetDate: aheadDate,
       },
       // Level 3以下: ダッシュボードには表示せず、各分析画面で確認する想定
       {
@@ -430,9 +454,12 @@ export async function populateDemoHotelData(
       tenantId,
       section: 'dashboard-summary',
       content:
-        '今月の稼働率は予算比 +2.1pt と好調に推移しています。週末（金・土）のADRは前年比 +6% で、' +
+        '【当月】今月の稼働率は予算比 +2.1pt と好調に推移しています。週末（金・土）のADRは前年比 +6% で、' +
         '特に土曜日は満室に近い水準です。一方、平日火曜・水曜の稼働が予算を下回っており、' +
-        '平日限定プランまたは料金ランク引き下げの検討を推奨します。',
+        '平日限定プランまたは料金ランク引き下げの検討を推奨します。\n' +
+        `【先々】${nextMonth.getUTCMonth() + 1}月は平日の予約の入りが前年同時期の88%と遅れています。` +
+        '早期割引の販売期間の延長を検討してください。' +
+        `${aheadLabel}は予約の入りが前年同曜日の1.3倍と早く、料金ランクの引き上げ余地があります。`,
       modelVersion: 'seed-v1',
     },
   })

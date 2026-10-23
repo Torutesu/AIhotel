@@ -1,6 +1,6 @@
 "use client"
 
-// 日別価格カレンダー（テーブル／タイプ別人数別カレンダー）と 個人団体別 オンハンド状況
+// 日別価格カレンダー（テーブル／タイプ別人数別カレンダー）と オンハンド状況
 // （U-15 で pricing-tab.tsx から分割）。GET /pricing/calendar の実データを表示する。
 // 2026-10 の画面修正（DP02）で、オペレーターが価格を決める表として 予算・現在・AI の推奨を並べた。
 // 結果（ADR・稼働率・売上）と想定との差異は 分析 > 日別パフォーマンス へ移した。
@@ -340,7 +340,7 @@ export function PriceCalendarSection({
             />
           )}
 
-          {/* 個人団体別 オンハンド状況（DP04。以前の価格推移グラフを置き換え） */}
+          {/* オンハンド状況（DP04。以前の価格推移グラフを置き換え） */}
           {days.length > 0 && (
             <div className="mt-6 pt-6 border-t">
               <OnHandChart days={days} totalRooms={totalRooms} />

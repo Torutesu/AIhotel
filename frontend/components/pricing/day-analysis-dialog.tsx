@@ -111,8 +111,9 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] w-full overflow-y-auto sm:!max-w-[90vw] lg:!max-w-[64vw]">
-        <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
+      {/* 見出し（日付・日のタイプ）はスクロールの範囲から外し、本文だけをスクロールする（2026-10-23 の画面修正 b03） */}
+      <DialogContent className="flex max-h-[90vh] w-full flex-col gap-0 overflow-hidden sm:!max-w-[90vw] lg:!max-w-[64vw]">
+        <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b pb-4 pr-8" data-testid="day-analysis-header">
           <DialogHeader>
             <DialogTitle>
               {date.getFullYear()}年{date.getMonth() + 1}月{date.getDate()}日（{DAY_NAMES[date.getDay()]}）のAI分析
@@ -120,20 +121,21 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
             <DialogDescription>日のタイプ・予約の入り方・外部要因・シミュレーションを表示します</DialogDescription>
           </DialogHeader>
           {/* 日のタイプと優先モデル、90日前（推移のいちばん古い時点）のタイプ（DP03 — 見出しの横に置く） */}
-          <div className="flex items-center gap-2 rounded-md border px-3 py-1.5" data-testid="day-type-header">
-            <span className="text-xs text-muted-foreground">日のタイプ</span>
+          {/* 狭い画面ではラベルを1文字ずつ折り返さず、項目ごとに次の行へ送る */}
+          <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-1.5" data-testid="day-type-header">
+            <span className="whitespace-nowrap text-xs text-muted-foreground">日のタイプ</span>
             <DayTypeBadge dayType={day.dayType} model={day.dayTypeModel} typicalOccupancy={day.dayTypeTypicalOccupancy} />
             <DayModelBadge model={day.dayTypeModel} />
             {oldestHistory && (
               <>
-                <span className="text-xs text-muted-foreground">{leadLabel(oldestHistory.daysBefore)}</span>
+                <span className="whitespace-nowrap text-xs text-muted-foreground">{leadLabel(oldestHistory.daysBefore)}</span>
                 <DayTypeBadge dayType={oldestHistory.dayType} />
               </>
             )}
           </div>
         </div>
 
-        <div className="mt-4 space-y-6">
+        <div className="-mx-6 min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pt-4" data-testid="day-analysis-body">
           {loading ? (
             <Skeleton className="h-[160px] w-full" />
           ) : error ? (

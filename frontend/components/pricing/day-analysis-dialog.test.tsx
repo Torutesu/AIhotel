@@ -134,6 +134,19 @@ describe("DayAnalysisDialog", () => {
     expect(factors.textContent).toContain("天候データは未連携です")
   })
 
+  it("見出し（日付・日のタイプ）はスクロールの範囲の外にあり、本文だけがスクロールする（2026-10-23 の画面修正 b03）", async () => {
+    render(<DayAnalysisDialog day={day(FUTURE)} onClose={vi.fn()} />)
+    const header = screen.getByTestId("day-analysis-header")
+    const body = screen.getByTestId("day-analysis-body")
+    expect(header.contains(screen.getByTestId("day-type-header"))).toBe(true)
+    expect(body.contains(header)).toBe(false)
+    expect(body.className).toContain("overflow-y-auto")
+    await waitFor(() => expect(body.contains(screen.getAllByTestId("similar-day")[0])).toBe(true))
+    const content = body.parentElement as HTMLElement
+    expect(content.className).toContain("overflow-hidden")
+    expect(content.className).not.toContain("overflow-y-auto")
+  })
+
   it("価格戦略で日のタイプによる寄せを切っていれば、AI が優先モデルを使っているとは書かない", async () => {
     mocks.dayInsight.mockReset().mockResolvedValue({ ...INSIGHT, date: FUTURE, modelApplied: false })
     render(<DayAnalysisDialog day={day(FUTURE)} onClose={vi.fn()} />)

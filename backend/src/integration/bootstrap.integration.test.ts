@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { addUtcDays, todayJst } from '../lib/date.js'
 
 // 環境の立ち上げ用（job create-platform-admin / job seed-demo）の統合テスト。
 // DATABASE_URL が無ければスキップし、専用のメールアドレス（プレフィクス bstest）で検証する。
@@ -65,5 +66,24 @@ describeIntegration('環境の立ち上げ（運営アカウント・デモデ�
     const after = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@demo-hotel.example.com' } })
     expect(after.password).toBe(before.password)
     expect(await prisma.dailyData.count({ where: { hotelId: service.DEMO_HOTEL_ID } })).toBeGreaterThan(80)
+  })
+
+  it('デモのアラート・AI解説は当月だけでなく先々（翌月以降）も知らせる（2026-10-23 の画面修正 a01）', async () => {
+    // デモデータは今日を基準に作る（他のテストも同じデモホテルを使うため、日付は固定しない）
+    await service.seedDemoTenantService()
+    const today = todayJst()
+    const monthKey = (d: Date) => d.toISOString().slice(0, 7)
+    const nextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1))
+    const ahead = addUtcDays(today, 40)
+
+    const shown = await prisma.alert.findMany({ where: { hotelId: service.DEMO_HOTEL_ID, level: { gte: 4 } } })
+    const months = shown.map((a) => (a.targetDate ? monthKey(a.targetDate) : null))
+    expect(months).toContain(monthKey(addUtcDays(today, 4)))
+    expect(months).toContain(monthKey(nextMonth))
+    expect(months).toContain(monthKey(ahead))
+    const comment = await prisma.aiComment.findFirstOrThrow({ where: { hotelId: service.DEMO_HOTEL_ID, section: 'dashboard-summary' } })
+    expect(comment.content).toMatch(/^【当月】/)
+    expect(comment.content).toContain(`\n【先々】${nextMonth.getUTCMonth() + 1}月は`)
+    expect(comment.content).toContain(`${ahead.getUTCMonth() + 1}/${ahead.getUTCDate()}（${'日月火水木金土'[ahead.getUTCDay()]}）`)
   })
 })

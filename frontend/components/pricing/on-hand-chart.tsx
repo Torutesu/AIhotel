@@ -1,8 +1,9 @@
 "use client"
 
-// 個人団体別 オンハンド状況（2026-10 のデモ画面の修正 DP04。以前の「価格推移グラフ」を置き換え）。
+// オンハンド状況（2026-10 のデモ画面の修正 DP04。以前の「価格推移グラフ」を置き換え）。
+// 見出しの「個人団体別」は 2026-10-23 の画面修正 b04 で外した（個人・団体の扱いはヒアリングのうえ検討）。
 // 日ごとに オンハンド室数（棒）・予算室数（面）・オンハンドADR（線）・予算ADR（線）を並べる。左軸 = 室数、右軸 = 円。
-// 個人・団体の内訳と、先の日の予約の単価は PMS 連携（Phase 4）で入る。今は全体の室数と、結果の出た日の実績ADR。
+// 室数は個人・団体の合計。先の日の予約の単価は PMS 連携（Phase 4）で入る。今は結果の出た日の実績ADR。
 
 import { useMemo } from "react"
 import { Area, Bar, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
@@ -93,13 +94,12 @@ export function OnHandChart({ days, totalRooms }: OnHandChartProps) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-base font-semibold">個人団体別 オンハンド状況</h3>
+        <h3 className="text-base font-semibold">オンハンド状況</h3>
         <p className="text-[11px] text-muted-foreground">左軸: 室数／右軸: ADR（円）</p>
       </div>
       <p className="text-xs text-muted-foreground">
-        オンハンド（OH）は今の予約室数、結果の出た日は販売室数です。予算は月次予算を前年同曜日の販売室数の比で日に配った値です。
+        オンハンド（OH）は今の予約室数、結果の出た日は販売室数です（個人・団体の合計）。予算は月次予算を前年同曜日の販売室数の比で日に配った値です。
         {!hasFutureAdr && " 全体ADR（OH）は結果の出た日の実績ADRで、先の日の予約の単価は PMS 連携後に表示します。"}
-        個人・団体の内訳は PMS 連携後に表示します（現在は全体）。
       </p>
       <ResponsiveContainer width="100%" height={300}>
         <ComposedChart data={rows} margin={{ top: 10, right: 16, left: 4, bottom: 18 }}>

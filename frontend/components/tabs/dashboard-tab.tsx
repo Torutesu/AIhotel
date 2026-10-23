@@ -154,14 +154,9 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {/* 初期設定の必須項目が揃うまで出す（#13） */}
       <SetupChecklistCard />
       <div className="space-y-4">
-        {/* 対象年月選択（全タブ共有・URL同期） */}
+        {/* 上部は現在〜先々のお知らせ（PDF a01）: ホテル名・客室数・アラート・AI解説。対象年月には連動しない */}
         <div className="flex flex-wrap items-center gap-3">
-          <LabeledMonthPicker
-            id="dashboard-period"
-            label="対象年月"
-            value={periodMonth}
-            onChange={setPeriodMonth}
-          />
+          {hotel?.name && <h2 className="min-w-0 truncate text-lg font-semibold">{hotel.name}</h2>}
           {totalRooms != null && (
             <div className="ml-auto flex items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5">
               <p className="text-xs text-muted-foreground">客室数</p>
@@ -182,34 +177,50 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
 
         <AiSummaryCard summary={aiSummary} loading={loading} />
 
-        {/* 稼働・ADR月間推移（PDF a01・xlsx DB01: 左軸＝室数・右軸＝ADR の積み上げ折れ線 — GET /daily/booking-curve） */}
-        <BookingCurveMonthCard year={year} month={month} />
+        {/* ここから下は指定した月（PDF a01）。対象年月（全タブ共有・URL同期）を変えると、
+            稼働・ADR月間推移・月初比較・日付比較・KPI進捗・在庫表が同じ月に切り替わる。既定は当月 */}
+        <section aria-label="対象年月の数値" className="space-y-4 border-t pt-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <LabeledMonthPicker
+              id="dashboard-period"
+              label="対象年月"
+              value={periodMonth}
+              onChange={setPeriodMonth}
+            />
+            <p className="text-xs text-muted-foreground">
+              ここから下は対象年月の数値です（稼働・ADR月間推移・月初比較・日付比較・KPI進捗・在庫表が同じ月に切り替わります）
+            </p>
+          </div>
 
-        {/* 月初比較・日付比較（U-5 — GET /dashboard/kpi/comparison） */}
-        <KpiComparisonSection year={year} month={month} summary={kpi?.summary ?? null} />
+          {/* 稼働・ADR月間推移（PDF a01・xlsx DB01: 左軸＝室数・右軸＝ADR の積み上げ折れ線 — GET /daily/booking-curve） */}
+          <BookingCurveMonthCard year={year} month={month} />
 
-        {/* 伸び率の高いサイト上位3件（設定で有効化された場合のみ・対応APIなし） */}
-        {showTopSitesSection && (
-          <Card>
-            <CardHeader className="pb-1">
-              <CardTitle className="text-base font-medium">伸び率の高いサイト上位3件</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <p className="text-sm text-muted-foreground">この機能は今後提供予定です。</p>
-            </CardContent>
-          </Card>
-        )}
+          {/* 月初比較・日付比較（U-5 — GET /dashboard/kpi/comparison） */}
+          <KpiComparisonSection year={year} month={month} summary={kpi?.summary ?? null} />
 
-        <KpiProgressSection
-          hotelId={hotelId}
-          kpi={kpi}
-          loading={loading}
-          year={year}
-          month={month}
-          visibleKpiKeys={visibleKpiKeys}
-        />
+          {/* 伸び率の高いサイト上位3件（設定で有効化された場合のみ・対応APIなし） */}
+          {showTopSitesSection && (
+            <Card>
+              <CardHeader className="pb-1">
+                <CardTitle className="text-base font-medium">伸び率の高いサイト上位3件</CardTitle>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <p className="text-sm text-muted-foreground">この機能は今後提供予定です。</p>
+              </CardContent>
+            </Card>
+          )}
 
-        <InventoryTableCard totalRooms={totalRooms} />
+          <KpiProgressSection
+            hotelId={hotelId}
+            kpi={kpi}
+            loading={loading}
+            year={year}
+            month={month}
+            visibleKpiKeys={visibleKpiKeys}
+          />
+
+          <InventoryTableCard totalRooms={totalRooms} year={year} month={month} />
+        </section>
       </div>
     </div>
   )

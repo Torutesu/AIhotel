@@ -5,6 +5,7 @@
 // 残室想定（販売可能室数 = 残室＋wash想定）を並べる（PDF a02・xlsx DB02）。表示する日は選んで移動できる。
 // 団体の取り扱いが多い施設向けに、団体をセグメント別（一般団体・募集・修学旅行・スポーツ団体）にも表示できる。
 // PMS連携と残室推移の記録が未実装のため、数値はサンプル表示。
+// ダッシュボードの「ここから下は指定した月」（PDF a01）に置くため、対象年月を変えると表示を始める日がその月に移る。
 
 import { Fragment, useMemo, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
@@ -139,16 +140,31 @@ function NumberCell({ value, strong, muted }: { value: number; strong?: boolean;
   )
 }
 
-interface InventoryTableCardProps {
-  totalRooms: number | null
+/** 対象年月で表示を始める日（純関数）: 今月なら今日、それ以外の月は1日 */
+export function inventoryStartFor(year: number, month: number, today: Date = new Date()): string {
+  if (today.getFullYear() === year && today.getMonth() + 1 === month) return toDateStr(today)
+  return toDateStr(new Date(year, month - 1, 1))
 }
 
-export function InventoryTableCard({ totalRooms }: InventoryTableCardProps) {
+interface InventoryTableCardProps {
+  totalRooms: number | null
+  /** ダッシュボードの対象年月。変えると表示を始める日がその月に移る */
+  year: number
+  month: number
+}
+
+export function InventoryTableCard({ totalRooms, year, month }: InventoryTableCardProps) {
   const { weekendDays, isWeekendDow } = useWeekend()
   const [snapshotPeriod, setSnapshotPeriod] = useState("7")
   const [bySegment, setBySegment] = useState(false)
-  // 表示を始める日（"yyyy-MM-dd"）。既定は今日。前後の14日へ移動できる
-  const [startDate, setStartDate] = useState(() => toDateStr(new Date()))
+  // 表示を始める日（"yyyy-MM-dd"）。既定は対象年月（今月なら今日）。前後の14日へ移動できる
+  const [startDate, setStartDate] = useState(() => inventoryStartFor(year, month))
+  // 対象年月が変わったら、その月から表示し直す（描画中に状態を合わせる React の定石）
+  const [syncedPeriod, setSyncedPeriod] = useState(`${year}-${month}`)
+  if (syncedPeriod !== `${year}-${month}`) {
+    setSyncedPeriod(`${year}-${month}`)
+    setStartDate(inventoryStartFor(year, month))
+  }
   const rooms = totalRooms ?? 200
   const start = parseDateStr(startDate)
   const shift = (days: number) => setStartDate(toDateStr(new Date(start.getFullYear(), start.getMonth(), start.getDate() + days)))
