@@ -27,6 +27,10 @@ const EMAILS = {
   otherManager: `${PREFIX}-manager-b@example.com`,
 }
 const TOTAL_ROOMS = 100
+// 部屋タイプ（料金カレンダーのタイプ切り替え — 2026-10-24）
+const ROOM_TYPE_A1 = `${PREFIX}-rt-a1`
+const ROOM_TYPE_A2 = `${PREFIX}-rt-a2`
+const ROOM_TYPE_B = `${PREFIX}-rt-b`
 
 describeIntegration('デモ画面の修正で足した API（2026-10）', () => {
   let app: Express
@@ -110,6 +114,23 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
     await prisma.dailyData.createMany({
       data: monthDays(prev).map((d) => ({ ...base, date: d, soldRooms: 60, occupancy: 0.6, adr: 12_000, revPar: 7_200, totalRevenue: 720_000 })),
     })
+    // 部屋タイプ: A1 60室・A2 40室。先月の実績の内訳は A1 40室 440,000円（ADR 11,000）・A2 20室 280,000円（ADR 14,000）
+    await prisma.roomType.createMany({
+      data: [
+        { ...base, id: ROOM_TYPE_A1, name: 'タイプA1', code: 'A1', capacity: 1, count: 60, sortOrder: 1 },
+        { ...base, id: ROOM_TYPE_A2, name: 'タイプA2', code: 'A2', capacity: 2, count: 40, sortOrder: 2 },
+        { tenantId: TENANT_B, hotelId: HOTEL_B, id: ROOM_TYPE_B, name: 'タイプB', code: 'B', capacity: 1, count: 100 },
+      ],
+    })
+    const prevDaily = await prisma.dailyData.findMany({ where: { hotelId: HOTEL_A, date: { gte: prev, lt: next } }, select: { id: true, date: true } })
+    await prisma.dailyRoomData.createMany({
+      data: prevDaily
+        .filter((d) => d.date < today)
+        .flatMap((d) => [
+          { tenantId: TENANT_A, dailyDataId: d.id, roomTypeId: ROOM_TYPE_A1, soldRooms: 40, revenue: 440_000 },
+          { tenantId: TENANT_A, dailyDataId: d.id, roomTypeId: ROOM_TYPE_A2, soldRooms: 20, revenue: 280_000 },
+        ]),
+    })
     // AI の予測（来月・先月とも 予測稼働率 70%・予測ADR 11,000円）
     await prisma.aiPriceRecommendation.createMany({
       data: [...monthDays(next), ...monthDays(prev)].map((d) => ({
@@ -188,6 +209,59 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
       // 結果 60% はどの区分でも稼働の高いほうの群 → A型
       expect(day.dayType).toMatch(/^(平日|週末|特日)A型$/)
       expect(day.dayTypeHistory.map((h: { daysBefore: number }) => h.daysBefore)).toEqual([90, 60, 30, 14, 7, 3, 1, 0])
+    })
+
+    it('タイプを選ぶとそのタイプの数値を返す（結果はタイプ別の実績、AI の想定値は過去の販売構成と単価の比で配分、予算は持たない）', async () => {
+      const prevRes = await get('/api/v1/pricing/calendar', tokens.operator, {
+        hotelId: HOTEL_A,
+        year: prev.getUTCFullYear(),
+        month: prev.getUTCMonth() + 1,
+        roomTypeId: ROOM_TYPE_A2,
+      })
+      expect(prevRes.status, JSON.stringify(prevRes.body)).toBe(200)
+      expect(prevRes.body.data.totalRooms).toBe(40)
+      expect(prevRes.body.data.roomType).toEqual({ id: ROOM_TYPE_A2, name: 'タイプA2', count: 40 })
+      expect(prevRes.body.data.calendar[0]).toMatchObject({
+        onHandRooms: 20,
+        currentOccupancy: 0.5,
+        onHandAdr: 14_000,
+        currentRevenue: 280_000,
+        budgetRooms: null,
+        budgetAdr: null,
+        budgetRevenue: null,
+        budgetOccupancy: null,
+      })
+
+      const nextRes = await get('/api/v1/pricing/calendar', tokens.operator, {
+        hotelId: HOTEL_A,
+        year: next.getUTCFullYear(),
+        month: next.getUTCMonth() + 1,
+        roomTypeId: ROOM_TYPE_A2,
+      })
+      const all = await get('/api/v1/pricing/calendar', tokens.operator, { hotelId: HOTEL_A, year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 })
+      expect(all.body.data.roomType).toBeNull()
+      const day15 = nextRes.body.data.calendar[14]
+      // 予測 70室 × 販売構成 20/60 = 23室 ÷ 40室、ADR は 11,000 × (14,000 ÷ 12,000)
+      expect(day15).toMatchObject({
+        onHandRooms: null,
+        currentOccupancy: null,
+        predictedOccupancy: 0.575,
+        predictedAdr: 12_833,
+        expectedRevenue: Math.round(23 * 11_000 * (14_000 / 12_000)),
+        budgetRooms: null,
+        recommendedRank: 20,
+      })
+      // 日のタイプ・需要のアラートは日の性質なので ALL と同じ
+      expect(day15.dayType).toBe(all.body.data.calendar[14].dayType)
+      expect(day15.demandLevel).toBe('C')
+    })
+
+    it('他ホテル（他テナント）の部屋タイプ・形式の不正な ID は受け付けない', async () => {
+      const query = { hotelId: HOTEL_A, year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 }
+      const other = await get('/api/v1/pricing/calendar', tokens.operator, { ...query, roomTypeId: ROOM_TYPE_B })
+      expect(other.status).toBe(404)
+      const invalid = await get('/api/v1/pricing/calendar', tokens.operator, { ...query, roomTypeId: 'bad id!' })
+      expect(invalid.status).toBe(400)
     })
 
     it('過去の実績が無いホテルは型を作らない（日のタイプは null）', async () => {

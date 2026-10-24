@@ -3,6 +3,7 @@ import { authenticate, requireRole, requireHotelAccess } from '../middlewares/au
 import { validate } from '../middlewares/validate.js'
 import {
   monthQuerySchema,
+  pricingCalendarQuerySchema,
   hotelIdQuerySchema,
   updateStrategySchema,
   recomputeForecastSchema,
@@ -35,10 +36,11 @@ export const pricingRouter: ExpressRouter = Router()
 // 全エンドポイント認証必須（C-2）
 pricingRouter.use(authenticate)
 
-// GET /api/v1/pricing/calendar?hotelId=&year=&month=
+// GET /api/v1/pricing/calendar?hotelId=&year=&month=&roomTypeId=
+// roomTypeId を省くと ALL（全タイプの合計）。指定するとそのタイプの数値（予算は持たないので null）
 pricingRouter.get(
   '/calendar',
-  validate(monthQuerySchema, 'query'),
+  validate(pricingCalendarQuerySchema, 'query'),
   requireHotelAccess((req) => req.query.hotelId),
   getCalendar
 )

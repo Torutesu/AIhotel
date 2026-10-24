@@ -645,6 +645,14 @@ export const monthQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
 })
 
+/**
+ * 日別価格カレンダー（GET /pricing/calendar）。roomTypeId を省くと ALL（全タイプの合計）、
+ * 指定するとそのタイプの数値（2026-10-24 の画面修正: 現在・推奨料金ランクの上のタイプ切り替え）
+ */
+export const pricingCalendarQuerySchema = monthQuerySchema.extend({
+  roomTypeId: entityIdSchema.optional(),
+})
+
 export const yearQuerySchema = z.object({
   hotelId: entityIdSchema,
   year: z.coerce.number().int().min(2020).max(2100),

@@ -24,12 +24,13 @@ import type { CreatePriceBoundInput, CreatePricingLockInput, MonthTargetInput, U
  * GET /api/v1/pricing/calendar?hotelId=&year=&month=
  */
 export const getCalendar = asyncHandler(async (req: Request, res: Response) => {
-  const { hotelId, year, month } = req.query as unknown as {
+  const { hotelId, year, month, roomTypeId } = req.query as unknown as {
     hotelId: string
     year: number
     month: number
+    roomTypeId?: string
   }
-  const result = await getPricingCalendarService(hotelId, year, month)
+  const result = await getPricingCalendarService(hotelId, year, month, roomTypeId)
   sendSuccess(res, result)
 })
 

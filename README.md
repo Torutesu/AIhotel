@@ -610,7 +610,7 @@ TRUST_PROXY=1
 
 ### Pricing (`backend/src/routes/pricing.ts`)
 
-- `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`）。日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプ（平日A型など）と優先モデル・その推移を含む（2026-10）
+- `GET /api/v1/pricing/calendar` - 日別価格カレンダー（`hotelId`, `year`, `month`, 任意で `roomTypeId`）。日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプ（平日A型など）と優先モデル・その推移を含む（2026-10）。`roomTypeId` を渡すとそのタイプの数値（予算は null。2026-10-24）
 - `GET /api/v1/pricing/day-insight` - 日のAI分析（`hotelId`, `date`）。日のタイプと履歴、型の一覧と典型カーブ、同じタイプの日5日、この日のイベント（2026-10 b03）
 - `GET /api/v1/pricing/day-simulation` - 日単位のシミュレーション（`hotelId`, `date`, 任意で `rank`）。AI の推奨と優先モデル3つ・手動ランクの稼働・売上・REV-Per を価格弾力性モデルで試算（2026-10 b01）
 - `GET /api/v1/pricing/strategy` - 価格戦略の重み付け取得（`hotelId`）
