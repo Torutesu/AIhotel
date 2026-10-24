@@ -19,6 +19,7 @@ import {
   setMockEvents,
   toLocalDateStr,
   mockPricingCalendar,
+  mockRoomTypes,
 } from "./demo-data"
 import type {
   BookingCurve,
@@ -189,6 +190,57 @@ export function enrichMockPricingCalendar(calendar: ReturnType<typeof mockPricin
         dayTypeModel: current?.model ?? null,
         dayTypeTypicalOccupancy: current?.avgOccupancy ?? null,
         dayTypeHistory: history,
+      }
+    }),
+  }
+}
+
+/**
+ * 料金カレンダーのタイプ別のデモ（2026-10-24 の画面修正: 現在・推奨料金ランクの上のタイプ切り替え）。
+ * バックエンドの toRoomTypeDay と同じ扱い: 予算はタイプ別に持たない（null）。AI の想定値はホテル全体の予測を
+ * 販売構成（室数の比）と単価の比（上位のタイプほど高い — タイプ別の実績のデモと同じ）で配る。
+ * 予約（オンハンド）もデモでは ALL を同じ比で配って見せる（バックエンドは PMS 連携まで先の日のタイプ別の予約は null）
+ */
+export function mockPricingCalendarForRoomType(hotelId: string, year: number, month: number, roomTypeId: string): PricingCalendar {
+  const all = enrichMockPricingCalendar(mockPricingCalendar(hotelId, year, month))
+  const types = mockRoomTypes(hotelId)
+  const type = types.find((t) => t.id === roomTypeId)
+  if (!type) throw new Error("部屋タイプが見つかりません")
+  const weight = (t: { count: number; sortOrder: number }) => t.count * (1 + t.sortOrder * 0.12)
+  const totalCount = types.reduce((sum, t) => sum + t.count, 0)
+  const weightSum = types.reduce((sum, t) => sum + weight(t), 0)
+  const roomShare = type.count / totalCount
+  const adrRatio = weight(type) / weightSum / roomShare
+  const hotelRooms = all.totalRooms ?? MOCK_HOTEL.totalRooms
+  const round3 = (v: number) => Math.round(v * 1000) / 1000
+
+  return {
+    ...all,
+    totalRooms: type.count,
+    roomType: { id: type.id, name: type.name, count: type.count },
+    calendar: all.calendar.map((day) => {
+      const sold = day.onHandRooms != null ? Math.round(day.onHandRooms * roomShare) : null
+      const adr = day.onHandAdr != null ? Math.round(day.onHandAdr * adrRatio) : null
+      const occupancy = sold != null ? round3(sold / type.count) : null
+      const isPast = day.actualAdr != null
+      const predictedRooms = day.predictedOccupancy != null ? Math.round(day.predictedOccupancy * hotelRooms * roomShare) : null
+      const expectedAdrBase = day.predictedAdr ?? day.recommendedPrice
+      return {
+        ...day,
+        budgetRooms: null,
+        budgetOccupancy: null,
+        budgetAdr: null,
+        budgetRevenue: null,
+        onHandRooms: sold,
+        currentOccupancy: occupancy,
+        onHandAdr: adr,
+        currentRevenue: sold != null && adr != null ? sold * adr : null,
+        actualOccupancy: isPast ? occupancy : null,
+        actualAdr: isPast ? adr : null,
+        predictedOccupancy: predictedRooms != null ? Math.min(1, round3(predictedRooms / type.count)) : null,
+        predictedAdr: day.predictedAdr != null ? Math.round(day.predictedAdr * adrRatio) : null,
+        expectedRevenue:
+          predictedRooms != null && expectedAdrBase != null ? Math.round(predictedRooms * expectedAdrBase * adrRatio) : null,
       }
     }),
   }

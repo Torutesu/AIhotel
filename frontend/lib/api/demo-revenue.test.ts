@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest"
 
 import { eventsOnDate } from "@/components/pricing/pricing-constants"
-import { getMockEvents, mockPricingCalendar } from "./demo-data"
-import { demoClassifyDay, enrichMockPricingCalendar, importMockEvents, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockDayOfWeekBreakdown, mockDayTypeBreakdown, mockMonthPace } from "./demo-revenue"
+import { getMockEvents, mockPricingCalendar, mockRoomTypes } from "./demo-data"
+import { demoClassifyDay, enrichMockPricingCalendar, mockPricingCalendarForRoomType, importMockEvents, importMockNewHotels, getMockNewHotels, mockBookingCurveDetail, mockDailyPerformance, mockDayOfWeekBreakdown, mockDayTypeBreakdown, mockMonthPace } from "./demo-revenue"
 
 // デモモードのデータ（2026-10）。日のタイプはバックエンド（services/forecast/dayType.ts）と同じ手順で判定する（型はデモ用の固定）
 
@@ -146,5 +146,45 @@ describe("mockMonthPace", () => {
     const current = mockMonthPace("demo", today.getFullYear(), today.getMonth() + 1)
     const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
     expect(current.points.at(-1)?.daysBefore).toBe(lastDay - today.getDate())
+  })
+})
+
+describe("mockPricingCalendarForRoomType（日別価格カレンダーのタイプ切り替え — 2026-10-24）", () => {
+  const today = new Date()
+  const y = today.getFullYear()
+  const m = today.getMonth() + 1
+  const all = enrichMockPricingCalendar(mockPricingCalendar("demo", y, m))
+  const types = mockRoomTypes("demo")
+
+  it("タイプの室数で返し、予算は持たない（null）。日のタイプ・料金ランク・需要のアラートは ALL と同じ", () => {
+    const type = types[2]
+    const cal = mockPricingCalendarForRoomType("demo", y, m, type.id)
+    expect(cal.totalRooms).toBe(type.count)
+    expect(cal.roomType).toEqual({ id: type.id, name: type.name, count: type.count })
+    cal.calendar.forEach((d, i) => {
+      expect([d.budgetRooms, d.budgetOccupancy, d.budgetAdr, d.budgetRevenue]).toEqual([null, null, null, null])
+      expect(d.dayType).toBe(all.calendar[i].dayType)
+      expect(d.recommendedRank).toBe(all.calendar[i].recommendedRank)
+      expect(d.demandLevel).toBe(all.calendar[i].demandLevel)
+      if (d.predictedOccupancy != null) expect(d.predictedOccupancy).toBeLessThanOrEqual(1)
+    })
+  })
+
+  it("全タイプの予約室数・AI の予測室数を足すと ALL とほぼ同じ（配分の丸めの差だけ）", () => {
+    const byType = types.map((t) => mockPricingCalendarForRoomType("demo", y, m, t.id))
+    all.calendar.forEach((d, i) => {
+      if (d.onHandRooms != null) {
+        const sum = byType.reduce((a, c) => a + (c.calendar[i].onHandRooms ?? 0), 0)
+        expect(Math.abs(sum - d.onHandRooms)).toBeLessThanOrEqual(types.length)
+      }
+      if (d.predictedOccupancy != null) {
+        const sum = byType.reduce((a, c, ti) => a + Math.round((c.calendar[i].predictedOccupancy ?? 0) * types[ti].count), 0)
+        expect(Math.abs(sum - Math.round(d.predictedOccupancy * 200))).toBeLessThanOrEqual(types.length)
+      }
+    })
+  })
+
+  it("無いタイプはエラーにする", () => {
+    expect(() => mockPricingCalendarForRoomType("demo", y, m, "no-such-type")).toThrow("部屋タイプが見つかりません")
   })
 })

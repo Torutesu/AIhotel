@@ -290,6 +290,7 @@ describe("デモモード（バックエンド未接続）", () => {
       ["alerts", () => api.alerts(hotelId, 4)],
       ["aiSummary", () => api.aiSummary(hotelId)],
       ["pricingCalendar", () => api.pricingCalendar(hotelId, 2026, 9)],
+      ["pricingCalendar（タイプ別）", () => api.pricingCalendar(hotelId, 2026, 9, "mock-room-type-1")],
       ["pricingStrategy", () => api.pricingStrategy(hotelId)],
       ["pricingLocks", () => api.pricingLocks(hotelId)],
       ["pricingSimulation", () => api.pricingSimulation(hotelId, 2026, 9)],

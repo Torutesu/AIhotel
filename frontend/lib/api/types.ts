@@ -200,8 +200,10 @@ export interface PricingCalendar {
   hotelId: string
   year: number
   month: number
-  /** 客室数（2026-10 から） */
+  /** 客室数（2026-10 から）。タイプ別のときはそのタイプの室数 */
   totalRooms?: number
+  /** タイプ別のときのタイプ（roomTypeId を渡したとき — 2026-10-24）。ALL（全タイプの合計）は null */
+  roomType?: { id: string; name: string; count: number } | null
   calendar: PricingCalendarDay[]
 }
 

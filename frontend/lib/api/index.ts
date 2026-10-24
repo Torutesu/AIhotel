@@ -35,7 +35,7 @@ import {
   setMockDashboardPreference, getMockPriceBounds, addMockPriceBound, removeMockPriceBound
 } from "./demo-data"
 import {
-  enrichMockPricingCalendar, mockBookingCurveDetail, mockDayInsight, mockDaySimulation, getMockNewHotels, addMockNewHotel,
+  enrichMockPricingCalendar, mockPricingCalendarForRoomType, mockBookingCurveDetail, mockDayInsight, mockDaySimulation, getMockNewHotels, addMockNewHotel,
   updateMockNewHotel, removeMockNewHotel, importMockNewHotels, importMockEvents
 } from "./demo-revenue"
 import { adminEndpoints } from "./admin"
@@ -256,10 +256,15 @@ export const api = {
     )
   },
 
-  pricingCalendar(hotelId: string, year: number, month: number): Promise<PricingCalendar> {
+  /** 日別価格カレンダー。roomTypeId を渡すとそのタイプの数値（省くと ALL = 全タイプの合計 — 2026-10-24） */
+  pricingCalendar(hotelId: string, year: number, month: number, roomTypeId?: string): Promise<PricingCalendar> {
+    const typeQuery = roomTypeId ? `&roomTypeId=${encodeURIComponent(roomTypeId)}` : ""
     return withDemoFallback(
-      () => rawRequest(`/api/v1/pricing/calendar?hotelId=${hotelId}&year=${year}&month=${month}`),
-      () => enrichMockPricingCalendar(mockPricingCalendar(hotelId, year, month))
+      () => rawRequest(`/api/v1/pricing/calendar?hotelId=${hotelId}&year=${year}&month=${month}${typeQuery}`),
+      () =>
+        roomTypeId
+          ? mockPricingCalendarForRoomType(hotelId, year, month, roomTypeId)
+          : enrichMockPricingCalendar(mockPricingCalendar(hotelId, year, month))
     )
   },
 
