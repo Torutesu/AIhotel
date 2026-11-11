@@ -16,7 +16,7 @@ import { zodResolver } from "@/lib/zod-resolver"
 export const hotelCreateSchema = z.object({
   name: z.string().trim().min(1, "ホテル名を入力してください").max(200, "ホテル名は200文字以内で入力してください"),
   totalRooms: z.coerce
-    .number({ invalid_type_error: "客室数を数字で入力してください" })
+    .number({ error: "客室数を数字で入力してください" })
     .int("客室数は整数で入力してください")
     .min(1, "客室数は1以上で入力してください")
     .max(100000, "客室数が大きすぎます"),

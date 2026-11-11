@@ -75,15 +75,15 @@ const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
 
 // インライン検証（U-11 と同じく zod を唯一の検証ロジックにする）
 const amountSchema = z
-  .number({ invalid_type_error: "数値で入力してください" })
+  .number({ error: "数値で入力してください" })
   .min(0, "0以上で入力してください")
 const countSchema = z
-  .number({ invalid_type_error: "数値で入力してください" })
+  .number({ error: "数値で入力してください" })
   .int("整数で入力してください")
   .min(0, "0以上で入力してください")
 /** 稼働率は画面上はパーセント（0〜100）。送信時に 0〜1 へ変換する */
 const percentSchema = z
-  .number({ invalid_type_error: "数値で入力してください" })
+  .number({ error: "数値で入力してください" })
   .min(0, "0以上で入力してください")
   .max(100, "0〜100の範囲で入力してください")
 
