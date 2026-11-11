@@ -172,7 +172,7 @@ describe('recomputeForecastSchema (C-3)', () => {
     })
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.error.errors[0].message).toContain('本日以降')
+      expect(result.error.issues[0].message).toContain('本日以降')
     }
   })
 
@@ -205,7 +205,7 @@ describe('recomputeForecastSchema (C-3)', () => {
     })
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.error.errors[0].message).toContain(`${MAX_FORECAST_RANGE_DAYS}日`)
+      expect(result.error.issues[0].message).toContain(`${MAX_FORECAST_RANGE_DAYS}日`)
     }
   })
 
@@ -228,7 +228,7 @@ describe('updateHotelSettingsSchema の weekendDays (C-11)', () => {
     const result = updateHotelSettingsSchema.safeParse({ weekendDays: [] })
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.error.errors[0].message).toContain('1曜日以上')
+      expect(result.error.issues[0].message).toContain('1曜日以上')
     }
   })
 
@@ -236,7 +236,7 @@ describe('updateHotelSettingsSchema の weekendDays (C-11)', () => {
     const result = updateHotelSettingsSchema.safeParse({ weekendDays: [5, 5, 6] })
     expect(result.success).toBe(false)
     if (!result.success) {
-      expect(result.error.errors[0].message).toContain('重複')
+      expect(result.error.issues[0].message).toContain('重複')
     }
   })
 
@@ -304,5 +304,17 @@ describe('期間の上限 (#90)', () => {
 
   it('イベント一覧は期間を省略できる', () => {
     expect(eventsQuerySchema.safeParse({ hotelId }).success).toBe(true)
+  })
+
+  it('日付の形式が違うときは、期間のチェックを動かさずに項目のエラーだけを返す（zod 4 で 500 になっていた）', () => {
+    const shifted = { hotelId, startDate: `${iso(start)}T00:00:00+09:00`, endDate: iso(start) }
+    for (const schema of [eventsQuerySchema, competitorPricesQuerySchema, recomputeForecastSchema]) {
+      const result = schema.safeParse(shifted)
+      expect(result.success).toBe(false)
+      if (!result.success) {
+        expect(result.error.issues.map((i) => i.path.join('.'))).toEqual(['startDate'])
+        expect(result.error.issues[0].message).toBe('日付は YYYY-MM-DD 形式で指定してください')
+      }
+    }
   })
 })

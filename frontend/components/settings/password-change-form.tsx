@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label"
 import { FormFieldError } from "@/components/form-field-error"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError } from "@/lib/api"
-import { zodResolver } from "@/lib/zod-resolver"
+import { ifFieldsValid, zodResolver } from "@/lib/zod-resolver"
 
 const passwordChangeSchema = z
   .object({
@@ -30,10 +30,12 @@ const passwordChangeSchema = z
     confirmPassword: z.string(),
   })
   .refine((v) => v.newPassword === v.confirmPassword, {
+    ...ifFieldsValid,
     path: ["confirmPassword"],
     message: "確認用のパスワードが一致しません",
   })
   .refine((v) => v.newPassword !== v.currentPassword, {
+    ...ifFieldsValid,
     path: ["newPassword"],
     message: "現在と同じパスワードは使えません",
   })

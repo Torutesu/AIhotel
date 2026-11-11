@@ -1,25 +1,29 @@
 "use client"
 
-// 日別価格カレンダー（テーブル／タイプ別人数別カレンダー）と オンハンド状況
-// （U-15 で pricing-tab.tsx から分割）。GET /pricing/calendar の実データを表示する。
+// 日別価格カレンダー（テーブル表示）と オンハンド状況（U-15 で pricing-tab.tsx から分割）。
+// GET /pricing/calendar の実データを表示する。
 // 2026-10 の画面修正（DP02）で、オペレーターが価格を決める表として 予算・現在・AI の推奨を並べた。
 // 結果（ADR・稼働率・売上）と想定との差異は 分析 > 日別パフォーマンス へ移した。
+// 2026-10-24 の画面修正: 「タイプ別人数別カレンダー」を外してテーブル表示ひとつにし、現在・推奨料金ランクの上に
+// タイプの切り替え（ALL ＋ 各部屋タイプ）を置いた。タイプを選ぶとそのタイプの数値（予算はタイプ別に持たないので「-」）。
 
-import { useMemo, useState } from "react"
-import { Calendar, Info, Table2 } from "lucide-react"
+import { useMemo } from "react"
+import { Info } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Tooltip as UITooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { ErrorState } from "@/components/error-state"
 import { useWeekend } from "@/hooks/use-weekend"
 import {
   demandBadgeClass,
-  eventsOnDate,
   getRankBadgeColor,
   holidayNameOf,
   saleOpenStatus,
@@ -31,22 +35,37 @@ import { formatPercent as pct, formatYen as yen } from "@/lib/format"
 import { DayTypeBadge, DayTypeHelp } from "@/components/pricing/day-type"
 import { OnHandChart } from "@/components/pricing/on-hand-chart"
 import type { PricingCalendarDay } from "@/lib/api"
-import type { Event as HotelEvent } from "@shared/types"
+
+/** タイプ切り替えの「ALL」（全タイプの合計。今までの表示） */
+export const ALL_ROOM_TYPES = "ALL"
+
+/** タイプ切り替え（現在・推奨料金ランクの上 — 2026-10-24） */
+export interface RoomTypeSwitch {
+  /** 選べる部屋タイプ（ALL は別に必ず出す） */
+  options: Array<{ id: string; name: string }>
+  /** 選んでいるタイプ（ALL_ROOM_TYPES か部屋タイプの ID） */
+  value: string
+  onChange: (value: string) => void
+  /** 選んだタイプの月のデータ（ALL のときは使わない） */
+  data: MonthCalendar | null
+  loading: boolean
+  error: string | null
+  onRetry: () => void
+}
 
 interface PriceCalendarSectionProps {
+  /** ALL（全タイプの合計）の月のデータ。オンハンド状況のグラフは常に ALL */
   monthData: MonthCalendar
   /** 客室数（月計の稼働率に使う） */
   totalRooms: number | null
   /** 日別分析から遷移してきた日（該当行を強調してスクロールする） */
   highlightedDate: string | null
-  /** 当月の登録済みイベント（GET /events — #80） */
-  events: HotelEvent[]
   /** テーブル行のクリックでAI分析ダイアログを開く */
   onSelectRowForAnalysis: (day: PricingCalendarDay) => void
-  /** カレンダーのセルクリックで詳細ダイアログを開く */
-  onSelectDay: (day: PricingCalendarDay) => void
   /** 販売開始: 宿泊日の何日前（ホテル設定。未設定は null — 2026-10 PDF b04） */
   saleOpenDaysBefore?: number | null
+  /** タイプ切り替え。渡さなければ ALL だけ */
+  roomTypeSwitch?: RoomTypeSwitch
 }
 
 /**
@@ -124,50 +143,46 @@ function HeaderHelp({ label, help, align = "right" }: { label: string; help: str
   )
 }
 
+/** 表の列数（日付〜想定売上）。タイプ切り替えの行・読み込み中の行の幅に使う */
+const COLUMN_COUNT = 15
+
 export function PriceCalendarSection({
   monthData,
   totalRooms,
   highlightedDate,
-  events,
   onSelectRowForAnalysis,
-  onSelectDay,
   saleOpenDaysBefore = null,
+  roomTypeSwitch,
 }: PriceCalendarSectionProps) {
   const { isWeekendDow } = useWeekend()
-  const [calendarViewMode, setCalendarViewMode] = useState<"table" | "grid">("table")
 
-  const days = monthData.calendar
-  const summary = useMemo(() => summarizeCalendar(days, totalRooms), [days, totalRooms])
+  const selectedType = roomTypeSwitch && roomTypeSwitch.value !== ALL_ROOM_TYPES
+    ? roomTypeSwitch.options.find((t) => t.id === roomTypeSwitch.value) ?? null
+    : null
+  const typeData = selectedType ? roomTypeSwitch?.data ?? null : null
+  const typeLoading = selectedType != null && (roomTypeSwitch?.loading ?? false)
+  const typeError = selectedType != null ? roomTypeSwitch?.error ?? null : null
+  // 表はタイプを選べばそのタイプ、ALL なら全タイプの合計
+  const days = selectedType ? (typeData?.calendar ?? []) : monthData.calendar
+  const tableRooms = selectedType ? (typeData?.totalRooms ?? null) : totalRooms
+  const summary = useMemo(() => summarizeCalendar(days, tableRooms), [days, tableRooms])
   const hasPending = days.some((d) => d.onHandAdr == null && d.actualAdr == null)
+  // タイプ別の先の日の予約は PMS／サイトコントローラー連携まで無い
+  const typeOnHandPending = selectedType != null && days.some((d) => d.onHandRooms == null && d.actualAdr == null)
 
   return (
         <div key={`${monthData.year}-${monthData.month}`} className="space-y-3">
           <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
             <h3 className="text-base font-semibold">
-              日別価格カレンダー（{monthLabelOf(monthData.year, monthData.month)}）
+              日別価格カレンダー（{monthLabelOf(monthData.year, monthData.month)}{selectedType ? `・${selectedType.name}` : ""}）
             </h3>
-            <div className="flex items-center gap-2">
-              <Button
-                variant={calendarViewMode === "table" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setCalendarViewMode("table")}
-              >
-                <Table2 className="w-4 h-4 mr-2" />
-                テーブル表示
-              </Button>
-              <Button
-                variant={calendarViewMode === "grid" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setCalendarViewMode("grid")}
-              >
-                <Calendar className="w-4 h-4 mr-2" />
-                タイプ別人数別カレンダー
-              </Button>
-            </div>
           </div>
           <p className="text-xs text-muted-foreground">
             オペレーターが予算・現在の予約・AIの推奨を見比べ、価格を決める表です。行をクリックすると日のAI分析（日のタイプの推移・その日のシミュレーション）を開きます。
-            結果と想定との差異は「分析 &gt; 日別パフォーマンス」で確認できます。数値は全タイプの合計、料金ランクは基準の部屋タイプ（1名料金）のランクです。
+            結果と想定との差異は「分析 &gt; 日別パフォーマンス」で確認できます。
+            {selectedType
+              ? `数値は「${selectedType.name}」（${typeData?.totalRooms ?? "-"}室）の値です。予算はタイプ別には持たないため「-」で表示します。料金ランクは全タイプ共通の段階です。`
+              : "数値は全タイプの合計（ALL）、料金ランクは基準の部屋タイプ（1名料金）のランクです。料金ランクの上の「タイプ」で部屋タイプ別に切り替えられます。"}
           </p>
           <SaleOpenNote year={monthData.year} month={monthData.month} daysBefore={saleOpenDaysBefore} />
           <p className="text-xs text-muted-foreground mb-2">
@@ -175,19 +190,46 @@ export function PriceCalendarSection({
             。特日はAIが候補を提示し、オペレーターがマスタ設定画面で修正できます。
           </p>
 
-          {days.length === 0 ? (
+          {monthData.calendar.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">この月のデータがありません。</p>
-          ) : calendarViewMode === "table" ? (
+          ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
+                  {roomTypeSwitch && (
+                    // タイプの切り替えは 現在料金ランク・推奨料金ランク の上に置く（サイトコントローラーのタイプ別のランク）
+                    <tr>
+                      <th colSpan={10} aria-hidden className="p-0" />
+                      <th colSpan={2} className="px-2 pt-2 pb-1 font-normal">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <Label htmlFor="calendar-room-type" className="whitespace-nowrap text-[11px]">
+                            タイプ
+                          </Label>
+                          <Select value={roomTypeSwitch.value} onValueChange={roomTypeSwitch.onChange}>
+                            <SelectTrigger id="calendar-room-type" className="h-7 w-40 text-xs" data-testid="calendar-room-type">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={ALL_ROOM_TYPES}>ALL</SelectItem>
+                              {roomTypeSwitch.options.map((t) => (
+                                <SelectItem key={t.id} value={t.id}>
+                                  {t.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </th>
+                      <th colSpan={COLUMN_COUNT - 12} aria-hidden className="p-0" />
+                    </tr>
+                  )}
                   <tr className="border-b">
                     <th className="text-left py-2 px-2 font-medium whitespace-nowrap">日付</th>
-                    <th className="text-left py-2 px-2 font-medium">曜日</th>
+                    <th className="text-left py-2 px-2 font-medium whitespace-nowrap">曜日</th>
                     <th className="text-center py-2 px-2 font-medium whitespace-nowrap">
                       <DayTypeHelp />
                     </th>
-                    <th className="text-center py-2 px-2 font-medium">
+                    <th className="text-center py-2 px-2 font-medium whitespace-nowrap">
                       <HeaderHelp align="center" label="アラート" help="AI の需要予測による需要水準のアラート（A: 需要が非常に高い 〜 E: 需要が非常に低い）です。" />
                     </th>
                     <th className="text-right py-2 px-2 font-medium whitespace-nowrap bg-muted/40">予算ADR</th>
@@ -197,9 +239,14 @@ export function PriceCalendarSection({
                     <th className="text-right py-2 px-2 font-medium whitespace-nowrap">推奨ADR</th>
                     <th className="text-right py-2 px-2 font-medium whitespace-nowrap bg-muted/40">予算稼働率</th>
                     <th className="text-right py-2 px-2 font-medium whitespace-nowrap">
-                      <HeaderHelp label="現在稼働率" help="結果の出た日は実績、先の日は今の予約室数（オンハンド）÷ 客室数です。" />
+                      <HeaderHelp label="現在稼働率" help="結果の出た日は実績、先の日は今の予約室数（オンハンド）÷ 客室数（タイプ別はそのタイプの室数）です。" />
                     </th>
-                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap">稼働率予測（AI）</th>
+                    <th className="text-right py-2 px-2 font-medium whitespace-nowrap">
+                      <HeaderHelp
+                        label="稼働率予測（AI）"
+                        help="AI の予測稼働率です。タイプ別は、ホテル全体の予測を過去90日のタイプ別の販売構成（室数の比）で配った値です。"
+                      />
+                    </th>
                     <th className="text-center py-2 px-2 font-medium whitespace-nowrap">
                       現在料金ランク
                       <span className="block text-[10px] font-normal text-muted-foreground">（サイトコントローラー）</span>
@@ -208,20 +255,36 @@ export function PriceCalendarSection({
                       <HeaderHelp
                         label="推奨料金ランク"
                         align="center"
-                        help="基準の部屋タイプ（デフォルトのタイプ）の推奨ランクです。ほかのタイプはタイプ別人数別カレンダーで確認します。"
+                        help="AI が推奨する料金ランクです。料金ランクは全タイプ共通の段階で、ALL は基準の部屋タイプ（1名料金）のランクです。"
                       />
                     </th>
                     <th className="text-right py-2 px-2 font-medium whitespace-nowrap bg-muted/40">
-                      <HeaderHelp label="予算売上" help="月次予算を前年同曜日の販売室数の比で日に配った値です（予算ADRは月の値）。" />
+                      <HeaderHelp label="予算売上" help="月次予算を前年同曜日の販売室数の比で日に配った値です（予算ADRは月の値）。タイプ別の予算は持たないため、タイプを選ぶと「-」です。" />
                     </th>
                     <th className="text-right py-2 px-2 font-medium whitespace-nowrap">現在売上</th>
                     <th className="text-right py-2 px-2 font-medium whitespace-nowrap">
-                      <HeaderHelp label="想定売上" help="AI の予測稼働率 × 客室数 × 推奨（予測）ADR です。" />
+                      <HeaderHelp
+                        label="想定売上"
+                        help="AI の予測稼働率 × 客室数 × 推奨（予測）ADR です。タイプ別の推奨ADRは、ホテル全体の予測ADRに過去90日のタイプ別の単価の比を掛けた値です。"
+                      />
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {days.map((day) => {
+                  {typeLoading ? (
+                    <tr>
+                      <td colSpan={COLUMN_COUNT} className="py-3">
+                        <Skeleton className="h-64 w-full" />
+                      </td>
+                    </tr>
+                  ) : typeError ? (
+                    <tr>
+                      <td colSpan={COLUMN_COUNT} className="py-3">
+                        <ErrorState message={typeError} onRetry={roomTypeSwitch?.onRetry} />
+                      </td>
+                    </tr>
+                  ) : (
+                    days.map((day) => {
                     const [, , dayNum] = day.date.split("-")
                     const dateObj = parseDateStr(day.date)
                     const dow = dateObj.getDay()
@@ -303,183 +366,51 @@ export function PriceCalendarSection({
                         <td className="text-right py-2 px-2 tabular-nums">{yen(day.expectedRevenue)}</td>
                       </tr>
                     )
-                  })}
+                  })
+                  )}
                 </tbody>
-                <tfoot>
-                  <tr className="border-t-2 font-medium">
-                    <td className="py-2 px-2" colSpan={4}>
-                      月計
-                      <span className="ml-1 text-[10px] font-normal text-muted-foreground">（ADRは売上÷室数、稼働率は月の客室数に対して）</span>
-                    </td>
-                    <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(summary.budgetAdr)}</td>
-                    <td className="text-right py-2 px-2 tabular-nums">{yen(summary.currentAdr)}</td>
-                    <td className="text-right py-2 px-2 tabular-nums">{yen(summary.expectedAdr)}</td>
-                    <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{pct(summary.budgetOccupancy)}</td>
-                    <td className="text-right py-2 px-2 tabular-nums">{pct(summary.currentOccupancy)}</td>
-                    <td className="text-right py-2 px-2 tabular-nums">{pct(summary.predictedOccupancy)}</td>
-                    <td className="py-2 px-2" colSpan={2}></td>
-                    <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(summary.budgetRevenue)}</td>
-                    <td className="text-right py-2 px-2 tabular-nums">{yen(summary.currentRevenue)}</td>
-                    <td className="text-right py-2 px-2 tabular-nums">{yen(summary.expectedRevenue)}</td>
-                  </tr>
-                </tfoot>
+                {!typeLoading && !typeError && (
+                  <tfoot>
+                    <tr className="border-t-2 font-medium">
+                      <td className="py-2 px-2" colSpan={4}>
+                        月計
+                        <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                          （ADRは売上÷室数、稼働率は月の{selectedType ? "タイプの室数" : "客室数"}に対して）
+                        </span>
+                      </td>
+                      <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(summary.budgetAdr)}</td>
+                      <td className="text-right py-2 px-2 tabular-nums">{yen(summary.currentAdr)}</td>
+                      <td className="text-right py-2 px-2 tabular-nums">{yen(summary.expectedAdr)}</td>
+                      <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{pct(summary.budgetOccupancy)}</td>
+                      <td className="text-right py-2 px-2 tabular-nums">{pct(summary.currentOccupancy)}</td>
+                      <td className="text-right py-2 px-2 tabular-nums">{pct(summary.predictedOccupancy)}</td>
+                      <td className="py-2 px-2" colSpan={2}></td>
+                      <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(summary.budgetRevenue)}</td>
+                      <td className="text-right py-2 px-2 tabular-nums">{yen(summary.currentRevenue)}</td>
+                      <td className="text-right py-2 px-2 tabular-nums">{yen(summary.expectedRevenue)}</td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
-              {hasPending && (
+              {!typeLoading && !typeError && hasPending && (
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   「-」の現在ADR・現在売上は、予約の単価・売上を PMS から受け取れるようになってから表示します（今は結果の出た日だけ）。
                 </p>
               )}
+              {!typeLoading && !typeError && typeOnHandPending && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  タイプ別の先の日の予約（現在稼働率・現在ADR・現在売上）は、PMS／サイトコントローラー連携後に表示します。結果の出た日はタイプ別の実績です。
+                </p>
+              )}
             </div>
-          ) : (
-            <PriceGrid
-              year={monthData.year}
-              month={monthData.month}
-              days={days}
-              events={events}
-              onSelectDay={onSelectDay}
-            />
           )}
 
-          {/* オンハンド状況（DP04。以前の価格推移グラフを置き換え） */}
-          {days.length > 0 && (
+          {/* オンハンド状況（DP04。以前の価格推移グラフを置き換え）。タイプの切り替えは表だけで、グラフは ALL */}
+          {monthData.calendar.length > 0 && (
             <div className="mt-6 pt-6 border-t">
-              <OnHandChart days={days} totalRooms={totalRooms} />
+              <OnHandChart days={monthData.calendar} totalRooms={totalRooms} />
             </div>
           )}
         </div>
-  )
-}
-
-function PriceGrid({
-  year,
-  month,
-  days,
-  events,
-  onSelectDay,
-}: {
-  year: number
-  month: number
-  days: PricingCalendarDay[]
-  events: HotelEvent[]
-  onSelectDay: (day: PricingCalendarDay) => void
-}) {
-  const { isWeekendDow } = useWeekend()
-  const byDate = useMemo(() => new Map(days.map((d) => [d.date, d])), [days])
-  const firstDay = new Date(year, month - 1, 1)
-  const daysInMonth = new Date(year, month, 0).getDate()
-  const startDayOfWeek = firstDay.getDay()
-  const prevMonthDays = new Date(year, month - 1, 0).getDate()
-  const weeks = Math.ceil((daysInMonth + startDayOfWeek) / 7)
-
-  // 料金ランクの人数別料金をそのまま表示する。部屋タイプ別の料金はマスタが無いため出さない
-  // （以前は架空の係数を掛けた「デラックス」「スイート」の料金を表示していた — #80）
-  const priceOf = (base: number | null | undefined): string => (base == null ? "-" : base.toLocaleString())
-
-  const cells: Array<{ date: number; isCurrentMonth: boolean; dayOfWeek: number; data?: PricingCalendarDay }> = []
-
-  for (let i = startDayOfWeek - 1; i >= 0; i--) {
-    cells.push({ date: prevMonthDays - i, isCurrentMonth: false, dayOfWeek: (i + 7 - startDayOfWeek) % 7 })
-  }
-  for (let date = 1; date <= daysInMonth; date++) {
-    const key = `${year}-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`
-    const dow = (startDayOfWeek + date - 1) % 7
-    cells.push({ date, isCurrentMonth: true, dayOfWeek: dow, data: byDate.get(key) })
-  }
-  const remaining = weeks * 7 - cells.length
-  for (let date = 1; date <= remaining; date++) {
-    cells.push({ date, isCurrentMonth: false, dayOfWeek: (cells.length) % 7 })
-  }
-
-  return (
-    <div className="space-y-2">
-      <p className="text-[10px] text-muted-foreground">
-        推奨料金ランクの人数別料金です（部屋タイプ別の料金は部屋タイプのマスタ登録後に対応します）
-      </p>
-
-
-      <div className="overflow-x-auto">
-        <div className="inline-block min-w-full">
-          <div className="grid grid-cols-7 gap-px border-b mb-1">
-            {DAY_NAMES.map((day) => (
-              <div key={day} className="text-center py-2 text-sm font-medium">
-                {day}
-              </div>
-            ))}
-          </div>
-          <div className="grid grid-cols-7 gap-px border">
-            {cells.map((cell, index) => {
-              const key = `${year}-${String(month).padStart(2, "0")}-${String(cell.date).padStart(2, "0")}-${index}`
-              const dayEvents = cell.isCurrentMonth
-                ? eventsOnDate(events, `${year}-${String(month).padStart(2, "0")}-${String(cell.date).padStart(2, "0")}`)
-                : []
-              return (
-                <div
-                  key={key}
-                  // 日セルはクリックで詳細を開くため、キーボードからも操作できるようにする（U-14）
-                  role={cell.isCurrentMonth && cell.data ? "button" : undefined}
-                  tabIndex={cell.isCurrentMonth && cell.data ? 0 : undefined}
-                  aria-label={
-                    cell.isCurrentMonth && cell.data
-                      ? `${month}月${cell.date}日の詳細を開く`
-                      : undefined
-                  }
-                  onClick={() => cell.isCurrentMonth && cell.data && onSelectDay(cell.data)}
-                  onKeyDown={(e) => {
-                    if ((e.key === "Enter" || e.key === " ") && cell.isCurrentMonth && cell.data) {
-                      e.preventDefault()
-                      onSelectDay(cell.data)
-                    }
-                  }}
-                  className={`
-                    min-h-[110px] p-2 text-xs relative
-                    ${cell.isCurrentMonth ? "" : "opacity-30"}
-                    ${isWeekendDow(cell.dayOfWeek) ? "bg-primary/5" : ""}
-                    border-r border-b
-                    ${cell.isCurrentMonth && cell.data ? "cursor-pointer hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" : ""}
-                  `}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div
-                      className={`font-medium inline-flex items-center justify-center ${
-                        isWeekendDow(cell.dayOfWeek) ? "text-primary" : ""
-                      }`}
-                    >
-                      {cell.date}
-                    </div>
-                    {cell.isCurrentMonth && cell.data?.rankLabel && (
-                      <Badge className={`${getRankBadgeColor(cell.data.recommendedRank ?? 0)} text-[9px] font-bold px-1 py-0 h-4`}>
-                        {cell.data.rankLabel}
-                      </Badge>
-                    )}
-                  </div>
-
-                  {dayEvents.length > 0 && (
-                    <div className="mb-1">
-                      <Badge
-                        variant="secondary"
-                        className="text-[9px] px-1 py-0 h-4"
-                        title={dayEvents.map((ev) => ev.name).join("、")}
-                      >
-                        イベント{dayEvents.length > 1 ? ` ${dayEvents.length}件` : ""}
-                      </Badge>
-                    </div>
-                  )}
-
-                  {cell.isCurrentMonth && cell.data ? (
-                    <div className="space-y-0.5 text-[10px] leading-tight mt-1">
-                      <div>1名-{priceOf(cell.data.price1P)}</div>
-                      <div>2名-{priceOf(cell.data.price2P)}</div>
-                      <div>3名-{priceOf(cell.data.price3P)}</div>
-                    </div>
-                  ) : cell.isCurrentMonth ? (
-                    <div className="text-[10px] text-muted-foreground mt-1">データなし</div>
-                  ) : null}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-    </div>
   )
 }

@@ -1,21 +1,136 @@
 import { prisma } from '../lib/prisma.js'
 import { ApiError, NotFoundError } from '../middlewares/errorHandler.js'
-import { monthRange, todayJst } from '../lib/date.js'
+import { addUtcDays, monthRange, todayJst } from '../lib/date.js'
 import {maxOf, median, minOf} from '../lib/stats.js'
 import { loadMonthContext } from './dayContextService.js'
 import { buildDayTypeTimeline } from './forecast/dayType.js'
 import { leadDaysBetween, otbAtLead } from './forecast/pace.js'
 import { loadDayTypeModel } from './dayTypeService.js'
 
+/** タイプ別の AI 想定値に使う、過去の販売構成を見る日数 */
+export const ROOM_TYPE_MIX_DAYS = 90
+
+/** タイプ別に見るときの配分の比（過去 ROOM_TYPE_MIX_DAYS 日のタイプ別の販売構成・単価） */
+export interface RoomTypeMix {
+  /** 全タイプの販売室数に占めるこのタイプの割合 */
+  roomShare: number
+  /** このタイプの ADR ÷ 全タイプの ADR */
+  adrRatio: number
+}
+
+/**
+ * タイプ別の販売実績の合計から配分の比を出す（純関数）。
+ * 実績が無いホテル（取り込み前など）は客室数の比・単価は同じとみなす（fallbackShare）
+ */
+export function roomTypeMixFrom(
+  totals: Array<{ roomTypeId: string; soldRooms: number; revenue: number }>,
+  roomTypeId: string,
+  fallbackShare: number
+): RoomTypeMix {
+  const allSold = totals.reduce((a, t) => a + t.soldRooms, 0)
+  const allRevenue = totals.reduce((a, t) => a + t.revenue, 0)
+  if (allSold <= 0) return { roomShare: fallbackShare, adrRatio: 1 }
+  const type = totals.find((t) => t.roomTypeId === roomTypeId)
+  const typeSold = type?.soldRooms ?? 0
+  const typeRevenue = type?.revenue ?? 0
+  const allAdr = allRevenue / allSold
+  return {
+    roomShare: typeSold / allSold,
+    adrRatio: typeSold > 0 && allAdr > 0 ? typeRevenue / typeSold / allAdr : 1,
+  }
+}
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000
+
+/** タイプ別に置き換える値（予算は持たないので null） */
+interface RoomTypeDayValues {
+  budgetRooms: null
+  budgetOccupancy: null
+  budgetAdr: null
+  budgetRevenue: null
+  actualOccupancy: number | null
+  actualAdr: number | null
+  onHandRooms: number | null
+  currentOccupancy: number | null
+  onHandAdr: number | null
+  currentRevenue: number | null
+  predictedOccupancy: number | null
+  predictedAdr: number | null
+  expectedRevenue: number | null
+}
+
+/**
+ * ALL（全タイプの合計）の1日を、1つの部屋タイプの数値に直す（純関数 — 2026-10-24 の画面修正）。
+ * - 予算: タイプ別には持たない（導入時のヒアリングによる）ので null（画面は「-」）
+ * - 現在（結果・予約）: 結果の出た日はタイプ別の実績（DailyRoomData）。先の日のタイプ別の予約室数は
+ *   PMS／サイトコントローラー連携まで無いので null
+ * - AI の想定値: ホテル全体の予測を、過去のタイプ別の販売構成（室数の比）と単価の比で配る。
+ *   部屋売り（人数で価格が変わらない）を前提にした配り方。人数売りの施設は DOR と客単価で出す（導入時に対応）
+ * - 料金ランク・需要のアラート・日のタイプ・競合はタイプ共通（日の性質・全タイプ共通のランクの段階）
+ */
+export function toRoomTypeDay<
+  T extends {
+    predictedOccupancy: number | null
+    predictedAdr: number | null
+    recommendedPrice: number | null
+  },
+>(
+  day: T,
+  ctx: {
+    /** このタイプの室数 */
+    count: number
+    /** ホテルの客室数（AI の予測稼働率から室数を出す） */
+    hotelRooms: number
+    mix: RoomTypeMix
+    /** その日のタイプ別の実績。無ければ null */
+    actual: { soldRooms: number | null; revenue: number | null } | null
+  }
+): Omit<T, keyof RoomTypeDayValues> & RoomTypeDayValues {
+  const { count, hotelRooms, mix, actual } = ctx
+  const sold = actual?.soldRooms ?? null
+  const actualOccupancy = sold != null && count > 0 ? round3(sold / count) : null
+  const actualAdr = sold != null && sold > 0 && actual?.revenue != null ? Math.round(actual.revenue / sold) : null
+
+  const predictedRooms = day.predictedOccupancy != null ? Math.round(day.predictedOccupancy * hotelRooms * mix.roomShare) : null
+  const predictedOccupancy = predictedRooms != null && count > 0 ? Math.min(1, round3(predictedRooms / count)) : null
+  const predictedAdr = day.predictedAdr != null ? Math.round(day.predictedAdr * mix.adrRatio) : null
+  const expectedAdrBase = day.predictedAdr ?? day.recommendedPrice
+  const expectedRevenue =
+    predictedRooms != null && expectedAdrBase != null ? Math.round(predictedRooms * expectedAdrBase * mix.adrRatio) : null
+
+  const values: RoomTypeDayValues = {
+    budgetRooms: null,
+    budgetOccupancy: null,
+    budgetAdr: null,
+    budgetRevenue: null,
+    actualOccupancy,
+    actualAdr,
+    onHandRooms: sold,
+    currentOccupancy: actualOccupancy,
+    onHandAdr: actualAdr,
+    currentRevenue: sold != null ? (actual?.revenue ?? null) : null,
+    predictedOccupancy,
+    predictedAdr,
+    expectedRevenue,
+  }
+  return { ...day, ...values }
+}
+
 /**
  * 日別価格カレンダー（F-DP-01）
  * 現在価格・AI推奨ランク・需要レベル・競合平均を日別に返す。
  * 2026-10 の画面修正（DP02 / DP03 / DP04）で、オペレーターが価格を決める材料として
- * 日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプ（日のモデル）とその推移を足した
+ * 日割り予算・オンハンド（今の予約室数）・想定売上・日のタイプ（日のモデル）とその推移を足した。
+ * roomTypeId を渡すと、そのタイプの数値に直して返す（2026-10-24 — toRoomTypeDay）
  */
-export async function getPricingCalendarService(hotelId: string, year: number, month: number) {
+export async function getPricingCalendarService(hotelId: string, year: number, month: number, roomTypeId?: string) {
   const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true } })
   if (!hotel) throw new NotFoundError('ホテル')
+  // タイプは指定したホテルのものに限る（他ホテル・他テナントのタイプ ID は存在しない扱い）
+  const roomType = roomTypeId
+    ? await prisma.roomType.findFirst({ where: { id: roomTypeId, hotelId, isActive: true } })
+    : null
+  if (roomTypeId && !roomType) throw new NotFoundError('部屋タイプ')
 
   const { start, end } = monthRange(year, month)
 
@@ -134,7 +249,41 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     }
   })
 
-  return { hotelId, year, month, totalRooms, calendar }
+  if (!roomType) return { hotelId, year, month, totalRooms, roomType: null, calendar }
+
+  // タイプ別: その月のタイプ別の実績と、配分に使う過去の販売構成（有効なタイプだけで割合を出す）
+  const mixFrom = addUtcDays(today, -ROOM_TYPE_MIX_DAYS)
+  const [typeActuals, mixTotals, activeTypes] = await Promise.all([
+    prisma.dailyRoomData.findMany({
+      where: { roomTypeId: roomType.id, dailyData: { hotelId, date: { gte: start, lt: end } } },
+      select: { soldRooms: true, revenue: true, dailyData: { select: { date: true } } },
+    }),
+    prisma.dailyRoomData.groupBy({
+      by: ['roomTypeId'],
+      where: { roomType: { hotelId, isActive: true }, dailyData: { hotelId, date: { gte: mixFrom, lt: today } } },
+      _sum: { soldRooms: true, revenue: true },
+    }),
+    prisma.roomType.findMany({ where: { hotelId, isActive: true }, select: { count: true } }),
+  ])
+  const activeCount = activeTypes.reduce((a, t) => a + t.count, 0)
+  const mix = roomTypeMixFrom(
+    mixTotals.map((t) => ({ roomTypeId: t.roomTypeId, soldRooms: t._sum.soldRooms ?? 0, revenue: t._sum.revenue ?? 0 })),
+    roomType.id,
+    activeCount > 0 ? roomType.count / activeCount : 0
+  )
+  const typeActualByDate = new Map(typeActuals.map((a) => [a.dailyData.date.toISOString().slice(0, 10), a]))
+
+  return {
+    hotelId,
+    year,
+    month,
+    // 稼働率・月計はこのタイプの室数に対して出す
+    totalRooms: roomType.count,
+    roomType: { id: roomType.id, name: roomType.name, count: roomType.count },
+    calendar: calendar.map((day) =>
+      toRoomTypeDay(day, { count: roomType.count, hotelRooms: totalRooms, mix, actual: typeActualByDate.get(day.date) ?? null })
+    ),
+  }
 }
 
 /**

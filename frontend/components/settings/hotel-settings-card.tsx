@@ -24,7 +24,7 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type Hotel } from "@/lib/api"
 import { DAY_NAMES, DEFAULT_WEEKEND_DAYS, parseWeekendDays } from "@/lib/date"
-import { zodResolver } from "@/lib/zod-resolver"
+import { ifFieldsValid, zodResolver } from "@/lib/zod-resolver"
 import { canManage as canManageRole, HOTEL_TYPE_LABELS, ROLE_LABELS, type HotelType } from "@shared/types"
 import { PREFECTURES } from "@/lib/prefectures"
 
@@ -38,7 +38,7 @@ const hotelFormSchema = z.object({
   name: z.string().trim().min(1, "ホテル名を入力してください").max(200, "ホテル名は200文字以内で入力してください"),
   address: z.string().trim().max(300, "住所は300文字以内で入力してください"),
   totalRooms: z
-    .number({ invalid_type_error: "総客室数は数値で入力してください" })
+    .number({ error: "総客室数は数値で入力してください" })
     .int("総客室数は整数で入力してください")
     .min(1, "総客室数は1以上で入力してください")
     .max(100000, "総客室数が大きすぎます"),
@@ -71,6 +71,7 @@ const hotelFormSchema = z.object({
       message: "販売開始は 1〜540 の整数（宿泊日の何日前）で入力してください",
     }),
 }).refine((v) => !v.municipalityCode || !v.prefectureCode || v.municipalityCode.startsWith(v.prefectureCode), {
+  ...ifFieldsValid,
   message: "市区町村コードの先頭2桁が都道府県と一致しません",
   path: ["municipalityCode"],
 })

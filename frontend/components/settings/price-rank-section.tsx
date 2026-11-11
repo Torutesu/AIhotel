@@ -29,7 +29,7 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { api, ApiClientError, type PriceRank } from "@/lib/api"
 import { formatYen } from "@/lib/format"
-import { zodResolver } from "@/lib/zod-resolver"
+import { ifFieldsValid, zodResolver } from "@/lib/zod-resolver"
 import { canManage as canManageRole, ROLE_LABELS } from "@shared/types"
 
 /** 料金ランクの上限（F-SET-02。バリデータ・seed と揃える） */
@@ -37,7 +37,7 @@ export const MAX_PRICE_RANKS = 40
 
 const priceField = (label: string) =>
   z
-    .number({ invalid_type_error: `${label}は数値で入力してください` })
+    .number({ error: `${label}は数値で入力してください` })
     .int(`${label}は整数で入力してください`)
     .min(0, `${label}は0以上で入力してください`)
 
@@ -54,7 +54,7 @@ const rankFormSchema = z
     price4P: optionalPriceField("4名料金"),
   })
   .superRefine((data, ctx) => {
-    // 人数が増えるほど料金が下がる設定は入力ミスの可能性が高いため弾く
+    // 人数が増えるほど料金が下がる設定は入力ミスの可能性が高いため弾く（各料金が正しく入ってから — ifFieldsValid）
     if (data.price2P < data.price1P) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -76,7 +76,7 @@ const rankFormSchema = z
         message: "4名料金は3名料金以上で入力してください",
       })
     }
-  })
+  }, ifFieldsValid)
 
 type RankFormValues = z.infer<typeof rankFormSchema>
 

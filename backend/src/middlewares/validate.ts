@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express'
-import { ZodError, type ZodType, type ZodTypeDef } from 'zod'
+import { ZodError, type ZodType } from 'zod'
 import { ApiError } from './errorHandler.js'
 
 type ValidateTarget = 'body' | 'query' | 'params'
@@ -10,7 +10,7 @@ type ValidateTarget = 'body' | 'query' | 'params'
  * @param target - 検証対象（body, query, params）
  */
 export function validate<T>(
-  schema: ZodType<T, ZodTypeDef, unknown>,
+  schema: ZodType<T, unknown>,
   target: ValidateTarget = 'body'
 ) {
   return async (req: Request, _res: Response, next: NextFunction) => {
@@ -26,7 +26,7 @@ export function validate<T>(
       next()
     } catch (error) {
       if (error instanceof ZodError) {
-        const formattedErrors = error.errors.map((err) => ({
+        const formattedErrors = error.issues.map((err) => ({
           field: err.path.join('.'),
           message: err.message,
         }))

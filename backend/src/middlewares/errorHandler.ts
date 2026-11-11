@@ -93,7 +93,7 @@ export function errorHandler(
   } else if (err instanceof ZodError) {
     statusCode = 400
     message = 'バリデーションエラー'
-    errors = err.errors.map((e) => ({
+    errors = err.issues.map((e) => ({
       field: e.path.join('.'),
       message: e.message,
     }))

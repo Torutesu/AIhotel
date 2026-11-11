@@ -21,7 +21,7 @@ export const trialFormSchema = z.object({
   name: z.string().trim().min(1, "名前を入力してください").max(100, "100文字以内で入力してください"),
   kind: z.enum(["DEALER", "PROSPECT_HOTEL"]),
   days: z.coerce
-    .number({ invalid_type_error: "日数を入力してください" })
+    .number({ error: "日数を入力してください" })
     .int("整数で入力してください")
     .min(1, "1日以上にしてください")
     .max(90, "90日以内にしてください"),

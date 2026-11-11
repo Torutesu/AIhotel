@@ -25,7 +25,7 @@ import { DatePicker } from "@/components/date-picker"
 import { FormFieldError } from "@/components/form-field-error"
 import { toDateStr } from "@/lib/date"
 import { EVENT_TYPES } from "@/lib/external-demand-csv"
-import { zodResolver } from "@/lib/zod-resolver"
+import { ifFieldsValid, zodResolver } from "@/lib/zod-resolver"
 import type { Event as HotelEvent } from "@shared/types"
 
 // 種別の選択肢は CSV の規定フォームと共通（lib/external-demand-csv.ts が唯一の出所）
@@ -45,6 +45,7 @@ const eventFormSchema = z
     excludeFromHistory: z.boolean(),
   })
   .refine((data) => !data.startDate || !data.endDate || data.startDate <= data.endDate, {
+    ...ifFieldsValid,
     path: ["endDate"],
     message: "終了日は開始日以降にしてください",
   })

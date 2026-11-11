@@ -19,18 +19,16 @@ import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 
 import { LandingForecastSummary } from "@/components/pricing/landing-forecast-summary"
-import { PriceCalendarSection } from "@/components/pricing/price-calendar-section"
+import { ALL_ROOM_TYPES, PriceCalendarSection } from "@/components/pricing/price-calendar-section"
 import { EventListCard } from "@/components/pricing/event-list-card"
-import { DayDetailDialog } from "@/components/pricing/day-detail-dialog"
 import { DayAnalysisDialog } from "@/components/pricing/day-analysis-dialog"
 import {
   AI_PRICING_PROPOSALS,
   PROPOSAL_LEVEL_STYLE,
-  eventsOnDate,
   type MonthCalendar,
 } from "@/components/pricing/pricing-constants"
 
-import { api, type PricingCalendarDay } from "@/lib/api"
+import { api, type PricingCalendarDay, type RoomType } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 import { monthRange, toDateStr } from "@/lib/date"
 import { average } from "@/lib/format"
@@ -53,11 +51,17 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     focusDate ? toDateStr(focusDate) : null,
   )
 
-
-  const [selectedDay, setSelectedDay] = useState<PricingCalendarDay | null>(null)
   const [selectedRowForAnalysis, setSelectedRowForAnalysis] = useState<PricingCalendarDay | null>(
     null,
   )
+
+  // 日別価格カレンダーのタイプ切り替え（ALL ＋ 各部屋タイプ — 2026-10-24）。ホテルを変えたら ALL に戻す
+  const [calendarRoomType, setCalendarRoomType] = useState(ALL_ROOM_TYPES)
+  const [roomTypeHotel, setRoomTypeHotel] = useState(hotelId)
+  if (roomTypeHotel !== hotelId) {
+    setRoomTypeHotel(hotelId)
+    setCalendarRoomType(ALL_ROOM_TYPES)
+  }
 
 
   // 日別分析から日付付きで遷移してきたら該当行をハイライトする（対象月の切り替えは呼び出し側が行う）
@@ -86,6 +90,33 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     "データの取得に失敗しました",
   )
   const monthsData = useMemo(() => (calendarData ? [calendarData] : []), [calendarData])
+
+  // タイプ切り替えの選択肢。取れなくても ALL だけで表は使える
+  const { data: roomTypesData } = useApiQuery<RoomType[]>(
+    hotelId ? () => api.roomTypes(hotelId) : null,
+    [hotelId],
+    "部屋タイプの取得に失敗しました",
+  )
+  const roomTypeOptions = useMemo(
+    () => (roomTypesData ?? []).filter((t) => t.isActive).map((t) => ({ id: t.id, name: t.name })),
+    [roomTypesData],
+  )
+  // 選んだタイプの数値（ALL のときは取らない。着地予測・オンハンド状況は ALL のまま）
+  const {
+    data: typeCalendarData,
+    loading: typeCalendarLoading,
+    error: typeCalendarError,
+    reload: reloadTypeCalendar,
+  } = useApiQuery<MonthCalendar>(
+    hotelId && calendarRoomType !== ALL_ROOM_TYPES
+      ? async () => {
+          const calendar = await api.pricingCalendar(hotelId, selectedYear, selectedMonth, calendarRoomType)
+          return { year: calendar.year, month: calendar.month, totalRooms: calendar.totalRooms, calendar: calendar.calendar }
+        }
+      : null,
+    [hotelId, selectedYear, selectedMonth, calendarRoomType],
+    "タイプ別の数値の取得に失敗しました",
+  )
 
   // 当月の登録済みイベント。一覧カード・カレンダー・日別詳細で同じデータを使う（#80）
   const {
@@ -209,9 +240,16 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                 totalRooms={monthData.totalRooms ?? hotel?.totalRooms ?? null}
                 saleOpenDaysBefore={hotel?.saleOpenDaysBefore ?? null}
                 highlightedDate={highlightedDate}
-                events={events}
                 onSelectRowForAnalysis={setSelectedRowForAnalysis}
-                onSelectDay={setSelectedDay}
+                roomTypeSwitch={{
+                  options: roomTypeOptions,
+                  value: calendarRoomType,
+                  onChange: setCalendarRoomType,
+                  data: typeCalendarData,
+                  loading: typeCalendarLoading,
+                  error: typeCalendarError,
+                  onRetry: reloadTypeCalendar,
+                }}
               />
             ))
           )}
@@ -225,12 +263,6 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         error={eventsError}
         onReload={loadEvents}
         onManage={() => setTab("ai-summary")}
-      />
-
-      <DayDetailDialog
-        day={selectedDay}
-        events={selectedDay ? eventsOnDate(events, selectedDay.date) : []}
-        onClose={() => setSelectedDay(null)}
       />
 
       <DayAnalysisDialog day={selectedRowForAnalysis} onClose={() => setSelectedRowForAnalysis(null)} />

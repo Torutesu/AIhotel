@@ -14,7 +14,7 @@ import { dateOnly, todayJst } from './date.js'
  * してしまい、@db.Date との等価比較が0件になっていた。時刻付きの値は受け付けない
  */
 export const dateOnlyInputSchema = z
-  .string({ invalid_type_error: '日付は YYYY-MM-DD 形式で指定してください' })
+  .string({ error: '日付は YYYY-MM-DD 形式で指定してください' })
   .regex(/^\d{4}-\d{2}-\d{2}$/, '日付は YYYY-MM-DD 形式で指定してください')
   .transform((value, ctx) => {
     const date = new Date(`${value}T00:00:00Z`)
@@ -32,6 +32,13 @@ export const MAX_QUERY_RANGE_DAYS = 366
 function withinMaxRange(start: Date, end: Date): boolean {
   return (end.getTime() - start.getTime()) / 86_400_000 < MAX_QUERY_RANGE_DAYS
 }
+
+/**
+ * オブジェクト全体の追加チェック（期間の前後・合計100% など）を、中の項目がすべて合格したときだけ動かす。
+ * zod 4 は中の項目が不合格でも追加チェックを動かすため、日付に変換される前の文字列が渡って例外（500）になる。
+ * zod 3 と同じく、項目のエラーがあるときは項目のエラーだけを返す
+ */
+const ifFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 }
 
 export const entityIdSchema = z
   .string()
@@ -71,6 +78,7 @@ export const changePasswordSchema = z
     newPassword: passwordSchema,
   })
   .refine((data) => data.currentPassword !== data.newPassword, {
+    ...ifFieldsValid,
     path: ['newPassword'],
     message: '現在と同じパスワードは使えません',
   })
@@ -130,6 +138,7 @@ const hotelBaseSchema = z.object({
 const municipalityMatchesPrefecture = (data: { prefectureCode?: string | null; municipalityCode?: string | null }) =>
   !data.municipalityCode || !data.prefectureCode || data.municipalityCode.startsWith(data.prefectureCode)
 const municipalityMismatch = {
+  ...ifFieldsValid,
   message: '市区町村コードの先頭2桁が都道府県コードと一致しません',
   path: ['municipalityCode'],
 }
@@ -179,6 +188,7 @@ const eventBaseSchema = z.object({
 })
 
 export const createEventSchema = eventBaseSchema.refine(data => data.startDate <= data.endDate, {
+  ...ifFieldsValid,
   message: '開始日は終了日以前である必要があります',
 })
 
@@ -191,10 +201,10 @@ export const eventsQuerySchema = z.object({
   endDate: dateOnlyInputSchema.optional(),
 }).refine(
   (data) => !data.startDate || !data.endDate || data.startDate <= data.endDate,
-  { message: '開始日は終了日以前である必要があります' }
+  { ...ifFieldsValid, message: '開始日は終了日以前である必要があります' }
 ).refine(
   (data) => !data.startDate || !data.endDate || withinMaxRange(data.startDate, data.endDate),
-  { message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください` }
+  { ...ifFieldsValid, message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください` }
 )
 
 // ======================================
@@ -263,6 +273,7 @@ export const upsertBudgetsSchema = z
     months: z.array(budgetMonthSchema).min(1, '1か月以上指定してください').max(12),
   })
   .refine((data) => new Set(data.months.map((m) => m.month)).size === data.months.length, {
+    ...ifFieldsValid,
     path: ['months'],
     message: '同じ月が重複しています',
   })
@@ -314,7 +325,7 @@ export const auditLogQuerySchema = z
     cursor: entityIdSchema.optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })
-  .refine((q) => !q.from || !q.to || q.from <= q.to, { path: ['from'], message: '開始日は終了日以前にしてください' })
+  .refine((q) => !q.from || !q.to || q.from <= q.to, { ...ifFieldsValid, path: ['from'], message: '開始日は終了日以前にしてください' })
 
 // ======================================
 // Import Validators（#82）
@@ -340,8 +351,8 @@ export const importDailyDataSchema = z.object({
     .array(
       z.object({
         date: importDateSchema,
-        soldRooms: z.number({ invalid_type_error: '販売室数は数値で入力してください' }).int('販売室数は整数で入力してください').min(0, '販売室数は0以上で入力してください'),
-        totalRevenue: z.number({ invalid_type_error: '室料売上は数値で入力してください' }).min(0, '室料売上は0以上で入力してください'),
+        soldRooms: z.number({ error: '販売室数は数値で入力してください' }).int('販売室数は整数で入力してください').min(0, '販売室数は0以上で入力してください'),
+        totalRevenue: z.number({ error: '室料売上は数値で入力してください' }).min(0, '室料売上は0以上で入力してください'),
         guests: z.number().int('宿泊人数は整数で入力してください').min(0, '宿泊人数は0以上で入力してください').nullable().optional(),
       })
     )
@@ -358,7 +369,7 @@ export const competitorPriceSourceSchema = z.enum([
 ])
 
 const importPriceSchema = z
-  .number({ invalid_type_error: '料金は数値で入力してください' })
+  .number({ error: '料金は数値で入力してください' })
   .int('料金は整数（円）で入力してください')
   .min(1, '料金は1円以上で入力してください')
   .max(10_000_000, '料金が大きすぎます')
@@ -400,7 +411,7 @@ export const importOtbSchema = z.object({
       z.object({
         stayDate: importDateSchema,
         roomsBooked: z
-          .number({ invalid_type_error: '予約室数は数値で入力してください' })
+          .number({ error: '予約室数は数値で入力してください' })
           .int('予約室数は整数で入力してください')
           .min(0, '予約室数は0以上で入力してください'),
       })
@@ -422,7 +433,7 @@ export const importEventsSchema = z.object({
         startDate: importDateSchema,
         endDate: importDateSchema,
         location: z.string().trim().max(200).optional(),
-        expectedImpact: z.enum(['high', 'medium', 'low'], { errorMap: () => ({ message: '影響度は 高・中・低 のいずれかで入力してください' }) }).optional(),
+        expectedImpact: z.enum(['high', 'medium', 'low'], { error: '影響度は 高・中・低 のいずれかで入力してください' }).optional(),
         description: z.string().trim().max(2000).optional(),
         excludeFromHistory: z.boolean().optional(),
       })
@@ -437,11 +448,11 @@ export const importEventsSchema = z.object({
 
 const newHotelFieldsSchema = z.object({
   name: z.string().trim().min(1, 'ホテル名は必須です').max(200, 'ホテル名は200文字以内で入力してください'),
-  rooms: z.number({ invalid_type_error: '客室数は数値で入力してください' }).int('客室数は整数で入力してください').min(1, '客室数は1以上で入力してください').max(10000).nullable().optional(),
+  rooms: z.number({ error: '客室数は数値で入力してください' }).int('客室数は整数で入力してください').min(1, '客室数は1以上で入力してください').max(10000).nullable().optional(),
   category: z.string().trim().max(50).nullable().optional(),
   location: z.string().trim().max(200).nullable().optional(),
-  distanceKm: z.number({ invalid_type_error: '距離は数値で入力してください' }).min(0, '距離は0以上で入力してください').max(1000).nullable().optional(),
-  expectedImpact: z.enum(['high', 'medium', 'low'], { errorMap: () => ({ message: '影響度は 高・中・低 のいずれかで入力してください' }) }).nullable().optional(),
+  distanceKm: z.number({ error: '距離は数値で入力してください' }).min(0, '距離は0以上で入力してください').max(1000).nullable().optional(),
+  expectedImpact: z.enum(['high', 'medium', 'low'], { error: '影響度は 高・中・低 のいずれかで入力してください' }).nullable().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
 })
 
@@ -453,7 +464,7 @@ export const createNewHotelSchema = newHotelFieldsSchema.extend({
 export const updateNewHotelSchema = newHotelFieldsSchema
   .extend({ openingDate: dateOnlyInputSchema })
   .partial()
-  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目がありません' })
+  .refine((data) => Object.keys(data).length > 0, { ...ifFieldsValid, message: '更新する項目がありません' })
 
 export const MAX_NEW_HOTEL_IMPORT_ROWS = 500
 // 取り込み: 同じ名前・同じ開業日の行は上書きする
@@ -522,7 +533,7 @@ export const updateTenantSchema = z
     // false で契約停止。所属ユーザーは次のリクエストから 401 になる（#78）
     isActive: z.boolean().optional(),
   })
-  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目を指定してください' })
+  .refine((data) => Object.keys(data).length > 0, { ...ifFieldsValid, message: '更新する項目を指定してください' })
 
 // ======================================
 // IP Restriction Validators（#12）
@@ -567,7 +578,7 @@ export const updateTrialSchema = z
     // 期限を延ばす日数。期限切れなら今日から数える
     extendDays: trialDaysSchema.optional(),
   })
-  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目を指定してください' })
+  .refine((data) => Object.keys(data).length > 0, { ...ifFieldsValid, message: '更新する項目を指定してください' })
 
 // ======================================
 // Room Type Validators（#81）
@@ -590,7 +601,7 @@ export const createRoomTypeSchema = z.object({
 export const updateRoomTypeSchema = createRoomTypeSchema
   .omit({ hotelId: true })
   .partial()
-  .refine((data) => Object.keys(data).length > 0, { message: '更新する項目を指定してください' })
+  .refine((data) => Object.keys(data).length > 0, { ...ifFieldsValid, message: '更新する項目を指定してください' })
 
 // ======================================
 // User Management Validators（N-3）
@@ -604,6 +615,7 @@ export const updateUserSchema = z
     isActive: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
+    ...ifFieldsValid,
     message: '更新する項目を指定してください',
   })
 
@@ -618,7 +630,7 @@ export const updateUserSchema = z
 export const updateAlertStatusSchema = z.object({
   hotelId: entityIdSchema,
   status: z.enum(['ACKNOWLEDGED', 'RESOLVED'], {
-    errorMap: () => ({ message: 'ステータスは ACKNOWLEDGED または RESOLVED を指定してください' }),
+    error: 'ステータスは ACKNOWLEDGED または RESOLVED を指定してください',
   }),
 })
 
@@ -643,6 +655,14 @@ export const monthQuerySchema = z.object({
   hotelId: entityIdSchema,
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),
+})
+
+/**
+ * 日別価格カレンダー（GET /pricing/calendar）。roomTypeId を省くと ALL（全タイプの合計）、
+ * 指定するとそのタイプの数値（2026-10-24 の画面修正: 現在・推奨料金ランクの上のタイプ切り替え）
+ */
+export const pricingCalendarQuerySchema = monthQuerySchema.extend({
+  roomTypeId: entityIdSchema.optional(),
 })
 
 export const yearQuerySchema = z.object({
@@ -692,8 +712,10 @@ export const competitorPricesQuerySchema = z.object({
   startDate: dateOnlyInputSchema,
   endDate: dateOnlyInputSchema,
 }).refine(data => data.startDate <= data.endDate, {
+  ...ifFieldsValid,
   message: '開始日は終了日以前である必要があります',
 }).refine(data => withinMaxRange(data.startDate, data.endDate), {
+  ...ifFieldsValid,
   message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください`,
 })
 
@@ -753,7 +775,7 @@ export const recomputeForecastSchema = z.object({
       message: `再計算できる期間は最大${MAX_FORECAST_RANGE_DAYS}日です`,
     })
   }
-})
+}, ifFieldsValid)
 
 // 重み付けは合計100%（F-DP-02）
 const rankBoundSchema = z.number().int().min(1).max(40)
@@ -780,8 +802,10 @@ export const updateStrategySchema = z.object({
   if (weights.every((w) => w === undefined)) return true
   return weights.every((w) => w !== undefined) && weights.reduce<number>((sum, w) => sum + (w ?? 0), 0) === 100
 }, {
+  ...ifFieldsValid,
   message: '重み付けの合計は100%である必要があります',
 }).refine(data => data.minRank == null || data.maxRank == null || data.minRank <= data.maxRank, {
+  ...ifFieldsValid,
   message: '推奨ランクの下限は上限以下にしてください',
   path: ['minRank'],
 })
@@ -800,12 +824,16 @@ export const createPriceBoundSchema = z.object({
   maxRank: rankSchema.nullable().optional(),
   reason: z.string().max(200).optional(),
 }).refine(data => data.startDate <= data.endDate, {
+  ...ifFieldsValid,
   message: '開始日は終了日以前である必要があります',
 }).refine(data => withinMaxRange(data.startDate, data.endDate), {
+  ...ifFieldsValid,
   message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください`,
 }).refine(data => data.minRank != null || data.maxRank != null, {
+  ...ifFieldsValid,
   message: '下限か上限の少なくとも一方を指定してください',
 }).refine(data => data.minRank == null || data.maxRank == null || data.minRank <= data.maxRank, {
+  ...ifFieldsValid,
   message: '下限は上限以下にしてください',
 })
 
@@ -815,8 +843,10 @@ export const createPricingLockSchema = z.object({
   endDate: dateOnlyInputSchema,
   reason: z.string().max(200).optional(),
 }).refine(data => data.startDate <= data.endDate, {
+  ...ifFieldsValid,
   message: '開始日は終了日以前である必要があります',
 }).refine(data => withinMaxRange(data.startDate, data.endDate), {
+  ...ifFieldsValid,
   message: `期間は${MAX_QUERY_RANGE_DAYS}日以内で指定してください`,
 })
 

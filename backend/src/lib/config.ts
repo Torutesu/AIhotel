@@ -39,7 +39,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1).optional(),
 
   JWT_SECRET: z
-    .string({ required_error: 'JWT_SECRET は必須です。openssl rand -base64 64 で生成してください' })
+    .string({ error: 'JWT_SECRET は必須です。openssl rand -base64 64 で生成してください' })
     .min(32, 'JWT_SECRET は32文字以上である必要があります'),
   // アクセストークンの有効期限。無効化・降格は authenticate が DB で即時に反映するが（#78）、
   // 漏えいしたトークンの悪用可能時間を縮めるため既定は短くする。
@@ -202,14 +202,15 @@ const envSchema = z.object({
 function loadConfig() {
   const parsed = envSchema.safeParse(process.env)
   if (!parsed.success) {
-    const details = parsed.error.errors
+    const details = parsed.error.issues
       .map((e) => `${e.path.join('.')}: ${e.message}`)
       .join('\n  ')
     // 設定不備のまま起動させない（フォールバック禁止 — C-4 の再発防止）
     throw new Error(`環境変数の検証に失敗しました:\n  ${details}`)
   }
   const env = parsed.data
-  const frontendUrls: [string, ...string[]] = env.FRONTEND_URL ?? ['http://localhost:3000']
+  // nonempty() で1件以上を検証済み（zod 4 は nonempty の型を先頭要素つきのタプルにしないため、ここで型を付ける）
+  const frontendUrls = (env.FRONTEND_URL ?? ['http://localhost:3000']) as [string, ...string[]]
   return {
     ...env,
     FRONTEND_URL: frontendUrls,

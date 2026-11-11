@@ -5,6 +5,12 @@ import type { FieldValues, Resolver } from "react-hook-form"
 import type { z } from "zod"
 
 /**
+ * オブジェクト全体のチェック（料金の大小・確認用パスワードの一致など）を、各項目がすべて合格したときだけ動かす。
+ * zod 4 は項目が不合格でも全体のチェックを動かすため、項目のエラーと全体のエラーが重なって出る。zod 3 と同じく項目のエラーを先に出す
+ */
+export const ifFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 }
+
+/**
  * zod スキーマを react-hook-form の resolver に変換する。
  * 各フィールドの最初のエラーメッセージだけを採用する（インライン表示用）。
  */
