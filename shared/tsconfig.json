@@ -14,7 +14,7 @@
     "resolveJsonModule": true,
     "moduleResolution": "node"
   },
-  "include": ["types/**/*", "utils/**/*"],
+  "include": ["types/**/*", "utils/**/*", "pricing/**/*", "validation/**/*"],
   "exclude": ["node_modules", "dist"]
 }
 

@@ -408,9 +408,18 @@ backend/
 shared/
 ├── types/                 # 共通型定義
 │   └── index.ts
-└── utils/                 # 共通ユーティリティ関数
+├── utils/                 # 共通ユーティリティ関数
+│   └── index.ts
+├── pricing/               # 日別価格カレンダーのタイプ別の数値（backend の API と frontend のデモで共通）
+│   └── index.ts
+└── validation/            # zod の全体のチェックの共通設定（ifFieldsValid。backend の validators と frontend のフォームで共通）
     └── index.ts
 ```
+
+backend が実行時に読み込むのは `pricing/` と `validation/` だけで、`pnpm --filter @hotel-revenue-system/shared build` で
+`shared/dist/` に JS を出す（`pnpm --filter backend build` が先に実行する。`pnpm dev` の backend は `--conditions=development` でソースを直接読む）。
+backend で新しい shared の実行時コードを使うときは、`shared/package.json` の `exports`・`shared/tsconfig.build.json` の `include`・
+`backend/vitest.config.ts` の別名に足す。frontend は `@shared/*` の別名でソースを直接使う。
 
 ### 型定義の使用
 
@@ -875,7 +884,8 @@ pnpm build
 
 ### 共通型定義の追加
 
-`shared/types/index.ts` に型定義を追加すると、frontend と backend の両方で使用できます。
+`shared/types/index.ts` に型定義を追加すると、frontend と backend の両方で使用できます（backend からは `import type` のみ）。
+backend からも実行時に使う関数は、上の「Shared」の手順で `shared/` の build 対象に加えます。
 
 ### 日別分析機能の拡張
 
