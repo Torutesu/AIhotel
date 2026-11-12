@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { MAX_IP_ALLOW_ENTRIES, parseCidr } from './ipAllowlist.js'
 import { dateOnly, todayJst } from './date.js'
+// オブジェクト全体のチェックを項目がすべて合格したときだけ動かす（zod 4 — frontend のフォームと共通）
+import { ifFieldsValid } from '@hotel-revenue-system/shared/validation'
 
 // ======================================
 // Common Validators
@@ -31,24 +33,6 @@ export const MAX_QUERY_RANGE_DAYS = 366
 /** 開始日〜終了日が上限の日数以内か */
 function withinMaxRange(start: Date, end: Date): boolean {
   return (end.getTime() - start.getTime()) / 86_400_000 < MAX_QUERY_RANGE_DAYS
-}
-
-/** 全体のチェックが出したエラーの目印（項目のエラーと見分けるため） */
-const OBJECT_CHECK_PARAMS = { objectCheck: true } as const
-
-/**
- * オブジェクト全体の追加チェック（期間の前後・合計100% など）を、中の項目がすべて合格したときだけ動かす。
- * zod 4 は中の項目が不合格でも追加チェックを動かすため、日付に変換される前の文字列が渡って例外（500）になる。
- * zod 3 と同じく、項目のエラーがあるときは項目のエラーだけを返す。
- * ほかの全体のチェックのエラー（params の目印つき）は項目のエラーに数えないので、全体のチェックは前のものが
- * 不合格でもすべて動き、エラーをまとめて返す（zod 3 と同じ）。
- * superRefine では `{ when: ifFieldsValid.when }` を渡し、addIssue に `params: ifFieldsValid.params` を付ける。
- * フロントエンドの lib/zod-resolver.ts にも同じものがある（バックエンドは shared の実行時コードを読み込めないため）
- */
-const ifFieldsValid = {
-  params: OBJECT_CHECK_PARAMS,
-  when: (payload: { issues: readonly unknown[] }) =>
-    payload.issues.every((issue) => (issue as { params?: Record<string, unknown> }).params?.objectCheck === true),
 }
 
 export const entityIdSchema = z

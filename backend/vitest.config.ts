@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
 // backend/src/lib/auth.ts はモジュール読み込み時に process.env.JWT_SECRET
@@ -14,6 +15,16 @@ if (process.env.REQUIRE_DB_TESTS === '1' && !process.env.DATABASE_URL) {
 }
 
 export default defineConfig({
+  // shared の実行時コード（pricing・validation）は、実行時は shared の build（dist/）を読むが、
+  // テストではソースを直接使う（shared を build しなくてもテストを回せるように）
+  resolve: {
+    alias: [
+      {
+        find: /^@hotel-revenue-system\/shared\/(pricing|validation)$/,
+        replacement: fileURLToPath(new URL('../shared/$1/index.ts', import.meta.url)),
+      },
+    ],
+  },
   test: {
     environment: 'node',
     env: {

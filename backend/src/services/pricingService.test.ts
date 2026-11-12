@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { computeLandingProjection, roomTypeMixFrom, toRoomTypeDay } from './pricingService.js'
+import { roomTypeMixFrom, toRoomTypeDay } from '@hotel-revenue-system/shared/pricing'
+import { computeLandingProjection } from './pricingService.js'
 
 // 着地シミュレーションの積み上げ計算（N-5）。DB に触れない純関数として検証する。
 
