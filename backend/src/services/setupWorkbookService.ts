@@ -41,7 +41,31 @@ const OTA_COLUMNS = [
   ['official', '公式サイト'],
 ] as const
 
-const BASIC_ROWS = ['ホテル名', '総客室数', 'ホテルタイプ', '都道府県コード', '市区町村コード', '観光エリア'] as const
+const BASIC_ROWS = [
+  'ホテル名',
+  '総客室数',
+  'ホテルタイプ',
+  '都道府県コード',
+  '市区町村コード',
+  '観光エリア',
+  // D-13: 立ち上げで決める値もシートで入れられるようにした
+  '開業日',
+  '販売開始（何日前）',
+  '週末（曜日）',
+  '気象庁の予報区コード',
+] as const
+
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'] as const
+
+/** "金,土" / "金・土" / "金土" → [5, 6]。読めない文字があれば null */
+export function parseWeekdays(text: string): number[] | null {
+  // 「金曜日」の「曜日」を先に外す（「日」は日曜なので文字ごとには消さない）
+  const chars = text.replace(/曜日?/g, '').replace(/[\s,、・/]/g, '').split('')
+  if (chars.length === 0) return null
+  const days = chars.map((c) => WEEKDAY_LABELS.indexOf(c as (typeof WEEKDAY_LABELS)[number]))
+  if (days.some((d) => d < 0) || new Set(days).size !== days.length) return null
+  return days.sort((a, b) => a - b)
+}
 
 // ======================================
 // テンプレートの出力
@@ -90,6 +114,10 @@ export async function buildSetupWorkbookService(hotelId: string): Promise<{ buff
     都道府県コード: hotel.prefectureCode ?? '',
     市区町村コード: hotel.municipalityCode ?? '',
     観光エリア: hotel.marketArea ?? '',
+    開業日: hotel.openedOn ? hotel.openedOn.toISOString().slice(0, 10) : '',
+    '販売開始（何日前）': hotel.saleOpenDaysBefore ?? '',
+    '週末（曜日）': (Array.isArray(hotel.weekendDays) ? (hotel.weekendDays as number[]) : []).map((d) => WEEKDAY_LABELS[d]).join('・'),
+    気象庁の予報区コード: hotel.weatherAreaCode ?? '',
   }
   BASIC_ROWS.forEach((key) => basic.addRow([key, basicValues[key]]))
 
@@ -180,6 +208,10 @@ export interface SetupWorkbookContent {
     prefectureCode?: string | null
     municipalityCode?: string | null
     marketArea?: string | null
+    openedOn?: Date | null
+    saleOpenDaysBefore?: number | null
+    weekendDays?: number[]
+    weatherAreaCode?: string | null
   }
   roomTypes: Array<{ code: string; name: string; capacity: number; count: number }>
   priceRanks: Array<{ rank: number; label: string; price1P: number; price2P: number; price3P: number | null; price4P: number | null }>
@@ -237,6 +269,33 @@ export function parseSetupWorkbook(wb: ExcelJS.Workbook): { content: SetupWorkbo
       case '観光エリア':
         if (text.length > 100) err(SHEETS.basic, rowNumber, '観光エリアは100文字以内で入力してください')
         else content.basic.marketArea = text || null
+        break
+      case '開業日': {
+        // Excel の日付のセルは Date で来る（UTC 0時）。文字なら YYYY-MM-DD
+        const iso = raw instanceof Date ? raw.toISOString().slice(0, 10) : text.replace(/\//g, '-')
+        const date = new Date(`${iso}T00:00:00Z`)
+        if (iso === '') content.basic.openedOn = null
+        else if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || Number.isNaN(date.getTime())) err(SHEETS.basic, rowNumber, '開業日は YYYY-MM-DD で入力してください')
+        else content.basic.openedOn = date
+        break
+      }
+      case '販売開始（何日前）': {
+        const n = cellNumber(raw)
+        if (n === null) content.basic.saleOpenDaysBefore = null
+        else if (!isInt(n) || n < 1 || n > 540) err(SHEETS.basic, rowNumber, '販売開始は1〜540（日前）の整数で入力してください')
+        else content.basic.saleOpenDaysBefore = n
+        break
+      }
+      case '週末（曜日）': {
+        if (text === '') break // 空欄は変えない（週末が無い設定にはしない）
+        const days = parseWeekdays(text)
+        if (!days) err(SHEETS.basic, rowNumber, '週末は「金・土」のように曜日で入力してください（重複なし）')
+        else content.basic.weekendDays = days
+        break
+      }
+      case '気象庁の予報区コード':
+        if (text !== '' && !/^\d{6}$/.test(text)) err(SHEETS.basic, rowNumber, '気象庁の予報区コードは6桁の数字で入力してください（空欄なら都道府県から決めます）')
+        else content.basic.weatherAreaCode = text || null
         break
       default:
         err(SHEETS.basic, rowNumber, `項目「${key}」は取り込めません（${BASIC_ROWS.join('・')}）`)

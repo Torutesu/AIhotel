@@ -143,6 +143,7 @@ const ADJUSTMENT_LABELS: Record<RecommendationRationale["adjustments"][number]["
   pace: "予約の入り方",
   otbFloor: "予約済みの室数",
   pattern: "似た日の着地",
+  coldStart: "実績が少ないためホテルタイプの典型で補った分",
 }
 
 /** 予約の入り方（D-11）の材料を一文にする。材料が無ければ null */

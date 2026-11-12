@@ -211,6 +211,22 @@ export const eventsQuerySchema = z.object({
 // Hotel Settings Validators（F-SET-01）
 // ======================================
 
+const weekendDaysSchema = z
+  .array(z.number().int().min(0).max(6))
+  .min(1, '週末は1曜日以上指定してください')
+  .max(7)
+  .refine((days) => new Set(days).size === days.length, {
+    message: '週末の曜日が重複しています',
+  })
+const saleOpenDaysBeforeSchema = z
+  .number()
+  .int()
+  .min(1, '販売開始は1日前以上で指定してください')
+  .max(540, '販売開始は540日前以下で指定してください')
+  .nullable()
+  .optional()
+const weatherAreaCodeSchema = z.string().regex(/^\d{6}$/, '気象庁の予報区のコードは6桁の数字で指定してください').nullable().optional()
+
 export const updateHotelSettingsSchema = z.object({
   name: z.string().min(1, 'ホテル名は必須です').max(200).optional(),
   address: z.string().max(500).optional(),
@@ -220,22 +236,20 @@ export const updateHotelSettingsSchema = z.object({
   // 週末定義（チェックイン日基準の曜日番号、0=日曜〜6=土曜）。デフォルトは金・土 [5, 6]。
   // 空配列を許すと「週末が存在しない」設定になり週末補正・レポートの週末判定が壊れ、
   // 重複を許すと同じ曜日が二重に数えられるため、どちらも弾く（C-11）
-  weekendDays: z
-    .array(z.number().int().min(0).max(6))
-    .min(1, '週末は1曜日以上指定してください')
-    .max(7)
-    .refine((days) => new Set(days).size === days.length, {
-      message: '週末の曜日が重複しています',
-    })
-    .optional(),
+  weekendDays: weekendDaysSchema.optional(),
   // ホテルタイプとマーケット（#13）
   hotelType: hotelBaseSchema.shape.hotelType,
   prefectureCode: hotelBaseSchema.shape.prefectureCode,
   municipalityCode: hotelBaseSchema.shape.municipalityCode,
   marketArea: hotelBaseSchema.shape.marketArea,
   // 販売開始（宿泊日の何日前 — 2026-10 PDF b04）。null で未設定に戻す
-  saleOpenDaysBefore: z.number().int().min(1, '販売開始は1日前以上で指定してください').max(540, '販売開始は540日前以下で指定してください').nullable().optional(),
+  saleOpenDaysBefore: saleOpenDaysBeforeSchema,
+  // 気象庁の府県予報区（D-13）。null で都道府県からの自動に戻す
+  weatherAreaCode: weatherAreaCodeSchema,
+  // 開業日（D-13）。開業1年未満のホテルの初期設定の基準と需要予測に使う
+  openedOn: dateOnlyInputSchema.nullable().optional(),
 }).refine(municipalityMatchesPrefecture, municipalityMismatch)
+
 
 // ======================================
 // Budget Validators（N-1 / F-SET-04）
@@ -542,7 +556,7 @@ export const importSetupWorkbookSchema = z.object({
 // Platform（運営）Validators（#81）
 // ======================================
 
-export const createTenantSchema = z.object({
+const createTenantSchemaBase = z.object({
   name: z.string().trim().min(1, 'テナント名は必須です').max(200),
   // URL やログに出す識別子。小文字英数字とハイフン
   code: z
@@ -551,6 +565,29 @@ export const createTenantSchema = z.object({
     .toLowerCase()
     .regex(/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, 'コードは小文字英数字とハイフンの3〜50文字で入力してください'),
 })
+export const createTenantSchema = createTenantSchemaBase
+
+/**
+ * 新しいテナントの立ち上げ（D-13 / R-3-8）。テナント・最初のホテル・テナント管理者を1回で作る（運営のみ）。
+ * 途中で失敗したら何も残さない
+ */
+export const provisionTenantSchema = z.object({
+  tenant: createTenantSchemaBase,
+  admin: z.object({
+    email: z.string().trim().toLowerCase().email('メールアドレスの形式が不正です'),
+    name: z.string().trim().min(1, '氏名は必須です').max(100),
+  }),
+  hotel: hotelBaseSchema
+    .omit({ tenantId: true })
+    .extend({
+      weekendDays: weekendDaysSchema.optional(),
+      saleOpenDaysBefore: saleOpenDaysBeforeSchema,
+      weatherAreaCode: weatherAreaCodeSchema,
+      openedOn: dateOnlyInputSchema.nullable().optional(),
+    })
+    .refine(municipalityMatchesPrefecture, municipalityMismatch),
+})
+export type ProvisionTenantInput = z.infer<typeof provisionTenantSchema>
 
 export const updateTenantSchema = z
   .object({

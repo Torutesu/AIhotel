@@ -10,6 +10,7 @@ import {
   deleteHotelService,
 } from '../services/hotelsService.js'
 import { getSetupStatusService } from '../services/setupStatusService.js'
+import { getForecastReadinessService } from '../services/forecastReadinessService.js'
 import { writeAuditLog } from '../services/auditService.js'
 
 /**
@@ -119,4 +120,12 @@ export const deleteHotel = asyncHandler(async (req: Request, res: Response) => {
  */
 export const getHotelSetupStatus = asyncHandler(async (req: Request, res: Response) => {
   sendSuccess(res, await getSetupStatusService(req.params.id))
+})
+
+/**
+ * 予測の準備状況（D-13）。データがたまるにつれて働く AI の機能と、今の段階（coldStart / learning / full）
+ * GET /api/v1/hotels/:id/forecast-readiness
+ */
+export const getHotelForecastReadiness = asyncHandler(async (req: Request, res: Response) => {
+  sendSuccess(res, await getForecastReadinessService(req.params.id))
 })

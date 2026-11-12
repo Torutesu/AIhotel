@@ -7,7 +7,9 @@ import {
   listTenantsService,
   updateTenantService,
 } from '../services/tenantsService.js'
-import type { CreateTenantInput, UpdateTenantInput } from '../lib/validators.js'
+import type { CreateTenantInput, ProvisionTenantInput, UpdateTenantInput } from '../lib/validators.js'
+import { provisionTenantService } from '../services/provisioningService.js'
+import { sendTemporaryPasswordMail } from '../services/accountMailService.js'
 
 /**
  * テナント一覧（運営専用 — #81）
@@ -54,4 +56,30 @@ export const updateTenant = asyncHandler(async (req: Request, res: Response) => 
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, after, 200, 'テナントを更新しました')
+})
+
+/**
+ * 新しいテナントの立ち上げ（運営専用・監査対象 — D-13 / R-3-8）。テナント・最初のホテル・テナント管理者を1回で作る
+ * POST /api/v1/platform/tenants/provision
+ */
+export const provisionTenant = asyncHandler(async (req: Request, res: Response) => {
+  const input = req.body as ProvisionTenantInput
+  const { tenant, hotel, admin, temporaryPassword } = await provisionTenantService(input)
+  const emailSent = await sendTemporaryPasswordMail({ kind: 'invite', to: admin.email, name: admin.name, temporaryPassword })
+  await writeAuditLog({
+    tenantId: tenant.id,
+    userId: req.user!.userId,
+    action: 'CREATE',
+    entity: 'TenantProvision',
+    entityId: tenant.id,
+    // 一時パスワードは残さない
+    newValue: { tenant, hotel, admin: { email: admin.email, name: admin.name }, emailSent },
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendCreated(
+    res,
+    { tenant, hotel, admin, emailSent, temporaryPassword: emailSent ? null : temporaryPassword },
+    emailSent ? 'テナントを立ち上げ、管理者に一時パスワードをメールで送りました' : 'テナントを立ち上げました（一時パスワードは今回だけ表示します）'
+  )
 })

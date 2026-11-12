@@ -12,6 +12,10 @@ export const SETUP_THRESHOLDS = {
   /** 過去1年のうち、この日数以上の実績があれば「1年分ある」とみなす（抜けを許容する） */
   minActualDaysInYear: 300,
   budgetMonths: 12,
+  /** 開業1年未満のホテル（Hotel.openedOn — D-13）は、開業からの日数のこの割合の実績があればよい */
+  newOpeningActualRatio: 0.8,
+  /** 予約の取り込みがこの日数より古ければ「止まっている」とみなす（D-13） */
+  otbFreshDays: 7,
 } as const
 
 export type SetupItemKey =
@@ -22,6 +26,9 @@ export type SetupItemKey =
   | 'actuals'
   | 'users'
   | 'budget'
+  | 'strategy'
+  | 'saleOpen'
+  | 'otb'
 
 export interface SetupItem {
   key: SetupItemKey
@@ -50,7 +57,7 @@ export async function getSetupStatusService(hotelId: string): Promise<SetupStatu
     return { year: today.getUTCFullYear() + Math.floor(offset / 12), month: (offset % 12) + 1 }
   })
 
-  const [roomTypes, priceRankCount, competitorCount, actualDays, hotelUsers, budgets] = await Promise.all([
+  const [roomTypes, priceRankCount, competitorCount, actualDays, hotelUsers, budgets, strategy, latestOtb] = await Promise.all([
     prisma.roomType.findMany({ where: { hotelId, isActive: true }, select: { count: true } }),
     prisma.priceRank.count({ where: { hotelId, isActive: true } }),
     prisma.competitor.count({ where: { hotelId, isActive: true } }),
@@ -59,7 +66,17 @@ export async function getSetupStatusService(hotelId: string): Promise<SetupStatu
     prisma.monthlyBudget.count({
       where: { hotelId, budgetRevenue: { not: null }, OR: months.map((m) => ({ year: m.year, month: m.month })) },
     }),
+    prisma.pricingStrategyConfig.findUnique({ where: { hotelId }, select: { id: true } }),
+    prisma.bookingCurveData.findFirst({ where: { hotelId }, orderBy: { capturedAt: 'desc' }, select: { capturedAt: true } }),
   ])
+
+  // 開業1年未満のホテルは、開業からの日数に合わせて必要な実績の日数を下げる（D-13）
+  const daysSinceOpening = hotel.openedOn ? Math.floor((today.getTime() - hotel.openedOn.getTime()) / 86_400_000) : null
+  const requiredActualDays =
+    daysSinceOpening != null && daysSinceOpening < 365
+      ? Math.max(0, Math.floor(daysSinceOpening * SETUP_THRESHOLDS.newOpeningActualRatio))
+      : SETUP_THRESHOLDS.minActualDaysInYear
+  const otbAgeDays = latestOtb ? Math.floor((Date.now() - latestOtb.capturedAt.getTime()) / 86_400_000) : null
 
   const missingBasic = [
     hotel.hotelType ? null : 'ホテルタイプ',
@@ -109,13 +126,15 @@ export async function getSetupStatusService(hotelId: string): Promise<SetupStatu
     },
     {
       key: 'actuals',
-      label: '過去実績（直近1年）',
+      label: requiredActualDays < SETUP_THRESHOLDS.minActualDaysInYear ? '過去実績（開業から）' : '過去実績（直近1年）',
       required: true,
-      done: actualDays >= SETUP_THRESHOLDS.minActualDaysInYear,
+      done: actualDays >= requiredActualDays,
       detail:
-        actualDays >= SETUP_THRESHOLDS.minActualDaysInYear
+        actualDays >= requiredActualDays
           ? null
-          : `直近1年の実績が ${actualDays} 日分です（${SETUP_THRESHOLDS.minActualDaysInYear} 日分以上必要）`,
+          : requiredActualDays < SETUP_THRESHOLDS.minActualDaysInYear
+            ? `開業から ${daysSinceOpening} 日のうち、実績が ${actualDays} 日分です（${requiredActualDays} 日分以上必要）`
+            : `直近1年の実績が ${actualDays} 日分です（${SETUP_THRESHOLDS.minActualDaysInYear} 日分以上必要）`,
     },
     {
       key: 'users',
@@ -133,6 +152,32 @@ export async function getSetupStatusService(hotelId: string): Promise<SetupStatu
         budgets >= SETUP_THRESHOLDS.budgetMonths
           ? null
           : `予算が登録されている月は ${budgets} か月です（予算比の表示に使います）`,
+    },
+    {
+      key: 'strategy',
+      label: '価格戦略（重み・ランクの幅）',
+      required: false,
+      done: strategy != null,
+      detail: strategy ? null : '価格戦略が未保存です（稼働率だけで推奨ランクを決めます）',
+    },
+    {
+      key: 'saleOpen',
+      label: '販売開始（宿泊日の何日前から）',
+      required: false,
+      done: hotel.saleOpenDaysBefore != null,
+      detail: hotel.saleOpenDaysBefore != null ? null : '販売開始が未設定です（販売開始チェックの対象月に使います）',
+    },
+    {
+      key: 'otb',
+      label: '予約（OTB）の取り込み',
+      required: false,
+      done: otbAgeDays != null && otbAgeDays <= SETUP_THRESHOLDS.otbFreshDays,
+      detail:
+        otbAgeDays == null
+          ? '予約の取り込みがまだありません（予約の入り方・似た日の予測に使います）'
+          : otbAgeDays > SETUP_THRESHOLDS.otbFreshDays
+            ? `予約の取り込みが ${otbAgeDays} 日前で止まっています`
+            : null,
     },
   ]
 

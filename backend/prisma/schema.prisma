@@ -191,6 +191,9 @@ model Hotel {
   // 気象庁の府県予報区のコード（例 130000 = 東京都、016000 = 石狩・空知・後志地方 — D-13）。
   // 未設定なら都道府県コードから決める（北海道・鹿児島・沖縄は地方ごとに分かれるので、道庁・県庁のある地方になる）
   weatherAreaCode  String?
+  // 開業日（D-13）。開業から1年たたないホテルは、初期設定の「過去実績」の基準を開業からの日数に合わせ、
+  // 需要予測は過去の代わりにホテルタイプの典型的な予約の入り方（forecast/coldStart.ts）を使う。既存のホテルは null
+  openedOn         DateTime?  @db.Date
   isActive         Boolean    @default(true)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt

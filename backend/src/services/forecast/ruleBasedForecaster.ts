@@ -33,6 +33,7 @@ import {
 } from './pace.js'
 import { buildDayTypeTimeline, weightsForModel } from './dayType.js'
 import { patternBlendWeight, type PatternPrediction } from './dayPattern.js'
+import { coldStartOccupancy, MIN_OWN_HISTORY_DAYS, type ColdStartResult } from './coldStart.js'
 import { loadBudgetStances, modelForStance, monthsBetween } from '../budgetStance.js'
 import { loadDayTypeModel } from '../dayTypeService.js'
 import { computeEventImpact, type EventImpactRecord } from './eventImpact.js'
@@ -199,7 +200,8 @@ export function computeDailyForecastCore(
   weekendDays: number[],
   maxRank = DEFAULT_MAX_RANK,
   pace?: PaceInput,
-  pattern?: PatternInput
+  pattern?: PatternInput,
+  fallbackOccupancy?: number
 ): Omit<DailyForecast, 'recommendedPrice' | 'predictedAdr' | 'modelVersion'> & { pace?: PaceResult; pattern?: PatternResult } {
   const movingAverage = computeMovingAverageBySameWeekday(history, targetDate)
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
@@ -211,6 +213,7 @@ export function computeDailyForecastCore(
     yearOverYear,
     eventImpact,
     weekendAdjustment,
+    fallback: fallbackOccupancy,
   })
   // ブッキングペースと予約済み室数の下限（D-11）。材料が無い日は何もしない
   const paceResult = pace ? applyPace(baseOccupancy, pace) : undefined
@@ -495,6 +498,10 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
             points: curveByStayDate.get(date.getTime()) ?? [],
           })
         : null
+    const coldStart =
+      history.length < MIN_OWN_HISTORY_DAYS
+        ? coldStartOccupancy({ hotelType: hotel.hotelType, lead: leadDays, otbRooms: pace?.otbRooms ?? null, totalRooms: hotel.totalRooms })
+        : null
     const { pace: paceResult, pattern: patternResult, ...core } = computeDailyForecastCore(
       date,
       history,
@@ -502,7 +509,8 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
       weekendDays,
       maxRank,
       pace,
-      prediction ? { prediction, leadDays } : undefined
+      prediction ? { prediction, leadDays } : undefined,
+      coldStart?.occupancy
     )
 
     // 日のタイプで優先モデルを決め、初期値の重みを稼働寄り・単価寄りに寄せる（予約が進んで型が変わればモデルも変わる）
@@ -568,6 +576,7 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
         paceResult,
         prediction,
         patternResult,
+        coldStart,
         dayType: dayType || modelOverride ? { name: dayType?.name ?? null, model: dayModel } : undefined,
         budget: stance && !modelOverride ? { stance: stance.stance, gap: stance.gap } : undefined,
       }),
@@ -618,6 +627,7 @@ function buildRationale(params: {
   paceResult?: PaceResult
   prediction?: PatternPrediction | null
   patternResult?: PatternResult
+  coldStart?: ColdStartResult | null
   dayType?: RationaleV1['dayType']
   budget?: RationaleV1['budget']
 }): RationaleV1 {
@@ -682,6 +692,13 @@ function buildRationale(params: {
         paceOccupancy: paceResult.paceOccupancy,
         weight: paceResult.weight,
       },
+    })
+  }
+  if (params.coldStart) {
+    adjustments.push({
+      key: 'coldStart',
+      impact: Math.round((params.coldStart.occupancy - FALLBACK_OCCUPANCY) * 1000) / 1000,
+      input: { method: params.coldStart.method, share: params.coldStart.share, baseOccupancy: params.coldStart.occupancy },
     })
   }
   const { prediction, patternResult } = params

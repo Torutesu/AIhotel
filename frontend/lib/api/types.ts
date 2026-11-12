@@ -336,7 +336,7 @@ export interface RecommendationRationale {
   }>
   /** pace = 前年同曜日と比べた予約の入り方、otbFloor = 予約済みの室数を下限にした引き上げ（D-11）、pattern = 背景と入り方の近い過去の日の着地（D-13） */
   adjustments: Array<{
-    key: "event" | "weekend" | "pace" | "otbFloor" | "pattern"
+    key: "event" | "weekend" | "pace" | "otbFloor" | "pattern" | "coldStart"
     impact: number
     input?: Record<string, number | string | null>
   }>
@@ -691,6 +691,10 @@ export interface UpdateHotelSettingsInput {
   marketArea?: string | null
   /** 販売開始: 宿泊日の何日前（2026-10）。null で未設定に戻す */
   saleOpenDaysBefore?: number | null
+  /** 気象庁の府県予報区（6桁 — D-13）。null で都道府県からの自動に戻す */
+  weatherAreaCode?: string | null
+  /** 開業日（YYYY-MM-DD — D-13）。開業1年未満のホテルの初期設定の基準と需要予測に使う */
+  openedOn?: string | null
 }
 
 /** 初期設定の進み具合（#13）。GET /hotels/:id/setup-status */
@@ -699,7 +703,7 @@ export interface SetupStatus {
   /** 必須項目がすべて完了しているか */
   ready: boolean
   items: Array<{
-    key: "basic" | "roomTypes" | "priceRanks" | "competitors" | "actuals" | "users" | "budget"
+    key: "basic" | "roomTypes" | "priceRanks" | "competitors" | "actuals" | "users" | "budget" | "strategy" | "saleOpen" | "otb"
     label: string
     required: boolean
     done: boolean
