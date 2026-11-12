@@ -127,3 +127,7 @@ temp/
 # Playwright の実行結果（#87）
 e2e/test-results/
 e2e/playwright-report/
+
+# 動画の生成物（video/README.md）
+video/captures/
+video/out/

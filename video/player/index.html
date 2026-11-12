@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>レブスト 動画プレイヤー</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div id="stage">
+      <div class="bg">
+        <div class="bg-grid"></div>
+        <div class="bg-glow a"></div>
+        <div class="bg-glow b"></div>
+        <div class="bg-vignette"></div>
+      </div>
+      <div id="clips"></div>
+      <div id="app"></div>
+      <div id="side"></div>
+      <div id="hud">
+        <div class="chip"><span class="chip-mark"></span><span class="chip-kicker"></span><span class="chip-title"></span></div>
+        <div class="tag"></div>
+        <div class="note"></div>
+        <div class="caption"><div class="caption-inner"></div></div>
+        <div class="progress"><div class="progress-bar"></div></div>
+      </div>
+    </div>
+    <!-- プレビュー用の操作（?id=launch で開く。レンダリング時は使わない） -->
+    <div id="controls" hidden>
+      <button id="play">▶︎</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0" />
+      <span id="time"></span>
+    </div>
+    <script type="module" src="./engine.js"></script>
+  </body>
+</html>
