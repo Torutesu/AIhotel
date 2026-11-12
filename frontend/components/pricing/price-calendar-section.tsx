@@ -24,6 +24,7 @@ import { ErrorState } from "@/components/error-state"
 import { useWeekend } from "@/hooks/use-weekend"
 import {
   demandBadgeClass,
+  eventsOnDate,
   getRankBadgeColor,
   holidayNameOf,
   saleOpenStatus,
@@ -35,6 +36,7 @@ import { formatPercent as pct, formatYen as yen } from "@/lib/format"
 import { DayTypeBadge, DayTypeHelp } from "@/components/pricing/day-type"
 import { OnHandChart } from "@/components/pricing/on-hand-chart"
 import type { PricingCalendarDay } from "@/lib/api"
+import type { Event as HotelEvent } from "@shared/types"
 
 /** タイプ切り替えの「ALL」（全タイプの合計。今までの表示） */
 export const ALL_ROOM_TYPES = "ALL"
@@ -46,8 +48,8 @@ export interface RoomTypeSwitch {
   /** 選んでいるタイプ（ALL_ROOM_TYPES か部屋タイプの ID） */
   value: string
   onChange: (value: string) => void
-  /** 選んだタイプの月のデータ（ALL のときは使わない） */
-  data: MonthCalendar | null
+  /** 選んだタイプの月のデータ（ALL のときは使わない）。どのタイプのデータかを roomTypeId で持つ */
+  data: (MonthCalendar & { roomTypeId: string }) | null
   loading: boolean
   error: string | null
   onRetry: () => void
@@ -60,6 +62,8 @@ interface PriceCalendarSectionProps {
   totalRooms: number | null
   /** 日別分析から遷移してきた日（該当行を強調してスクロールする） */
   highlightedDate: string | null
+  /** 当月の登録済みイベント（GET /events — #80）。日付の横にバッジで出す */
+  events?: HotelEvent[]
   /** テーブル行のクリックでAI分析ダイアログを開く */
   onSelectRowForAnalysis: (day: PricingCalendarDay) => void
   /** 販売開始: 宿泊日の何日前（ホテル設定。未設定は null — 2026-10 PDF b04） */
@@ -150,6 +154,7 @@ export function PriceCalendarSection({
   monthData,
   totalRooms,
   highlightedDate,
+  events = [],
   onSelectRowForAnalysis,
   saleOpenDaysBefore = null,
   roomTypeSwitch,
@@ -159,11 +164,23 @@ export function PriceCalendarSection({
   const selectedType = roomTypeSwitch && roomTypeSwitch.value !== ALL_ROOM_TYPES
     ? roomTypeSwitch.options.find((t) => t.id === roomTypeSwitch.value) ?? null
     : null
-  const typeData = selectedType ? roomTypeSwitch?.data ?? null : null
-  const typeLoading = selectedType != null && (roomTypeSwitch?.loading ?? false)
+  // 手元のデータが今の月・今のタイプのものでなければ使わない（切り替えた直後は取得の開始前で loading がまだ false のため、
+  // 前の月・前のタイプの数値が新しい見出しの下に一瞬出ていた）
+  const rawTypeData = selectedType ? roomTypeSwitch?.data ?? null : null
+  const typeData =
+    rawTypeData &&
+    rawTypeData.roomTypeId === selectedType?.id &&
+    rawTypeData.year === monthData.year &&
+    rawTypeData.month === monthData.month
+      ? rawTypeData
+      : null
   const typeError = selectedType != null ? roomTypeSwitch?.error ?? null : null
+  const typeLoading = selectedType != null && !typeError && (typeData == null || (roomTypeSwitch?.loading ?? false))
   // 表はタイプを選べばそのタイプ、ALL なら全タイプの合計
-  const days = selectedType ? (typeData?.calendar ?? []) : monthData.calendar
+  const days = useMemo(
+    () => (selectedType ? (typeData?.calendar ?? []) : monthData.calendar),
+    [selectedType, typeData, monthData.calendar],
+  )
   const tableRooms = selectedType ? (typeData?.totalRooms ?? null) : totalRooms
   const summary = useMemo(() => summarizeCalendar(days, tableRooms), [days, tableRooms])
   const hasPending = days.some((d) => d.onHandAdr == null && d.actualAdr == null)
@@ -291,6 +308,7 @@ export function PriceCalendarSection({
                     const holiday = holidayNameOf(dateObj)
                     const special = specialDayNameOf(dateObj)
                     const isActualDay = day.actualAdr != null
+                    const dayEvents = eventsOnDate(events, day.date)
                     // 特日 > 祝日 > 週末（Hotel.weekendDays）の順で色付け（色のみで表現、特日は別色）
                     const dayColorClass = special
                       ? "text-warning font-semibold"
@@ -324,7 +342,19 @@ export function PriceCalendarSection({
                         }`}
                       >
                         <td className="py-2 px-2 font-medium">
-                          {monthData.month}/{Number(dayNum)}
+                          <span className="whitespace-nowrap">
+                            {monthData.month}/{Number(dayNum)}
+                          </span>
+                          {dayEvents.length > 0 && (
+                            <Badge
+                              variant="secondary"
+                              className="ml-1 text-[9px] px-1 py-0 h-4 whitespace-nowrap"
+                              title={dayEvents.map((ev) => ev.name).join("、")}
+                              data-testid="calendar-event-badge"
+                            >
+                              イベント{dayEvents.length > 1 ? ` ${dayEvents.length}件` : ""}
+                            </Badge>
+                          )}
                         </td>
                         <td className={`py-2 px-2 ${dayColorClass}`}>
                           {DAY_NAMES[dow]}

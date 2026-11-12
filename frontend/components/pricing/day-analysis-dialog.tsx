@@ -6,6 +6,7 @@
 //   - この日のブッキングカーブ・ADR推移（合計／タイプ別／利用人数別。初期値は合計）
 //   - 同じタイプの日（参考に5日。前後の日付ではなく、日のタイプが同じ傾向の日）
 //   - AI インサイト（この日だけの外部要因 = イベント・天候を項目別に、型の見立て、競合・実績）
+//   - 推奨の根拠（#24 E4。以前の日別の詳細情報ダイアログから移した — 2026-10-24）
 //   - 日単位のシミュレーション（優先モデル・料金ランクを変えたときの見込み。先の日だけ。保存しない）
 // 表示はカレンダー API と GET /pricing/day-insight・/pricing/day-simulation の実データから導出した説明文。
 
@@ -28,6 +29,7 @@ import {
   SimilarDaysSection,
   type DayInsightItem,
 } from "@/components/pricing/day-analysis-sections"
+import { RationaleSection } from "@/components/pricing/recommendation-rationale"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { DAY_NAMES, parseDateStr, todayJstStr } from "@/lib/date"
 import { formatPercent as pct, formatSignedYen as signedYen, formatYen as yen } from "@/lib/format"
@@ -190,6 +192,15 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
               </CardContent>
             </Card>
           </div>
+
+          {/* 推奨の根拠（観点ごとのランクと重み・補正・ガードレール — #24 E4）。推奨の無い日・古い推奨は出さない */}
+          {day.rationale && (
+            <Card data-testid="recommendation-rationale">
+              <CardContent className="pt-1">
+                <RationaleSection rationale={day.rationale} />
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="border-l-4 border-l-primary">
             <CardHeader>

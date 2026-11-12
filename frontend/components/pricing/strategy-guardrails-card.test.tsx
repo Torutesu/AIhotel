@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { StrategyGuardrailsCard, validateGuardrailForm } from "@/components/pricing/strategy-guardrails-card"
-import { RationaleSection } from "@/components/pricing/day-detail-dialog"
+import { RationaleSection } from "@/components/pricing/recommendation-rationale"
 import type { PricingStrategy, RecommendationRationale } from "@/lib/api"
 
 const mocks = vi.hoisted(() => ({
