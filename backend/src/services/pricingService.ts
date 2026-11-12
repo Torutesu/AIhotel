@@ -209,6 +209,8 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       points,
       actualSoldRooms: actual?.soldRooms ?? null,
       predictedOccupancy: rec?.predictedOccupancy ?? null,
+      predictedAdr: rec?.predictedAdr ?? null,
+      actualAdr: actual?.adr ?? null,
     })
 
     return {

@@ -108,13 +108,16 @@ export function holidayNameOf(date: Date): string | null {
   return JP_HOLIDAYS[localIso(date)] ?? null
 }
 
-// 特日（お盆・年末年始・GW・祝前日。バックエンドの services/forecast/specialDays.ts と同じ判定）
+// 特日（お盆・年末年始・GW・祝前日。バックエンドの services/forecast/specialDays.ts・lib/travelSeasons.ts と同じ判定。
+// 範囲は先方の資料「外部要因と旅行（宿泊）の関連付け」の時間軸: 年末年始 12/27〜1/5、GW 4/28〜5/6、お盆は山の日〜8/16）
 export function specialDayNameOf(date: Date): string | null {
   const m = date.getMonth() + 1
   const d = date.getDate()
-  if (m === 8 && d >= 13 && d <= 16) return "お盆"
-  if ((m === 12 && d >= 29) || (m === 1 && d <= 3)) return "年末年始"
-  if ((m === 4 && d >= 29) || (m === 5 && d <= 5)) return "GW"
+  const mountainDay =
+    Array.from({ length: 31 }, (_, i) => i + 1).find((day) => JP_HOLIDAYS[`${date.getFullYear()}-08-${pad2(day)}`] === "山の日") ?? 11
+  if (m === 8 && d >= mountainDay && d <= 16) return "お盆"
+  if ((m === 12 && d >= 27) || (m === 1 && d <= 5)) return "年末年始"
+  if ((m === 4 && d >= 28) || (m === 5 && d <= 6)) return "GW"
   const next = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
   if (holidayNameOf(next) != null) return "祝前日"
   return null

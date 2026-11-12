@@ -334,9 +334,9 @@ export interface RecommendationRationale {
     weight: number
     input: Record<string, number | string | null>
   }>
-  /** pace = 前年同曜日と比べた予約の入り方、otbFloor = 予約済みの室数を下限にした引き上げ（D-11） */
+  /** pace = 前年同曜日と比べた予約の入り方、otbFloor = 予約済みの室数を下限にした引き上げ（D-11）、pattern = 背景と入り方の近い過去の日の着地（D-13） */
   adjustments: Array<{
-    key: "event" | "weekend" | "pace" | "otbFloor"
+    key: "event" | "weekend" | "pace" | "otbFloor" | "pattern"
     impact: number
     input?: Record<string, number | string | null>
   }>
@@ -404,6 +404,8 @@ export interface DayInsight {
   typeProfile: {
     name: string
     model: DayModel
+    /** 着地の象限（例: 高稼働・高単価 — D-13。デモデータには無い） */
+    quadrantLabel?: string
     days: number
     avgOccupancy: number
     minOccupancy: number
@@ -412,7 +414,24 @@ export interface DayInsight {
     referenceCurve: Array<{ daysBefore: number; roomsBooked: number }>
   } | null
   /** 同じ区分の型の一覧（AI が作った型の数と構成） */
-  categoryTypes: Array<{ name: string; model: DayModel; days: number; avgOccupancy: number; avgAdr: number | null }>
+  categoryTypes: Array<{ name: string; model: DayModel; quadrantLabel?: string; days: number; avgOccupancy: number; avgAdr: number | null }>
+  /** マイルストーン別のピックアップと、背景・入り方の近い過去の日からの着地（D-13）。先の日だけ。材料が足りなければ null */
+  pattern?: {
+    predictedOccupancy: number
+    predictedAdr: number | null
+    pickupRooms: number | null
+    neighbors: number
+    spread: number
+    similarDates: string[]
+    paceCluster: {
+      id: string
+      shape: "先行型" | "標準型" | "直前型"
+      days: number
+      finalOccupancy: number
+      terms: Array<{ label: string; pickup: number }>
+    } | null
+    paceClusterCount: number
+  } | null
   /** 同じタイプの日（参考に5日まで。結果の出た日は実績、先の日は AI の予測） */
   similarDays: Array<{ date: string; dayType: string; isActual: boolean; occupancy: number | null; adr: number | null; recommendedPrice: number | null }>
   /** その日の外部要因（登録したイベント） */

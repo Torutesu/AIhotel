@@ -78,6 +78,15 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
     return rows.map((r) => r.recommendedRank as number)
   }
 
+  async function readPredictedOccupancy(): Promise<number[]> {
+    const rows = await prisma.aiPriceRecommendation.findMany({
+      where: { hotelId: HOTEL, roomTypeId: null },
+      orderBy: { date: 'asc' },
+      select: { predictedOccupancy: true },
+    })
+    return rows.map((r) => r.predictedOccupancy as number)
+  }
+
   beforeAll(async () => {
     const appModule = await import('../app.js')
     app = appModule.app as unknown as Express
@@ -235,7 +244,7 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       await setWeights(60, 20, 20)
       await recomputeAndReadRanks()
       const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL } })
-      expect(row.modelVersion).toBe('rule-based-v5')
+      expect(row.modelVersion).toBe('rule-based-v6')
     })
   })
 
@@ -479,7 +488,8 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       // 直近1週間だけ満室（台風明けの特需などを想定）
       await prisma.dailyData.updateMany({ where: { hotelId: HOTEL, date: lastWeek }, data: { occupancy: 1 } })
       try {
-        const withSpike = await recomputeAndReadRanks()
+        await recomputeAndReadRanks()
+        const withSpike = await readPredictedOccupancy()
         const created = await request(app)
           .post('/api/v1/events')
           .set(auth())
@@ -492,9 +502,11 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
             excludeFromHistory: true,
           })
         expect(created.status, JSON.stringify(created.body)).toBe(201)
-        const excluded = await recomputeAndReadRanks()
-        // 満室の週を外すと同曜日平均が 0.625 → 0.5 に戻り、推奨が下がる
-        excluded.forEach((rank, i) => expect(rank).toBeLessThan(withSpike[i]))
+        await recomputeAndReadRanks()
+        const excluded = await readPredictedOccupancy()
+        // 満室の週を外すと同曜日平均（0.625 → 0.5）と近傍（満室の日が近傍から消える）が戻り、予測稼働率が下がる。
+        // v6 は近傍の着地を強く混ぜるので、ランクの丸めでは差が消える日があるため予測稼働率で比べる
+        excluded.forEach((occ, i) => expect(occ).toBeLessThan(withSpike[i]))
       } finally {
         await prisma.dailyData.updateMany({ where: { hotelId: HOTEL, date: lastWeek }, data: { occupancy: 0.5 } })
         await prisma.event.deleteMany({ where: { hotelId: HOTEL } })

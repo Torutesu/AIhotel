@@ -40,3 +40,28 @@ describe('jpHolidays（内閣府の祝日 — D-13）', () => {
     expect(holidayName(d('2099-01-12'))).toBe('成人の日')
   })
 })
+
+describe('travelSeasonsOf（旅行の時間軸 — 先方の資料 a. 特日）', async () => {
+  const { travelSeasonsOf } = await import('./travelSeasons.js')
+  it('年末年始・正月明け・受験・春節・春休み・GW・夏休み・お盆・シルバーウィーク', () => {
+    expect(travelSeasonsOf(d('2026-12-27'))).toEqual(['yearEnd'])
+    expect(travelSeasonsOf(d('2027-01-05'))).toEqual(['yearEnd', 'postNewYear'])
+    expect(travelSeasonsOf(d('2027-01-20'))).toEqual(['postNewYear', 'entranceExam'])
+    expect(travelSeasonsOf(d('2026-02-17'))).toEqual(['entranceExam', 'lunarNewYear'])
+    expect(travelSeasonsOf(d('2026-03-20'))).toEqual(['springBreak'])
+    expect(travelSeasonsOf(d('2026-04-28'))).toEqual(['goldenWeek'])
+    expect(travelSeasonsOf(d('2026-07-20'))).toEqual(['summerBreak']) // 海の日から
+    expect(travelSeasonsOf(d('2026-08-11'))).toEqual(['summerBreak', 'obon'])
+    // 2026 は敬老の日 9/21・国民の休日 9/22・秋分の日 9/23 で 9/19〜9/23 の5連休
+    expect(travelSeasonsOf(d('2026-09-19'))).toEqual(['silverWeek'])
+    expect(travelSeasonsOf(d('2026-09-23'))).toEqual(['silverWeek'])
+    expect(travelSeasonsOf(d('2026-09-24'))).toEqual([])
+  })
+  it('特日の範囲（年末年始 12/27〜1/5、GW 4/28〜5/6、お盆は山の日〜8/16）', () => {
+    expect(specialDayName(d('2026-12-27'))).toBe('年末年始')
+    expect(specialDayName(d('2027-01-05'))).toBe('年末年始')
+    expect(specialDayName(d('2026-05-06'))).toBe('休日') // 振替休日（祝日を先に返す）
+    expect(specialDayName(d('2026-04-28'))).toBe('GW')
+    expect(specialDayName(d('2026-08-14'))).toBe('お盆')
+  })
+})

@@ -32,7 +32,11 @@ import {
   type PaceResult,
 } from './pace.js'
 import { buildDayTypeTimeline, weightsForModel } from './dayType.js'
+import { patternBlendWeight, type PatternPrediction } from './dayPattern.js'
 import { loadDayTypeModel } from '../dayTypeService.js'
+import { computeEventImpact, type EventImpactRecord } from './eventImpact.js'
+
+export { computeEventImpact, type EventImpactRecord }
 
 // ルールベース需要予測（F-DP-05 の前段。将来 ML モデルに差し替え予定）。
 // 純粋ロジック（移動平均・閾値マッピング・イベント補正等）はテスト可能な
@@ -54,7 +58,12 @@ import { loadDayTypeModel } from '../dayTypeService.js'
 //
 // v5 での変更（2026-10 の画面修正 PDF b01）: 日のタイプ（平日A型など。dayType.ts）で日ごとの優先モデル
 // （稼働優先・バランス・単価優先）を決め、価格戦略の初期値の重みを稼働寄り・単価寄りに寄せて推奨ランクを合成する。
-export const MODEL_VERSION = 'rule-based-v5'
+//
+// v6 での変更（D-13。先方の「需要予測手段（案）」をもとに）: 日のタイプを着地の4象限（稼働×単価）で分け、
+// 日の背景（区分・曜日・季節・連休の並び・イベント・天気）とマイルストーン別の入り方が近い過去の日（近傍 — dayPattern.ts）の
+// 「今から当日までのピックアップ」を今の予約に足した着地を、残日数に応じた割合（90日以内 70%）で予測稼働率に混ぜる。
+// 予測 ADR が無い日の日のタイプの単価の側は近傍の ADR で決める。
+export const MODEL_VERSION = 'rule-based-v6'
 // ガードレールの既定値（設定を保存していないホテル向け。PricingStrategyConfig の列の既定値と揃える — #17）
 const DEFAULT_MAX_DAILY_RANK_CHANGE = 3
 const DEFAULT_HYSTERESIS_RANKS = 1
@@ -63,13 +72,6 @@ const MOVING_AVERAGE_WINDOW_DAYS = 28
 const YEAR_OVER_YEAR_TOLERANCE_DAYS = 3
 const FALLBACK_OCCUPANCY = 0.6
 
-// イベント影響度（pt = 稼働率への加算幅。0.15 = 15pt）
-const EVENT_IMPACT_PT: Record<string, number> = {
-  high: 0.15,
-  medium: 0.08,
-  low: 0.03,
-}
-
 // 週末補正（Hotel.weekendDays を参照 — ハードコード禁止）。
 // 同曜日移動平均が既に週末パターンを反映しているため控えめな値とする
 const WEEKEND_ADJUSTMENT_PT = 0.05
@@ -77,12 +79,6 @@ const WEEKEND_ADJUSTMENT_PT = 0.05
 export interface OccupancyRecord {
   date: Date
   occupancy: number
-}
-
-export interface EventImpactRecord {
-  startDate: Date
-  endDate: Date
-  expectedImpact?: string | null
 }
 
 /**
@@ -123,20 +119,6 @@ export function computeYearOverYearOccupancy(
     }
   }
   return closest?.occupancy ?? null
-}
-
-/**
- * 期間内イベントの影響度合計（expectedImpact: high=+15pt / medium=+8pt / low=+3pt）
- */
-export function computeEventImpact(events: EventImpactRecord[], targetDate: Date): number {
-  let impact = 0
-  for (const e of events) {
-    if (targetDate >= e.startDate && targetDate <= e.endDate) {
-      const key = (e.expectedImpact ?? '').toLowerCase()
-      impact += EVENT_IMPACT_PT[key] ?? 0
-    }
-  }
-  return impact
 }
 
 /**
@@ -213,8 +195,9 @@ export function computeDailyForecastCore(
   events: EventImpactRecord[],
   weekendDays: number[],
   maxRank = DEFAULT_MAX_RANK,
-  pace?: PaceInput
-): Omit<DailyForecast, 'recommendedPrice' | 'predictedAdr' | 'modelVersion'> & { pace?: PaceResult } {
+  pace?: PaceInput,
+  pattern?: PatternInput
+): Omit<DailyForecast, 'recommendedPrice' | 'predictedAdr' | 'modelVersion'> & { pace?: PaceResult; pattern?: PatternResult } {
   const movingAverage = computeMovingAverageBySameWeekday(history, targetDate)
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
   const eventImpact = computeEventImpact(events, targetDate)
@@ -228,15 +211,57 @@ export function computeDailyForecastCore(
   })
   // ブッキングペースと予約済み室数の下限（D-11）。材料が無い日は何もしない
   const paceResult = pace ? applyPace(baseOccupancy, pace) : undefined
-  const predictedOccupancy = paceResult?.predicted ?? baseOccupancy
+  const afterPace = paceResult?.predicted ?? baseOccupancy
+  // 背景と入り方が近い過去の日からの着地（D-13）。予約済みの下限は混ぜた後にもう一度かける
+  const patternResult = pattern ? applyPattern(afterPace, pattern, eventImpact, pace) : undefined
+  const predictedOccupancy = patternResult?.predicted ?? afterPace
+  const baseConfidence = computeConfidence({ movingAverage, yearOverYear })
 
   return {
     date: targetDate,
     predictedOccupancy,
     demandLevel: mapOccupancyToDemandLevel(predictedOccupancy),
     recommendedRank: mapOccupancyToRank(predictedOccupancy, maxRank),
-    confidence: computeConfidence({ movingAverage, yearOverYear }),
+    confidence: patternResult ? Math.max(baseConfidence, patternResult.confidence) : baseConfidence,
     ...(paceResult && { pace: paceResult }),
+    ...(patternResult && { pattern: patternResult }),
+  }
+}
+
+export interface PatternInput {
+  prediction: PatternPrediction
+  /** 宿泊日までの残日数 */
+  leadDays: number
+}
+
+export interface PatternResult {
+  predicted: number
+  impact: number
+  /** 近傍の着地（イベントの補正の後） */
+  patternOccupancy: number
+  weight: number
+  confidence: number
+}
+
+/**
+ * 近傍の着地を予測稼働率に混ぜる（D-13）。
+ * 近傍にイベントのあった日が少ないのにこの日にイベントがあるときは、足りない分だけイベントの補正を近傍の着地に足す
+ */
+export function applyPattern(base: number, input: PatternInput, eventImpact: number, pace?: PaceInput): PatternResult {
+  const { prediction, leadDays } = input
+  const weight = patternBlendWeight(leadDays, prediction.spread)
+  const patternOccupancy = Math.min(1, prediction.occupancy + (eventImpact > 0 ? eventImpact * (1 - prediction.eventShare) : 0))
+  let predicted = base * (1 - weight) + patternOccupancy * weight
+  if (pace && pace.totalRooms > 0 && pace.otbRooms != null) predicted = Math.max(predicted, Math.min(1, pace.otbRooms / pace.totalRooms))
+  predicted = Math.round(Math.min(1, Math.max(0, predicted)) * 1000) / 1000
+  // 近傍が揃っていて散らばりが小さいほど確信度を上げる（最大 0.9）
+  const confidence = Math.round(Math.min(0.9, 0.55 + weight * 0.5 - prediction.spread) * 100) / 100
+  return {
+    predicted,
+    impact: Math.round((predicted - base) * 1000) / 1000,
+    patternOccupancy: Math.round(patternOccupancy * 1000) / 1000,
+    weight,
+    confidence,
   }
 }
 
@@ -454,7 +479,24 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
             totalRooms: hotel.totalRooms,
           }
         : undefined
-    const { pace: paceResult, ...core } = computeDailyForecastCore(date, history, events, weekendDays, maxRank, pace)
+    const prediction =
+      leadDays >= 0
+        ? dayTypeModel.predict({
+            date,
+            lead: leadDays,
+            otbRooms: pace?.otbRooms ?? null,
+            points: curveByStayDate.get(date.getTime()) ?? [],
+          })
+        : null
+    const { pace: paceResult, pattern: patternResult, ...core } = computeDailyForecastCore(
+      date,
+      history,
+      events,
+      weekendDays,
+      maxRank,
+      pace,
+      prediction ? { prediction, leadDays } : undefined
+    )
 
     // 日のタイプで優先モデルを決め、初期値の重みを稼働寄り・単価寄りに寄せる（予約が進んで型が変わればモデルも変わる）
     const dayType = buildDayTypeTimeline({
@@ -465,6 +507,7 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
       points: curveByStayDate.get(date.getTime()) ?? [],
       actualSoldRooms: null,
       predictedOccupancy: core.predictedOccupancy,
+      predictedAdr: prediction?.adr ?? null,
     }).current
     // 「日のタイプに合わせて重みを寄せる」を切ったホテルは、試算でモデルを指定したとき以外は初期値の重みのまま
     const dayModel = modelOverride ?? (strategyConfig?.dayModelAdjust ?? true ? (dayType?.model ?? null) : null)
@@ -514,6 +557,8 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
         weekendDays,
         pace,
         paceResult,
+        prediction,
+        patternResult,
         dayType: dayType || modelOverride ? { name: dayType?.name ?? null, model: dayModel } : undefined,
       }),
     })
@@ -561,6 +606,8 @@ function buildRationale(params: {
   weekendDays: number[]
   pace?: PaceInput
   paceResult?: PaceResult
+  prediction?: PatternPrediction | null
+  patternResult?: PatternResult
   dayType?: RationaleV1['dayType']
 }): RationaleV1 {
   const { blended, weights, competitor } = params
@@ -623,6 +670,21 @@ function buildRationale(params: {
         ratio: paceResult.ratio,
         paceOccupancy: paceResult.paceOccupancy,
         weight: paceResult.weight,
+      },
+    })
+  }
+  const { prediction, patternResult } = params
+  if (prediction && patternResult && patternResult.impact !== 0) {
+    adjustments.push({
+      key: 'pattern',
+      impact: patternResult.impact,
+      input: {
+        neighbors: prediction.neighbors,
+        patternOccupancy: patternResult.patternOccupancy,
+        pickupRooms: prediction.pickupRooms,
+        spread: prediction.spread,
+        weight: patternResult.weight,
+        paceCluster: prediction.paceCluster,
       },
     })
   }
