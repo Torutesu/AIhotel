@@ -164,6 +164,11 @@ export interface PricingCalendarDay {
   /** 月の予算ADR（どの日も同じ値） */
   budgetAdr: number | null
   budgetRevenue: number | null
+  /**
+   * 日の予算の出どころ（D-13）。imported = 日別予算を登録した日、ai = 月の予算の残りを AI の予測売上の比で配った日（月の初日が90日以内）、
+   * lastYear = 前年同曜日の比で配った日。予算が無ければ null（この列を返す前のバックエンドでは undefined）
+   */
+  budgetSource?: "imported" | "ai" | "lastYear" | null
   /** オンハンド（今の予約室数）。結果の出た日は販売室数 */
   onHandRooms: number | null
   /** 現在稼働率（結果の出た日は実績、先の日はオンハンド ÷ 客室数） */
@@ -334,9 +339,9 @@ export interface RecommendationRationale {
     weight: number
     input: Record<string, number | string | null>
   }>
-  /** pace = 前年同曜日と比べた予約の入り方、otbFloor = 予約済みの室数を下限にした引き上げ（D-11）、pattern = 背景と入り方の近い過去の日の着地（D-13） */
+  /** pace = 前年同曜日と比べた予約の入り方、otbFloor = 予約済みの室数を下限にした引き上げ（D-11）、pattern = 背景と入り方の近い過去の日の着地（D-13）、market = 外部要因エージェントが集めた市場の動き（±6pt まで。input は { signals: 件数 }） */
   adjustments: Array<{
-    key: "event" | "weekend" | "pace" | "otbFloor" | "pattern" | "coldStart"
+    key: "event" | "weekend" | "pace" | "otbFloor" | "pattern" | "coldStart" | "market"
     impact: number
     input?: Record<string, number | string | null>
   }>

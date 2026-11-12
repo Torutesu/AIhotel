@@ -30,6 +30,8 @@ export function SetupChecklistCard() {
   if (!status || status.ready) return null
 
   const required = status.items.filter((i) => i.required)
+  // 任意の項目（月次予算・価格戦略・販売開始・予約の取り込みの鮮度 — D-13）は必須の後ろにまとめる
+  const optional = status.items.filter((i) => !i.required)
   const doneCount = required.filter((i) => i.done).length
   const percent = Math.round((doneCount / required.length) * 100)
 
@@ -63,7 +65,7 @@ export function SetupChecklistCard() {
       </CardHeader>
       <CardContent className="pt-0">
         <ul className="grid gap-1.5 sm:grid-cols-2">
-          {status.items.map((item) => (
+          {[...required, ...optional].map((item) => (
             <li key={item.key} className="flex items-start gap-2 text-sm">
               {item.done ? (
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-positive" aria-label="完了" />
@@ -78,6 +80,11 @@ export function SetupChecklistCard() {
             </li>
           ))}
         </ul>
+        {optional.length > 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            （任意）の項目は無くても使えますが、揃えると予測と推奨の精度が上がります。
+          </p>
+        )}
       </CardContent>
     </Card>
   )

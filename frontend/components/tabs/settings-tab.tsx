@@ -26,9 +26,11 @@ import { useAuth } from "@/components/auth-provider"
 import { ErrorCard } from "@/components/error-state"
 import { api, ApiClientError } from "@/lib/api"
 import { HotelSettingsCard } from "@/components/settings/hotel-settings-card"
+import { ForecastReadinessCard } from "@/components/onboarding/forecast-readiness-card"
 import { HotelSetupToolsSection } from "@/components/settings/hotel-setup-tools-section"
 import { PriceRankSection } from "@/components/settings/price-rank-section"
 import { BudgetSection } from "@/components/settings/budget-section"
+import { DailyBudgetSection } from "@/components/settings/daily-budget-section"
 import { CompetitorSection } from "@/components/settings/competitor-section"
 import { CompetitorFetchStatusSection } from "@/components/settings/competitor-fetch-status-section"
 import { UserManagementSection } from "@/components/settings/user-management-section"
@@ -37,7 +39,12 @@ import { RoomTypeSection } from "@/components/settings/room-type-section"
 import { TenantManagementSection } from "@/components/settings/tenant-management-section"
 import { TrialManagementSection } from "@/components/settings/trials/trial-management-section"
 import { DailyDataImportSection } from "@/components/settings/daily-data-import-section"
-import { CompetitorPriceImportSection, OtbImportSection } from "@/components/settings/external-data-import-sections"
+import {
+  BookingCurveImportSection,
+  CompetitorPriceImportSection,
+  OtbImportSection,
+  ReservationImportSection,
+} from "@/components/settings/external-data-import-sections"
 import { AccountSecurityCard } from "@/components/settings/account-security-card"
 import { AuditLogSection } from "@/components/settings/audit-log-section"
 import { IpRestrictionSection } from "@/components/settings/ip-restriction-section"
@@ -139,6 +146,9 @@ export function SettingsTab() {
 
       <HotelSettingsCard />
 
+      {/* 需要予測の準備状況（D-13）。設定タブではいつも出す */}
+      <ForecastReadinessCard />
+
       {/* 初期設定の一括投入・既存ホテルからの複製・連携先の記録（#13） */}
       <HotelSetupToolsSection />
 
@@ -164,11 +174,18 @@ export function SettingsTab() {
 
       <BudgetSection />
 
+      {/* 日別予算と CSV の取り込み（D-13） */}
+      <DailyBudgetSection />
+
       {/* 日次実績の CSV 取り込み（PMS 連携までのつなぎ — #82） */}
       <DailyDataImportSection />
 
       {/* 予約数（OTB）の取り込み（#24 E2） */}
       <OtbImportSection />
+
+      {/* 過去の予約の推移（ブッキングカーブ）の一括取り込み（D-13）。予約明細から作る方法を先に置く（推奨） */}
+      <ReservationImportSection />
+      <BookingCurveImportSection />
 
       <CompetitorSection />
 

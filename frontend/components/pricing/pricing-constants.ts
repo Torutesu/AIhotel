@@ -181,3 +181,10 @@ export function saleOpenStatus(
   const through = new Date(start.getFullYear(), start.getMonth(), start.getDate() + daysBefore)
   return { state: "partial", firstOpen, lastOpen, openedThrough: through < first ? null : through }
 }
+
+/** 日の予算の出どころ（D-13 — PricingCalendarDay.budgetSource） */
+export const BUDGET_SOURCE_LABELS: Record<NonNullable<PricingCalendarDay["budgetSource"]>, string> = {
+  imported: "日別予算",
+  ai: "AIの予測で配分",
+  lastYear: "前年同曜日で配分",
+}

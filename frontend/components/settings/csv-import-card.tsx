@@ -36,6 +36,11 @@ interface CsvImportCardProps<Row> {
   unit?: string
   /** 取り込みが終わったあと（一覧の再読込など） */
   onImported?: () => void
+  /**
+   * 確認画面と完了の通知の件数の文言を差し替える（既定は「新規 N・上書き N」）。
+   * dryRun の無い API（日別予算など）で、確認を画面の中だけで行うときに使う
+   */
+  describe?: (summary: ImportSummary, phase: "preview" | "done") => string
 }
 
 /** File.text() は古いブラウザに無いため FileReader で読む */
@@ -76,6 +81,7 @@ export function CsvImportCard<Row>({
   submit,
   unit = "行",
   onImported,
+  describe,
 }: CsvImportCardProps<Row>) {
   const { hotelId, user } = useAuth()
   const editable = canManage(user?.role)
@@ -147,8 +153,8 @@ export function CsvImportCard<Row>({
     setImporting(true)
     try {
       const result = await submit(hotelId, preview.rows, false)
-      toast.success(`${result.total}行を取り込みました`, {
-        description: `新規 ${result.created}${unit}・更新 ${result.updated}${unit}（${result.startDate} 〜 ${result.endDate}）`,
+      toast.success(`${preview.rows.length}行を取り込みました`, {
+        description: `${describe ? describe(result, "done") : `新規 ${result.created}${unit}・更新 ${result.updated}${unit}`}（${result.startDate} 〜 ${result.endDate}）`,
       })
       reset()
       onImported?.()
@@ -223,7 +229,7 @@ export function CsvImportCard<Row>({
                   <span className="font-medium">{preview.fileName}</span>：{preview.rows.length}行（{preview.startDate} 〜 {preview.endDate}）
                 </p>
                 <p className="text-muted-foreground">
-                  新規 {preview.created}{unit}・既存のデータを上書き {preview.updated}{unit}
+                  {describe ? describe(preview, "preview") : `新規 ${preview.created}${unit}・既存のデータを上書き ${preview.updated}${unit}`}
                 </p>
                 <div className="flex gap-2">
                   <Button size="sm" className="gap-2" disabled={importing} onClick={() => void handleImport()}>

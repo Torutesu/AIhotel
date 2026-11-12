@@ -47,6 +47,7 @@ vi.mock("@/components/month-picker", () => ({
 }))
 // 各カードは目印だけにして、並び順と渡す対象年月を確かめる
 vi.mock("@/components/onboarding/setup-checklist-card", () => ({ SetupChecklistCard: () => null }))
+vi.mock("@/components/onboarding/forecast-readiness-card", () => ({ ForecastReadinessCard: () => null }))
 vi.mock("@/components/dashboard/alerts-card", () => ({
   AlertsCard: ({ loading }: { loading: boolean }) => <div data-testid="section">{loading ? "アラート（読込中）" : "アラート"}</div>,
 }))

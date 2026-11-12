@@ -131,7 +131,82 @@ describe("DayAnalysisDialog", () => {
     // この日の外部要因（イベント・天候を項目別に）
     const factors = screen.getByTestId("external-factors")
     expect(factors.textContent).toContain("港まつり・港湾・影響度 高")
-    expect(factors.textContent).toContain("天候データは未連携です")
+    expect(factors.textContent).toContain("この日の予報はありません")
+  })
+
+  it("D-13: 象限・似た日の着地・天気（出典つき）・日の予算の出どころ・予算への向き合い方を出す", async () => {
+    mocks.dayInsight.mockReset().mockResolvedValue({
+      ...INSIGHT,
+      date: FUTURE,
+      typeProfile: { ...INSIGHT.typeProfile!, quadrantLabel: "高稼働・高単価" },
+      pattern: {
+        predictedOccupancy: 0.78,
+        predictedAdr: 21000,
+        pickupRooms: 34.4,
+        neighbors: 12,
+        spread: 0.04,
+        similarDates: ["2025-11-20", "2025-11-27"],
+        paceCluster: {
+          id: "P3",
+          shape: "直前型",
+          days: 40,
+          finalOccupancy: 0.8,
+          terms: [
+            { label: "180日前以前", pickup: 0.05 },
+            { label: "4〜0日前", pickup: 0.2 },
+          ],
+        },
+        paceClusterCount: 6,
+      },
+      weather: {
+        weatherCode: "100",
+        weatherText: "晴れ",
+        pop: 10,
+        tempMax: 18,
+        tempMin: 9,
+        reliability: "A",
+        reportedAt: "2026-11-12T02:00:00.000Z",
+        attribution: "出典：気象庁ホームページ",
+      },
+    })
+    render(
+      <DayAnalysisDialog
+        day={day(FUTURE, {
+          budgetSource: "ai",
+          rationale: {
+            version: 1,
+            modelVersion: "rule-based-v6",
+            recommendedRank: 28,
+            factors: [],
+            adjustments: [
+              { key: "pattern", impact: 0.04, input: { neighbors: 12, patternOccupancy: 0.78, pickupRooms: 34, weight: 0.7 } },
+              { key: "market", impact: 0.03, input: { signals: 2 } },
+            ],
+            excluded: [],
+            guardrails: [],
+            budget: { stance: "chase", gap: 450000 },
+          },
+        })}
+        onClose={vi.fn()}
+      />,
+    )
+    await waitFor(() => expect(screen.getByTestId("day-pattern")).toBeTruthy())
+    expect(screen.getByTestId("quadrant-label").textContent).toBe("高稼働・高単価")
+    const pattern = within(screen.getByTestId("day-pattern"))
+    expect(pattern.getByText("78.0%")).toBeTruthy()
+    expect(pattern.getByText("34室")).toBeTruthy()
+    expect(pattern.getByText("直前型")).toBeTruthy()
+    expect(pattern.getByText("4〜0日前")).toBeTruthy()
+    expect(pattern.getByText(/2025\/11\/20/)).toBeTruthy()
+    const factors = screen.getByTestId("external-factors")
+    expect(factors.textContent).toContain("晴れ・降水確率 10%・気温 最高 18℃／最低 9℃・信頼度 A")
+    expect(factors.textContent).toContain("出典：気象庁ホームページ")
+    expect(screen.getByTestId("day-budget").textContent).toContain("AIの予測で配分")
+    expect(screen.getByTestId("budget-stance").textContent).toContain("予算を追う（稼働寄り）")
+    expect(screen.getByTestId("budget-stance").textContent).toContain("¥450,000")
+    expect(screen.getByText(/似た日の着地：背景と入り方の近い過去の12日の着地は稼働78.0%/)).toBeTruthy()
+    expect(screen.getByText(/市場の動き（インバウンド・アクセスなど） \+3pt/)).toBeTruthy()
+    expect(screen.getByText(/集めた2件の動きを稼働率予測に反映/)).toBeTruthy()
   })
 
   it("見出し（日付・日のタイプ）はスクロールの範囲の外にあり、本文だけがスクロールする（2026-10-23 の画面修正 b03）", async () => {

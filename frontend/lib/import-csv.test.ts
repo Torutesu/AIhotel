@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest"
 import {
+  BOOKING_CURVE_CSV_TEMPLATE,
   COMPETITOR_PRICE_CSV_TEMPLATE,
+  DAILY_BUDGET_CSV_TEMPLATE,
   OTB_CSV_TEMPLATE,
+  RESERVATION_CSV_TEMPLATE,
+  parseReservationCsv,
+  parseBookingCurveCsv,
+  parseDailyBudgetCsv,
   parseCompetitorPriceCsv,
   parseObservedAt,
   parseOtbCsv,
@@ -60,5 +66,98 @@ describe("parseOtbCsv（#24 E2）", () => {
       errors: [],
     })
     expect(parseOtbCsv("宿泊日,予約室数\n2026-10-01,多い\n").errors[0]).toEqual({ line: 2, message: "予約室数を数値で入力してください" })
+  })
+})
+
+describe("parseBookingCurveCsv（D-13）", () => {
+  it("テンプレートを読める（残日数の行と取得日の行）", () => {
+    const { rows, errors } = parseBookingCurveCsv(BOOKING_CURVE_CSV_TEMPLATE)
+    expect(errors).toEqual([])
+    expect(rows).toEqual([
+      { stayDate: "2025-10-01", daysBefore: 90, roomsBooked: 32 },
+      { stayDate: "2025-10-01", daysBefore: 30, roomsBooked: 85 },
+      { stayDate: "2025-10-01", daysBefore: 0, roomsBooked: 128 },
+      { stayDate: "2025-10-02", capturedDate: "2025-07-01", roomsBooked: 20 },
+    ])
+  })
+
+  it("残日数だけの見出し・英語の見出しも受け付け、不正な行は行番号つきで返す", () => {
+    expect(parseBookingCurveCsv("stayDate,daysBefore,roomsBooked\n2025/10/1,7,40\n").rows).toEqual([
+      { stayDate: "2025-10-01", daysBefore: 7, roomsBooked: 40 },
+    ])
+    const csv = "宿泊日,残日数,取得日,予約室数\n2025-10-01,,,10\n2025-10-01,3,2025-09-01,10\n2025-10-01,-1,,x\n2025-10-01,,2025-10-05,1\n"
+    const { rows, errors } = parseBookingCurveCsv(csv)
+    expect(rows).toEqual([])
+    expect(errors.map((e) => e.line)).toEqual([2, 3, 4, 5])
+    expect(errors[0].message).toContain("どちらかを入力")
+    expect(errors[1].message).toContain("どちらか一方だけ")
+    expect(errors[2].message).toContain("残日数は0以上の整数")
+    expect(errors[2].message).toContain("予約室数")
+    expect(errors[3].message).toContain("取得日は宿泊日以前")
+  })
+
+  it("残日数・取得日の列がどちらも無ければ見出しのエラー", () => {
+    expect(parseBookingCurveCsv("宿泊日,予約室数\n2025-10-01,1\n").errors[0].message).toContain("「残日数」か「取得日」")
+  })
+})
+
+describe("parseDailyBudgetCsv（D-13）", () => {
+  it("テンプレートを読め、両方空欄の行は登録を消す行（null・null）になる", () => {
+    const { rows, errors } = parseDailyBudgetCsv(DAILY_BUDGET_CSV_TEMPLATE)
+    expect(errors).toEqual([])
+    expect(rows).toEqual([
+      { date: "2026-12-01", budgetRooms: 120, budgetRevenue: 1800000 },
+      { date: "2026-12-02", budgetRooms: 95, budgetRevenue: 1300000 },
+      { date: "2026-12-03", budgetRooms: null, budgetRevenue: null },
+    ])
+  })
+
+  it("桁区切り・片方の列だけも受け付け、重複した日付・不正な値は行番号つきで返す", () => {
+    expect(parseDailyBudgetCsv('日付,予算売上\n2026/12/1,"1,500,000"\n').rows).toEqual([
+      { date: "2026-12-01", budgetRooms: null, budgetRevenue: 1500000 },
+    ])
+    const { rows, errors } = parseDailyBudgetCsv("日付,予算室数,予算売上\n2026-12-01,10,100\n2026-12-01,11,100\n2026-12-02,1.5,-1\n12/3,1,1\n")
+    expect(rows).toHaveLength(1)
+    expect(errors.map((e) => e.line)).toEqual([3, 4, 5])
+    expect(errors[0].message).toContain("2行目にもあります")
+    expect(errors[1].message).toContain("予算室数は0以上の整数")
+    expect(errors[1].message).toContain("予算売上は0以上")
+    expect(errors[2].message).toContain("日付は")
+  })
+
+  it("予算室数・予算売上の列がどちらも無ければ見出しのエラー", () => {
+    expect(parseDailyBudgetCsv("日付\n2026-12-01\n").errors[0].message).toContain("「予算室数」か「予算売上」")
+  })
+})
+
+describe("parseReservationCsv（D-13 予約明細から作る）", () => {
+  it("テンプレートを読め、取消日は入っている行だけに付く", () => {
+    const { rows, errors } = parseReservationCsv(RESERVATION_CSV_TEMPLATE)
+    expect(errors).toEqual([])
+    expect(rows).toEqual([
+      { bookedDate: "2025-07-03", checkInDate: "2025-10-01", nights: 2, rooms: 1 },
+      { bookedDate: "2025-08-20", checkInDate: "2025-10-10", nights: 1, rooms: 3 },
+      { bookedDate: "2025-09-01", checkInDate: "2025-10-11", nights: 1, rooms: 1, cancelledDate: "2025-09-15" },
+    ])
+  })
+
+  it("取消日の列が無くても読め、不正な行は行番号つきで返す", () => {
+    expect(parseReservationCsv("bookedDate,checkInDate,nights,rooms\n2025/7/3,2025/10/1,1,2\n").rows).toEqual([
+      { bookedDate: "2025-07-03", checkInDate: "2025-10-01", nights: 1, rooms: 2 },
+    ])
+    const csv = "予約日,チェックイン日,泊数,室数,取消日\n2025-10-05,2025-10-01,1,1,\n2025-09-01,2025-10-01,0,0,\n2025-09-01,2025-10-01,61,1,2025-08-01\nx,2025-10-01,1,1,昨日\n"
+    const { rows, errors } = parseReservationCsv(csv)
+    expect(rows).toEqual([])
+    expect(errors.map((e) => e.line)).toEqual([2, 3, 4, 5])
+    expect(errors[0].message).toContain("予約日がチェックイン日より後")
+    expect(errors[1].message).toContain("泊数は1〜60")
+    expect(errors[1].message).toContain("室数は1以上")
+    expect(errors[2].message).toContain("取消日が予約日より前")
+    expect(errors[3].message).toContain("予約日は")
+    expect(errors[3].message).toContain("取消日は")
+  })
+
+  it("必須列が無ければ見出しのエラー", () => {
+    expect(parseReservationCsv("予約日,チェックイン日\n2025-07-03,2025-10-01\n").errors[0].message).toContain("泊数・室数")
   })
 })

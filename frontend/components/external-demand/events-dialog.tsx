@@ -19,6 +19,7 @@ import { useAuth } from "@/components/auth-provider"
 import { EventDialog, type EventFormValues } from "@/components/pricing/event-dialog"
 import { formatEventRange, impactBadgeClass, impactLabel } from "@/components/pricing/pricing-constants"
 import { CsvImportCard } from "@/components/settings/csv-import-card"
+import { EventSourceBadge } from "@/components/external-demand/event-source-badge"
 import { api, ApiClientError, type CreateEventInput } from "@/lib/api"
 import { toDateStr } from "@/lib/date"
 import { downloadCsv, fileDateStamp } from "@/lib/csv-export"
@@ -169,7 +170,12 @@ export function EventsDialog({ open, onOpenChange, events, loading, error, onRel
                   {listed.map((ev) => (
                     <tr key={ev.id} className="border-b last:border-0">
                       <td className="whitespace-nowrap py-2 pr-3 tabular-nums">{formatEventRange(ev.startDate, ev.endDate)}</td>
-                      <td className="py-2 pr-3 font-medium">{ev.name}</td>
+                      <td className="py-2 pr-3 font-medium">
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          {ev.name}
+                          <EventSourceBadge event={ev} />
+                        </span>
+                      </td>
                       <td className="whitespace-nowrap py-2 pr-3 text-xs">{eventTypeLabelOf(ev.type)}</td>
                       <td className="py-2 pr-3 text-xs text-muted-foreground">{ev.location || "-"}</td>
                       <td className="py-2 pr-3">

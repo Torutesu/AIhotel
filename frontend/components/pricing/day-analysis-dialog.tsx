@@ -28,6 +28,8 @@ import {
   SimilarDaysSection,
   type DayInsightItem,
 } from "@/components/pricing/day-analysis-sections"
+import { DayPatternSection } from "@/components/pricing/day-pattern-section"
+import { DayBudgetLine, RationaleSection } from "@/components/pricing/day-detail-dialog"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { DAY_NAMES, parseDateStr, todayJstStr } from "@/lib/date"
 import { formatPercent as pct, formatSignedYen as signedYen, formatYen as yen } from "@/lib/format"
@@ -146,6 +148,8 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
 
           <DayCurveSection date={day.date} insight={insight ?? null} />
 
+          {insight?.pattern && <DayPatternSection pattern={insight.pattern} />}
+
           {insight && <SimilarDaysSection insight={insight} />}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -191,6 +195,16 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
             </Card>
           </div>
 
+          {/* 推奨の根拠（#24 E4）と日の予算の出どころ（D-13） */}
+          {(day.rationale || day.budgetRooms != null || day.budgetRevenue != null) && (
+            <Card data-testid="day-rationale">
+              <CardContent className="space-y-3 pt-4 [&>*:first-child]:border-t-0 [&>*:first-child]:pt-0">
+                <DayBudgetLine day={day} />
+                {day.rationale && <RationaleSection rationale={day.rationale} />}
+              </CardContent>
+            </Card>
+          )}
+
           <Card className="border-l-4 border-l-primary">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base font-medium">
@@ -210,6 +224,7 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
                           {item}
                         </dd>
                       ))}
+                      {f.note && <dd className="mt-0.5 text-[11px] text-muted-foreground">{f.note}</dd>}
                     </div>
                   ))}
                 </dl>

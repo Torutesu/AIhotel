@@ -14,14 +14,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
+  BUDGET_SOURCE_LABELS,
   demandDescription,
   eventTypeLabel,
   formatEventRange,
   impactBadgeClass,
   impactLabel,
 } from "@/components/pricing/pricing-constants"
+import { EventSourceBadge } from "@/components/external-demand/event-source-badge"
 import { DAY_NAMES } from "@/lib/date"
-import { formatPercent as pct, formatYen as yen } from "@/lib/format"
+import { formatPercent as pct, formatRooms, formatYen as yen } from "@/lib/format"
 import type { PricingCalendarDay, RecommendationRationale } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
 
@@ -73,6 +75,7 @@ export function DayDetailDialog({ day, events, onClose }: DayDetailDialogProps) 
                       {day.actualAdr != null && <div>実績ADR：{yen(day.actualAdr)}</div>}
                       {day.actualOccupancy != null && <div>実績稼働率：{pct(day.actualOccupancy)}</div>}
                     </div>
+                    <DayBudgetLine day={day} />
                     {day.rationale && <RationaleSection rationale={day.rationale} />}
                   </div>
 
@@ -94,6 +97,7 @@ export function DayDetailDialog({ day, events, onClose }: DayDetailDialogProps) 
                                   {impactLabel(ev.expectedImpact)}
                                 </Badge>
                               )}
+                              <EventSourceBadge event={ev} />
                             </div>
                             <p className="mt-0.5 text-xs text-muted-foreground">
                               {formatEventRange(ev.startDate, ev.endDate)}
@@ -144,6 +148,70 @@ const ADJUSTMENT_LABELS: Record<RecommendationRationale["adjustments"][number]["
   otbFloor: "予約済みの室数",
   pattern: "似た日の着地",
   coldStart: "実績が少ないためホテルタイプの典型で補った分",
+  market: "市場の動き（インバウンド・アクセスなど）",
+}
+
+/** 日の予算（室数・売上）と、その出どころ。予算が無ければ何も出さない */
+export function DayBudgetLine({ day }: { day: Pick<PricingCalendarDay, "budgetRooms" | "budgetRevenue" | "budgetSource"> }) {
+  if (day.budgetRooms == null && day.budgetRevenue == null) return null
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t pt-3 text-sm" data-testid="day-budget">
+      <span>
+        この日の予算：{formatRooms(day.budgetRooms)}・{yen(day.budgetRevenue)}
+      </span>
+      {day.budgetSource && (
+        <Badge variant="outline" className="text-[10px]">
+          {BUDGET_SOURCE_LABELS[day.budgetSource]}
+        </Badge>
+      )}
+    </div>
+  )
+}
+
+type BudgetStance = NonNullable<RecommendationRationale["budget"]>
+
+export const BUDGET_STANCE_LABELS: Record<BudgetStance["stance"], string> = {
+  onTrack: "予算どおり",
+  chase: "予算を追う（稼働寄り）",
+  giveUp: "未達前提で売上を最大化",
+}
+
+/** 月の予算への向き合い方（D-13）を一文にする。gap = 予算 − 着地見込み（正なら不足） */
+export function budgetStanceNote(budget: BudgetStance): string {
+  const gap = Math.abs(Math.round(budget.gap))
+  if (budget.stance === "onTrack") {
+    return budget.gap < 0 ? `着地見込みが月の予算を ${yen(gap)} 上回っています。` : "着地見込みが月の予算に届いています。"
+  }
+  if (budget.stance === "chase") {
+    return `月の予算まで ${yen(gap)} 足りないため、日の優先モデルを1段稼働寄りにしています。`
+  }
+  return `月の予算まで ${yen(gap)} 足りず、残りの期間では届かない見込みのため、予算は追わずに売上が最大になる価格にしています。`
+}
+
+/** 補正の材料を一文にする（似た日の着地・実績が少ないホテルの補い — D-13）。材料が無ければ null */
+export function adjustmentNote(adjustment: RecommendationRationale["adjustments"][number]): string | null {
+  const input = adjustment.input
+  if (!input) return null
+  if (adjustment.key === "pattern") {
+    const parts: string[] = []
+    if (typeof input.neighbors === "number") parts.push(`背景と入り方の近い過去の${input.neighbors}日`)
+    if (typeof input.patternOccupancy === "number") parts.push(`の着地は稼働${pct(input.patternOccupancy)}`)
+    if (typeof input.pickupRooms === "number") parts.push(`（今から${Math.round(input.pickupRooms)}室入る見込み）`)
+    if (parts.length === 0) return null
+    const weight = typeof input.weight === "number" ? `。予測に${Math.round(input.weight * 100)}%の割合で混ぜています` : ""
+    return `似た日の着地：${parts.join("")}${weight}。`
+  }
+  if (adjustment.key === "market") {
+    return typeof input.signals === "number" ? `市場の動き：外部要因エージェントが集めた${input.signals}件の動きを稼働率予測に反映しています（±6pt まで）。` : null
+  }
+  if (adjustment.key === "coldStart") {
+    const base = typeof input.baseOccupancy === "number" ? `稼働${pct(input.baseOccupancy)}` : null
+    if (input.method === "extrapolated") {
+      return `実績が少ないため、ホテルタイプの典型的な予約の入り方で今の予約から着地を引き延ばしています${base ? `（${base}）` : ""}。`
+    }
+    return `実績が少ないため、ホテルタイプの典型的な稼働率を使っています${base ? `（${base}）` : ""}。`
+  }
+  return null
 }
 
 /** 予約の入り方（D-11）の材料を一文にする。材料が無ければ null */
@@ -189,6 +257,23 @@ export function RationaleSection({ rationale }: { rationale: RecommendationRatio
         </p>
       )}
       {paceNote(rationale) && <p className="text-xs text-muted-foreground">{paceNote(rationale)}</p>}
+      {rationale.adjustments.map((a) => {
+        const note = adjustmentNote(a)
+        return note ? (
+          <p key={a.key} className="text-xs text-muted-foreground">
+            {note}
+          </p>
+        ) : null
+      })}
+      {rationale.budget && (
+        <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground" data-testid="budget-stance">
+          <span>月の予算：</span>
+          <Badge variant="outline" className="text-[10px]">
+            {BUDGET_STANCE_LABELS[rationale.budget.stance]}
+          </Badge>
+          <span>{budgetStanceNote(rationale.budget)}</span>
+        </p>
+      )}
       {rationale.guardrails.length > 0 && (
         <p className="text-xs text-muted-foreground">
           調整：

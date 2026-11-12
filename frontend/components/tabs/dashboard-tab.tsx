@@ -22,6 +22,7 @@ import { KpiProgressSection, ALL_KPI_KEYS } from "@/components/dashboard/kpi-pro
 import { InventoryTableCard } from "@/components/dashboard/inventory-table-card"
 import { BookingCurveMonthCard } from "@/components/dashboard/booking-curve-month-card"
 import { SetupChecklistCard } from "@/components/onboarding/setup-checklist-card"
+import { ForecastReadinessCard } from "@/components/onboarding/forecast-readiness-card"
 import { api, ApiClientError, type AiSummary, type AlertItem, type DashboardKpi } from "@/lib/api"
 import type { AlertLinkTarget } from "@/lib/alert-link"
 
@@ -157,6 +158,8 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
     <div className="space-y-4 p-4">
       {/* 初期設定の必須項目が揃うまで出す（#13） */}
       <SetupChecklistCard />
+      {/* 予測の準備状況（D-13）。準備完了でないときだけ出す */}
+      <ForecastReadinessCard hideWhenFull />
       <div className="space-y-4">
         {/* 上部は現在〜先々のお知らせ（PDF a01）: ホテル名・客室数・アラート・AI解説。対象年月には連動しない */}
         <div className="flex flex-wrap items-center gap-3">
