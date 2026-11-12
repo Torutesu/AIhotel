@@ -2,13 +2,25 @@
   "name": "@hotel-revenue-system/shared",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "main": "./types/index.ts",
   "types": "./types/index.ts",
   "exports": {
     "./types": "./types/index.ts",
-    "./utils": "./utils/index.ts"
+    "./utils": "./utils/index.ts",
+    "./pricing": {
+      "types": "./pricing/index.ts",
+      "development": "./pricing/index.ts",
+      "default": "./dist/pricing/index.js"
+    },
+    "./validation": {
+      "types": "./validation/index.ts",
+      "development": "./validation/index.ts",
+      "default": "./dist/validation/index.js"
+    }
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "type-check": "tsc --noEmit"
   },
   "devDependencies": {

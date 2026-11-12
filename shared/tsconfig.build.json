@@ -1,0 +1,15 @@
+{
+  // backend が実行時に読み込む部分だけを JS にする（dist/）。frontend は @shared/* の別名でソースを直接使う。
+  // 型は exports の "types" でソースを指すので、宣言ファイルは出さない
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ES2022",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "declaration": false,
+    "declarationMap": false,
+    "rootDir": "./",
+    "outDir": "./dist"
+  },
+  "include": ["pricing/**/*", "validation/**/*"]
+}

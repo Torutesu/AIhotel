@@ -47,7 +47,7 @@ WORKDIR /app
 COPY backend ./backend
 COPY shared ./shared
 
-# `pnpm --filter backend build` runs `prisma generate && tsc -p tsconfig.build.json`
+# `pnpm --filter backend build` builds shared (dist/), then runs `prisma generate && tsc -p tsconfig.build.json`
 RUN pnpm --filter backend build
 
 # ---------------------------------------
@@ -74,6 +74,10 @@ COPY --from=build --chown=node:node /app/node_modules ./node_modules
 # Backend runtime artifacts: compiled JS, node_modules (symlinks into the
 # root .pnpm store above), prisma/ (schema + migrations) for
 # `prisma migrate deploy`, and assets/ (Japanese font used by PDF reports).
+# shared の実行時コード（pricing・validation）。backend/node_modules/@hotel-revenue-system/shared は
+# ../../shared へのリンクなので、package.json（exports）と build 済みの dist/ を同じ場所に置く
+COPY --from=build --chown=node:node /app/shared/package.json ./shared/package.json
+COPY --from=build --chown=node:node /app/shared/dist ./shared/dist
 COPY --from=build --chown=node:node /app/backend/package.json ./backend/package.json
 COPY --from=build --chown=node:node /app/backend/node_modules ./backend/node_modules
 COPY --from=build --chown=node:node /app/backend/dist ./backend/dist

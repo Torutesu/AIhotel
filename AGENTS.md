@@ -8,7 +8,8 @@ AIレベニュー管理システム（ホテル収益管理SaaS）。pnpmモノ�
 
 - `frontend/` Next.js 15 (App Router) + shadcn/ui — Vercelにデプロイ
 - `backend/` Express + TypeScript + Prisma + PostgreSQL 16 — コンテナデプロイ（AWS/GCP非依存）
-- `shared/` 共通型定義（`@shared/types` / `@hotel-revenue-system/shared`）
+- `shared/` 共通型定義（`@shared/types` / `@hotel-revenue-system/shared`）。backend が実行時に使う共通コード（`pricing/`・`validation/`）は
+  `shared/dist/` に build して読み込む（`pnpm --filter backend build` が先に build する。足すときは README の「Shared」）
 
 ```bash
 pnpm install                                        # 依存関係（ルートで実行）
