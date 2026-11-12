@@ -25,11 +25,14 @@ export interface RationaleV1 {
   factors: RationaleFactor[]
   /**
    * 予測稼働率への補正（稼働率観点の内訳）。
-   * pace = 前年同曜日と比べた予約の入り方（D-11）、otbFloor = 予約済みの室数を下限にした引き上げ（D-11）。
+   * pace = 前年同曜日と比べた予約の入り方（D-11）、otbFloor = 予約済みの室数を下限にした引き上げ（D-11）、
+   * pattern = 背景と入り方が近い過去の日（近傍）の着地を混ぜた分（D-13）、
+   * market = 外部要因エージェントが集めた市場の動き（インバウンド・アクセスなど。±6pt まで — D-13）、
+   * coldStart = 実績の少ないホテルで、固定の 60% の代わりにホテルタイプの典型から決めた基準（impact は 60% との差 — D-13）。
    * input はその補正の材料（キーごとに中身が違う。無いこともある）
    */
   adjustments: Array<{
-    key: 'event' | 'weekend' | 'pace' | 'otbFloor'
+    key: 'event' | 'weekend' | 'pace' | 'otbFloor' | 'pattern' | 'coldStart' | 'market'
     impact: number
     input?: Record<string, number | string | null>
   }>
@@ -42,4 +45,9 @@ export interface RationaleV1 {
    * model = 稼働優先（occupancy）・バランス（balanced）・単価優先（adr）
    */
   dayType?: { name: string | null; model: 'occupancy' | 'balanced' | 'adr' | null }
+  /**
+   * 月の予算への向き合い方（D-13）。onTrack = 届いている、chase = 追う（優先モデルを1段稼働寄りにした）、
+   * giveUp = 月初まで30日を切って届かない（予算は追わず売上の最大化）。gap = 予算 − 着地見込み。3か月より先の月・予算の無い月は無い
+   */
+  budget?: { stance: 'onTrack' | 'chase' | 'giveUp'; gap: number }
 }

@@ -10,6 +10,7 @@ import {
   updateHotel,
   deleteHotel,
   getHotelSetupStatus,
+  getHotelForecastReadiness,
 } from '../controllers/hotelsController.js'
 
 export const hotelsRouter: ExpressRouter = Router()
@@ -35,6 +36,14 @@ hotelsRouter.get(
   validate(idParamSchema, 'params'),
   requireHotelAccess((req) => req.params.id),
   getHotelSetupStatus
+)
+
+// GET /api/v1/hotels/:id/forecast-readiness — 予測の準備状況（D-13）。閲覧は全ロール
+hotelsRouter.get(
+  '/:id/forecast-readiness',
+  validate(idParamSchema, 'params'),
+  requireHotelAccess((req) => req.params.id),
+  getHotelForecastReadiness
 )
 
 // 初期設定シート（Excel）の出力と取り込み（#13）。MANAGER 以上

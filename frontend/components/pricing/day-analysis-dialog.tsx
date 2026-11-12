@@ -29,7 +29,8 @@ import {
   SimilarDaysSection,
   type DayInsightItem,
 } from "@/components/pricing/day-analysis-sections"
-import { RationaleSection } from "@/components/pricing/recommendation-rationale"
+import { DayPatternSection } from "@/components/pricing/day-pattern-section"
+import { DayBudgetLine, RationaleSection } from "@/components/pricing/recommendation-rationale"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { DAY_NAMES, parseDateStr, todayJstStr } from "@/lib/date"
 import { formatPercent as pct, formatSignedYen as signedYen, formatYen as yen } from "@/lib/format"
@@ -148,6 +149,8 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
 
           <DayCurveSection date={day.date} insight={insight ?? null} />
 
+          {insight?.pattern && <DayPatternSection pattern={insight.pattern} />}
+
           {insight && <SimilarDaysSection insight={insight} />}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
@@ -193,11 +196,12 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
             </Card>
           </div>
 
-          {/* 推奨の根拠（観点ごとのランクと重み・補正・ガードレール — #24 E4）。推奨の無い日・古い推奨は出さない */}
-          {day.rationale && (
+          {/* 推奨の根拠（観点ごとのランクと重み・補正・ガードレール — #24 E4）と日の予算の出どころ（D-13）。推奨の無い日・古い推奨は根拠を出さない */}
+          {(day.rationale || day.budgetRooms != null || day.budgetRevenue != null) && (
             <Card data-testid="recommendation-rationale">
-              <CardContent className="pt-1">
-                <RationaleSection rationale={day.rationale} />
+              <CardContent className="space-y-3 pt-1 [&>*:first-child]:border-t-0 [&>*:first-child]:pt-0">
+                <DayBudgetLine day={day} />
+                {day.rationale && <RationaleSection rationale={day.rationale} />}
               </CardContent>
             </Card>
           )}
@@ -221,6 +225,7 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
                           {item}
                         </dd>
                       ))}
+                      {f.note && <dd className="mt-0.5 text-[11px] text-muted-foreground">{f.note}</dd>}
                     </div>
                   ))}
                 </dl>

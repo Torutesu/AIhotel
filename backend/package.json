@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "job:daily": "tsx src/jobs/daily.ts",
     "job:competitor-prices": "tsx src/jobs/competitor-prices.ts",
+    "job:external-signals": "tsx src/jobs/external-signals.ts",
     "job:seed-demo": "tsx src/jobs/seed-demo.ts",
     "job:create-platform-admin": "tsx src/jobs/create-platform-admin.ts",
     "type-check": "tsc --noEmit",
@@ -21,6 +22,7 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "@aws-sdk/client-s3": "^3.1138.0",
     "@hotel-revenue-system/shared": "workspace:*",
     "@prisma/client": "^6.2.1",

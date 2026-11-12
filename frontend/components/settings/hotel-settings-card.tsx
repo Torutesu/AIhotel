@@ -70,6 +70,18 @@ const hotelFormSchema = z.object({
     .refine((v) => v === "" || (/^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 540), {
       message: "販売開始は 1〜540 の整数（宿泊日の何日前）で入力してください",
     }),
+  // 開業日（D-13）。空文字は未設定。開業1年未満のホテルの初期設定の基準と需要予測に使う
+  openedOn: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(new Date(v).getTime())), {
+      message: "開業日は YYYY-MM-DD 形式で入力してください",
+    }),
+  // 気象庁の府県予報区のコード（D-13）。空文字なら都道府県から自動で決める
+  weatherAreaCode: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || /^\d{6}$/.test(v), { message: "予報区コードは6桁の数字で入力してください" }),
 }).refine((v) => !v.municipalityCode || !v.prefectureCode || v.municipalityCode.startsWith(v.prefectureCode), {
   ...ifFieldsValid,
   message: "市区町村コードの先頭2桁が都道府県と一致しません",
@@ -77,6 +89,12 @@ const hotelFormSchema = z.object({
 })
 
 type HotelFormValues = z.infer<typeof hotelFormSchema>
+
+/** 開業日（D-13）は DB の Date 列なので、API からは "YYYY-MM-DDT00:00:00.000Z" の文字列で届く */
+function toDateInput(value: Date | string | null | undefined): string {
+  if (!value) return ""
+  return (typeof value === "string" ? value : value.toISOString()).slice(0, 10)
+}
 
 function toFormValues(hotel: Hotel): HotelFormValues {
   return {
@@ -90,6 +108,8 @@ function toFormValues(hotel: Hotel): HotelFormValues {
     municipalityCode: hotel.municipalityCode ?? "",
     marketArea: hotel.marketArea ?? "",
     saleOpenDaysBefore: hotel.saleOpenDaysBefore == null ? "" : String(hotel.saleOpenDaysBefore),
+    openedOn: toDateInput(hotel.openedOn),
+    weatherAreaCode: hotel.weatherAreaCode ?? "",
   }
 }
 
@@ -119,6 +139,8 @@ export function HotelSettingsCard() {
       municipalityCode: "",
       marketArea: "",
       saleOpenDaysBefore: "",
+      openedOn: "",
+      weatherAreaCode: "",
     },
     mode: "onBlur",
   })
@@ -177,6 +199,8 @@ export function HotelSettingsCard() {
         municipalityCode: values.municipalityCode.trim() || null,
         marketArea: values.marketArea.trim() || null,
         saleOpenDaysBefore: values.saleOpenDaysBefore === "" ? null : Number(values.saleOpenDaysBefore),
+        openedOn: values.openedOn.trim() || null,
+        weatherAreaCode: values.weatherAreaCode.trim() || null,
       })
       setHotel(updated)
       // 週末定義などは AuthProvider が全画面へ配っているため、保存後に差し替える（U-6）
@@ -285,6 +309,20 @@ export function HotelSettingsCard() {
                 <p className="text-xs text-muted-foreground">ホテル単位で固定の日数です。料金カレンダーに月ごとの販売開始日を出します（空欄は未設定）</p>
                 <FormFieldError message={errors.saleOpenDaysBefore?.message} />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="openedOn">開業日（任意）</Label>
+                <Input
+                  id="openedOn"
+                  type="date"
+                  disabled={!canManage}
+                  aria-invalid={errors.openedOn ? true : undefined}
+                  {...register("openedOn")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  開業1年未満のホテルは、初期設定で求める実績の日数と需要予測を開業からの日数に合わせます（空欄は未設定）
+                </p>
+                <FormFieldError message={errors.openedOn?.message} />
+              </div>
               <div className="space-y-2 md:col-span-2">
                 <Label htmlFor="hotelAddress">住所</Label>
                 <Input
@@ -367,6 +405,19 @@ export function HotelSettingsCard() {
                   <Label htmlFor="marketArea">観光エリア（任意）</Label>
                   <Input id="marketArea" placeholder="例: 箱根" disabled={!canManage} {...register("marketArea")} />
                   <FormFieldError message={errors.marketArea?.message} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="weatherAreaCode">気象庁の予報区コード（任意）</Label>
+                  <Input
+                    id="weatherAreaCode"
+                    inputMode="numeric"
+                    placeholder="例: 130000"
+                    disabled={!canManage}
+                    aria-invalid={errors.weatherAreaCode ? true : undefined}
+                    {...register("weatherAreaCode")}
+                  />
+                  <p className="text-xs text-muted-foreground">空欄なら都道府県から自動で決めます（府県予報区の6桁のコード）</p>
+                  <FormFieldError message={errors.weatherAreaCode?.message} />
                 </div>
               </div>
             </fieldset>

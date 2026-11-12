@@ -63,10 +63,10 @@ describe("buildDayCurveRows", () => {
 })
 
 describe("buildExternalFactors", () => {
-  it("イベントと天候を項目別に。イベントが無ければその旨、天候は未連携と出す", () => {
+  it("イベントと天候を項目別に。イベントが無ければその旨、天気の予報が無ければその旨を出す", () => {
     expect(buildExternalFactors(insight())).toEqual([
       { label: "イベント", items: ["登録されたイベントはありません（外部需要動向で登録できます）"] },
-      { label: "天候（台風・豪雨・大雪など）", items: ["天候データは未連携です（外部データの取り込み後に表示します）"] },
+      { label: "天気（気象庁の予報）", items: ["この日の予報はありません（気象庁の予報は7日先まで）"] },
     ])
     const withEvent = buildExternalFactors(insight({ events: [{ name: "年末年始", type: "holiday", location: null, expectedImpact: null, excludeFromHistory: true }] }))
     expect(withEvent[0].items).toEqual(["年末年始・特殊日"])
@@ -82,5 +82,26 @@ describe("buildDayTypeInsights", () => {
 
   it("型を作れていない日は何も出さない", () => {
     expect(buildDayTypeInsights(insight({ dayType: null }))).toEqual([])
+  })
+})
+
+describe("buildExternalFactors（天気 — D-13）", () => {
+  it("気象庁の予報があれば天気・降水確率・気温を出し、出典を必ず添える", () => {
+    const [, weather] = buildExternalFactors(
+      insight({
+        weather: {
+          weatherCode: "300",
+          weatherText: "雨",
+          pop: 80,
+          tempMax: 12,
+          tempMin: null,
+          reliability: null,
+          reportedAt: "2026-11-12T02:00:00.000Z",
+          attribution: "出典：気象庁ホームページ",
+        },
+      }),
+    )
+    expect(weather.items).toEqual(["雨・降水確率 80%・気温 最高 12℃"])
+    expect(weather.note).toContain("出典：気象庁ホームページ")
   })
 })

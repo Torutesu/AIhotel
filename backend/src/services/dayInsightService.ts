@@ -2,6 +2,8 @@ import { prisma } from '../lib/prisma.js'
 import { BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
 import { addUtcDays, todayJst } from '../lib/date.js'
 import { loadDayTypeModel } from './dayTypeService.js'
+import { PICKUP_TERM_LABELS } from './forecast/dayPattern.js'
+import { JMA_ATTRIBUTION } from './externalSignals/jmaWeather.js'
 import { buildDayTypeTimeline, DAY_CATEGORY_LABELS, weightsForModel, type DayModel } from './forecast/dayType.js'
 import { outcomeAt, simulateOccupancy, type SimulatedOutcome } from './forecast/daySimulation.js'
 import { leadDaysBetween, otbAtLead, type BookingCurvePoint } from './forecast/pace.js'
@@ -53,7 +55,7 @@ export async function getDayInsightService(hotelId: string, date: Date) {
   const to = addUtcDays(date, SIMILAR_DAY_RANGE)
   const curveFrom = from > today ? from : today
 
-  const [model, daily, recommendations, curveRows, events, strategy] = await Promise.all([
+  const [model, daily, recommendations, curveRows, events, strategy, weather] = await Promise.all([
     loadDayTypeModel(hotelId, today),
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: from, lte: to } },
@@ -74,6 +76,11 @@ export async function getDayInsightService(hotelId: string, date: Date) {
       orderBy: { startDate: 'asc' },
     }),
     prisma.pricingStrategyConfig.findUnique({ where: { hotelId }, select: { dayModelAdjust: true } }),
+    // 天気（気象庁の予報 — D-13）。過ぎた日は最後に取った予報
+    prisma.weatherForecast.findUnique({
+      where: { hotelId_date: { hotelId, date } },
+      select: { weatherCode: true, weatherText: true, pop: true, tempMax: true, tempMin: true, reliability: true, reportedAt: true },
+    }),
   ])
 
   const curves = new Map<number, BookingCurvePoint[]>()
@@ -95,10 +102,39 @@ export async function getDayInsightService(hotelId: string, date: Date) {
       points: curves.get(day.getTime()) ?? [],
       actualSoldRooms: actual?.soldRooms ?? null,
       predictedOccupancy: recByDate.get(day.getTime())?.predictedOccupancy ?? null,
+      predictedAdr: recByDate.get(day.getTime())?.predictedAdr ?? null,
+      actualAdr: actual?.adr ?? null,
     })
   }
 
   const timeline = timelineOf(date)
+  const patternOf = () => {
+    const lead = leadDaysBetween(today, date)
+    if (lead < 0) return null
+    const points = curves.get(date.getTime()) ?? []
+    const prediction = model.predict({ date, lead, otbRooms: otbAtLead(points, lead), points })
+    if (!prediction) return null
+    const cluster = model.paceClustering.clusters.find((c) => c.id === prediction.paceCluster) ?? null
+    return {
+      predictedOccupancy: prediction.occupancy,
+      predictedAdr: prediction.adr,
+      pickupRooms: prediction.pickupRooms,
+      neighbors: prediction.neighbors,
+      spread: prediction.spread,
+      similarDates: prediction.similarDates.map(iso),
+      paceCluster: cluster
+        ? {
+            id: cluster.id,
+            shape: cluster.shape,
+            days: cluster.days,
+            finalOccupancy: cluster.finalOccupancy,
+            terms: PICKUP_TERM_LABELS.map((label, i) => ({ label, pickup: cluster.centroid[i] })),
+          }
+        : null,
+      /** ホテル全体のピックアップ型の数（シルエット係数で選んだ数） */
+      paceClusterCount: model.paceClustering.clusters.length,
+    }
+  }
   const current = timeline.current
   const profile = current ? (model.types.find((t) => t.id === current.id) ?? null) : null
 
@@ -132,6 +168,8 @@ export async function getDayInsightService(hotelId: string, date: Date) {
       ? {
           name: profile.name,
           model: profile.model,
+          /** 着地の象限（例: 高稼働・高単価 — D-13） */
+          quadrantLabel: profile.quadrantLabel,
           days: profile.days,
           avgOccupancy: profile.avgOccupancy,
           minOccupancy: profile.minOccupancy,
@@ -146,11 +184,20 @@ export async function getDayInsightService(hotelId: string, date: Date) {
     /** 同じ区分の型の一覧（AI が作った型の数と構成） */
     categoryTypes: model
       .typesFor(date)
-      .map((t) => ({ name: t.name, model: t.model, days: t.days, avgOccupancy: t.avgOccupancy, avgAdr: t.avgAdr })),
+      .map((t) => ({
+        name: t.name,
+        model: t.model,
+        quadrantLabel: t.quadrantLabel,
+        days: t.days,
+        avgOccupancy: t.avgOccupancy,
+        avgAdr: t.avgAdr,
+      })),
+    /** マイルストーン別のピックアップと、背景・入り方の近い過去の日からの着地（D-13）。先の日だけ */
+    pattern: patternOf(),
     similarDays: pickSimilarDays(candidates, { date: iso(date), dayType: current?.name ?? null }),
-    /** その日の外部要因（登録したイベント）。天候は外部データの取り込み前のため無い */
+    /** その日の外部要因（登録したイベント・天気） */
     events,
-    weather: null,
+    weather: weather ? { ...weather, reportedAt: weather.reportedAt.toISOString(), attribution: JMA_ATTRIBUTION } : null,
   }
 }
 

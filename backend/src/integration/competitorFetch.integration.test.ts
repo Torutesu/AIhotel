@@ -128,6 +128,31 @@ describeIntegration('競合価格の定期取得（#9 段階B）', () => {
     })
   })
 
+  it('サイトに止められた兆候で失敗したら、休止の時間はその取得元を呼ばない（D-13）', async () => {
+    const { SiteBlockedError } = await import('../services/competitorRates/crawler/pageSignals.js')
+    let calls = 0
+    // 本物の取得元と実行記録が混ざらないよう、テスト専用のキーにする
+    const blocked: CompetitorRateSource = {
+      key: 'official',
+      fetch: async (target) => {
+        calls++
+        throw new SiteBlockedError(target.url, 'CAPTCHA')
+      },
+    }
+    await prisma.competitor.updateMany({ where: { id: competitorA }, data: { otaUrls: { rakuten: 'https://example.com/a', official: 'https://example.com/a-o' } } })
+    const first = await fetchCompetitorRatesForHotel(HOTEL, [blocked])
+    expect(first[0]).toMatchObject({ status: 'failed' })
+    expect(first[0].errorMessage).toMatch(/^BLOCKED: /)
+    const second = await fetchCompetitorRatesForHotel(HOTEL, [blocked])
+    expect(second[0]).toMatchObject({ status: 'skipped' })
+    expect(calls).toBe(1)
+    // 休止の時間を過ぎたら呼ぶ
+    const later = new Date(Date.now() + 25 * 3600_000)
+    await fetchCompetitorRatesForHotel(HOTEL, [blocked], later)
+    expect(calls).toBe(2)
+    await prisma.competitorFetchRun.deleteMany({ where: { source: 'official', hotelId: HOTEL } })
+  })
+
   // ジョブ全体（全ホテルが対象）は、他のテナントのデータに実行記録を作らないよう、取得元が空の場合だけを確かめる
   it('取得元が登録されていなければ何もしない', async () => {
     expect(await runCompetitorPricesJob([])).toEqual({ succeeded: 0, failed: 0 })

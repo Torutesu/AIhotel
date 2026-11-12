@@ -2,12 +2,16 @@ import { app } from './app.js'
 import { config } from './lib/config.js'
 import { logger } from './utils/logger.js'
 import { disconnectDatabase } from './services/healthService.js'
+import { loadStoredHolidays } from './services/externalSignals/holidays.js'
 
 // HTTP サーバーの起動とグレースフルシャットダウンのみを担当する（C-10）。
 // Express アプリの組み立ては app.ts にあり、統合テストは listen せずに
 // app を import できる。
 
 const PORT = config.PORT
+
+// 外部要因ジョブが保存した新しい年の祝日を読む（D-13）。待たずに起動する（読めなくても同梱の一覧で動く）
+void loadStoredHolidays()
 
 export const server = app.listen(PORT, () => {
   logger.info({

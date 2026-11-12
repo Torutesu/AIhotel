@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { ErrorState } from "@/components/error-state"
+import { OneTimePasswordField } from "@/components/settings/one-time-password"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import {
@@ -426,24 +427,7 @@ export function UserManagementSection() {
               （メール送信が設定されていない、または送信に失敗したため画面に表示しています）。
             </DialogDescription>
           </DialogHeader>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 rounded-md border bg-muted px-3 py-2 font-mono text-base tracking-wider">
-              {issuedPassword?.password}
-            </code>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (!issuedPassword) return
-                void navigator.clipboard
-                  .writeText(issuedPassword.password)
-                  .then(() => toast.success("コピーしました"))
-                  .catch(() => toast.error("コピーできませんでした。手動で控えてください"))
-              }}
-            >
-              コピー
-            </Button>
-          </div>
+          {issuedPassword && <OneTimePasswordField password={issuedPassword.password} />}
         </DialogContent>
       </Dialog>
 

@@ -78,6 +78,15 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
     return rows.map((r) => r.recommendedRank as number)
   }
 
+  async function readPredictedOccupancy(): Promise<number[]> {
+    const rows = await prisma.aiPriceRecommendation.findMany({
+      where: { hotelId: HOTEL, roomTypeId: null },
+      orderBy: { date: 'asc' },
+      select: { predictedOccupancy: true },
+    })
+    return rows.map((r) => r.predictedOccupancy as number)
+  }
+
   beforeAll(async () => {
     const appModule = await import('../app.js')
     app = appModule.app as unknown as Express
@@ -235,7 +244,7 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       await setWeights(60, 20, 20)
       await recomputeAndReadRanks()
       const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL } })
-      expect(row.modelVersion).toBe('rule-based-v5')
+      expect(row.modelVersion).toBe('rule-based-v6')
     })
   })
 
@@ -473,13 +482,43 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       }
     })
 
+    it('市場の動き（エージェントが集めたもの）を予測稼働率に足し、推奨理由に残す（D-13）', async () => {
+      await setWeights(100, 0, 0)
+      await recomputeAndReadRanks()
+      const before = await readPredictedOccupancy()
+      await prisma.marketSignal.create({
+        data: {
+          tenantId: TENANT,
+          hotelId: HOTEL,
+          kind: 'access',
+          title: '新しい直行便',
+          summary: '冬ダイヤで増便',
+          periodStart: today,
+          periodEnd: endDate,
+          direction: 'up',
+          magnitude: 'medium',
+        },
+      })
+      try {
+        await recomputeAndReadRanks()
+        const after = await readPredictedOccupancy()
+        after.forEach((occ, i) => expect(occ).toBeGreaterThan(before[i]))
+        const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL, roomTypeId: null, date: today } })
+        const market = (row.rationale as { adjustments: Array<{ key: string; impact: number }> }).adjustments.find((a) => a.key === 'market')
+        expect(market?.impact).toBe(0.03)
+      } finally {
+        await prisma.marketSignal.deleteMany({ where: { hotelId: HOTEL } })
+      }
+    })
+
     it('特殊日に登録した期間の実績は、同曜日平均の基準に使わない', async () => {
       await setWeights(100, 0, 0)
       const lastWeek = { gte: addUtcDays(today, -7), lte: addUtcDays(today, -1) }
       // 直近1週間だけ満室（台風明けの特需などを想定）
       await prisma.dailyData.updateMany({ where: { hotelId: HOTEL, date: lastWeek }, data: { occupancy: 1 } })
       try {
-        const withSpike = await recomputeAndReadRanks()
+        await recomputeAndReadRanks()
+        const withSpike = await readPredictedOccupancy()
         const created = await request(app)
           .post('/api/v1/events')
           .set(auth())
@@ -492,9 +531,11 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
             excludeFromHistory: true,
           })
         expect(created.status, JSON.stringify(created.body)).toBe(201)
-        const excluded = await recomputeAndReadRanks()
-        // 満室の週を外すと同曜日平均が 0.625 → 0.5 に戻り、推奨が下がる
-        excluded.forEach((rank, i) => expect(rank).toBeLessThan(withSpike[i]))
+        await recomputeAndReadRanks()
+        const excluded = await readPredictedOccupancy()
+        // 満室の週を外すと同曜日平均（0.625 → 0.5）と近傍（満室の日が近傍から消える）が戻り、予測稼働率が下がる。
+        // v6 は近傍の着地を強く混ぜるので、ランクの丸めでは差が消える日があるため予測稼働率で比べる
+        excluded.forEach((occ, i) => expect(occ).toBeLessThan(withSpike[i]))
       } finally {
         await prisma.dailyData.updateMany({ where: { hotelId: HOTEL, date: lastWeek }, data: { occupancy: 0.5 } })
         await prisma.event.deleteMany({ where: { hotelId: HOTEL } })

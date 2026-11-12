@@ -18,6 +18,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
 import { EventDialog, type EventFormValues } from "@/components/pricing/event-dialog"
+import { EventSourceBadge } from "@/components/external-demand/event-source-badge"
 import {
   eventTypeLabel,
   formatEventRange,
@@ -137,6 +138,7 @@ export function EventListCard({ events, loading, error, onReload, onManage }: Ev
                           特殊日
                         </Badge>
                       )}
+                      <EventSourceBadge event={ev} />
                     </div>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {formatEventRange(ev.startDate, ev.endDate)}

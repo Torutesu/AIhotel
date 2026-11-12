@@ -164,6 +164,11 @@ export interface PricingCalendarDay {
   /** 月の予算ADR（どの日も同じ値） */
   budgetAdr: number | null
   budgetRevenue: number | null
+  /**
+   * 日の予算の出どころ（D-13）。imported = 日別予算を登録した日、ai = 月の予算の残りを AI の予測売上の比で配った日（月の初日が90日以内）、
+   * lastYear = 前年同曜日の比で配った日。予算が無ければ null（この列を返す前のバックエンドでは undefined）
+   */
+  budgetSource?: "imported" | "ai" | "lastYear" | null
   /** オンハンド（今の予約室数）。結果の出た日は販売室数 */
   onHandRooms: number | null
   /** 現在稼働率（結果の出た日は実績、先の日はオンハンド ÷ 客室数） */
@@ -334,9 +339,9 @@ export interface RecommendationRationale {
     weight: number
     input: Record<string, number | string | null>
   }>
-  /** pace = 前年同曜日と比べた予約の入り方、otbFloor = 予約済みの室数を下限にした引き上げ（D-11） */
+  /** pace = 前年同曜日と比べた予約の入り方、otbFloor = 予約済みの室数を下限にした引き上げ（D-11）、pattern = 背景と入り方の近い過去の日の着地（D-13）、market = 外部要因エージェントが集めた市場の動き（±6pt まで。input は { signals: 件数 }） */
   adjustments: Array<{
-    key: "event" | "weekend" | "pace" | "otbFloor"
+    key: "event" | "weekend" | "pace" | "otbFloor" | "pattern" | "coldStart" | "market"
     impact: number
     input?: Record<string, number | string | null>
   }>
@@ -347,6 +352,8 @@ export interface RecommendationRationale {
     from: number
     to: number
   }>
+  /** 月の予算への向き合い方（D-13）。onTrack = 届いている、chase = 追う（優先モデルを1段稼働寄り）、giveUp = 未達前提で売上を最大化 */
+  budget?: { stance: "onTrack" | "chase" | "giveUp"; gap: number }
 }
 
 export interface BookingCurvePoint {
@@ -404,6 +411,8 @@ export interface DayInsight {
   typeProfile: {
     name: string
     model: DayModel
+    /** 着地の象限（例: 高稼働・高単価 — D-13。デモデータには無い） */
+    quadrantLabel?: string
     days: number
     avgOccupancy: number
     minOccupancy: number
@@ -412,13 +421,39 @@ export interface DayInsight {
     referenceCurve: Array<{ daysBefore: number; roomsBooked: number }>
   } | null
   /** 同じ区分の型の一覧（AI が作った型の数と構成） */
-  categoryTypes: Array<{ name: string; model: DayModel; days: number; avgOccupancy: number; avgAdr: number | null }>
+  categoryTypes: Array<{ name: string; model: DayModel; quadrantLabel?: string; days: number; avgOccupancy: number; avgAdr: number | null }>
+  /** マイルストーン別のピックアップと、背景・入り方の近い過去の日からの着地（D-13）。先の日だけ。材料が足りなければ null */
+  pattern?: {
+    predictedOccupancy: number
+    predictedAdr: number | null
+    pickupRooms: number | null
+    neighbors: number
+    spread: number
+    similarDates: string[]
+    paceCluster: {
+      id: string
+      shape: "先行型" | "標準型" | "直前型"
+      days: number
+      finalOccupancy: number
+      terms: Array<{ label: string; pickup: number }>
+    } | null
+    paceClusterCount: number
+  } | null
   /** 同じタイプの日（参考に5日まで。結果の出た日は実績、先の日は AI の予測） */
   similarDays: Array<{ date: string; dayType: string; isActual: boolean; occupancy: number | null; adr: number | null; recommendedPrice: number | null }>
   /** その日の外部要因（登録したイベント） */
   events: Array<{ name: string; type: string; location: string | null; expectedImpact: string | null; excludeFromHistory: boolean }>
-  /** 天候（外部データの取り込み前のため null） */
-  weather: null
+  /** 天気（気象庁の予報 — D-13。過ぎた日は最後に取った予報。予報が無ければ null。表示するときは attribution を添える） */
+  weather: {
+    weatherCode: string
+    weatherText: string | null
+    pop: number | null
+    tempMax: number | null
+    tempMin: number | null
+    reliability: string | null
+    reportedAt: string
+    attribution: string
+  } | null
 }
 
 export interface DaySimulationOption {
@@ -661,6 +696,10 @@ export interface UpdateHotelSettingsInput {
   marketArea?: string | null
   /** 販売開始: 宿泊日の何日前（2026-10）。null で未設定に戻す */
   saleOpenDaysBefore?: number | null
+  /** 気象庁の府県予報区（6桁 — D-13）。null で都道府県からの自動に戻す */
+  weatherAreaCode?: string | null
+  /** 開業日（YYYY-MM-DD — D-13）。開業1年未満のホテルの初期設定の基準と需要予測に使う */
+  openedOn?: string | null
 }
 
 /** 初期設定の進み具合（#13）。GET /hotels/:id/setup-status */
@@ -669,7 +708,7 @@ export interface SetupStatus {
   /** 必須項目がすべて完了しているか */
   ready: boolean
   items: Array<{
-    key: "basic" | "roomTypes" | "priceRanks" | "competitors" | "actuals" | "users" | "budget"
+    key: "basic" | "roomTypes" | "priceRanks" | "competitors" | "actuals" | "users" | "budget" | "strategy" | "saleOpen" | "otb"
     label: string
     required: boolean
     done: boolean

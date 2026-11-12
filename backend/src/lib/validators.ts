@@ -222,6 +222,22 @@ export const eventsQuerySchema = z.object({
 // Hotel Settings Validators（F-SET-01）
 // ======================================
 
+const weekendDaysSchema = z
+  .array(z.number().int().min(0).max(6))
+  .min(1, '週末は1曜日以上指定してください')
+  .max(7)
+  .refine((days) => new Set(days).size === days.length, {
+    message: '週末の曜日が重複しています',
+  })
+const saleOpenDaysBeforeSchema = z
+  .number()
+  .int()
+  .min(1, '販売開始は1日前以上で指定してください')
+  .max(540, '販売開始は540日前以下で指定してください')
+  .nullable()
+  .optional()
+const weatherAreaCodeSchema = z.string().regex(/^\d{6}$/, '気象庁の予報区のコードは6桁の数字で指定してください').nullable().optional()
+
 export const updateHotelSettingsSchema = z.object({
   name: z.string().min(1, 'ホテル名は必須です').max(200).optional(),
   address: z.string().max(500).optional(),
@@ -231,22 +247,20 @@ export const updateHotelSettingsSchema = z.object({
   // 週末定義（チェックイン日基準の曜日番号、0=日曜〜6=土曜）。デフォルトは金・土 [5, 6]。
   // 空配列を許すと「週末が存在しない」設定になり週末補正・レポートの週末判定が壊れ、
   // 重複を許すと同じ曜日が二重に数えられるため、どちらも弾く（C-11）
-  weekendDays: z
-    .array(z.number().int().min(0).max(6))
-    .min(1, '週末は1曜日以上指定してください')
-    .max(7)
-    .refine((days) => new Set(days).size === days.length, {
-      message: '週末の曜日が重複しています',
-    })
-    .optional(),
+  weekendDays: weekendDaysSchema.optional(),
   // ホテルタイプとマーケット（#13）
   hotelType: hotelBaseSchema.shape.hotelType,
   prefectureCode: hotelBaseSchema.shape.prefectureCode,
   municipalityCode: hotelBaseSchema.shape.municipalityCode,
   marketArea: hotelBaseSchema.shape.marketArea,
   // 販売開始（宿泊日の何日前 — 2026-10 PDF b04）。null で未設定に戻す
-  saleOpenDaysBefore: z.number().int().min(1, '販売開始は1日前以上で指定してください').max(540, '販売開始は540日前以下で指定してください').nullable().optional(),
+  saleOpenDaysBefore: saleOpenDaysBeforeSchema,
+  // 気象庁の府県予報区（D-13）。null で都道府県からの自動に戻す
+  weatherAreaCode: weatherAreaCodeSchema,
+  // 開業日（D-13）。開業1年未満のホテルの初期設定の基準と需要予測に使う
+  openedOn: dateOnlyInputSchema.nullable().optional(),
 }).refine(municipalityMatchesPrefecture, municipalityMismatch)
+
 
 // ======================================
 // Budget Validators（N-1 / F-SET-04）
@@ -288,6 +302,31 @@ export const upsertBudgetsSchema = z
     path: ['months'],
     message: '同じ月が重複しています',
   })
+
+/**
+ * 日別の予算（D-13）。送った日だけを upsert し、室数・売上の両方を null にした日は登録を消す（月次予算の配分に戻す）。
+ * 1回で1年分（366日）まで。同じ日の重複は 400
+ */
+export const upsertDailyBudgetsSchema = z
+  .object({
+    hotelId: entityIdSchema,
+    days: z
+      .array(
+        z.object({
+          date: dateOnlyInputSchema,
+          budgetRooms: z.number().int().min(0).nullable(),
+          budgetRevenue: z.number().min(0).nullable(),
+        })
+      )
+      .min(1, '1日以上指定してください')
+      .max(MAX_QUERY_RANGE_DAYS),
+  })
+  .refine((data) => new Set(data.days.map((d) => d.date.getTime())).size === data.days.length, {
+    ...ifFieldsValid,
+    path: ['days'],
+    message: '同じ日が重複しています',
+  })
+export type UpsertDailyBudgetsInput = z.infer<typeof upsertDailyBudgetsSchema>
 
 // ======================================
 // Competitor Validators（N-2 / F-SET-03）
@@ -431,6 +470,60 @@ export const importOtbSchema = z.object({
     .max(MAX_IMPORT_ROWS, `1回に取り込めるのは${MAX_IMPORT_ROWS}行までです`),
 })
 
+/** 過去の予約積上の一括取り込み（D-13）の最大行数。1宿泊日あたり10時点 × 1年分程度 */
+export const MAX_BOOKING_CURVE_IMPORT_ROWS = 5000
+export const importBookingCurveSchema = z.object({
+  hotelId: entityIdSchema,
+  dryRun: z.boolean().optional(),
+  rows: z
+    .array(
+      z.object({
+        stayDate: importDateSchema,
+        // 残日数（宿泊日の何日前の時点か）か、取得日（その時点の日付）のどちらか
+        daysBefore: z.number().int('残日数は整数で入力してください').min(0, '残日数は0以上で入力してください').nullable().optional(),
+        capturedDate: importDateSchema.nullable().optional(),
+        roomsBooked: z
+          .number({ error: '予約室数は数値で入力してください' })
+          .int('予約室数は整数で入力してください')
+          .min(0, '予約室数は0以上で入力してください'),
+      })
+    )
+    .min(1, '取り込む行がありません')
+    .max(MAX_BOOKING_CURVE_IMPORT_ROWS, `1回に取り込めるのは${MAX_BOOKING_CURVE_IMPORT_ROWS}行までです`),
+})
+export type ImportBookingCurveInput = z.infer<typeof importBookingCurveSchema>
+
+/**
+ * 予約明細の取り込み（D-13 — 過去の予約の推移を作る推奨の方法）。stayFrom〜stayTo の泊にかかる予約をすべて含めて送る
+ * （月ごとに分けて送れるよう、範囲は62日まで）。明細から宿泊日 × 残日数の予約室数を作って予約積上に入れる
+ */
+export const MAX_RESERVATION_IMPORT_ROWS = 10000
+export const importReservationsSchema = z
+  .object({
+    hotelId: entityIdSchema,
+    dryRun: z.boolean().optional(),
+    stayFrom: importDateSchema,
+    stayTo: importDateSchema,
+    rows: z
+      .array(
+        z.object({
+          bookedDate: importDateSchema,
+          checkInDate: importDateSchema,
+          nights: z.number().int('泊数は整数で入力してください').min(1, '泊数は1以上で入力してください').max(60, '泊数は60泊までです'),
+          rooms: z.number().int('室数は整数で入力してください').min(1, '室数は1以上で入力してください'),
+          cancelledDate: importDateSchema.nullable().optional(),
+        })
+      )
+      .min(1, '取り込む行がありません')
+      .max(MAX_RESERVATION_IMPORT_ROWS, `1回に取り込めるのは${MAX_RESERVATION_IMPORT_ROWS}行までです`),
+  })
+  .refine((d) => d.stayFrom <= d.stayTo && (Date.parse(d.stayTo) - Date.parse(d.stayFrom)) / 86_400_000 <= 62, {
+    ...ifFieldsValid,
+    path: ['stayTo'],
+    message: '宿泊日の範囲は62日以内で、開始が終了より前になるように指定してください',
+  })
+export type ImportReservationsInput = z.infer<typeof importReservationsSchema>
+
 // イベントの取り込み（外部需要動向の規定フォーム — 2026-10）。同じホテル・同じ名前・同じ開始日のイベントは上書きする
 export const MAX_EVENT_IMPORT_ROWS = 500
 export const importEventsSchema = z.object({
@@ -528,7 +621,7 @@ export const importSetupWorkbookSchema = z.object({
 // Platform（運営）Validators（#81）
 // ======================================
 
-export const createTenantSchema = z.object({
+const createTenantSchemaBase = z.object({
   name: z.string().trim().min(1, 'テナント名は必須です').max(200),
   // URL やログに出す識別子。小文字英数字とハイフン
   code: z
@@ -537,6 +630,29 @@ export const createTenantSchema = z.object({
     .toLowerCase()
     .regex(/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, 'コードは小文字英数字とハイフンの3〜50文字で入力してください'),
 })
+export const createTenantSchema = createTenantSchemaBase
+
+/**
+ * 新しいテナントの立ち上げ（D-13 / R-3-8）。テナント・最初のホテル・テナント管理者を1回で作る（運営のみ）。
+ * 途中で失敗したら何も残さない
+ */
+export const provisionTenantSchema = z.object({
+  tenant: createTenantSchemaBase,
+  admin: z.object({
+    email: z.string().trim().toLowerCase().email('メールアドレスの形式が不正です'),
+    name: z.string().trim().min(1, '氏名は必須です').max(100),
+  }),
+  hotel: hotelBaseSchema
+    .omit({ tenantId: true })
+    .extend({
+      weekendDays: weekendDaysSchema.optional(),
+      saleOpenDaysBefore: saleOpenDaysBeforeSchema,
+      weatherAreaCode: weatherAreaCodeSchema,
+      openedOn: dateOnlyInputSchema.nullable().optional(),
+    })
+    .refine(municipalityMatchesPrefecture, municipalityMismatch),
+})
+export type ProvisionTenantInput = z.infer<typeof provisionTenantSchema>
 
 export const updateTenantSchema = z
   .object({
@@ -651,6 +767,12 @@ export const updateAlertStatusSchema = z.object({
 
 export const hotelIdQuerySchema = z.object({
   hotelId: entityIdSchema,
+})
+
+/** 月別需要指数（D-13）。今月から months か月分（既定 6） */
+export const demandIndexQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  months: z.coerce.number().int().min(1).max(12).default(6),
 })
 
 /**

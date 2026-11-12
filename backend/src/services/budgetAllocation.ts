@@ -7,6 +7,8 @@
 //   - 前年の実績が無い日（特殊日を含む）は、実績がある日の平均の重みで配る。1日も無ければ均等に配る
 //   - 1日の予算室数は客室数を上限にし、上限で切った分は上限に届いていない日へ重みの比で配り直す
 //     （月の合計は予算のまま。月の予算が客室数×日数を超えるときだけ、超えた分は配れない）
+// D-13: 日別の予算を登録した日（fixed）はその値を使い、月の予算から登録済みの合計を引いた残りをほかの日に配る。
+// 重みは呼び出し側が選ぶ（3か月以内は AI の予測売上、それより先は前年同曜日の販売室数 — dayContextService.ts）。
 // DB に触れない純関数にしてテストで固定する。
 
 export interface MonthBudgetInput {
@@ -116,4 +118,53 @@ export function allocateDailyBudget(
       revPar: dayRevenue == null ? null : Math.round(dayRevenue / totalRooms),
     }
   })
+}
+
+export interface FixedDailyBudget {
+  rooms: number | null
+  revenue: number | null
+}
+
+/**
+ * 日別の予算を登録した日を固定して、月の予算の残りをほかの日に配る（D-13）。
+ * fixed は weights と同じ並びで、登録の無い日は null。月の予算が無ければ登録した日だけ値を持つ
+ */
+export function allocateDailyBudgetWithFixed(
+  budget: MonthBudgetInput | null,
+  totalRooms: number,
+  weights: Array<number | null>,
+  fixed: Array<FixedDailyBudget | null>
+): DailyBudget[] {
+  const days = weights.length
+  const fixedDay = (f: FixedDailyBudget): DailyBudget => {
+    const adr = f.rooms != null && f.rooms > 0 && f.revenue != null ? Math.round(f.revenue / f.rooms) : null
+    return {
+      rooms: f.rooms,
+      occupancy: f.rooms == null || totalRooms <= 0 ? null : Math.round((f.rooms / totalRooms) * 1000) / 1000,
+      adr,
+      revenue: f.revenue == null ? null : Math.round(f.revenue),
+      revPar: f.revenue == null || totalRooms <= 0 ? null : Math.round(f.revenue / totalRooms),
+    }
+  }
+  if (fixed.every((f) => f == null)) return allocateDailyBudget(budget, totalRooms, weights)
+  if (!budget || totalRooms <= 0) return fixed.map((f) => (f ? fixedDay(f) : EMPTY))
+
+  const monthRooms = monthBudgetRooms(budget, totalRooms, days)
+  const monthAdr =
+    budget.budgetAdr ??
+    (budget.budgetRevenue != null && monthRooms != null && monthRooms > 0 ? budget.budgetRevenue / monthRooms : null)
+  const monthRevenue = budget.budgetRevenue ?? (monthRooms != null && monthAdr != null ? monthRooms * monthAdr : null)
+  const fixedRooms = fixed.reduce((a, f) => a + (f?.rooms ?? 0), 0)
+  const fixedRevenue = fixed.reduce((a, f) => a + (f?.revenue ?? 0), 0)
+  const openIdx = fixed.map((f, i) => (f == null ? i : -1)).filter((i) => i >= 0)
+  const rest: MonthBudgetInput = {
+    budgetRooms: monthRooms == null ? null : Math.max(0, Math.round(monthRooms - fixedRooms)),
+    budgetRevenue: monthRevenue == null ? null : Math.max(0, monthRevenue - fixedRevenue),
+    budgetAdr: null,
+    budgetOccupancy: null,
+  }
+  const spread = openIdx.length > 0 ? allocateDailyBudget(rest, totalRooms, openIdx.map((i) => weights[i])) : []
+  const result: DailyBudget[] = fixed.map((f) => (f ? fixedDay(f) : EMPTY))
+  openIdx.forEach((dayIndex, j) => (result[dayIndex] = spread[j]))
+  return result
 }

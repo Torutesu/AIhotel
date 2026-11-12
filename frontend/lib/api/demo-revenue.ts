@@ -181,6 +181,7 @@ export function enrichMockPricingCalendar(calendar: ReturnType<typeof mockPricin
         budgetOccupancy: budgets[i].occupancy,
         budgetAdr: budgets[i].adr,
         budgetRevenue: budgets[i].revenue,
+        budgetSource: budgets[i].rooms != null || budgets[i].revenue != null ? ("lastYear" as const) : null,
         onHandRooms,
         currentOccupancy: day.actualOccupancy ?? Math.round((onHandRooms / totalRooms) * 1000) / 1000,
         onHandAdr,

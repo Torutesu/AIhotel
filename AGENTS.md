@@ -71,12 +71,17 @@ pnpm --filter backend build && pnpm --filter frontend build
 
 ## 未実装領域（Phase 4 — 「実装済み」と報告しないこと）
 
-PMS/OTA連携・スクレイピング・需要予測ML・Claude APIによるAIコメント生成。
+PMS/OTA連携・Booking.com・Agoda の巡回の実ページでの確認（取得元は登録済みだが未確認。じゃらんは確認済み・楽天は公式 API）・需要予測ML・
+Claude APIによるAIコメント（AI解説）の生成。
 対応するDBテーブルとAPIの器は存在し、現在はseedデータ・CSV 取り込み（#82）・ルールベース予測で動作している。
 
 次は**実装済み**なので「未実装」と書かない:
 - PDF/Excel出力（`services/reportsService.ts`、`GET /reports/monthly?format=pdf|excel`。レポートタブから接続済み）
 - 日次バッチ（`jobs/daily.ts`、コンテナは `job daily`）。スケジューラへの登録はデプロイ先の作業（`docs/運用手順書.md`）
+- 外部要因の取得（`job external-signals` — D-13）: 気象庁の天気・内閣府の祝日・外部要因エージェント（Claude API ＋ Web 検索で
+  イベント・新規ホテル・市場の動きを集める。`ANTHROPIC_API_KEY` を設定したときだけ動く）
+- 需要予測 `rule-based-v6`（D-13）: 着地の4象限の日のタイプ、マイルストーン別のピックアップ型、似た日の着地、日別予算、
+  予算への向き合い方、実績の少ないホテルのコールドスタート。ML ではなくルールと統計（k-means・近傍）で、閾値の多くは暫定値
 
 **画面の実装状況は要件定義書 §6 の表を正とする。** 分析タブの大半・外部需要動向タブ（旧 AIまとめ。登録したイベント・新規ホテル以外）は
 コンポーネント内のサンプルデータで表示している。サンプル表示のセクションには必ずその旨をUIに明示し、

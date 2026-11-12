@@ -169,20 +169,19 @@ describeIntegration('デモ画面の修正で足した API（2026-10）', () => 
   })
 
   describe('料金カレンダー（DP02 / DP03 / DP04）', () => {
-    it('予算を前年同曜日の販売室数の比で日に配り、ADR は月の値にする', async () => {
+    it('3か月以内の月は予算を AI の予測売上の比で日に配り、ADR は月の値にする（D-13）', async () => {
       const res = await get('/api/v1/pricing/calendar', tokens.operator, { hotelId: HOTEL_A, year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 })
       expect(res.status, JSON.stringify(res.body)).toBe(200)
       expect(res.body.data.totalRooms).toBe(TOTAL_ROOMS)
       const days = res.body.data.calendar as Array<Record<string, number | string | null>>
-      const n = daysIn(next)
-      // 重み: 15日だけ 80、他は 40 → 15日の予算室数 = 50n × 80 / (40(n−1) + 80)
-      const expected15 = Math.round((50 * n * 80) / (40 * (n - 1) + 80))
+      // 来月はどの日も予測が同じ（稼働 70%・ADR 11,000円）→ 月の予算 50室 × 日数を均等に配る
+      // （前年同曜日の比で配るのは、AI の予測が揃っていない月 — dailyBudget.integration.test.ts）
       const day15 = days[14]
-      expect(day15.budgetRooms).toBe(expected15)
+      expect(day15.budgetSource).toBe('ai')
+      expect(day15.budgetRooms).toBe(50)
       expect(day15.budgetAdr).toBe(10_000)
-      expect(day15.budgetRevenue).toBe(Math.round((50 * n * 10_000 * 80) / (40 * (n - 1) + 80)))
-      expect(day15.budgetOccupancy).toBeCloseTo(expected15 / TOTAL_ROOMS, 2)
-      expect(Number(days[0].budgetRooms)).toBeLessThan(expected15)
+      expect(day15.budgetRevenue).toBe(500_000)
+      expect(day15.budgetOccupancy).toBeCloseTo(50 / TOTAL_ROOMS, 2)
       // 想定売上 = 70室 × 11,000円
       expect(day15.expectedRevenue).toBe(770_000)
     })

@@ -1,17 +1,22 @@
-// 日のタイプ（日のモデル — 2026-10 の画面修正。PDF b01・b02・b03・c分析01実績推移2、xlsx DP02・DP03・分析03）。
+// 日のタイプ（日のモデル — 2026-10 の画面修正。PDF b01・b02・b03・c分析01実績推移2、xlsx DP02・DP03・分析03。
+// D-13 で先方の「需要予測手段（案）」②に合わせて分け方を置き換えた）。
 //
 // 先方の指示: 「平日A型・平日B型・週末A型・特日A型…のように日を分類する。種類の数と構成は AI に判断させる」
 // 「稼働と単価のどちらを優先するかは日の分類で AI が割り当て、販売の進み方で最適なモデルに変える」
-// 「日のタイプはリードタイムで変わるので履歴も出す」「周辺日は日のタイプが同じ傾向の日を参考に出す」。
+// 「最終的な着地点（最終OCC・ADR）から逆算して、高稼働・高単価／高稼働・低単価／低稼働・高単価／低稼働・低単価に分類する」。
 // ここでは次のように分ける（DB 非依存の純関数。データの読み込みは services/dayTypeService.ts）:
-//   1. 日の区分: 特日（祝日・お盆・年末年始・GW、特殊日のイベント）／週末（Hotel.weekendDays）／平日
-//   2. 区分ごとに、過去の結果（最終の稼働率）を自然な切れ目で 1〜4 群に分ける（Jenks の自然分類。群の数はデータで決める）。
-//      稼働の高い群から A・B・C・D 型（例: 平日A型）
-//   3. 型ごとに、典型的なブッキングカーブ（残日数ごとの「最終に対する予約の割合」の中央値）と優先モデルを持つ
-//      （平均稼働 85%以上 = 単価優先、65%以下 = 稼働優先、その間 = バランス）
-//   4. 先の日は、今の予約室数が型の典型カーブ（その残日数での予約室数）のどれに近いかで型を決める。
-//      予約が進むと型が変わり、優先モデルも変わる（＝販売の進み方で最適なモデルに変える）。
-//      予約の記録が無ければ AI の予測稼働率、結果の出た日は最終の稼働率で決める
+//   1. 日の区分: 特日（祝日・祝前日・お盆・年末年始・GW、特殊日のイベント）／週末（Hotel.weekendDays）／平日
+//   2. 区分ごとに、過去の日の最終の稼働率と ADR の中央値で4象限に分ける。
+//      A = 高稼働・高単価、B = 高稼働・低単価、C = 低稼働・高単価、D = 低稼働・低単価（例: 平日B型）。
+//      ADR の記録が無い区分は稼働だけで A（高稼働）・D（低稼働）。日数が MIN_DAYS_PER_TYPE に満たない象限は、
+//      稼働の同じ側の象限にまとめる。日数が少ない・ばらつきが小さい区分は A 型の1つ
+//   3. 型ごとに、典型的なブッキングカーブ（残日数ごとの「最終に対する予約の割合」の中央値）と優先モデルを持つ。
+//      高稼働（A・B）= 単価優先、低稼働（C・D）= 稼働優先。ただし高稼働の象限でも平均稼働が 65%以下ならバランス、
+//      低稼働の象限でも 85%以上ならバランス（ホテル全体が強い・弱いときに極端に寄せない）
+//   4. 先の日は、今の予約室数が型の典型カーブ（その残日数での予約室数）のどれに近いかで稼働の側を決め、
+//      予測 ADR があれば単価の側を決める。予約が進むと型が変わり、優先モデルも変わる。
+//      予約の記録が無ければ AI の予測稼働率、結果の出た日は最終の稼働率・ADR で決める
+// リードタイムのマイルストーン別のピックアップの型（①）と、背景が近い日からの予測は dayPattern.ts。
 
 import { otbAtLead, leadDaysBetween, type BookingCurvePoint } from './pace.js'
 
@@ -22,19 +27,27 @@ export const DAY_CATEGORY_LABELS: Record<DayCategory, string> = { weekday: '平�
 export type DayModel = 'occupancy' | 'balanced' | 'adr'
 export const DAY_MODEL_LABELS: Record<DayModel, string> = { occupancy: '稼働優先', balanced: 'バランス', adr: '単価優先' }
 
+/** 着地の4象限 */
+export type DayQuadrant = 'A' | 'B' | 'C' | 'D'
+export const DAY_QUADRANT_LABELS: Record<DayQuadrant, string> = {
+  A: '高稼働・高単価',
+  B: '高稼働・低単価',
+  C: '低稼働・高単価',
+  D: '低稼働・低単価',
+}
+
 /** 型の数の上限（A〜D） */
 export const MAX_DAY_TYPES = 4
-/** 1つの型に必要な日数。これより小さい群には分けない */
+/** 1つの型に必要な日数。これより小さい象限は稼働の同じ側にまとめる */
 export const MIN_DAYS_PER_TYPE = 5
-/** 群に分けたときの説明力（GVF）がこれ以上なら、それ以上は分けない */
-export const GOOD_FIT_GVF = 0.8
-/** 稼働率のばらつき（標準偏差）がこれ未満なら分けない（どの日も同じような日） */
+/** 稼働率のばらつき（標準偏差）がこれ未満、かつ ADR のばらつき（変動係数）が MIN_ADR_SPREAD 未満なら分けない */
 export const MIN_OCCUPANCY_SPREAD = 0.03
-/** 平均の稼働がこれ以上の型は単価優先、これ以下の型は稼働優先 */
+export const MIN_ADR_SPREAD = 0.03
+/** 平均の稼働がこれ以上の型は単価優先、これ以下の型は稼働優先（象限の向きと食い違うときはバランス） */
 export const ADR_PRIORITY_OCCUPANCY = 0.85
 export const OCCUPANCY_PRIORITY_OCCUPANCY = 0.65
 /** 典型カーブを出す残日数（予約積上を取り込む残日数とそろえる） */
-export const CURVE_GRID_LEADS = [180, 120, 90, 60, 45, 30, 21, 14, 7, 3, 1, 0] as const
+export const CURVE_GRID_LEADS = [180, 120, 90, 60, 45, 30, 21, 14, 7, 5, 3, 1, 0] as const
 /** 典型カーブの1点に必要な日数 */
 const MIN_CURVE_SAMPLES = 3
 /** 日のタイプの履歴を出す残日数（日のAI分析で「90日前 平日B型 → 現在 平日A型」のように並べる） */
@@ -60,6 +73,10 @@ export interface DayTypeProfile {
   name: string
   category: DayCategory
   letter: string
+  /** 着地の象限（A〜D）。まとめた型は日数の多い象限 */
+  quadrant: DayQuadrant
+  /** 例: "高稼働・高単価"。稼働の側だけでまとめた型は "高稼働" / "低稼働" */
+  quadrantLabel: string
   /** 型に入った過去の日数 */
   days: number
   /** 平均の最終稼働率 */
@@ -69,6 +86,10 @@ export interface DayTypeProfile {
   maxOccupancy: number
   avgAdr: number | null
   model: DayModel
+  /** 区分の稼働率の境目（中央値）。これ以上が高稼働 */
+  occupancyThreshold: number
+  /** 区分の ADR の境目（中央値）。これ以上が高単価。ADR の記録が無い区分は null */
+  adrThreshold: number | null
   /** 典型カーブ: 残日数ごとの「最終に対する予約の割合」の中央値。日数が足りない残日数は含めない */
   curveShare: Array<{ daysBefore: number; share: number }>
 }
@@ -76,10 +97,10 @@ export interface DayTypeProfile {
 const round3 = (v: number) => Math.round(v * 1000) / 1000
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0)
 const mean = (values: number[]) => sum(values) / values.length
-const sse = (values: number[]) => {
+const std = (values: number[]) => {
   if (values.length === 0) return 0
   const m = mean(values)
-  return sum(values.map((v) => (v - m) ** 2))
+  return Math.sqrt(sum(values.map((v) => (v - m) ** 2)) / values.length)
 }
 const median = (values: number[]) => {
   const s = [...values].sort((a, b) => a - b)
@@ -87,75 +108,26 @@ const median = (values: number[]) => {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
 }
 
-/**
- * 並べた値を k 群に分ける（Jenks の自然分類: 群の中のばらつきの合計が最小になる切れ目を動的計画法で探す）。
- * 戻り値は小さい値の群から順
- */
-export function naturalBreaks(sorted: number[], k: number): number[][] {
-  const n = sorted.length
-  if (k <= 1 || n <= k) return k <= 1 || n === 0 ? [sorted] : sorted.map((v) => [v])
-  // prefix sums で区間の SSE を O(1) で出す
-  const ps = [0]
-  const ps2 = [0]
-  for (const v of sorted) {
-    ps.push(ps[ps.length - 1] + v)
-    ps2.push(ps2[ps2.length - 1] + v * v)
-  }
-  const cost = (i: number, j: number) => {
-    // [i, j) の SSE
-    const cnt = j - i
-    const s = ps[j] - ps[i]
-    return ps2[j] - ps2[i] - (s * s) / cnt
-  }
-  // dp[c][j] = 先頭 j 個を c 群に分けた最小 SSE
-  const dp: number[][] = Array.from({ length: k + 1 }, () => new Array(n + 1).fill(Infinity))
-  const cut: number[][] = Array.from({ length: k + 1 }, () => new Array(n + 1).fill(0))
-  dp[0][0] = 0
-  for (let c = 1; c <= k; c++) {
-    for (let j = c; j <= n; j++) {
-      for (let i = c - 1; i < j; i++) {
-        const v = dp[c - 1][i] + cost(i, j)
-        if (v < dp[c][j]) {
-          dp[c][j] = v
-          cut[c][j] = i
-        }
-      }
-    }
-  }
-  const classes: number[][] = []
-  let j = n
-  for (let c = k; c >= 1; c--) {
-    const i = cut[c][j]
-    classes.unshift(sorted.slice(i, j))
-    j = i
-  }
-  return classes
-}
-
-/**
- * 1つの区分の稼働率を群に分ける。群の数は 1〜MAX_DAY_TYPES の中で、
- * 説明力が GOOD_FIT_GVF に届いた最小の数（どの群も MIN_DAYS_PER_TYPE 日以上）
- */
-export function chooseOccupancyClasses(values: number[]): number[][] {
-  if (values.length === 0) return []
-  const sorted = [...values].sort((a, b) => a - b)
-  const total = sse(sorted)
-  if (sorted.length < MIN_DAYS_PER_TYPE * 2 || Math.sqrt(total / sorted.length) < MIN_OCCUPANCY_SPREAD) return [sorted]
-  let best: number[][] = [sorted]
-  for (let k = 2; k <= MAX_DAY_TYPES; k++) {
-    const classes = naturalBreaks(sorted, k)
-    if (classes.some((c) => c.length < MIN_DAYS_PER_TYPE)) break
-    best = classes
-    const fit = 1 - sum(classes.map(sse)) / total
-    if (fit >= GOOD_FIT_GVF) break
-  }
-  return best
-}
-
+/** 平均の稼働だけで決める優先モデル（象限に分けられない区分の A 型） */
 export function modelForOccupancy(avgOccupancy: number): DayModel {
   if (avgOccupancy >= ADR_PRIORITY_OCCUPANCY) return 'adr'
   if (avgOccupancy <= OCCUPANCY_PRIORITY_OCCUPANCY) return 'occupancy'
   return 'balanced'
+}
+
+/** 象限と平均の稼働から優先モデルを決める */
+export function modelForQuadrant(quadrant: DayQuadrant, avgOccupancy: number): DayModel {
+  const high = quadrant === 'A' || quadrant === 'B'
+  if (high) return avgOccupancy <= OCCUPANCY_PRIORITY_OCCUPANCY ? 'balanced' : 'adr'
+  return avgOccupancy >= ADR_PRIORITY_OCCUPANCY ? 'balanced' : 'occupancy'
+}
+
+/** 稼働・ADR と区分の境目から象限を決める（ADR が分からなければ同じ稼働の側の高単価の象限） */
+export function quadrantOf(occupancy: number, adr: number | null, occupancyThreshold: number, adrThreshold: number | null): DayQuadrant {
+  const high = occupancy >= occupancyThreshold
+  const highAdr = adr == null || adrThreshold == null ? true : adr >= adrThreshold
+  if (high) return highAdr ? 'A' : 'B'
+  return highAdr ? 'C' : 'D'
 }
 
 /** 型の典型カーブ（残日数ごとの「最終に対する予約の割合」の中央値） */
@@ -173,46 +145,82 @@ function buildCurveShare(members: DayTypeHistoryDay[]): DayTypeProfile['curveSha
   return result
 }
 
-/** 過去の日から、区分ごとの型を作る。区分ごとに稼働の高い群から A・B・C・D */
+interface Group {
+  quadrant: DayQuadrant
+  label: string
+  members: DayTypeHistoryDay[]
+}
+
+/** 1つの区分の日を象限に分ける。小さい象限は稼働の同じ側にまとめ、それでも小さければ区分全体を1つにする */
+function groupByQuadrant(days: DayTypeHistoryDay[]): { groups: Group[]; occT: number; adrT: number | null } {
+  const occT = median(days.map((d) => d.occupancy))
+  const adrs = days.map((d) => d.adr).filter((v): v is number => v != null)
+  const adrT = adrs.length >= MIN_DAYS_PER_TYPE ? median(adrs) : null
+  const occSpread = std(days.map((d) => d.occupancy))
+  const adrSpread = adrs.length > 0 ? std(adrs) / Math.max(1, mean(adrs)) : 0
+  const single = (): Group[] => [{ quadrant: 'A', label: '全体', members: days }]
+  if (days.length < MIN_DAYS_PER_TYPE * 2 || (occSpread < MIN_OCCUPANCY_SPREAD && adrSpread < MIN_ADR_SPREAD)) {
+    return { groups: single(), occT, adrT }
+  }
+
+  const buckets = new Map<DayQuadrant, DayTypeHistoryDay[]>()
+  for (const day of days) {
+    // ADR が無い日は同じ稼働の側の多いほうに入れる（下で決める）ため、いったん高単価側に置く
+    const q = quadrantOf(day.occupancy, day.adr, occT, adrT)
+    buckets.set(q, [...(buckets.get(q) ?? []), day])
+  }
+  const groups: Group[] = []
+  for (const [hi, lo, sideLabel] of [
+    ['A', 'B', '高稼働'],
+    ['C', 'D', '低稼働'],
+  ] as const) {
+    const a = buckets.get(hi) ?? []
+    const b = buckets.get(lo) ?? []
+    if (a.length === 0 && b.length === 0) continue
+    if (adrT == null) {
+      // ADR の記録が無い区分は稼働だけで分ける（高稼働 = A、低稼働 = D）
+      groups.push({ quadrant: hi === 'A' ? 'A' : 'D', label: sideLabel, members: [...a, ...b] })
+    } else if (a.length >= MIN_DAYS_PER_TYPE && b.length >= MIN_DAYS_PER_TYPE) {
+      groups.push({ quadrant: hi, label: DAY_QUADRANT_LABELS[hi], members: a })
+      groups.push({ quadrant: lo, label: DAY_QUADRANT_LABELS[lo], members: b })
+    } else {
+      groups.push({ quadrant: a.length >= b.length ? hi : lo, label: sideLabel, members: [...a, ...b] })
+    }
+  }
+  if (groups.some((g) => g.members.length < MIN_DAYS_PER_TYPE)) return { groups: single(), occT, adrT }
+  return { groups, occT, adrT }
+}
+
+/** 過去の日から、区分ごとの型を作る。区分ごとに着地の象限（A〜D）で分ける */
 export function buildDayTypes(history: DayTypeHistoryDay[]): DayTypeProfile[] {
   const profiles: DayTypeProfile[] = []
   for (const category of ['weekday', 'weekend', 'special'] as const) {
     const days = history.filter((d) => d.category === category)
-    const classes = chooseOccupancyClasses(days.map((d) => d.occupancy))
-    if (classes.length === 0 || days.length < MIN_DAYS_PER_TYPE) continue
-    // 群は稼働率を小さい順に並べた値の切れ目なので、日も同じ順に並べて群の大きさで切り分ける
-    // （範囲で振り分けると、同じ値が境目の両側に入ったとき1日が2つの型に数えられる）
-    const sortedDays = [...days].sort((a, b) => a.occupancy - b.occupancy)
-    let offset = 0
-    const memberGroups = classes.map((c) => {
-      const group = sortedDays.slice(offset, offset + c.length)
-      offset += c.length
-      return group
-    })
-    // 稼働の高い群から A
-    const ordered = [...classes].reverse()
-    const orderedMembers = [...memberGroups].reverse()
-    ordered.forEach((values, index) => {
-      const letter = String.fromCharCode(65 + index)
-      const min = values[0]
-      const max = values[values.length - 1]
-      const members = orderedMembers[index]
-      const adrs = members.map((d) => d.adr).filter((v): v is number => v != null)
-      const avgOccupancy = round3(mean(values))
+    if (days.length < MIN_DAYS_PER_TYPE) continue
+    const { groups, occT, adrT } = groupByQuadrant(days)
+    const isSingle = groups.length === 1 && groups[0].label === '全体'
+    for (const group of groups.sort((a, b) => a.quadrant.localeCompare(b.quadrant))) {
+      const occ = group.members.map((d) => d.occupancy)
+      const adrs = group.members.map((d) => d.adr).filter((v): v is number => v != null)
+      const avgOccupancy = round3(mean(occ))
       profiles.push({
-        id: `${category}-${letter}`,
-        name: `${DAY_CATEGORY_LABELS[category]}${letter}型`,
+        id: `${category}-${group.quadrant}`,
+        name: `${DAY_CATEGORY_LABELS[category]}${group.quadrant}型`,
         category,
-        letter,
-        days: values.length,
+        letter: group.quadrant,
+        quadrant: group.quadrant,
+        quadrantLabel: group.label,
+        days: group.members.length,
         avgOccupancy,
-        minOccupancy: round3(min),
-        maxOccupancy: round3(max),
+        minOccupancy: round3(Math.min(...occ)),
+        maxOccupancy: round3(Math.max(...occ)),
         avgAdr: adrs.length > 0 ? Math.round(mean(adrs)) : null,
-        model: modelForOccupancy(avgOccupancy),
-        curveShare: buildCurveShare(members),
+        model: isSingle ? modelForOccupancy(avgOccupancy) : modelForQuadrant(group.quadrant, avgOccupancy),
+        occupancyThreshold: round3(occT),
+        adrThreshold: adrT == null ? null : Math.round(adrT),
+        curveShare: buildCurveShare(group.members),
       })
-    })
+    }
   }
   return profiles
 }
@@ -248,18 +256,40 @@ export interface ClassifyDayInput {
   otbRooms: number | null
   /** 結果の出た日の最終の稼働率 */
   finalOccupancy?: number | null
+  /** 結果の出た日の ADR */
+  finalAdr?: number | null
   /** 予約の記録が無いときに使う AI の予測稼働率 */
   predictedOccupancy?: number | null
+  /** AI の予測 ADR（単価の側を決める。無ければ稼働の側だけで決める） */
+  predictedAdr?: number | null
+}
+
+/** 稼働の側が決まったあと、単価の側を決める。ADR が分からなければ base のまま */
+function pickByAdr(types: DayTypeProfile[], base: DayTypeProfile, adr: number | null | undefined): DayTypeProfile {
+  if (adr == null || base.adrThreshold == null) return base
+  const high = base.quadrant === 'A' || base.quadrant === 'B'
+  const want: DayQuadrant = high ? (adr >= base.adrThreshold ? 'A' : 'B') : adr >= base.adrThreshold ? 'C' : 'D'
+  return types.find((t) => t.quadrant === want) ?? base
 }
 
 /**
  * 1日・1時点の型を決める。
- * 結果があれば最終の稼働率、予約の記録があれば型の典型カーブでのその残日数の予約室数との近さ、どちらも無ければ予測稼働率で決める
+ * 結果があれば最終の稼働率・ADR、予約の記録があれば型の典型カーブでのその残日数の予約室数との近さ、どちらも無ければ予測稼働率で
+ * 稼働の側を決め、ADR（結果か予測）で単価の側を決める
  */
 export function classifyDay(input: ClassifyDayInput): DayTypeProfile | null {
-  const { types, lead, totalRooms, otbRooms, finalOccupancy, predictedOccupancy } = input
+  const { types, lead, totalRooms, otbRooms, finalOccupancy, finalAdr, predictedOccupancy, predictedAdr } = input
   if (types.length === 0 || totalRooms <= 0) return null
-  if (finalOccupancy != null) return nearestByOccupancy(types, finalOccupancy)
+  if (finalOccupancy != null) {
+    const t = types[0]
+    const q = quadrantOf(finalOccupancy, finalAdr ?? null, t.occupancyThreshold, t.adrThreshold)
+    const side = q === 'A' || q === 'B' ? ['A', 'B'] : ['C', 'D']
+    return (
+      types.find((x) => x.quadrant === q) ??
+      types.find((x) => side.includes(x.quadrant)) ??
+      nearestByOccupancy(types, finalOccupancy)
+    )
+  }
   if (otbRooms != null) {
     const expected = types.map((t) => {
       const share = shareAtLead(t, lead)
@@ -267,10 +297,13 @@ export function classifyDay(input: ClassifyDayInput): DayTypeProfile | null {
     })
     if (expected.every((e) => e != null)) {
       const list = expected as Array<{ type: DayTypeProfile; rooms: number }>
-      return list.reduce((best, e) => (Math.abs(e.rooms - otbRooms) < Math.abs(best.rooms - otbRooms) ? e : best)).type
+      const nearest = list.reduce((best, e) => (Math.abs(e.rooms - otbRooms) < Math.abs(best.rooms - otbRooms) ? e : best)).type
+      return pickByAdr(types, nearest, predictedAdr)
     }
   }
-  if (predictedOccupancy != null) return nearestByOccupancy(types, Math.max(predictedOccupancy, (otbRooms ?? 0) / totalRooms))
+  if (predictedOccupancy != null) {
+    return pickByAdr(types, nearestByOccupancy(types, Math.max(predictedOccupancy, (otbRooms ?? 0) / totalRooms)), predictedAdr)
+  }
   return null
 }
 
@@ -308,6 +341,10 @@ export interface DayTypeTimelineInput {
   actualSoldRooms: number | null
   /** 今の AI の予測稼働率 */
   predictedOccupancy: number | null
+  /** 今の AI の予測 ADR（単価の側を決める） */
+  predictedAdr?: number | null
+  /** この日の ADR（結果が出ていれば） */
+  actualAdr?: number | null
 }
 
 const toCurrent = (t: DayTypeProfile | null): DayTypeCurrent | null =>
@@ -315,7 +352,7 @@ const toCurrent = (t: DayTypeProfile | null): DayTypeCurrent | null =>
 
 /** 1日ぶんの「今の型」と、残日数ごとの型の推移を出す */
 export function buildDayTypeTimeline(input: DayTypeTimelineInput): DayTypeTimeline {
-  const { stayDate, today, totalRooms, types, points, actualSoldRooms, predictedOccupancy } = input
+  const { stayDate, today, totalRooms, types, points, actualSoldRooms, predictedOccupancy, predictedAdr, actualAdr } = input
   const currentLead = leadDaysBetween(today, stayDate)
   const finalRooms = actualSoldRooms ?? otbAtLead(points, 0)
 
@@ -330,6 +367,7 @@ export function buildDayTypeTimeline(input: DayTypeTimelineInput): DayTypeTimeli
       totalRooms,
       otbRooms,
       finalOccupancy: atZero && finalRooms != null && totalRooms > 0 ? finalRooms / totalRooms : null,
+      finalAdr: atZero ? (actualAdr ?? null) : null,
     })
     history.push({ daysBefore: lead, dayType: type?.name ?? null, otbRooms })
   }
@@ -342,6 +380,7 @@ export function buildDayTypeTimeline(input: DayTypeTimelineInput): DayTypeTimeli
       totalRooms,
       otbRooms: finalRooms,
       finalOccupancy: finalRooms != null && totalRooms > 0 ? finalRooms / totalRooms : null,
+      finalAdr: actualAdr ?? null,
     })
   } else {
     current = classifyDay({
@@ -350,6 +389,7 @@ export function buildDayTypeTimeline(input: DayTypeTimelineInput): DayTypeTimeli
       totalRooms,
       otbRooms: otbAtLead(points, currentLead),
       predictedOccupancy,
+      predictedAdr,
     })
   }
   return { current: toCurrent(current), history }

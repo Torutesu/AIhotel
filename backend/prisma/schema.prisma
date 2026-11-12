@@ -58,6 +58,10 @@ model Tenant {
   hotelIntegrations        HotelIntegration[]
   competitorObservations   CompetitorRateObservation[]
   competitorFetchRuns      CompetitorFetchRun[]
+  weatherForecasts         WeatherForecast[]
+  marketSignals            MarketSignal[]
+  dailyBudgets             DailyBudget[]
+  externalAgentRuns        ExternalAgentRun[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -184,6 +188,12 @@ model Hotel {
   marketArea       String?
   // 販売開始: 宿泊日の何日前から売り始めるか（ホテル単位で固定。例 330・300・180 — 2026-10 PDF b04）。未設定は null
   saleOpenDaysBefore Int?
+  // 気象庁の府県予報区のコード（例 130000 = 東京都、016000 = 石狩・空知・後志地方 — D-13）。
+  // 未設定なら都道府県コードから決める（北海道・鹿児島・沖縄は地方ごとに分かれるので、道庁・県庁のある地方になる）
+  weatherAreaCode  String?
+  // 開業日（D-13）。開業から1年たたないホテルは、初期設定の「過去実績」の基準を開業からの日数に合わせ、
+  // 需要予測は過去の代わりにホテルタイプの典型的な予約の入り方（forecast/coldStart.ts）を使う。既存のホテルは null
+  openedOn         DateTime?  @db.Date
   isActive         Boolean    @default(true)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -212,6 +222,10 @@ model Hotel {
   competitorFetchRuns      CompetitorFetchRun[]
   priceBoundPeriods        PriceBoundPeriod[]
   newHotelOpenings         NewHotelOpening[]
+  weatherForecasts         WeatherForecast[]
+  marketSignals            MarketSignal[]
+  dailyBudgets             DailyBudget[]
+  externalAgentRuns        ExternalAgentRun[]
 
   @@index([tenantId])
 }
@@ -560,6 +574,24 @@ enum DemandLevel {
 }
 
 // 月間着地シミュレーション（F-DP-04）
+// 日別の予算（D-13。日の予算を持つ施設が登録する）。登録した日はこの値を優先し、月次予算の残りをほかの日に配る
+// （services/budgetAllocation.ts）。登録の無い日は、3か月以内なら AI の予測、それより先は前年同曜日の比で月次予算を配る
+model DailyBudget {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId       String
+  hotel         Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date          DateTime @db.Date
+  budgetRooms   Int?
+  budgetRevenue Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([hotelId, date])
+  @@index([tenantId])
+}
+
 model MonthlyLandingSimulation {
   id       String @id @default(cuid())
   tenantId String
@@ -860,6 +892,11 @@ model Event {
   // 特殊日（年末年始・大型連休・春節・台風など）。期間内の実績を需要予測の基準（同曜日平均・前年比較・予約ペース）から外し、
   // ふだんの日の予測が引きずられないようにする（IDeaS の Special Event に相当 — D-11）
   excludeFromHistory Boolean  @default(false)
+  // 出どころ（D-13）: manual = 画面・CSV で人が登録、agent = 外部要因エージェントが Web 検索で見つけて登録。
+  // エージェントは agent の行だけを上書き・追加し、人が登録した行には触れない
+  source             String   @default("manual")
+  // エージェントが根拠にしたページ
+  sourceUrl          String?
   // オペレーター登録（F-DP-07）の記録用
   createdByUserId    String?
   createdAt          DateTime @default(now())
@@ -886,6 +923,9 @@ model NewHotelOpening {
   distanceKm      Float?
   expectedImpact  String? // high, medium, low
   notes           String?
+  // 出どころ（D-13）: manual = 人が登録、agent = 外部要因エージェントが登録
+  source          String   @default("manual")
+  sourceUrl       String?
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -894,6 +934,91 @@ model NewHotelOpening {
   @@unique([hotelId, name, openingDate])
   @@index([tenantId])
   @@index([hotelId, openingDate])
+}
+
+// 天気の予報（気象庁 — D-13）。外部要因ジョブ（job external-signals）が毎日取り、宿泊日ごとに最後に取った予報で上書きする。
+// 過ぎた日は「前日までの最後の予報」が残るので、過去の日の天気の代わりに日の背景（dayPattern.ts）に使う
+model WeatherForecast {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  // 気象庁の府県予報区のコード（取ったときの値）
+  areaCode    String
+  // 気象庁の天気コード（例 "101" = 晴れ時々くもり。先頭の桁が 1 晴れ・2 くもり・3 雨・4 雪）
+  weatherCode String
+  weatherText String?
+  // 降水確率（%。その日の最大）
+  pop         Int?
+  tempMax     Float?
+  tempMin     Float?
+  // 週間予報の信頼度（A・B・C。近い日は null）
+  reliability String?
+  source      String   @default("jma")
+  // 気象庁の発表時刻
+  reportedAt  DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([hotelId, date])
+  @@index([tenantId])
+}
+
+// 市場の動き（D-13。先方の資料「外部要因と旅行（宿泊）の関連付け」の ③インバウンド・④桜／紅葉・⑤アクセス など、
+// 日ではなく期間で効く外部要因）。外部要因エージェントがホテルのエリアについて集める。
+// 月別需要指数（GET /external-signals/demand-index）の材料にし、需要予測にも ±6pt までの補正として効かせる（2026-11-12 先方の判断）
+model MarketSignal {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // inbound（インバウンド）, access（高速道路・航空路線）, nature（桜・紅葉・収穫）, climate（猛暑・梅雨・降雪など）,
+  // disaster（台風・地震など）, other
+  kind        String
+  title       String
+  summary     String
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  // 宿泊の需要への向き: up / down / neutral
+  direction   String
+  // 影響の大きさ: high / medium / low
+  magnitude   String
+  sourceUrl   String?
+  source      String   @default("agent")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 同じホテル・種類・タイトル・開始日の行は1つだけ（集め直したら上書きする）
+  @@unique([hotelId, kind, title, periodStart])
+  @@index([tenantId])
+  @@index([hotelId, periodStart])
+}
+
+// 外部要因エージェントの実行記録（D-13）。集め直しの間隔の判断と、費用（トークン・検索回数）の確認に使う
+model ExternalAgentRun {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId        String
+  hotel          Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // running / succeeded / failed
+  status         String    @default("running")
+  model          String
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  webSearches    Int       @default(0)
+  inputTokens    Int       @default(0)
+  outputTokens   Int       @default(0)
+  eventsSaved    Int       @default(0)
+  openingsSaved  Int       @default(0)
+  signalsSaved   Int       @default(0)
+  errorMessage   String?
+
+  @@index([tenantId])
+  @@index([hotelId, startedAt])
 }
 
 // ======================================

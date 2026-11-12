@@ -9,6 +9,8 @@ import {
   updatePriceRankSchema,
   updateHotelSettingsSchema,
   upsertBudgetsSchema,
+  upsertDailyBudgetsSchema,
+  monthQuerySchema,
   createCompetitorSchema,
   updateCompetitorSchema,
   createRoomTypeSchema,
@@ -33,6 +35,8 @@ import {
   updateHotelSettings,
   getBudgets,
   putBudgets,
+  getDailyBudgets,
+  putDailyBudgets,
   getCompetitors,
   getCompetitorFetchStatus,
   createCompetitor,
@@ -115,6 +119,23 @@ settingsRouter.put(
   validate(upsertBudgetsSchema),
   requireHotelAccess((req) => req.body?.hotelId),
   putBudgets
+)
+
+// GET /api/v1/settings/daily-budgets?hotelId=&year=&month= — 日別の予算（D-13）
+settingsRouter.get(
+  '/daily-budgets',
+  validate(monthQuerySchema, 'query'),
+  requireHotelAccess((req) => req.query.hotelId),
+  getDailyBudgets
+)
+
+// PUT /api/v1/settings/daily-budgets — 日別の予算の登録・解除は MANAGER 以上
+settingsRouter.put(
+  '/daily-budgets',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(upsertDailyBudgetsSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
+  putDailyBudgets
 )
 
 // ======================================

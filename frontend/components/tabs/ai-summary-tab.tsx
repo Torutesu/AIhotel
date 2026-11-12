@@ -1,7 +1,8 @@
 "use client"
 
 // 外部需要動向（メニュー名は 2026-10 に「AIまとめ」から変更）。
-// 外部要因（気候・インバウンド・アクセス）とAIコメントは、データの取り込みと Claude API が未実装のためサンプル。
+// 月別需要指数と外部要因の取得状況は実データ（GET /external-signals/demand-index・/status — D-13）。
+// 外部要因（気候・インバウンド・アクセス）の要因カード・週別の予測・AIコメントは、Claude API による文章の生成が未実装のためサンプル。
 // イベントと周辺の新規ホテルは登録データ（GET /events・GET /new-hotels）を表示し、個別登録と規定フォーム（CSV）の取り込みができる。
 // 要因のカードをクリックすると一覧が開き、CSV に書き出せる。
 
@@ -26,26 +27,19 @@ import {
 } from "lucide-react"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { SampleDataNotice } from "@/components/sample-data-notice"
-import { XAxis, YAxis, CartesianGrid, BarChart, Bar, ComposedChart, Line, ReferenceLine, ReferenceArea, Legend, Area } from "recharts"
+import { XAxis, YAxis, CartesianGrid, BarChart, Bar, ReferenceLine, Legend } from "recharts"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { FactorListDialog } from "@/components/external-demand/factor-list-dialog"
 import { EventsDialog, upcomingEvents } from "@/components/external-demand/events-dialog"
 import { NewHotelsDialog } from "@/components/external-demand/new-hotels-dialog"
+import { DemandIndexSection } from "@/components/external-demand/demand-index-section"
+import { ExternalSignalsStatusCard } from "@/components/external-demand/external-signals-status-card"
 import type { ExternalFactorRow } from "@/components/external-demand/factors"
 import { formatEventRange, impactLabel } from "@/components/pricing/pricing-constants"
 import { api, type NewHotelOpening } from "@/lib/api"
 import { toDateStr } from "@/lib/date"
 import type { Event as HotelEvent } from "@shared/types"
-
-// 先6ヶ月の月別予測データ（サンプル）。月の表示は今日から数えた翌月〜6か月後にする
-// （固定の月名だと、時間が経つと過去の月を「予測」として見せてしまう — #92）
-function upcomingMonthLabel(offset: number): string {
-  const d = new Date()
-  d.setDate(1)
-  d.setMonth(d.getMonth() + offset)
-  return `${d.getMonth() + 1}月`
-}
 
 /** 表示期間（例: 2026年10月〜2027年3月） */
 function upcomingPeriodLabel(): string {
@@ -56,15 +50,6 @@ function upcomingPeriodLabel(): string {
   to.setMonth(to.getMonth() + 5)
   return `${from.getFullYear()}年${from.getMonth() + 1}月〜${to.getFullYear()}年${to.getMonth() + 1}月`
 }
-
-const monthlyForecastData = [
-  { month: upcomingMonthLabel(1), demandIndex: 75, climate: 60, inbound: 70, events: 85, access: 75 },
-  { month: upcomingMonthLabel(2), demandIndex: 90, climate: 75, inbound: 85, events: 95, access: 80 },
-  { month: upcomingMonthLabel(3), demandIndex: 95, climate: 85, inbound: 90, events: 100, access: 85 },
-  { month: upcomingMonthLabel(4), demandIndex: 100, climate: 90, inbound: 95, events: 95, access: 90 },
-  { month: upcomingMonthLabel(5), demandIndex: 70, climate: 50, inbound: 75, events: 60, access: 70 },
-  { month: upcomingMonthLabel(6), demandIndex: 85, climate: 65, inbound: 85, events: 80, access: 85 },
-]
 
 // 外部要因カテゴリ別の影響度データ（数値はデモ用ダミー）
 const externalFactorsData: Record<string, { name: string; icon: LucideIcon; color: string; factors: ExternalFactorRow[] }> = {
@@ -252,13 +237,6 @@ const weeklyDetailData = [
 ]
 
 // チャート設定
-const forecastChartConfig = {
-  demandIndex: { label: "総合需要指数", color: "var(--chart-1)" },
-  climate: { label: "気候要因", color: "var(--chart-2)" },
-  inbound: { label: "インバウンド", color: "var(--chart-3)" },
-  events: { label: "イベント", color: "var(--chart-4)" },
-}
-
 const weeklyChartConfig = {
   base: { label: "ベース需要", color: "hsl(210, 70%, 50%)" },
   event: { label: "イベント効果", color: "hsl(150, 70%, 50%)" },
@@ -371,7 +349,7 @@ export function AISummaryTab() {
         </p>
       </div>
 
-      <SampleDataNotice detail="外部要因データの取り込みとClaude APIによるAIコメント生成が未実装のため、登録したイベント・新規ホテル（「登録データ」の欄）以外の数値・コメントはサンプルです。" />
+      <SampleDataNotice detail="Claude APIによるAIコメント生成と要因別の数値の取り込みが未実装のため、月別需要指数・外部要因の取得状況・登録したイベント・新規ホテル（「登録データ」の欄）以外の数値・コメントはサンプルです。" />
 
       {/* AI総合コメント */}
       <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
@@ -379,6 +357,7 @@ export function AISummaryTab() {
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
             AI総合予測コメント
+            <SampleDataNotice compact />
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -406,39 +385,9 @@ export function AISummaryTab() {
         </CardContent>
       </Card>
 
-      {/* 先6ヶ月の需要予測グラフ */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5" />
-            月別需要指数予測（2026年2月〜7月）
-          </CardTitle>
-          <CardDescription>
-            外部要因を加味した総合需要指数の推移予測（100が通常の需要）
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartContainer config={forecastChartConfig} className="h-[300px] w-full">
-            <ComposedChart data={monthlyForecastData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis dataKey="month" className="text-xs" />
-              <YAxis domain={[0, 120]} className="text-xs" />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Legend />
-              <ReferenceArea x1={monthlyForecastData[1].month} x2={monthlyForecastData[3].month} fill="var(--chart-3)" fillOpacity={0.1} />
-              <ReferenceLine y={100} stroke="var(--muted-foreground)" strokeDasharray="5 5" label={{ value: "通常の需要（100）", position: "right", fontSize: 10 }} />
-              <Area type="monotone" dataKey="demandIndex" name="総合需要指数" fill="var(--chart-1)" fillOpacity={0.3} stroke="var(--chart-1)" strokeWidth={2} />
-              <Line type="monotone" dataKey="inbound" name="インバウンド" stroke="var(--chart-2)" strokeWidth={2} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="events" name="イベント" stroke="var(--chart-3)" strokeWidth={2} dot={{ r: 4 }} />
-              <Line type="monotone" dataKey="climate" name="気候" stroke="var(--chart-4)" strokeWidth={2} dot={{ r: 4 }} />
-            </ComposedChart>
-          </ChartContainer>
-          <p className="mt-4 text-sm text-muted-foreground leading-relaxed">
-            季節イベントや大型連休などの外部要因は、AIが事前学習した知識として保持し、実際に需要曲線へ影響が及ぶタイミングでコメントとして表示されます。
-            台風などの気象リスク発生時には、過去実績に基づき想定キャンセル数・新規予約数をAIが予測します（本画面はデモ表示です）。
-          </p>
-        </CardContent>
-      </Card>
+      {/* 月別需要指数（実データ — D-13）と外部要因の取得状況 */}
+      <DemandIndexSection />
+      <ExternalSignalsStatusCard />
 
       {/* 週別詳細予測（デイリー対応）*/}
       <Card>
@@ -446,6 +395,7 @@ export function AISummaryTab() {
           <CardTitle className="flex items-center gap-2">
             <Calendar className="w-5 h-5" />
             週別需要予測（直近8週間）
+            <SampleDataNotice compact />
           </CardTitle>
           <CardDescription>
             要因別の需要貢献度を積み上げグラフで表示（時間軸c: デイリー対応）

@@ -46,6 +46,9 @@ const MODEL_ADJUST_LABEL = "日のタイプに合わせて重みを寄せる"
 
 export function DayTypeSection({ insight, isPast }: { insight: DayInsight; isPast: boolean }) {
   const current = insight.dayType
+  // 着地の象限（例: 高稼働・高単価 — D-13）。今の型の典型から取る
+  const quadrantLabel = insight.typeProfile && insight.typeProfile.name === current?.name ? insight.typeProfile.quadrantLabel : undefined
+  const hasQuadrants = insight.categoryTypes.some((t) => t.quadrantLabel)
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -58,7 +61,14 @@ export function DayTypeSection({ insight, isPast }: { insight: DayInsight; isPas
           <div className="flex flex-wrap items-center gap-3">
             <DayTypeBadge dayType={current.name} model={current.model} typicalOccupancy={current.typicalOccupancy} size="lg" />
             <div className="text-sm">
-              <p className="font-medium">{describeDayType(current.name, current.model, current.typicalOccupancy)}</p>
+              <p className="font-medium">
+                {describeDayType(current.name, current.model, current.typicalOccupancy)}
+                {quadrantLabel && (
+                  <Badge variant="outline" className="ml-2 align-middle text-[10px]" data-testid="quadrant-label">
+                    {quadrantLabel}
+                  </Badge>
+                )}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {insight.modelApplied ? "AI が割り当てた優先モデル" : "この型の優先モデル"}: <DayModelBadge model={current.model} className="ml-0.5" />（
                 {DAY_MODEL_DESCRIPTIONS[current.model]}）。
@@ -103,6 +113,7 @@ export function DayTypeSection({ insight, isPast }: { insight: DayInsight; isPas
                 <thead>
                   <tr className="border-b text-muted-foreground">
                     <th className="px-2 py-1 text-left font-normal">型</th>
+                    {hasQuadrants && <th className="px-2 py-1 text-left font-normal">着地の象限</th>}
                     <th className="px-2 py-1 text-right font-normal">平均稼働</th>
                     <th className="px-2 py-1 text-right font-normal">平均ADR</th>
                     <th className="px-2 py-1 text-right font-normal">日数</th>
@@ -115,6 +126,7 @@ export function DayTypeSection({ insight, isPast }: { insight: DayInsight; isPas
                       <td className="px-2 py-1">
                         <DayTypeBadge dayType={t.name} model={t.model} typicalOccupancy={t.avgOccupancy} />
                       </td>
+                      {hasQuadrants && <td className="px-2 py-1">{t.quadrantLabel ?? "-"}</td>}
                       <td className="px-2 py-1 text-right tabular-nums">{pct(t.avgOccupancy)}</td>
                       <td className="px-2 py-1 text-right tabular-nums">{yen(t.avgAdr)}</td>
                       <td className="px-2 py-1 text-right tabular-nums">{t.days}日</td>
@@ -478,9 +490,24 @@ export interface DayInsightItem {
 
 const IMPACT_LABELS: Record<string, string> = { high: "影響度 高", medium: "影響度 中", low: "影響度 低" }
 
-/** この日だけの外部要因（イベント・天候）を項目別に（PDF b03 (2)） */
-export function buildExternalFactors(insight: DayInsight | null): Array<{ label: string; items: string[] }> {
+/** 天気（気象庁の予報 — D-13）を一文にする */
+export function weatherSummary(weather: NonNullable<DayInsight["weather"]>): string {
+  const parts = [weather.weatherText ?? `天気コード ${weather.weatherCode}`]
+  if (weather.pop != null) parts.push(`降水確率 ${weather.pop}%`)
+  if (weather.tempMax != null || weather.tempMin != null) {
+    parts.push(`気温 ${weather.tempMax != null ? `最高 ${weather.tempMax}℃` : ""}${weather.tempMax != null && weather.tempMin != null ? "／" : ""}${weather.tempMin != null ? `最低 ${weather.tempMin}℃` : ""}`)
+  }
+  if (weather.reliability) parts.push(`信頼度 ${weather.reliability}`)
+  return parts.join("・")
+}
+
+/**
+ * この日だけの外部要因（イベント・天候）を項目別に（PDF b03 (2)）。
+ * note は項目の下に小さく出す注記（天気の出典 — 気象庁の予報を出すときは必ず添える）
+ */
+export function buildExternalFactors(insight: DayInsight | null): Array<{ label: string; items: string[]; note?: string }> {
   const events = insight?.events ?? []
+  const weather = insight?.weather ?? null
   return [
     {
       label: "イベント",
@@ -489,7 +516,13 @@ export function buildExternalFactors(insight: DayInsight | null): Array<{ label:
           ? events.map((e) => [e.name, e.location, e.expectedImpact ? IMPACT_LABELS[e.expectedImpact] : null, e.excludeFromHistory ? "特殊日" : null].filter(Boolean).join("・"))
           : ["登録されたイベントはありません（外部需要動向で登録できます）"],
     },
-    { label: "天候（台風・豪雨・大雪など）", items: ["天候データは未連携です（外部データの取り込み後に表示します）"] },
+    weather
+      ? {
+          label: "天気（気象庁の予報）",
+          items: [weatherSummary(weather)],
+          note: `${weather.attribution}（${new Date(weather.reportedAt).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 発表の予報）`,
+        }
+      : { label: "天気（気象庁の予報）", items: ["この日の予報はありません（気象庁の予報は7日先まで）"] },
   ]
 }
 

@@ -23,6 +23,7 @@ import { preferencesRouter } from './routes/preferences.js'
 import { platformRouter } from './routes/platform.js'
 import { importsRouter } from './routes/imports.js'
 import { auditLogsRouter } from './routes/auditLogs.js'
+import { externalSignalsRouter } from './routes/externalSignals.js'
 
 // Import middlewares
 import { errorHandler } from './middlewares/errorHandler.js'
@@ -177,6 +178,7 @@ app.use('/api/v1/preferences', preferencesRouter)
 app.use('/api/v1/platform', platformRouter)
 app.use('/api/v1/imports', importsRouter)
 app.use('/api/v1/audit-logs', auditLogsRouter)
+app.use('/api/v1/external-signals', externalSignalsRouter)
 
 // ======================================
 // Error Handling

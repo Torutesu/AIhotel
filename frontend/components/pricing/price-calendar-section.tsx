@@ -23,6 +23,7 @@ import {
 import { ErrorState } from "@/components/error-state"
 import { useWeekend } from "@/hooks/use-weekend"
 import {
+  BUDGET_SOURCE_LABELS,
   demandBadgeClass,
   eventsOnDate,
   getRankBadgeColor,
@@ -391,7 +392,15 @@ export function PriceCalendarSection({
                             <span className="text-muted-foreground text-xs">-</span>
                           )}
                         </td>
-                        <td className="text-right py-2 px-2 bg-muted/40 tabular-nums">{yen(day.budgetRevenue)}</td>
+                        <td
+                          className="text-right py-2 px-2 bg-muted/40 tabular-nums"
+                          title={day.budgetSource ? `予算の出どころ: ${BUDGET_SOURCE_LABELS[day.budgetSource]}` : undefined}
+                        >
+                          {yen(day.budgetRevenue)}
+                          {day.budgetSource === "imported" && (
+                            <span className="block text-[9px] leading-tight text-muted-foreground">日別予算</span>
+                          )}
+                        </td>
                         <td className={`text-right py-2 px-2 tabular-nums ${isActualDay ? "font-medium" : ""}`}>{yen(day.currentRevenue)}</td>
                         <td className="text-right py-2 px-2 tabular-nums">{yen(day.expectedRevenue)}</td>
                       </tr>

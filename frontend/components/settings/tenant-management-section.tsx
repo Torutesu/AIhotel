@@ -3,9 +3,10 @@
 // テナント管理（運営 = PLATFORM_ADMIN 専用 — #81）
 // テナントの一覧・作成・契約停止／再開と、テナントの最初の管理者（ADMIN）の作成。
 // 停止すると所属ユーザーは次のリクエストからログアウトされる（#78）。
+// 「新しいテナントの立ち上げ」（D-13）は、テナント・最初のホテル・管理者を1回で作る（tenant-provision-dialog.tsx）。
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, Pause, Play, Plus, ShieldOff, UserPlus } from "lucide-react"
+import { Loader2, Pause, Play, Plus, Rocket, ShieldOff, UserPlus } from "lucide-react"
 import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
@@ -28,18 +29,12 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { ErrorState } from "@/components/error-state"
 import { FormFieldError } from "@/components/form-field-error"
 import { initialPasswordSchema, inviteFormSchema } from "@/components/settings/user-invite-dialog"
+import { TenantProvisionDialog, tenantCodeSchema, tenantNameSchema } from "@/components/settings/tenant-provision-dialog"
 import { api, ApiClientError, type TenantSummary } from "@/lib/api"
 import { zodResolver } from "@/lib/zod-resolver"
 
 /** backend の createTenantSchema と同じ制約 */
-const tenantFormSchema = z.object({
-  name: z.string().trim().min(1, "テナント名を入力してください").max(200),
-  code: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .regex(/^[a-z0-9][a-z0-9-]{1,48}[a-z0-9]$/, "小文字英数字とハイフンの3〜50文字で入力してください"),
-})
+const tenantFormSchema = z.object({ name: tenantNameSchema, code: tenantCodeSchema })
 type TenantFormValues = z.infer<typeof tenantFormSchema>
 
 // 新しいテナントの最初の管理者は、運営が初期パスワードを決めて伝える（招待の空欄は許さない）
@@ -51,6 +46,7 @@ export function TenantManagementSection() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [provisionOpen, setProvisionOpen] = useState(false)
   const [adminTarget, setAdminTarget] = useState<TenantSummary | null>(null)
   const [toggleTarget, setToggleTarget] = useState<TenantSummary | null>(null)
   const [unlockTarget, setUnlockTarget] = useState<TenantSummary | null>(null)
@@ -144,12 +140,21 @@ export function TenantManagementSection() {
       <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
         <div>
           <CardTitle>テナント管理（運営）</CardTitle>
-          <CardDescription>顧客企業（テナント）の作成・契約停止と、最初の管理者の作成を行います。</CardDescription>
+          <CardDescription>
+            顧客企業（テナント）の作成・契約停止と、最初の管理者の作成を行います。新しい顧客は「新しいテナントの立ち上げ」で、
+            テナント・最初のホテル・管理者をまとめて作れます。
+          </CardDescription>
         </div>
-        <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>
-          <Plus className="h-4 w-4" aria-hidden />
-          テナントを追加
-        </Button>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button size="sm" className="gap-2" onClick={() => setProvisionOpen(true)}>
+            <Rocket className="h-4 w-4" aria-hidden />
+            新しいテナントの立ち上げ
+          </Button>
+          <Button size="sm" variant="outline" className="gap-2" onClick={() => setCreateOpen(true)}>
+            <Plus className="h-4 w-4" aria-hidden />
+            テナントだけを追加
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -194,6 +199,8 @@ export function TenantManagementSection() {
           </ul>
         )}
       </CardContent>
+
+      <TenantProvisionDialog open={provisionOpen} onOpenChange={setProvisionOpen} onProvisioned={() => void load()} />
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="sm:max-w-[440px]">

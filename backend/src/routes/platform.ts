@@ -4,11 +4,12 @@ import { validate } from '../middlewares/validate.js'
 import {
   createTenantSchema,
   createTrialSchema,
+  provisionTenantSchema,
   idParamSchema,
   updateTenantSchema,
   updateTrialSchema,
 } from '../lib/validators.js'
-import { createTenant, getTenants, updateTenant } from '../controllers/platformController.js'
+import { createTenant, getTenants, provisionTenant, updateTenant } from '../controllers/platformController.js'
 import { disableIpRestrictionByPlatform } from '../controllers/ipRestrictionController.js'
 import {
   createTrial,
@@ -30,6 +31,9 @@ platformRouter.get('/tenants', getTenants)
 
 // POST /api/v1/platform/tenants
 platformRouter.post('/tenants', validate(createTenantSchema), createTenant)
+
+// POST /api/v1/platform/tenants/provision — テナント・最初のホテル・テナント管理者を1回で作る（D-13 / R-3-8）
+platformRouter.post('/tenants/provision', validate(provisionTenantSchema), provisionTenant)
 
 // PUT /api/v1/platform/tenants/:id
 platformRouter.put(

@@ -124,6 +124,10 @@ export interface Hotel {
   marketArea: string | null
   /** 販売開始: 宿泊日の何日前から売り始めるか（ホテル単位で固定 — 2026-10）。未設定は null */
   saleOpenDaysBefore: number | null
+  /** 気象庁の府県予報区（6桁 — D-13）。null なら都道府県から決める */
+  weatherAreaCode?: string | null
+  /** 開業日（D-13）。API は ISO 文字列（"YYYY-MM-DDT00:00:00.000Z"）で返す。未設定は null */
+  openedOn?: Date | string | null
   isActive: boolean
   createdAt: Date
   updatedAt: Date
@@ -336,6 +340,10 @@ export interface Event {
   description?: string
   /** 特殊日（年末年始・台風など）。期間内の実績を需要予測の基準から外す（D-11） */
   excludeFromHistory?: boolean
+  /** 出どころ（D-13）: manual = 人が登録、agent = 外部要因エージェントが Web 検索で見つけて登録 */
+  source?: 'manual' | 'agent'
+  /** エージェントが根拠にしたページ */
+  sourceUrl?: string | null
 }
 
 // ======================================

@@ -163,6 +163,7 @@ export async function getDayTypeBreakdownService(hotelId: string, year: number, 
       points: curves.get(d.date.getTime()) ?? [],
       actualSoldRooms: d.soldRooms,
       predictedOccupancy: predictedByDate.get(d.date.getTime()) ?? null,
+      actualAdr: d.soldRooms != null && d.soldRooms > 0 && d.revenue != null ? d.revenue / d.soldRooms : null,
     }).current
     return { day: d, current }
   })
