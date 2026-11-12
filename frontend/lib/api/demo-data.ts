@@ -365,6 +365,26 @@ export function mockAiSummary(section?: string): AiSummary {
       generatedAt: new Date().toISOString(),
     }
   }
+  if (section === "analysis-insights") {
+    // 分析タブのインサイト（当月。日次バッチが Claude API で作る形と同じ — D-13）
+    const now = new Date()
+    return {
+      id: "mock-ai-analysis",
+      section,
+      content: JSON.stringify({
+        year: now.getFullYear(),
+        month: now.getMonth() + 1,
+        segments: [
+          { segment: "部屋タイプ", text: "ツインの販売比率が高く、ADR もダブルを上回っています。週末はツインから先に埋まります。" },
+          { segment: "利用人数", text: "2名利用が販売室数の過半を占め、1名利用は平日に偏っています。" },
+          { segment: "チャネル", text: "公式サイトと楽天トラベルで室料売上の約半分を占めます。" },
+        ],
+        composition: ["上位2チャネルの前年同月比はともにプラスで、伸びの中心は公式サイトです。"],
+        leadTime: ["8-14日前と15-30日前の予約で販売室数の約4割を占めます。この期間の料金ランクが月の売上に大きく効きます。"],
+      }),
+      generatedAt: now.toISOString(),
+    }
+  }
   if (section === "external-outlook") {
     return {
       id: "mock-ai-outlook",

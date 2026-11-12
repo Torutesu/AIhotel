@@ -490,6 +490,23 @@ export async function populateDemoHotelData(
           '【推奨アクション】年末年始は価格の幅の上限を確かめ、正月明けは早めに平日プランを準備してください。',
         modelVersion: 'seed-v1',
       },
+      {
+        hotelId,
+        tenantId,
+        section: 'analysis-insights',
+        content: JSON.stringify({
+          year: today.getUTCFullYear(),
+          month: today.getUTCMonth() + 1,
+          segments: [
+            { segment: '部屋タイプ', text: 'ツインの販売比率が高く、ADR もダブルを上回っています。週末はツインから先に埋まります。' },
+            { segment: '利用人数', text: '2名利用が販売室数の過半を占め、1名利用は平日に偏っています。' },
+            { segment: 'チャネル', text: '公式サイトと楽天トラベルで室料売上の約半分を占めます。' },
+          ],
+          composition: ['上位2チャネルの前年同月比はともにプラスで、伸びの中心は公式サイトです。'],
+          leadTime: ['8-14日前と15-30日前の予約で販売室数の約4割を占めます。この期間の料金ランクが月の売上に大きく効きます。'],
+        }),
+        modelVersion: 'seed-v1',
+      },
     ],
   })
 

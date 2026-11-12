@@ -13,6 +13,7 @@ import { config } from '../lib/config.js'
 import { loadStoredHolidays } from '../services/externalSignals/holidays.js'
 import { createAgentClient } from '../services/externalSignals/agent/collect.js'
 import { generateAiCommentsForHotel } from '../services/aiComments/generate.js'
+import { generateAnalysisInsightsForHotel } from '../services/aiComments/analysis.js'
 
 // 日次バッチ（N-5）。開発時は `pnpm --filter backend job:daily`、
 // 本番コンテナ（devDependencies を含まない）では `node dist/jobs/daily.js` で実行する。
@@ -24,7 +25,8 @@ import { generateAiCommentsForHotel } from '../services/aiComments/generate.js'
 //   3. 当日時点の KPI スナップショット（KpiSnapshot — 月初比較・日付比較の比較元）。当月のみ
 //      （スナップショットは実績から作るため、先の月は常に空になる）
 //   4. アラートの自動生成と解決（#83）。着地予測と需要予測を使う
-//   5. AI 解説の生成（D-13。ANTHROPIC_API_KEY を設定したときだけ）。1〜4 の結果を材料にするので最後に行う。
+//   5. AI 解説の生成（D-13。ANTHROPIC_API_KEY を設定したときだけ）。1〜4 の結果を材料にするので最後に行う。ダッシュボード・価格・外部需要の解説と、
+//      分析タブのインサイト（当月の集計から — aiComments/analysis.ts）を別々の呼び出しで作る。
 //      失敗してもホテルの日次処理は失敗にしない（前日の解説が残る）
 // 最後にテナント横断の後始末として、期限切れリフレッシュトークン（#49-4）と、期限から30日たったトライアルを削除する。
 //
@@ -101,6 +103,13 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
         } catch (error) {
           aiCommentFailures++
           logger.error({ err: error, hotelId: hotel.id }, `${hotel.name}: AI 解説を作れませんでした（前日の解説が残ります）`)
+        }
+        // 分析タブのインサイト（当月）。上とは別の呼び出しなので、片方の失敗がもう片方を止めない
+        try {
+          await generateAnalysisInsightsForHotel(aiClient, hotel.id, today)
+        } catch (error) {
+          aiCommentFailures++
+          logger.error({ err: error, hotelId: hotel.id }, `${hotel.name}: 分析インサイトを作れませんでした（前日のインサイトが残ります）`)
         }
       }
     } catch (error) {

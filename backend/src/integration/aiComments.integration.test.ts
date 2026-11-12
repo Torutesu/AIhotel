@@ -17,6 +17,7 @@ describeIntegration('AI 解説の生成（D-13）', () => {
   let prisma: PrismaClient
   let generateAiCommentsForHotel: typeof import('../services/aiComments/generate.js').generateAiCommentsForHotel
   let buildHotelFacts: typeof import('../services/aiComments/facts.js').buildHotelFacts
+  let analysis: typeof import('../services/aiComments/analysis.js')
   const today = todayJst()
 
   const submission = {
@@ -46,6 +47,7 @@ describeIntegration('AI 解説の生成（D-13）', () => {
     prisma = new PrismaClient()
     ;({ generateAiCommentsForHotel } = await import('../services/aiComments/generate.js'))
     ;({ buildHotelFacts } = await import('../services/aiComments/facts.js'))
+    analysis = await import('../services/aiComments/analysis.js')
     await prisma.tenant.deleteMany({ where: { id: TENANT } })
     await prisma.tenant.create({ data: { id: TENANT, code: TENANT, name: TENANT } })
     await prisma.hotel.create({ data: { id: HOTEL, tenantId: TENANT, name: 'テストホテル', totalRooms: 100 } })
@@ -71,6 +73,14 @@ describeIntegration('AI 解説の生成（D-13）', () => {
         demandLevel: 'A',
         rationale: { adjustments: [{ key: 'event', impact: 0.15 }], dayType: { name: '平日A型', model: 'adr' } },
       },
+    })
+    // 当月の予約明細（分析インサイトの材料）
+    const monthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
+    await prisma.reservation.createMany({
+      data: [
+        { tenantId: TENANT, hotelId: HOTEL, bookedDate: addUtcDays(monthStart, -40), checkInDate: monthStart, nights: 1, rooms: 2, guests: 4, revenue: 30_000 },
+        { tenantId: TENANT, hotelId: HOTEL, bookedDate: addUtcDays(monthStart, -2), checkInDate: monthStart, nights: 1, rooms: 1, guests: 1, revenue: 9_000 },
+      ],
     })
     // 30日より古い解説（消える）
     await prisma.aiComment.create({
@@ -109,5 +119,49 @@ describeIntegration('AI 解説の生成（D-13）', () => {
     const before = await prisma.aiComment.count({ where: { hotelId: HOTEL } })
     await expect(generateAiCommentsForHotel(fakeClient({ dashboardSummary: '', pricingProposals: [], externalOutlook: 'x' }), HOTEL, today)).rejects.toThrow('形が想定と違います')
     expect(await prisma.aiComment.count({ where: { hotelId: HOTEL } })).toBe(before)
+  })
+
+  it('分析インサイト: 当月の集計を材料にし、切り口ごとに1件の JSON を保存する', async () => {
+    const facts = await analysis.buildAnalysisFacts(HOTEL, today.getUTCFullYear(), today.getUTCMonth() + 1, today)
+    expect(facts.guestCounts.map((g) => g.segment)).toEqual(expect.arrayContaining(['1名', '2名']))
+    expect(facts.leadTimes.length).toBeGreaterThan(0)
+    const calls: Array<{ messages: Array<{ content: string }> }> = []
+    const client: MessagesClient = {
+      create: (async (params: { messages: Array<{ content: string }> }) => {
+        calls.push(params)
+        return {
+          model: 'claude-opus-5-5',
+          stop_reason: 'tool_use',
+          content: [
+            {
+              type: 'tool_use',
+              id: 't',
+              name: 'submit_insights',
+              input: {
+                segments: [
+                  { segment: '利用人数', text: '2名利用が販売室数の多くを占めます。' },
+                  { segment: '利用人数', text: '重複' },
+                ],
+                composition: ['需要構成のコメントです。'],
+                leadTime: ['31日以上前の予約が中心です。'],
+              },
+            },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }
+      }) as unknown as MessagesClient['create'],
+    }
+    expect(await analysis.generateAnalysisInsightsForHotel(client, HOTEL, today)).toBe(true)
+    expect(calls[0].messages[0].content).toContain('guestCounts')
+    const row = await prisma.aiComment.findFirstOrThrow({ where: { hotelId: HOTEL, section: 'analysis-insights' } })
+    const content = JSON.parse(row.content)
+    expect(content).toMatchObject({ year: today.getUTCFullYear(), month: today.getUTCMonth() + 1, composition: ['需要構成のコメントです。'] })
+    expect(content.segments).toEqual([{ segment: '利用人数', text: '2名利用が販売室数の多くを占めます。' }])
+  })
+
+  it('分析インサイト: 材料が無ければ呼び出さない', () => {
+    expect(
+      analysis.hasAnalysisFacts({ hotelName: 'x', month: 'x', today: 'x', channels: [], roomTypes: [], guestCounts: [], leadTimes: [], dayTypes: [] }),
+    ).toBe(false)
   })
 })

@@ -11,7 +11,7 @@
 import { type ReactNode } from "react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { SampleDataNotice } from "@/components/sample-data-notice"
+import { AnalysisInsightsBody } from "@/components/analysis/analysis-insights"
 import { ErrorState } from "@/components/error-state"
 import { useAuth } from "@/components/auth-provider"
 import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysis/section-props"
@@ -157,17 +157,16 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
           <CardTitle className="text-base font-medium">リードタイム分析インサイト</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 pt-0">
-          <SampleDataNotice detail="リードタイムのインサイトの文章の生成は未実装のため、以下は固定文のサンプルです（上の表は実データ）。" />
-          {[
-            "8-14日前と15-30日前の予約で販売室数の約4割を占めます。この期間の料金ランクが月の売上に大きく効きます。",
-            "61日以上前の予約は前年同月より2割以上増え、ADRも高い水準ですが、CXL率も1割を超えます。早期の予約にはキャンセル規定の見直しを検討してください。",
-            "当日〜3日前の直前予約は1名利用が中心で、客単価は低めです。直前の値下げは平日B型の日に絞ると効果的です。",
-          ].map((text) => (
-            <div key={text} className="flex items-start gap-3">
-              <div className="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-[color:var(--chart-3)]" />
-              <p className="text-sm leading-relaxed">{text}</p>
-            </div>
-          ))}
+          <AnalysisInsightsBody period={targetPeriod} pick={(i) => i.leadTime.length}>
+            {(insights) =>
+              insights.leadTime.map((text) => (
+                <div key={text} className="flex items-start gap-3">
+                  <div className="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-[color:var(--chart-3)]" />
+                  <p className="text-sm leading-relaxed">{text}</p>
+                </div>
+              ))
+            }
+          </AnalysisInsightsBody>
         </CardContent>
       </Card>
     </div>

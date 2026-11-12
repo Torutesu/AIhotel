@@ -15,7 +15,11 @@ vi.mock("@/components/app-state-provider", () => ({ usePeriod: () => ({ periodMo
 vi.mock("@/components/auth-provider", () => ({ useAuth: () => ({ hotelId: "h1" }) }))
 vi.mock("@/lib/api", async (orig) => ({
   ...(await orig<typeof import("@/lib/api")>()),
-  api: { bookingWindows: (...a: unknown[]) => bookingWindows(...a), guestCounts: (...a: unknown[]) => guestCounts(...a) },
+  api: {
+    bookingWindows: (...a: unknown[]) => bookingWindows(...a),
+    guestCounts: (...a: unknown[]) => guestCounts(...a),
+    aiSummary: async () => null,
+  },
 }))
 
 describe("リードタイム分析（予約明細の実データ — D-13）", () => {
