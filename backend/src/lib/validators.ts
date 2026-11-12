@@ -278,6 +278,31 @@ export const upsertBudgetsSchema = z
     message: '同じ月が重複しています',
   })
 
+/**
+ * 日別の予算（D-13）。送った日だけを upsert し、室数・売上の両方を null にした日は登録を消す（月次予算の配分に戻す）。
+ * 1回で1年分（366日）まで。同じ日の重複は 400
+ */
+export const upsertDailyBudgetsSchema = z
+  .object({
+    hotelId: entityIdSchema,
+    days: z
+      .array(
+        z.object({
+          date: dateOnlyInputSchema,
+          budgetRooms: z.number().int().min(0).nullable(),
+          budgetRevenue: z.number().min(0).nullable(),
+        })
+      )
+      .min(1, '1日以上指定してください')
+      .max(MAX_QUERY_RANGE_DAYS),
+  })
+  .refine((data) => new Set(data.days.map((d) => d.date.getTime())).size === data.days.length, {
+    ...ifFieldsValid,
+    path: ['days'],
+    message: '同じ日が重複しています',
+  })
+export type UpsertDailyBudgetsInput = z.infer<typeof upsertDailyBudgetsSchema>
+
 // ======================================
 // Competitor Validators（N-2 / F-SET-03）
 // ======================================

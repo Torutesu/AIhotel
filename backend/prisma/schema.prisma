@@ -60,6 +60,7 @@ model Tenant {
   competitorFetchRuns      CompetitorFetchRun[]
   weatherForecasts         WeatherForecast[]
   marketSignals            MarketSignal[]
+  dailyBudgets             DailyBudget[]
   externalAgentRuns        ExternalAgentRun[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
@@ -220,6 +221,7 @@ model Hotel {
   newHotelOpenings         NewHotelOpening[]
   weatherForecasts         WeatherForecast[]
   marketSignals            MarketSignal[]
+  dailyBudgets             DailyBudget[]
   externalAgentRuns        ExternalAgentRun[]
 
   @@index([tenantId])
@@ -569,6 +571,24 @@ enum DemandLevel {
 }
 
 // 月間着地シミュレーション（F-DP-04）
+// 日別の予算（D-13。日の予算を持つ施設が登録する）。登録した日はこの値を優先し、月次予算の残りをほかの日に配る
+// （services/budgetAllocation.ts）。登録の無い日は、3か月以内なら AI の予測、それより先は前年同曜日の比で月次予算を配る
+model DailyBudget {
+  id            String   @id @default(cuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId       String
+  hotel         Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date          DateTime @db.Date
+  budgetRooms   Int?
+  budgetRevenue Float?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([hotelId, date])
+  @@index([tenantId])
+}
+
 model MonthlyLandingSimulation {
   id       String @id @default(cuid())
   tenantId String

@@ -347,6 +347,8 @@ export interface RecommendationRationale {
     from: number
     to: number
   }>
+  /** 月の予算への向き合い方（D-13）。onTrack = 届いている、chase = 追う（優先モデルを1段稼働寄り）、giveUp = 未達前提で売上を最大化 */
+  budget?: { stance: "onTrack" | "chase" | "giveUp"; gap: number }
 }
 
 export interface BookingCurvePoint {

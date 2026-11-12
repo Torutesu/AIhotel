@@ -238,6 +238,8 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
       budgetOccupancy: budget.occupancy,
       budgetAdr: budget.adr,
       budgetRevenue: budget.revenue,
+      /** 日の予算の出どころ（D-13）: imported = 日別の予算を登録、ai = AI の予測の比、lastYear = 前年同曜日の比 */
+      budgetSource: context.budgetSources[index],
       onHandRooms,
       currentOccupancy,
       // 予約（オンハンド）の単価・売上は PMS 連携（Phase 4）で入る。今は結果の出た日の実績だけ

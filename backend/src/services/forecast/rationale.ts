@@ -43,4 +43,9 @@ export interface RationaleV1 {
    * model = 稼働優先（occupancy）・バランス（balanced）・単価優先（adr）
    */
   dayType?: { name: string | null; model: 'occupancy' | 'balanced' | 'adr' | null }
+  /**
+   * 月の予算への向き合い方（D-13）。onTrack = 届いている、chase = 追う（優先モデルを1段稼働寄りにした）、
+   * giveUp = 月初まで30日を切って届かない（予算は追わず売上の最大化）。gap = 予算 − 着地見込み。3か月より先の月・予算の無い月は無い
+   */
+  budget?: { stance: 'onTrack' | 'chase' | 'giveUp'; gap: number }
 }

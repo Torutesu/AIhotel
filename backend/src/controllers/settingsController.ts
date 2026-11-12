@@ -20,7 +20,8 @@ import {
   updateRoomTypeService,
   deleteRoomTypeService,
 } from '../services/settingsService.js'
-import type { UpsertBudgetsInput } from '../lib/validators.js'
+import type { UpsertBudgetsInput, UpsertDailyBudgetsInput } from '../lib/validators.js'
+import { getDailyBudgetsService, upsertDailyBudgetsService } from '../services/dailyBudgetService.js'
 
 /**
  * 料金ランク一覧
@@ -142,6 +143,30 @@ export const putBudgets = asyncHandler(async (req: Request, res: Response) => {
     userAgent: req.headers['user-agent'],
   })
   sendSuccess(res, after, 200, '予算を更新しました')
+})
+
+/** GET /api/v1/settings/daily-budgets?hotelId=&year=&month= — 日別の予算（D-13） */
+export const getDailyBudgets = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as { hotelId: string; year: number; month: number }
+  sendSuccess(res, await getDailyBudgetsService(hotelId, year, month))
+})
+
+/** PUT /api/v1/settings/daily-budgets — 日別の予算の登録・解除（D-13） */
+export const putDailyBudgets = asyncHandler(async (req: Request, res: Response) => {
+  const input = req.body as UpsertDailyBudgetsInput
+  const { tenantId, before, result } = await upsertDailyBudgetsService(input)
+  await writeAuditLog({
+    tenantId,
+    userId: req.user!.userId,
+    action: 'UPDATE',
+    entity: 'DailyBudget',
+    entityId: input.hotelId,
+    oldValue: before,
+    newValue: input.days.map((d) => ({ ...d, date: d.date.toISOString().slice(0, 10) })),
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'],
+  })
+  sendSuccess(res, result, 200, '日別の予算を更新しました')
 })
 
 /**

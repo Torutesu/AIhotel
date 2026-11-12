@@ -33,6 +33,7 @@ import {
 } from './pace.js'
 import { buildDayTypeTimeline, weightsForModel } from './dayType.js'
 import { patternBlendWeight, type PatternPrediction } from './dayPattern.js'
+import { loadBudgetStances, modelForStance, monthsBetween } from '../budgetStance.js'
 import { loadDayTypeModel } from '../dayTypeService.js'
 import { computeEventImpact, type EventImpactRecord } from './eventImpact.js'
 
@@ -63,6 +64,8 @@ export { computeEventImpact, type EventImpactRecord }
 // 日の背景（区分・曜日・季節・連休の並び・イベント・天気）とマイルストーン別の入り方が近い過去の日（近傍 — dayPattern.ts）の
 // 「今から当日までのピックアップ」を今の予約に足した着地を、残日数に応じた割合（90日以内 70%）で予測稼働率に混ぜる。
 // 予測 ADR が無い日の日のタイプの単価の側は近傍の ADR で決める。
+// 月の予算への向き合い方（budgetStance.ts）で、まだ追える不足のある月は日の優先モデルを1段だけ稼働寄りにし、
+// 月初まで30日を切って追っても届かない月は予算を追わない（日のタイプのモデルのまま）。
 export const MODEL_VERSION = 'rule-based-v6'
 // ガードレールの既定値（設定を保存していないホテル向け。PricingStrategyConfig の列の既定値と揃える — #17）
 const DEFAULT_MAX_DAILY_RANK_CHANGE = 3
@@ -285,7 +288,7 @@ async function loadForecastContext(input: Pick<ForecastInput, 'hotelId' | 'start
   const lastYearEnd = lastYearSameWeekday(endDate)
 
   const today = todayJst()
-  const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily, dayTypeModel] =
+  const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily, dayTypeModel, budgetStances] =
     await Promise.all([
     prisma.dailyData.findMany({
       where: {
@@ -345,6 +348,8 @@ async function loadForecastContext(input: Pick<ForecastInput, 'hotelId' | 'start
     }),
     // 日のタイプ（日のモデル — 2026-10）。型ごとの優先モデル（稼働・バランス・単価）で重みを寄せる
     loadDayTypeModel(hotelId, today),
+    // 月の予算への向き合い方（D-13）
+    loadBudgetStances(hotelId, monthsBetween(startDate, endDate), today),
   ])
 
   const events = allEvents.filter((e) => e.endDate >= startDate)
@@ -426,6 +431,7 @@ async function loadForecastContext(input: Pick<ForecastInput, 'hotelId' | 'start
     baseGuardrails,
     bounds,
     dayTypeModel,
+    budgetStances,
   }
 }
 
@@ -458,6 +464,7 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
     baseGuardrails,
     bounds,
     dayTypeModel,
+    budgetStances,
   } = ctx
   const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
   const results: DailyForecast[] = []
@@ -510,7 +517,9 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
       predictedAdr: prediction?.adr ?? null,
     }).current
     // 「日のタイプに合わせて重みを寄せる」を切ったホテルは、試算でモデルを指定したとき以外は初期値の重みのまま
-    const dayModel = modelOverride ?? (strategyConfig?.dayModelAdjust ?? true ? (dayType?.model ?? null) : null)
+    const stance = budgetStances.get(`${date.getUTCFullYear()}-${date.getUTCMonth() + 1}`) ?? null
+    const typeModel = strategyConfig?.dayModelAdjust ?? true ? (dayType?.model ?? null) : null
+    const dayModel = modelOverride ?? modelForStance(typeModel, stance?.stance)
     const dayWeights = weightsForModel(weights, dayModel)
 
     const baseAdr = computeBaseAdr(adrHistory, date)
@@ -560,6 +569,7 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
         prediction,
         patternResult,
         dayType: dayType || modelOverride ? { name: dayType?.name ?? null, model: dayModel } : undefined,
+        budget: stance && !modelOverride ? { stance: stance.stance, gap: stance.gap } : undefined,
       }),
     })
   }
@@ -609,6 +619,7 @@ function buildRationale(params: {
   prediction?: PatternPrediction | null
   patternResult?: PatternResult
   dayType?: RationaleV1['dayType']
+  budget?: RationaleV1['budget']
 }): RationaleV1 {
   const { blended, weights, competitor } = params
   const factors: RationaleV1['factors'] = [
@@ -698,5 +709,6 @@ function buildRationale(params: {
     excluded,
     guardrails: params.guarded.applied,
     ...(params.dayType ? { dayType: params.dayType } : {}),
+    ...(params.budget ? { budget: params.budget } : {}),
   }
 }
