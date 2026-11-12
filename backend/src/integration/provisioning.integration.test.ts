@@ -176,6 +176,47 @@ describeIntegration('新しいテナントの立ち上げと、開業直後の�
     expect(readiness.body.data.mode).toBe('coldStart')
   })
 
+  it('過去の予約積上をまとめて取り込める（残日数か取得日。取得時点は宿泊日 − 残日数）', async () => {
+    const post = (payload: object) =>
+      request(app).post('/api/v1/imports/booking-curve').set('Authorization', `Bearer ${tokens.newAdmin}`).send({ hotelId, ...payload })
+    const stay = iso(addUtcDays(today, -200))
+    const bad = await post({
+      rows: [
+        { stayDate: stay, daysBefore: 30, roomsBooked: 40 },
+        { stayDate: stay, capturedDate: iso(addUtcDays(today, -230)), roomsBooked: 41 }, // 同じ残日数30 → 重複
+        { stayDate: stay, capturedDate: iso(addUtcDays(today, -100)), roomsBooked: 10 }, // 宿泊日より後
+        { stayDate: stay, roomsBooked: 10 }, // 残日数も取得日も無い
+        { stayDate: stay, daysBefore: 1, roomsBooked: 999 }, // 客室数を超える
+      ],
+    })
+    expect(bad.status).toBe(400)
+    expect(bad.body.errors.map((e: { field: string }) => e.field)).toEqual([
+      'rows.1.stayDate',
+      'rows.2.capturedDate',
+      'rows.3.daysBefore',
+      'rows.4.roomsBooked',
+    ])
+
+    const rows = [
+      { stayDate: stay, daysBefore: 90, roomsBooked: 20 },
+      { stayDate: stay, capturedDate: iso(addUtcDays(today, -230)), roomsBooked: 60 },
+      { stayDate: stay, daysBefore: 0, roomsBooked: 100 },
+    ]
+    const dry = await post({ rows, dryRun: true })
+    expect(dry.body.data).toMatchObject({ dryRun: true, total: 3, created: 3 })
+    expect(await prisma.bookingCurveData.count({ where: { hotelId, stayDate: addUtcDays(today, -200) } })).toBe(0)
+    const ok = await post({ rows })
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200)
+    const saved = await prisma.bookingCurveData.findMany({ where: { hotelId, stayDate: addUtcDays(today, -200) }, orderBy: { daysBefore: 'desc' } })
+    expect(saved.map((r) => [r.daysBefore, r.roomsBooked])).toEqual([
+      [90, 20],
+      [30, 60],
+      [0, 100],
+    ])
+    expect(iso(saved[1].capturedAt)).toBe(iso(addUtcDays(today, -230)))
+    expect(await prisma.auditLog.count({ where: { entity: 'BookingCurveData', entityId: hotelId } })).toBe(1)
+  })
+
   async function hotelTenant() {
     return prisma.hotel.findUniqueOrThrow({ where: { id: hotelId }, select: { tenantId: true } })
   }

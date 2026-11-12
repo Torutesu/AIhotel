@@ -459,6 +459,29 @@ export const importOtbSchema = z.object({
     .max(MAX_IMPORT_ROWS, `1回に取り込めるのは${MAX_IMPORT_ROWS}行までです`),
 })
 
+/** 過去の予約積上の一括取り込み（D-13）の最大行数。1宿泊日あたり10時点 × 1年分程度 */
+export const MAX_BOOKING_CURVE_IMPORT_ROWS = 5000
+export const importBookingCurveSchema = z.object({
+  hotelId: entityIdSchema,
+  dryRun: z.boolean().optional(),
+  rows: z
+    .array(
+      z.object({
+        stayDate: importDateSchema,
+        // 残日数（宿泊日の何日前の時点か）か、取得日（その時点の日付）のどちらか
+        daysBefore: z.number().int('残日数は整数で入力してください').min(0, '残日数は0以上で入力してください').nullable().optional(),
+        capturedDate: importDateSchema.nullable().optional(),
+        roomsBooked: z
+          .number({ error: '予約室数は数値で入力してください' })
+          .int('予約室数は整数で入力してください')
+          .min(0, '予約室数は0以上で入力してください'),
+      })
+    )
+    .min(1, '取り込む行がありません')
+    .max(MAX_BOOKING_CURVE_IMPORT_ROWS, `1回に取り込めるのは${MAX_BOOKING_CURVE_IMPORT_ROWS}行までです`),
+})
+export type ImportBookingCurveInput = z.infer<typeof importBookingCurveSchema>
+
 // イベントの取り込み（外部需要動向の規定フォーム — 2026-10）。同じホテル・同じ名前・同じ開始日のイベントは上書きする
 export const MAX_EVENT_IMPORT_ROWS = 500
 export const importEventsSchema = z.object({

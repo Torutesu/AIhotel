@@ -43,6 +43,7 @@ import { demoAdmin } from "./demo-admin"
 import { demoShared, demoSharedStatus } from "./demo-shared"
 import { currentTrialId } from "@/lib/demo-trials/link"
 import { analysisEndpoints } from "./analysis"
+import { externalSignalsEndpoints } from "./externalSignals"
 
 // フロントエンドが扱うホテルは APIレスポンス型（weekendDays が number[] 確定）に統一する（U-6）
 export type { Hotel, PriceRank, RoomType, RoomTypeInput, TenantSummary, AuditLogItem }
@@ -58,6 +59,7 @@ export type {
 } from "@shared/types"
 
 export * from "./types"
+export type * from "./externalSignals"
 export {
   ApiClientError, getAccessToken, getRefreshToken, storeTokens, clearTokens, isDemoModeEnabled,
   isDemoDataInUse, subscribeDemoData, AUTH_EXPIRED_EVENT
@@ -126,6 +128,7 @@ export const api = {
   ...adminEndpoints,
   // 分析タブの内訳（チャネル別・部屋タイプ別・曜日別 — #88）は analysis.ts
   ...analysisEndpoints,
+  ...externalSignalsEndpoints,
 
   async login(email: string, password: string): Promise<LoginResult> {
     if (isDemoModeEnabled() && currentTrialId()) {
