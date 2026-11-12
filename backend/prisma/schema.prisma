@@ -59,6 +59,8 @@ model Tenant {
   competitorObservations   CompetitorRateObservation[]
   competitorFetchRuns      CompetitorFetchRun[]
   weatherForecasts         WeatherForecast[]
+  marketSignals            MarketSignal[]
+  externalAgentRuns        ExternalAgentRun[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -217,6 +219,8 @@ model Hotel {
   priceBoundPeriods        PriceBoundPeriod[]
   newHotelOpenings         NewHotelOpening[]
   weatherForecasts         WeatherForecast[]
+  marketSignals            MarketSignal[]
+  externalAgentRuns        ExternalAgentRun[]
 
   @@index([tenantId])
 }
@@ -865,6 +869,11 @@ model Event {
   // 特殊日（年末年始・大型連休・春節・台風など）。期間内の実績を需要予測の基準（同曜日平均・前年比較・予約ペース）から外し、
   // ふだんの日の予測が引きずられないようにする（IDeaS の Special Event に相当 — D-11）
   excludeFromHistory Boolean  @default(false)
+  // 出どころ（D-13）: manual = 画面・CSV で人が登録、agent = 外部要因エージェントが Web 検索で見つけて登録。
+  // エージェントは agent の行だけを上書き・追加し、人が登録した行には触れない
+  source             String   @default("manual")
+  // エージェントが根拠にしたページ
+  sourceUrl          String?
   // オペレーター登録（F-DP-07）の記録用
   createdByUserId    String?
   createdAt          DateTime @default(now())
@@ -891,6 +900,9 @@ model NewHotelOpening {
   distanceKm      Float?
   expectedImpact  String? // high, medium, low
   notes           String?
+  // 出どころ（D-13）: manual = 人が登録、agent = 外部要因エージェントが登録
+  source          String   @default("manual")
+  sourceUrl       String?
   createdByUserId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -929,6 +941,61 @@ model WeatherForecast {
 
   @@unique([hotelId, date])
   @@index([tenantId])
+}
+
+// 市場の動き（D-13。先方の資料「外部要因と旅行（宿泊）の関連付け」の ③インバウンド・④桜／紅葉・⑤アクセス など、
+// 日ではなく期間で効く外部要因）。外部要因エージェントがホテルのエリアについて集める。
+// 月別需要指数（GET /external-signals/demand-index）の材料にする。予測の推奨ランクには今は使わない（クライアント確認待ち）
+model MarketSignal {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // inbound（インバウンド）, access（高速道路・航空路線）, nature（桜・紅葉・収穫）, climate（猛暑・梅雨・降雪など）,
+  // disaster（台風・地震など）, other
+  kind        String
+  title       String
+  summary     String
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  // 宿泊の需要への向き: up / down / neutral
+  direction   String
+  // 影響の大きさ: high / medium / low
+  magnitude   String
+  sourceUrl   String?
+  source      String   @default("agent")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 同じホテル・種類・タイトル・開始日の行は1つだけ（集め直したら上書きする）
+  @@unique([hotelId, kind, title, periodStart])
+  @@index([tenantId])
+  @@index([hotelId, periodStart])
+}
+
+// 外部要因エージェントの実行記録（D-13）。集め直しの間隔の判断と、費用（トークン・検索回数）の確認に使う
+model ExternalAgentRun {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId        String
+  hotel          Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // running / succeeded / failed
+  status         String    @default("running")
+  model          String
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  webSearches    Int       @default(0)
+  inputTokens    Int       @default(0)
+  outputTokens   Int       @default(0)
+  eventsSaved    Int       @default(0)
+  openingsSaved  Int       @default(0)
+  signalsSaved   Int       @default(0)
+  errorMessage   String?
+
+  @@index([tenantId])
+  @@index([hotelId, startedAt])
 }
 
 // ======================================

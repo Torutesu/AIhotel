@@ -144,7 +144,7 @@ const envSchema = z.object({
   // 外部要因エージェント（Claude API ＋ Web 検索 — D-13）。キーを設定したときだけ動く。
   // ホテルごとに周辺のイベント・新規ホテル・市場の動き（インバウンド・アクセス・桜／紅葉）を集めて登録する
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
-  EXTERNAL_AGENT_MODEL: z.string().min(1).default('claude-sonnet-5-5'),
+  EXTERNAL_AGENT_MODEL: z.string().min(1).default('claude-opus-5-5'),
   // 同じホテルを集め直す間隔（日）。Web 検索の費用を抑えるため既定は週1回
   EXTERNAL_AGENT_INTERVAL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
   // 1ホテル・1回あたりの Web 検索の上限

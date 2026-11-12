@@ -642,6 +642,12 @@ export const hotelIdQuerySchema = z.object({
   hotelId: entityIdSchema,
 })
 
+/** 月別需要指数（D-13）。今月から months か月分（既定 6） */
+export const demandIndexQuerySchema = z.object({
+  hotelId: entityIdSchema,
+  months: z.coerce.number().int().min(1).max(12).default(6),
+})
+
 /**
  * アラート一覧のクエリ（F-DASH-05）
  * minLevel: この値以上の重要度のみ返す。ダッシュボードは4（Level 5・4のみ表示）

@@ -336,6 +336,10 @@ export interface Event {
   description?: string
   /** 特殊日（年末年始・台風など）。期間内の実績を需要予測の基準から外す（D-11） */
   excludeFromHistory?: boolean
+  /** 出どころ（D-13）: manual = 人が登録、agent = 外部要因エージェントが Web 検索で見つけて登録 */
+  source?: 'manual' | 'agent'
+  /** エージェントが根拠にしたページ */
+  sourceUrl?: string | null
 }
 
 // ======================================
