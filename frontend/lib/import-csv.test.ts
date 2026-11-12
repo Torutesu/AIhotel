@@ -135,10 +135,28 @@ describe("parseReservationCsv（D-13 予約明細から作る）", () => {
     const { rows, errors } = parseReservationCsv(RESERVATION_CSV_TEMPLATE)
     expect(errors).toEqual([])
     expect(rows).toEqual([
-      { bookedDate: "2025-07-03", checkInDate: "2025-10-01", nights: 2, rooms: 1 },
-      { bookedDate: "2025-08-20", checkInDate: "2025-10-10", nights: 1, rooms: 3 },
-      { bookedDate: "2025-09-01", checkInDate: "2025-10-11", nights: 1, rooms: 1, cancelledDate: "2025-09-15" },
+      { bookedDate: "2025-07-03", checkInDate: "2025-10-01", nights: 2, rooms: 1, reservationCode: "R0001", guests: 2, revenue: 36000, channel: "楽天トラベル" },
+      { bookedDate: "2025-08-20", checkInDate: "2025-10-10", nights: 1, rooms: 3, reservationCode: "R0002", guests: 6, revenue: 54000, channel: "自社サイト" },
+      {
+        bookedDate: "2025-09-01",
+        checkInDate: "2025-10-11",
+        nights: 1,
+        rooms: 1,
+        cancelledDate: "2025-09-15",
+        reservationCode: "R0003",
+        guests: 1,
+        revenue: 12000,
+        channel: "じゃらん",
+      },
     ])
+  })
+
+  it("任意の列（人数・室料）が不正なら行のエラー。空欄は付けない", () => {
+    const csv = "予約日,チェックイン日,泊数,室数,人数,室料\n2025-09-01,2025-10-01,1,1,1.5,-1\n2025-09-01,2025-10-01,1,1,,\n"
+    const { rows, errors } = parseReservationCsv(csv)
+    expect(errors[0].message).toContain("人数は0以上の整数")
+    expect(errors[0].message).toContain("室料は0以上")
+    expect(rows).toEqual([{ bookedDate: "2025-09-01", checkInDate: "2025-10-01", nights: 1, rooms: 1 }])
   })
 
   it("取消日の列が無くても読め、不正な行は行番号つきで返す", () => {

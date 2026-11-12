@@ -879,3 +879,58 @@ export interface CompetitorFetchSourceStatus {
   lastSucceededAt: string | null
   consecutiveFailures: number
 }
+
+/** 予約動向（リードタイム別の予約とキャンセル — GET /analysis/booking-windows。予約明細から — D-13） */
+export interface BookingWindows {
+  bookings: Array<{
+    window: string
+    soldRooms: number
+    occupancy: number | null
+    adr: number | null
+    guestUnitPrice: number | null
+    revenue: number | null
+    /** 室料売上の構成比（%） */
+    revenueShare: number | null
+    /** CXL率（%） */
+    cancelRate: number | null
+    dor: number | null
+    avgNights: number | null
+    /** 前年同月比（%）。前年の明細が無ければ null */
+    yoy: number | null
+  }>
+  cancels: Array<{
+    window: string
+    rooms: number
+    cancelRate: number | null
+    adr: number | null
+    guestUnitPrice: number | null
+    revenue: number | null
+    share: number | null
+    dor: number | null
+    avgNights: number | null
+    yoy: number | null
+  }>
+  /** 対象月の泊にかかる予約明細の件数（0 なら未取り込み） */
+  reservations: number
+}
+
+/** 利用人数別（GET /analysis/guest-counts。予約明細から — D-13） */
+export interface GuestCounts {
+  segments: Array<{
+    key: string
+    name: string
+    soldRooms: number
+    occupancy: number | null
+    adr: number | null
+    guestUnitPrice: number | null
+    revenue: number | null
+    revenueShare: number | null
+    roomsShare: number | null
+    dor: number | null
+    avgNights: number | null
+    yoy: number | null
+    /** 区分ごとの月の予約の積み上がり（残日数 → 予約室数・前年） */
+    curve: Array<{ lead: number; rooms: number; lastYear: number | null }>
+  }>
+  reservations: number
+}

@@ -173,6 +173,40 @@ export async function importReservationsService(input: ImportReservationsInput):
     existing: points.length === 0 ? 0 : await prisma.bookingCurveData.count({
       where: { hotelId: hotel.id, OR: points.map((p) => ({ stayDate: p.stayDate, daysBefore: p.daysBefore })) },
     }),
-    write: (tx) => upsertCurvePoints(tx, hotel, points, (p) => new Date(p.stayDate.getTime() - p.daysBefore * DAY_MS)),
+    write: async (tx) => {
+      await upsertCurvePoints(tx, hotel, points, (p) => new Date(p.stayDate.getTime() - p.daysBefore * DAY_MS))
+      await replaceReservations(tx, hotel, input)
+    },
+  })
+}
+
+/**
+ * 明細そのものも保存する（予約動向・利用人数別の集計 — D-13）。宿泊日の範囲にかかる既存の明細を消してから入れ直す
+ * （取り込みは「その範囲の泊にかかる予約をすべて含める」約束なので、入れ替えで同じ結果になる）
+ */
+async function replaceReservations(tx: Prisma.TransactionClient, hotel: ImportHotel, input: ImportReservationsInput) {
+  const from = toDate(input.stayFrom)
+  const to = toDate(input.stayTo)
+  // 範囲にかかる = チェックイン日 ≦ 範囲の終わり かつ 最終泊（チェックイン日 + 泊数 − 1）≧ 範囲の初め。泊数は最大60泊
+  const candidates = await tx.reservation.findMany({
+    where: { hotelId: hotel.id, checkInDate: { lte: to, gte: new Date(from.getTime() - 60 * DAY_MS) } },
+    select: { id: true, checkInDate: true, nights: true },
+  })
+  const overlapping = candidates.filter((r) => r.checkInDate.getTime() + (r.nights - 1) * DAY_MS >= from.getTime()).map((r) => r.id)
+  if (overlapping.length > 0) await tx.reservation.deleteMany({ where: { id: { in: overlapping } } })
+  await tx.reservation.createMany({
+    data: input.rows.map((r) => ({
+      tenantId: hotel.tenantId,
+      hotelId: hotel.id,
+      reservationCode: r.reservationCode ?? null,
+      bookedDate: toDate(r.bookedDate),
+      checkInDate: toDate(r.checkInDate),
+      nights: r.nights,
+      rooms: r.rooms,
+      guests: r.guests ?? null,
+      revenue: r.revenue ?? null,
+      channel: r.channel ?? null,
+      cancelledDate: r.cancelledDate ? toDate(r.cancelledDate) : null,
+    })),
   })
 }

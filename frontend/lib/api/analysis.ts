@@ -3,12 +3,38 @@
 import { rawRequest, withDemoFallback } from "./client"
 import { mockChannelBreakdown, mockRoomTypeBreakdown } from "./demo-data"
 import { mockDailyPerformance, mockDayOfWeekBreakdown, mockDayTypeBreakdown, mockMonthPace } from "./demo-revenue"
-import type { ChannelBreakdown, DailyPerformance, DayOfWeekBreakdown, DayTypeBreakdown, MonthPace, RoomTypeBreakdown } from "./types"
+import { mockBookingWindows, mockGuestCounts } from "./demo-reservations"
+import type {
+  BookingWindows,
+  ChannelBreakdown,
+  DailyPerformance,
+  DayOfWeekBreakdown,
+  DayTypeBreakdown,
+  GuestCounts,
+  MonthPace,
+  RoomTypeBreakdown,
+} from "./types"
 
 const monthQuery = (hotelId: string, year: number, month: number) =>
   `hotelId=${encodeURIComponent(hotelId)}&year=${year}&month=${month}`
 
 export const analysisEndpoints = {
+  /** 予約動向（リードタイム別の予約とキャンセル。予約明細から — D-13） */
+  bookingWindows(hotelId: string, year: number, month: number): Promise<BookingWindows> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/booking-windows?${monthQuery(hotelId, year, month)}`),
+      () => mockBookingWindows(year, month)
+    )
+  },
+
+  /** 利用人数別（予約明細から — D-13） */
+  guestCounts(hotelId: string, year: number, month: number): Promise<GuestCounts> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/guest-counts?${monthQuery(hotelId, year, month)}`),
+      () => mockGuestCounts(year, month)
+    )
+  },
+
   /** チャネル別の実績（対象月。前月比つき） */
   channelBreakdown(hotelId: string, year: number, month: number): Promise<ChannelBreakdown> {
     return withDemoFallback(

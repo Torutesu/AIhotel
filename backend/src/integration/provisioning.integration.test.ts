@@ -240,6 +240,24 @@ describeIntegration('新しいテナントの立ち上げと、開業直後の�
     expect((await point(stay, 7))?.roomsBooked).toBe(5) // 取消前
     expect((await point(stay, 0))?.roomsBooked).toBe(3) // 2日前に取消
     expect((await point(addUtcDays(stay, 1), 0))?.roomsBooked).toBe(3) // 連泊の2泊目
+
+    // 明細も保存し、同じ範囲を取り込み直すと入れ替わる（二重にならない）
+    expect(await prisma.reservation.count({ where: { hotelId } })).toBe(2)
+    expect((await post({ stayFrom: iso(stay), stayTo: iso(addUtcDays(stay, 1)), rows: [{ ...rows[0], guests: 6, revenue: 120_000 }] })).status).toBe(200)
+    expect(await prisma.reservation.count({ where: { hotelId } })).toBe(1)
+
+    // 予約動向・利用人数別の集計
+    const y = stay.getUTCFullYear()
+    const m = stay.getUTCMonth() + 1
+    const windows = await request(app).get(`/api/v1/analysis/booking-windows?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(windows.status, JSON.stringify(windows.body)).toBe(200)
+    expect(windows.body.data.reservations).toBe(1)
+    const sixty = windows.body.data.bookings.find((b: { window: string }) => b.window === '31-60日前')
+    expect(sixty.soldRooms).toBeGreaterThan(0)
+    const guests = await request(app).get(`/api/v1/analysis/guest-counts?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(guests.body.data.segments.find((s: { name: string }) => s.name === '2名').soldRooms).toBeGreaterThan(0)
+    const other = await request(app).get(`/api/v1/analysis/guest-counts?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.tenantadmin}`)
+    expect(other.status).toBe(403)
   })
 
   async function hotelTenant() {

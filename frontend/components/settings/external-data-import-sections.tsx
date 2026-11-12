@@ -110,6 +110,7 @@ export function ReservationImportSection() {
           <p>
             PMS・サイトコントローラーの予約明細（2年分が目安）から、どの残日数の時点で何室入っていたかを作ります。対象の月の泊にかかる予約をすべて含めてください。
             取消日のある予約は、取り消すまでの時点だけに数えます。宿泊月ごとに1つずつ取り込みます（前月から泊まり続ける予約も含めます）。
+            予約番号・人数・室料・チャネルの列（任意）があると、分析タブの予約動向・利用人数別にも使います。
           </p>
           <LabeledMonthPicker id="reservation-import-month" label="対象の宿泊月" value={monthStr} onChange={setMonthStr} yearOffsets={[-3, -2, -1, 0]} />
         </div>

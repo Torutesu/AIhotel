@@ -512,6 +512,11 @@ export const importReservationsSchema = z
           nights: z.number().int('泊数は整数で入力してください').min(1, '泊数は1以上で入力してください').max(60, '泊数は60泊までです'),
           rooms: z.number().int('室数は整数で入力してください').min(1, '室数は1以上で入力してください'),
           cancelledDate: importDateSchema.nullable().optional(),
+          // 任意の項目（予約動向・利用人数別の集計に使う — D-13）
+          reservationCode: z.string().trim().max(100).nullable().optional(),
+          guests: z.number().int('宿泊人数は整数で入力してください').min(0, '宿泊人数は0以上で入力してください').nullable().optional(),
+          revenue: z.number().min(0, '室料は0以上で入力してください').nullable().optional(),
+          channel: z.string().trim().max(100).nullable().optional(),
         })
       )
       .min(1, '取り込む行がありません')

@@ -5,7 +5,8 @@
 //  - 表の項目: 販売室数・稼働率・ADR・客単価・室料売上・売上構成比・DOR・平均宿泊数・前年同月比（前月比は出さない）
 //  - グラフ: 構成比（販売室数・室料売上の2種）と、月のブッキングカーブ
 // 客単価・DOR・平均宿泊数は人数・泊数の入った予約データ（PMS/サイトコントローラー連携）が要るため、実データでは「-」になる。
-// 月のブッキングカーブも区分ごとの予約データが要るため、いまは形をサンプルで出す（必ずサンプルと明示する）。
+// 月のブッキングカーブは区分ごとの予約データが要る。行に予約明細から作った積み上がり（curve — D-13）があればそれを出し、
+// 無い区分（チャネル別・部屋タイプ別）は形をサンプルで出す（必ずサンプルと明示する）。
 
 import { useMemo, useState, type ReactNode } from "react"
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
@@ -38,6 +39,8 @@ export interface CompositionRow {
   avgNights: number | null
   /** 室料売上の前年同月比（%） */
   yoy: number | null
+  /** 区分ごとの月の予約の積み上がり（予約明細から — D-13）。あれば SegmentMonthCurveChart がサンプルの代わりに使う */
+  curve?: Array<{ lead: number; rooms: number; lastYear: number | null }>
   /** 前年同月の室料売上（その他にまとめるときに使う） */
   lastYearRevenue?: number | null
 }
@@ -187,8 +190,8 @@ function sampleProgress(lead: number, earliness: number): number {
 const CURVE_LEADS = [180, 150, 120, 90, 75, 60, 45, 30, 21, 14, 7, 3, 1, 0]
 
 /**
- * 区分ごとの月のブッキングカーブ（サンプル）。区分を選んで、月の予約室数が 180日前 → 結果 でどう積み上がったかを前年と並べる。
- * 区分ごとの予約データが無いため、最終の室数（表の販売室数）に典型的な形を当てたサンプル。
+ * 区分ごとの月のブッキングカーブ。区分を選んで、月の予約室数が 180日前 → 結果 でどう積み上がったかを前年と並べる。
+ * 行に curve（予約明細から作った積み上がり — D-13）があればそれを使い、無ければ最終の室数に典型的な形を当てたサンプル。
  */
 export function SegmentMonthCurveChart({ rows, title }: { rows: CompositionRow[]; title: string }) {
   const candidates = useMemo(() => rows.filter((r) => r.key !== "__others" && (r.soldRooms ?? 0) > 0), [rows])
@@ -196,6 +199,7 @@ export function SegmentMonthCurveChart({ rows, title }: { rows: CompositionRow[]
   const current = candidates.find((r) => r.key === selected) ?? candidates[0]
   const data = useMemo(() => {
     if (!current) return []
+    if (current.curve) return current.curve.map((p) => ({ lead: p.lead, rooms: p.rooms, lastYear: p.lastYear }))
     const index = candidates.indexOf(current)
     const earliness = (index % 4) / 3
     const final = current.soldRooms ?? 0
@@ -241,7 +245,9 @@ export function SegmentMonthCurveChart({ rows, title }: { rows: CompositionRow[]
           </Select>
         </div>
       </div>
-      <SampleDataNotice detail="区分ごとの予約の入り方は予約データ（PMS/サイトコントローラー）連携後に表示します。いまは最終の販売室数に典型的な形を当てたサンプルです。" />
+      {!current.curve && (
+        <SampleDataNotice detail="区分ごとの予約の入り方は予約データ（PMS/サイトコントローラー）連携後に表示します。いまは最終の販売室数に典型的な形を当てたサンプルです。" />
+      )}
       <ResponsiveContainer width="100%" height={200}>
         <LineChart data={data} margin={{ top: 6, right: 16, left: 4, bottom: 4 }}>
           <CartesianGrid stroke="currentColor" opacity={0.08} />
