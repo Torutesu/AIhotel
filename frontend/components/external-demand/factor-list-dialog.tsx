@@ -2,25 +2,26 @@
 
 // 外部要因の一覧（気候要因・インバウンド動向・アクセスなど — 2026-10 の画面修正）。
 // 要因のケースが増えても見られるよう、カードをクリックすると全件を表で開き、CSV に書き出せる。
-// 外部要因データの取り込みは未実装のため、表の中身はサンプル。
+// 中身は GET /external-signals/factors（天気は気象庁、ほかは外部要因エージェントが集めた市場の動き — D-13）。
 
 import { Download } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { SampleDataNotice } from "@/components/sample-data-notice"
 import { downloadCsv, fileDateStamp } from "@/lib/csv-export"
-import { FACTOR_STATUS_LABELS, FACTOR_TREND_LABELS, factorsToCsvRows, type ExternalFactorRow } from "./factors"
+import { FACTOR_SOURCE_LABELS, FACTOR_STATUS_LABELS, FACTOR_TREND_LABELS, factorsToCsvRows, type ExternalFactorRow } from "./factors"
 
 interface FactorListDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   category: string
   factors: ExternalFactorRow[]
+  /** 天気の行があるときの出典（「出典：気象庁ホームページ」） */
+  attribution?: string | null
 }
 
-export function FactorListDialog({ open, onOpenChange, category, factors }: FactorListDialogProps) {
+export function FactorListDialog({ open, onOpenChange, category, factors, attribution }: FactorListDialogProps) {
   const kpiCount = factors.reduce((sum, f) => sum + (f.kpis?.length ?? 0), 0)
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -31,13 +32,15 @@ export function FactorListDialog({ open, onOpenChange, category, factors }: Fact
             {factors.length}項目・指標{kpiCount}件。CSV に書き出して社内の資料やほかのツールで使えます。
           </DialogDescription>
         </DialogHeader>
-        <SampleDataNotice detail="外部要因データの取り込みが未実装のため、一覧の内容はサンプルです。" />
+        {factors.length === 0 && (
+          <p className="text-sm text-muted-foreground">まだ集めた動きがありません。外部要因エージェントがホテルごとに週1回集めます。</p>
+        )}
         <div className="flex justify-end">
           <Button
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => downloadCsv(`外部需要動向_${category}_サンプル_${fileDateStamp()}.csv`, factorsToCsvRows(category, factors))}
+            onClick={() => downloadCsv(`外部需要動向_${category}_${fileDateStamp()}.csv`, factorsToCsvRows(category, factors))}
           >
             <Download className="h-4 w-4" aria-hidden />
             CSV出力
@@ -51,7 +54,8 @@ export function FactorListDialog({ open, onOpenChange, category, factors }: Fact
                 <th className="py-2 pr-3 font-medium">状況</th>
                 <th className="py-2 pr-3 font-medium">傾向</th>
                 <th className="py-2 pr-3 font-medium">内容</th>
-                <th className="py-2 font-medium">指標</th>
+                <th className="py-2 pr-3 font-medium">指標</th>
+                <th className="py-2 font-medium">出どころ</th>
               </tr>
             </thead>
             <tbody>
@@ -80,11 +84,21 @@ export function FactorListDialog({ open, onOpenChange, category, factors }: Fact
                       "-"
                     )}
                   </td>
+                  <td className="whitespace-nowrap py-2 text-xs">
+                    {f.sourceUrl && /^https?:\/\//.test(f.sourceUrl) ? (
+                      <a href={f.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
+                        {FACTOR_SOURCE_LABELS[f.source ?? ""] ?? "根拠"}
+                      </a>
+                    ) : (
+                      (FACTOR_SOURCE_LABELS[f.source ?? ""] ?? "-")
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {attribution && factors.some((f) => f.source === "jma") && <p className="text-[11px] text-muted-foreground">{attribution}</p>}
       </DialogContent>
     </Dialog>
   )

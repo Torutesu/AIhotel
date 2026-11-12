@@ -3,7 +3,13 @@
 // 保存・取り込み・立ち上げは他の取り込みと同じく実 API だけ（デモ表示中は「保存できません」の案内になる）。
 
 import { rawRequest, withDemoFallback } from "./client"
-import { mockDailyBudgets, mockDemandIndex, mockExternalSignalsStatus, mockForecastReadiness } from "./demo-external-signals"
+import {
+  mockDailyBudgets,
+  mockDemandIndex,
+  mockExternalFactors,
+  mockExternalSignalsStatus,
+  mockForecastReadiness,
+} from "./demo-external-signals"
 
 export type ReadinessMode = "coldStart" | "learning" | "full"
 
@@ -52,6 +58,37 @@ export interface ExternalSignalsStatus {
       errorMessage: string | null
     }>
   }
+}
+
+/** 要因カードの1行（GET /external-signals/factors） */
+export interface ExternalFactor {
+  name: string
+  /** positive = 需要に追い風、warning = 向かい風、normal = 中立 */
+  status: "positive" | "warning" | "normal"
+  trend: "up" | "down" | "neutral"
+  note: string
+  kpis: Array<{ label: string; value: string; hint?: string }>
+  /** agent = 外部要因エージェント、jma = 気象庁 */
+  source: "agent" | "jma"
+  sourceUrl: string | null
+}
+
+/** 外部需要動向の要因（気候・インバウンド・アクセス）と週別の見通し */
+export interface ExternalFactors {
+  categories: Record<"climate" | "inbound" | "access", ExternalFactor[]>
+  /** 今週から8週間。値は稼働率（%）。推奨がまだ無い週は null */
+  weekly: Array<{
+    weekStart: string
+    label: string | null
+    total: number | null
+    base: number | null
+    event: number | null
+    market: number | null
+    events: string[]
+  }>
+  /** 天気の出典（天気の行があるときだけ） */
+  weatherAttribution: string | null
+  hasAgentSignals: boolean
 }
 
 export interface DailyBudgetRow {
@@ -106,6 +143,13 @@ export const externalSignalsEndpoints = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/external-signals/status?hotelId=${encodeURIComponent(hotelId)}`),
       () => mockExternalSignalsStatus(),
+    )
+  },
+
+  externalFactors(hotelId: string): Promise<ExternalFactors> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/external-signals/factors?hotelId=${encodeURIComponent(hotelId)}`),
+      () => mockExternalFactors(),
     )
   },
 

@@ -1,9 +1,9 @@
-// デモモード用のサンプルデータ（D-13: 予測の準備状況・月別需要指数・外部要因の取得状況・日別予算）。
+// デモモード用のサンプルデータ（D-13: 予測の準備状況・月別需要指数・外部要因の取得状況・要因と週別の見通し・日別予算）。
 // NEXT_PUBLIC_DEMO_MODE=true でバックエンドに接続できないときだけ使われる（実データではない）。
 // 形はバックエンドの GET /hotels/:id/forecast-readiness・/external-signals/demand-index・/external-signals/status・
 // /settings/daily-budgets と同じ。
 
-import type { DailyBudgetRow, DemandIndex, ExternalSignalsStatus, ForecastReadiness } from "./externalSignals"
+import type { DailyBudgetRow, DemandIndex, ExternalFactors, ExternalSignalsStatus, ForecastReadiness } from "./externalSignals"
 
 /** デモのホテルは実績が揃っている前提（ダッシュボードには出ず、設定タブでは「準備完了」を見せる） */
 export function mockForecastReadiness(hotelId: string): ForecastReadiness {
@@ -104,4 +104,86 @@ export function mockExternalSignalsStatus(now: Date = new Date()): ExternalSigna
 /** デモのホテルは日別予算を持たない（月の予算を配っている） */
 export function mockDailyBudgets(): DailyBudgetRow[] {
   return []
+}
+
+/** 要因カードと週別の見通し（GET /external-signals/factors と同じ形） */
+export function mockExternalFactors(now: Date = new Date()): ExternalFactors {
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  const weekly = [
+    { base: 68, event: 2, market: 1, label: null },
+    { base: 70, event: 6, market: 1, label: "大型コンサート" },
+    { base: 72, event: 0, market: 2, label: null },
+    { base: 66, event: 0, market: 2, label: "年末年始" },
+    { base: 74, event: 3, market: 2, label: "年末年始" },
+    { base: 58, event: 0, market: 1, label: "正月明け" },
+    { base: 60, event: 1, market: 1, label: "受験" },
+    { base: 63, event: 0, market: 3, label: "中国春節" },
+  ].map((w, i) => {
+    const start = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i * 7)
+    return { weekStart: iso(start), label: w.label, base: w.base, event: w.event, market: w.market, total: w.base + w.event + w.market, events: w.event > 0 && w.label ? [w.label] : [] }
+  })
+  return {
+    categories: {
+      climate: [
+        {
+          name: "今後7日の天気",
+          status: "normal",
+          trend: "neutral",
+          note: "雨・雪の予報が 2 日あります。日々の天気は宿泊への影響が小さいので、似た日の探索で弱く使っています",
+          kpis: [
+            { label: "雨・雪の日", value: "2日" },
+            { label: "最大の降水確率", value: "60%" },
+          ],
+          source: "jma",
+          sourceUrl: null,
+        },
+        {
+          name: "暖冬の見通し",
+          status: "normal",
+          trend: "neutral",
+          note: "1〜2月は平年より気温が高い見通し。スキー目的の需要は弱め、都市部は影響小",
+          kpis: [
+            { label: "期間", value: "1/1〜2/28" },
+            { label: "影響の大きさ", value: "小" },
+          ],
+          source: "agent",
+          sourceUrl: null,
+        },
+      ],
+      inbound: [
+        {
+          name: "春節の訪日需要",
+          status: "positive",
+          trend: "up",
+          note: "春節の連休に合わせた訪日旅行の予約が前年を上回るペース",
+          kpis: [
+            { label: "期間", value: "2/10〜2/24" },
+            { label: "影響の大きさ", value: "中" },
+            { label: "稼働率予測への補正", value: "+3pt", hint: "重なる動きの合計は ±6pt まで" },
+          ],
+          source: "agent",
+          sourceUrl: null,
+        },
+      ],
+      access: [
+        {
+          name: "羽田〜台北線の増便",
+          status: "positive",
+          trend: "up",
+          note: "冬ダイヤで週7便増",
+          kpis: [
+            { label: "期間", value: "12/1〜3/28" },
+            { label: "影響の大きさ", value: "中" },
+            { label: "稼働率予測への補正", value: "+3pt", hint: "重なる動きの合計は ±6pt まで" },
+          ],
+          source: "agent",
+          sourceUrl: null,
+        },
+      ],
+    },
+    weekly,
+    weatherAttribution: "出典：気象庁ホームページ",
+    hasAgentSignals: true,
+  }
 }
