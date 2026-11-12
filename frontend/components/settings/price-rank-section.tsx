@@ -58,6 +58,7 @@ const rankFormSchema = z
     if (data.price2P < data.price1P) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
+        params: ifFieldsValid.params,
         path: ["price2P"],
         message: "2名料金は1名料金以上で入力してください",
       })
@@ -65,6 +66,7 @@ const rankFormSchema = z
     if (data.price3P != null && data.price3P < data.price2P) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
+        params: ifFieldsValid.params,
         path: ["price3P"],
         message: "3名料金は2名料金以上で入力してください",
       })
@@ -72,11 +74,12 @@ const rankFormSchema = z
     if (data.price4P != null && data.price3P != null && data.price4P < data.price3P) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
+        params: ifFieldsValid.params,
         path: ["price4P"],
         message: "4名料金は3名料金以上で入力してください",
       })
     }
-  }, ifFieldsValid)
+  }, { when: ifFieldsValid.when })
 
 type RankFormValues = z.infer<typeof rankFormSchema>
 
