@@ -3,6 +3,7 @@
 import { EVENT_TYPE_OPTIONS } from "@/components/pricing/event-dialog"
 import type { PricingCalendarDay } from "@/lib/api"
 import type { Event as HotelEvent } from "@shared/types"
+import { JP_HOLIDAYS } from "@/lib/jp-holidays-data"
 
 export function eventTypeLabel(type: string): string {
   return EVENT_TYPE_OPTIONS.find((o) => o.value === type)?.label ?? type
@@ -99,31 +100,23 @@ export function demandDescription(demand: string | null): string {
   }
 }
 
-// 固定日の祝日（モックアップ用の簡易判定。移動祝日は含まない）
-export const FIXED_HOLIDAYS: Record<string, string> = {
-  "1-1": "元日",
-  "2-11": "建国記念の日",
-  "2-23": "天皇誕生日",
-  "4-29": "昭和の日",
-  "5-3": "憲法記念日",
-  "5-4": "みどりの日",
-  "5-5": "こどもの日",
-  "8-11": "山の日",
-  "11-3": "文化の日",
-  "11-23": "勤労感謝の日",
-}
+// 祝日（内閣府「国民の祝日」— D-13。scripts/update-jp-holidays.mjs が作る一覧。バックエンドの lib/jpHolidays.ts と同じ）
+const pad2 = (n: number) => String(n).padStart(2, "0")
+const localIso = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
 
 export function holidayNameOf(date: Date): string | null {
-  return FIXED_HOLIDAYS[`${date.getMonth() + 1}-${date.getDate()}`] ?? null
+  return JP_HOLIDAYS[localIso(date)] ?? null
 }
 
-// 特日（お盆・年末年始・GW等の高需要期。AIが候補を提示し、オペレーターがマスタ設定画面で修正する想定）
+// 特日（お盆・年末年始・GW・祝前日。バックエンドの services/forecast/specialDays.ts と同じ判定）
 export function specialDayNameOf(date: Date): string | null {
   const m = date.getMonth() + 1
   const d = date.getDate()
   if (m === 8 && d >= 13 && d <= 16) return "お盆"
   if ((m === 12 && d >= 29) || (m === 1 && d <= 3)) return "年末年始"
   if ((m === 4 && d >= 29) || (m === 5 && d <= 5)) return "GW"
+  const next = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
+  if (holidayNameOf(next) != null) return "祝前日"
   return null
 }
 
