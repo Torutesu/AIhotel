@@ -934,3 +934,23 @@ export interface GuestCounts {
   }>
   reservations: number
 }
+
+/** 月単位のブッキングカーブ（GET /analysis/month-curve — 予約明細から。D-13） */
+export interface MonthCurve {
+  year: number
+  month: number
+  totalRooms: number
+  /** 月の予算の室数（最終の目標） */
+  budgetRooms: number | null
+  /** 利用人数の区分の名前（segments のキー） */
+  segmentNames: string[]
+  reservations: number
+  /** 残月数 6 → 0（0 は月末＝最終）。monthly はその月に入った室数 */
+  points: Array<{
+    monthsBefore: number
+    cumulative: number
+    monthly: number
+    lastYearCumulative: number | null
+    segments: Record<string, number>
+  }>
+}

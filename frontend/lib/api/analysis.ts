@@ -3,7 +3,7 @@
 import { rawRequest, withDemoFallback } from "./client"
 import { mockChannelBreakdown, mockRoomTypeBreakdown } from "./demo-data"
 import { mockDailyPerformance, mockDayOfWeekBreakdown, mockDayTypeBreakdown, mockMonthPace } from "./demo-revenue"
-import { mockBookingWindows, mockGuestCounts } from "./demo-reservations"
+import { mockBookingWindows, mockGuestCounts, mockMonthCurve } from "./demo-reservations"
 import type {
   BookingWindows,
   ChannelBreakdown,
@@ -11,6 +11,7 @@ import type {
   DayOfWeekBreakdown,
   DayTypeBreakdown,
   GuestCounts,
+  MonthCurve,
   MonthPace,
   RoomTypeBreakdown,
 } from "./types"
@@ -32,6 +33,14 @@ export const analysisEndpoints = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/analysis/guest-counts?${monthQuery(hotelId, year, month)}`),
       () => mockGuestCounts(year, month)
+    )
+  },
+
+  /** 月単位のブッキングカーブ（予約明細から — D-13） */
+  monthCurve(hotelId: string, year: number, month: number): Promise<MonthCurve> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/month-curve?${monthQuery(hotelId, year, month)}`),
+      () => mockMonthCurve(year, month)
     )
   },
 

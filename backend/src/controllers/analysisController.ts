@@ -11,7 +11,11 @@ import {
   getMonthPaceService,
 } from '../services/analysisService.js'
 import { getDayOfWeekBreakdownService, getDayTypeBreakdownService } from '../services/monthPerformance.js'
-import { getBookingWindowsService, getGuestCountsService } from '../services/reservationAnalysis.js'
+import {
+  getBookingWindowsService,
+  getGuestCountsService,
+  getStayMonthCurveService,
+} from '../services/reservationAnalysis.js'
 
 /**
  * 年間推移（月単位 — F-ANA-03）
@@ -113,4 +117,13 @@ export const getBookingWindows = asyncHandler(async (req: Request, res: Response
 export const getGuestCounts = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId, year, month } = req.query as unknown as MonthQuery
   sendSuccess(res, await getGuestCountsService(hotelId, year, month))
+})
+
+/**
+ * 月単位のブッキングカーブ（予約明細から — D-13）
+ * GET /api/v1/analysis/month-curve?hotelId=&year=&month=
+ */
+export const getStayMonthCurve = asyncHandler(async (req: Request, res: Response) => {
+  const { hotelId, year, month } = req.query as unknown as MonthQuery
+  sendSuccess(res, await getStayMonthCurveService(hotelId, year, month))
 })

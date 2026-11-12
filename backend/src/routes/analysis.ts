@@ -18,6 +18,7 @@ import {
   getMonthPace,
   getBookingWindows,
   getGuestCounts,
+  getStayMonthCurve,
   getDayTypeBreakdown,
 } from '../controllers/analysisController.js'
 
@@ -59,5 +60,7 @@ analysisRouter.get('/month-pace', validate(monthQuerySchema, 'query'), getMonthP
 analysisRouter.get('/booking-windows', validate(monthQuerySchema, 'query'), getBookingWindows)
 // GET /api/v1/analysis/guest-counts?hotelId=&year=&month= — 利用人数別（予約明細から — D-13）
 analysisRouter.get('/guest-counts', validate(monthQuerySchema, 'query'), getGuestCounts)
+// GET /api/v1/analysis/month-curve?hotelId=&year=&month= — 月単位のブッキングカーブ（予約明細から — D-13）
+analysisRouter.get('/month-curve', validate(monthQuerySchema, 'query'), getStayMonthCurve)
 // GET /api/v1/analysis/day-type?hotelId=&year=&month= — 日のタイプ別パフォーマンス（当月以降は実績＋予約 — 2026-10）
 analysisRouter.get('/day-type', validate(monthQuerySchema, 'query'), getDayTypeBreakdown)

@@ -1,8 +1,9 @@
 import { prisma } from '../lib/prisma.js'
 import { NotFoundError } from '../middlewares/errorHandler.js'
-import { addUtcDays, eachUtcDay } from '../lib/date.js'
+import { addUtcDays, eachUtcDay, todayJst } from '../lib/date.js'
 import { loadMonthContext } from './dayContextService.js'
 import { lastYearSameWeekday } from './forecast/pace.js'
+import { loadStayDateSeries } from './reservationAnalysis.js'
 
 /**
  * ブッキングカーブ（F-DAILY-01）
@@ -14,7 +15,7 @@ export async function getBookingCurveService(hotelId: string, stayDate: Date) {
   if (!hotel) throw new NotFoundError('ホテル')
   const totalRooms = hotel.totalRooms
 
-  const [points, context, recommendation, actual] = await Promise.all([
+  const [points, context, recommendation, actual, reservationSeries] = await Promise.all([
     prisma.bookingCurveData.findMany({
       where: { hotelId, stayDate },
       orderBy: { daysBefore: 'desc' },
@@ -29,6 +30,8 @@ export async function getBookingCurveService(hotelId: string, stayDate: Date) {
       where: { hotelId_date: { hotelId, date: stayDate } },
       select: { soldRooms: true, occupancy: true, adr: true },
     }),
+    // 予約明細があれば ADR の推移と利用人数別の内訳（D-13）。部屋タイプは明細に無いので出さない
+    loadStayDateSeries(hotelId, stayDate, todayJst()),
   ])
 
   const occupancyOf = (rooms: number) => (totalRooms > 0 ? Math.round((rooms / totalRooms) * 1000) / 1000 : 0)
@@ -67,6 +70,9 @@ export async function getBookingCurveService(hotelId: string, stayDate: Date) {
           }
         : null,
     actual: actual ? { soldRooms: actual.soldRooms, occupancy: actual.occupancy, adr: actual.adr } : null,
+    ...(reservationSeries
+      ? { adrHistory: reservationSeries.adrHistory, breakdowns: { roomType: [], guests: reservationSeries.guests } }
+      : {}),
   }
 }
 

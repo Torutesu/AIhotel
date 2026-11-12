@@ -258,6 +258,20 @@ describeIntegration('新しいテナントの立ち上げと、開業直後の�
     expect(guests.body.data.segments.find((s: { name: string }) => s.name === '2名').soldRooms).toBeGreaterThan(0)
     const other = await request(app).get(`/api/v1/analysis/guest-counts?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.tenantadmin}`)
     expect(other.status).toBe(403)
+
+    // ブッキングカーブの系列: 宿泊日のカーブに ADR の推移と利用人数別の内訳、月単位の積み上がり
+    const stayCurve = await request(app).get(`/api/v1/daily/booking-curve?hotelId=${hotelId}&date=${iso(stay)}`).set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(stayCurve.status, JSON.stringify(stayCurve.body)).toBe(200)
+    expect(stayCurve.body.data.adrHistory.at(-1)).toEqual({ daysBefore: 0, adr: 20_000 }) // 12万円 ÷ 2泊 ÷ 3室
+    expect(stayCurve.body.data.breakdowns.guests).toEqual([
+      expect.objectContaining({ label: '2名利用', points: expect.arrayContaining([{ daysBefore: 0, roomsBooked: 3, adr: 20_000 }]) }),
+    ])
+    const monthCurve = await request(app).get(`/api/v1/analysis/month-curve?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(monthCurve.status).toBe(200)
+    expect(monthCurve.body.data.points.at(-1)).toMatchObject({ monthsBefore: 0 })
+    expect(monthCurve.body.data.reservations).toBe(1)
+    const otherCurve = await request(app).get(`/api/v1/analysis/month-curve?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.tenantadmin}`)
+    expect(otherCurve.status).toBe(403)
   })
 
   async function hotelTenant() {

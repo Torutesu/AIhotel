@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aggregateBookingWindows, aggregateGuestCounts, type ReservationRecord } from './reservationAnalysis.js'
+import { aggregateBookingWindows, aggregateGuestCounts, aggregateStayDateCurve, aggregateStayMonthCurve, type ReservationRecord } from './reservationAnalysis.js'
 
 // 予約明細の集計（D-13）: 対象月の泊をリードタイム・利用人数で分ける
 const d = (s: string) => new Date(`${s}T00:00:00Z`)
@@ -70,5 +70,61 @@ describe('aggregateGuestCounts', () => {
     // 11/1 に予約 → 12/10 の30日前（11/10）にはもう入っている。当日予約の 2名 は 30日前には無い
     expect(one.curve.find((c) => c.lead === 30)?.rooms).toBe(1)
     expect(result.segments.find((s) => s.name === '2名')!.curve.find((c) => c.lead === 30)?.rooms).toBe(0)
+  })
+})
+
+describe('aggregateStayDateCurve（宿泊日のカーブの系列）', () => {
+  const date = d('2026-12-10')
+  const rows = [
+    r({ bookedDate: d('2026-11-30'), rooms: 2, revenue: 40000, guests: 2 }), // 10日前・1名×2室
+    r({ bookedDate: d('2026-12-08'), checkInDate: d('2026-12-09'), nights: 2, revenue: 60000, guests: 2 }), // 2日前・1泊3万円
+    r({ bookedDate: d('2026-11-01'), cancelledDate: d('2026-12-05') }), // 5日前に取消
+    r({ bookedDate: d('2026-12-01'), checkInDate: d('2026-12-11') }), // 別の日
+  ]
+  const lastYear = [r({ bookedDate: d('2025-12-01'), checkInDate: d('2025-12-11') })] // 364日前（同じ曜日）
+  const result = aggregateStayDateCurve(rows, lastYear, date)
+  const at = (n: number) => result.points.find((p) => p.daysBefore === n)!
+
+  it('残日数ごとに予約済み・未取消の室数を数え、取消は取消日から外す', () => {
+    expect(result.reservations).toBe(3)
+    expect(at(40)).toMatchObject({ rooms: 0 })
+    expect(at(39)).toMatchObject({ rooms: 1 })
+    expect(at(10)).toMatchObject({ rooms: 3 })
+    expect(at(5)).toMatchObject({ rooms: 2 })
+    expect(at(0)).toMatchObject({ rooms: 3 })
+  })
+
+  it('ADR は1泊あたりの室料、利用人数は1室あたりで分け、前年は364日前', () => {
+    expect(at(0).adr).toBe(Math.round((40000 + 30000) / 3))
+    expect(at(0).segments['1名']).toEqual({ rooms: 2, adr: 20000 })
+    expect(at(0).segments['2名']).toEqual({ rooms: 1, adr: 30000 })
+    expect(at(0).lastYearRooms).toBe(1)
+    expect(at(30).adr).toBe(20000)
+    expect(aggregateStayDateCurve(rows, [], date).points[0].lastYearRooms).toBeNull()
+    // 未来の時点は作らない（今日が宿泊日の3日前なら、残日数3日まで）
+    expect(aggregateStayDateCurve(rows, [], date, 3).points.at(-1)?.daysBefore).toBe(3)
+  })
+})
+
+describe('aggregateStayMonthCurve（月単位のブッキングカーブ）', () => {
+  const rows = [
+    r({ bookedDate: d('2026-08-15'), checkInDate: d('2026-12-10'), rooms: 2 }), // 4か月前の月に予約
+    r({ bookedDate: d('2026-11-20'), checkInDate: d('2026-12-05') }), // 前月
+    r({ bookedDate: d('2026-12-03'), checkInDate: d('2026-12-20'), nights: 2 }), // 宿泊月の中
+    r({ bookedDate: d('2026-10-01'), checkInDate: d('2026-12-15'), cancelledDate: d('2026-12-20') }), // 泊のあとの取消は関係ない
+  ]
+  const result = aggregateStayMonthCurve(rows, [], d('2026-12-01'), d('2027-01-01'))
+  const k = (n: number) => result.points.find((p) => p.monthsBefore === n)!
+
+  it('残月数ごとの累積と、その月に入った室数', () => {
+    expect(result.points.map((p) => p.monthsBefore)).toEqual([6, 5, 4, 3, 2, 1, 0])
+    // 残月数 k の時点 = 宿泊月の1日の (k-1) か月前の1日（k=1 は 12/1、k=4 は 9/1）
+    expect(k(5).cumulative).toBe(0) // 8/1 時点ではまだ
+    expect(k(4)).toMatchObject({ cumulative: 2, monthly: 2 }) // 9/1 時点（8月に入った2室）
+    expect(k(3)).toMatchObject({ cumulative: 3, monthly: 1 }) // 10/1 時点（10/1 の予約を含む）
+    expect(k(1)).toMatchObject({ cumulative: 4, monthly: 1 }) // 12/1 時点
+    expect(k(0)).toMatchObject({ cumulative: 6, monthly: 2 }) // 月末: 12/3 の2泊。泊のあとの取消は数えたまま
+    expect(k(0).lastYearCumulative).toBeNull()
+    expect(k(0).segments).toMatchObject({ '1名': 2, '2名': 4 }) // 2室2名は1室1名
   })
 })

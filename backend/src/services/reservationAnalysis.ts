@@ -250,3 +250,117 @@ export async function getBookingWindowsService(hotelId: string, year: number, mo
 export async function getGuestCountsService(hotelId: string, year: number, month: number) {
   return aggregateGuestCounts(await loadMonth(hotelId, year, month))
 }
+
+// ======================================
+// 宿泊日・宿泊月のブッキングカーブの系列（分析タブのブッキングカーブグラフ — D-13）
+// 稼働室数の実測（全体）は GET /daily/booking-curve（予約の推移）が出す。ここは予約明細から
+// ADR・前年（364日前 = 同じ曜日）・利用人数別の内訳と、月単位の積み上がりを作る。予算は日別予算・月の予算の室数（最終の目標）
+// ======================================
+
+/** 宿泊日のカーブの残日数の範囲（0〜180日前） */
+export const STAY_CURVE_MAX_DAYS = 180
+
+type CurveRecord = Pick<ReservationRecord, 'bookedDate' | 'checkInDate' | 'nights' | 'rooms' | 'guests' | 'revenue' | 'cancelledDate'>
+
+const covers = (r: CurveRecord, d: Date) => r.checkInDate.getTime() <= d.getTime() && d.getTime() < r.checkInDate.getTime() + r.nights * DAY_MS
+/** 時点 asOf で予約済み・未取消か（取消日の前日までの時点だけに数える） */
+const onBooks = (r: CurveRecord, asOf: number) => r.bookedDate.getTime() <= asOf && (r.cancelledDate == null || r.cancelledDate.getTime() > asOf)
+
+/** 予約の ADR（1泊あたりの室料 ÷ 室数。室料のある予約だけ） */
+function adrOf(list: CurveRecord[]): number | null {
+  const priced = list.filter((r) => r.revenue != null)
+  const rooms = sum(priced.map((r) => r.rooms))
+  return rooms > 0 ? Math.round(sum(priced.map((r) => (r.revenue as number) / r.nights)) / rooms) : null
+}
+
+/** 1つの宿泊日の、残日数ごとの室数・ADR・前年の室数・利用人数別の室数と ADR（純関数）。fromDaysBefore より前（未来の時点）は作らない */
+export function aggregateStayDateCurve(rows: CurveRecord[], lastYearRows: CurveRecord[], date: Date, fromDaysBefore = 0) {
+  const lyDate = new Date(date.getTime() - 364 * DAY_MS)
+  const stay = rows.filter((r) => covers(r, date))
+  const lyStay = lastYearRows.filter((r) => covers(r, lyDate))
+  const points = []
+  for (let daysBefore = STAY_CURVE_MAX_DAYS; daysBefore >= Math.max(0, fromDaysBefore); daysBefore--) {
+    const asOf = date.getTime() - daysBefore * DAY_MS
+    const live = stay.filter((r) => onBooks(r, asOf))
+    points.push({
+      daysBefore,
+      rooms: sum(live.map((r) => r.rooms)),
+      adr: adrOf(live),
+      lastYearRooms: lyStay.length > 0 ? sum(lyStay.filter((r) => onBooks(r, asOf - 364 * DAY_MS)).map((r) => r.rooms)) : null,
+      segments: Object.fromEntries(
+        GUEST_SEGMENTS.map((seg) => {
+          const list = live.filter((r) => guestSegment(r as ReservationRecord) === seg)
+          return [seg, { rooms: sum(list.map((r) => r.rooms)), adr: adrOf(list) }]
+        }),
+      ) as Record<(typeof GUEST_SEGMENTS)[number], { rooms: number; adr: number | null }>,
+    })
+  }
+  return { reservations: stay.length, lastYearReservations: lyStay.length, points }
+}
+
+/** 宿泊月の積み上がり（残月数 6〜0。0 は月末時点＝最終）。月単位のブッキングカーブ（純関数） */
+export function aggregateStayMonthCurve(rows: CurveRecord[], lastYearRows: CurveRecord[], start: Date, end: Date) {
+  const lyStart = new Date(Date.UTC(start.getUTCFullYear() - 1, start.getUTCMonth(), 1))
+  const lyEnd = new Date(Date.UTC(end.getUTCFullYear() - 1, end.getUTCMonth(), 1))
+  // 残月数 k の時点 = 宿泊月の1日の (k-1) か月前の1日。k=0 は月末（翌月1日）
+  const snapshot = (monthStart: Date, k: number) => (k === 0 ? new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 1)) : new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() - (k - 1), 1)))
+  const nightsIn = (list: CurveRecord[], s: Date, e: Date) => {
+    const out: Array<{ r: CurveRecord; d: number }> = []
+    for (const r of list) for (let n = 0; n < r.nights; n++) {
+      const d = r.checkInDate.getTime() + n * DAY_MS
+      if (d >= s.getTime() && d < e.getTime()) out.push({ r, d })
+    }
+    return out
+  }
+  const nights = nightsIn(rows, start, end)
+  const lyNights = nightsIn(lastYearRows, lyStart, lyEnd)
+  // 泊の日より後の時点では、その泊の日の時点で数える（泊のあとの予約・取消は関係ない）
+  const asOf = (list: typeof nights, t: Date, filter?: (r: CurveRecord) => boolean) =>
+    sum(list.filter(({ r, d }) => (!filter || filter(r)) && onBooks(r, Math.min(t.getTime(), d))).map(({ r }) => r.rooms))
+  const ks = [7, 6, 5, 4, 3, 2, 1, 0]
+  const cumulative = ks.map((k) => asOf(nights, snapshot(start, k)))
+  const lyCumulative = ks.map((k) => asOf(lyNights, snapshot(lyStart, k)))
+  const segCumulative = Object.fromEntries(
+    GUEST_SEGMENTS.map((s) => [s, ks.map((k) => asOf(nights, snapshot(start, k), (r) => guestSegment(r as ReservationRecord) === s))]),
+  ) as Record<(typeof GUEST_SEGMENTS)[number], number[]>
+  const points = ks.slice(1).map((k, i) => ({
+    monthsBefore: k,
+    cumulative: cumulative[i + 1],
+    monthly: cumulative[i + 1] - cumulative[i],
+    lastYearCumulative: lyNights.length > 0 ? lyCumulative[i + 1] : null,
+    segments: Object.fromEntries(GUEST_SEGMENTS.map((s) => [s, segCumulative[s][i + 1]])) as Record<(typeof GUEST_SEGMENTS)[number], number>,
+  }))
+  return { reservations: new Set(nights.map(({ r }) => r)).size, points }
+}
+
+const CURVE_SELECT = { bookedDate: true, checkInDate: true, nights: true, rooms: true, guests: true, revenue: true, cancelledDate: true } as const
+
+/** 宿泊日の予約明細から、ブッキングカーブの ADR の推移と利用人数別の内訳を作る（GET /daily/booking-curve が使う）。明細が無ければ null */
+export async function loadStayDateSeries(hotelId: string, date: Date, today: Date) {
+  const around = { gte: new Date(date.getTime() - 60 * DAY_MS), lte: date }
+  const rows = await prisma.reservation.findMany({ where: { hotelId, checkInDate: around }, select: CURVE_SELECT })
+  const fromDaysBefore = Math.max(0, Math.round((date.getTime() - today.getTime()) / DAY_MS))
+  const curve = aggregateStayDateCurve(rows, [], date, fromDaysBefore)
+  if (curve.reservations === 0) return null
+  return {
+    adrHistory: curve.points.map((p) => ({ daysBefore: p.daysBefore, adr: p.adr })),
+    guests: GUEST_SEGMENTS.filter((seg) => curve.points.some((p) => p.segments[seg].rooms > 0)).map((seg) => ({
+      label: seg === '人数不明' ? seg : `${seg}利用`,
+      points: curve.points.map((p) => ({ daysBefore: p.daysBefore, roomsBooked: p.segments[seg].rooms, adr: p.segments[seg].adr })),
+    })),
+  }
+}
+
+/** GET /analysis/month-curve?year=&month= — 月単位のブッキングカーブ */
+export async function getStayMonthCurveService(hotelId: string, year: number, month: number) {
+  const hotel = await prisma.hotel.findFirst({ where: { id: hotelId, isActive: true }, select: { totalRooms: true } })
+  if (!hotel) throw new NotFoundError('ホテル')
+  const { start, end } = monthRange(year, month)
+  const ly = monthRange(year - 1, month)
+  const [rows, lastYearRows, budget] = await Promise.all([
+    prisma.reservation.findMany({ where: { hotelId, checkInDate: { gte: new Date(start.getTime() - 60 * DAY_MS), lt: end } }, select: CURVE_SELECT }),
+    prisma.reservation.findMany({ where: { hotelId, checkInDate: { gte: new Date(ly.start.getTime() - 60 * DAY_MS), lt: ly.end } }, select: CURVE_SELECT }),
+    prisma.monthlyBudget.findFirst({ where: { hotelId, year, month }, select: { budgetRooms: true } }),
+  ])
+  return { year, month, totalRooms: hotel.totalRooms, budgetRooms: budget?.budgetRooms ?? null, segmentNames: [...GUEST_SEGMENTS], ...aggregateStayMonthCurve(rows, lastYearRows, start, end) }
+}

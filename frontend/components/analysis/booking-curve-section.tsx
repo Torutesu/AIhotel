@@ -1,8 +1,10 @@
 "use client"
 
-// ブッキングカーブ（U-15 で daily-analysis-tab.tsx から分割）
-// 予約室数（稼働室数）の実測カーブは GET /daily/booking-curve の実データ。縦軸は稼働室数（2026-10 PDF c分析03）。
-// ADR・前年・予算の系列と表示区分の内訳は対応APIが未実装のためサンプル表示。
+// ブッキングカーブ（U-15 で daily-analysis-tab.tsx から分割。D-13 ですべて実データに）
+// 日単位: GET /daily/booking-curve。稼働室数の実測・前年同曜日（364日前）・日割り予算・AI の予測に加え、
+//   予約明細があれば ADR の推移（adrHistory）と利用人数別の内訳（breakdowns）。縦軸は稼働室数（2026-10 PDF c分析03）。
+// 月単位: GET /analysis/month-curve（予約明細の残月数ごとの積み上がり・前年・月の予算）。
+// 部屋タイプ別の内訳は予約明細に部屋タイプが無いため、データがあるとき（デモ）だけ選べる。無い系列は描かない（作り値で埋めない）。
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
@@ -24,40 +26,33 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import { DatePicker } from "@/components/date-picker"
 import { ErrorState } from "@/components/error-state"
-import { SampleDataNotice } from "@/components/sample-data-notice"
 import { useAuth } from "@/components/auth-provider"
-import { api, ApiClientError, type BookingCurve } from "@/lib/api"
+import { useApiQuery } from "@/hooks/use-api-query"
+import { api, ApiClientError, type BookingCurve, type MonthCurve } from "@/lib/api"
 import { startOfToday } from "@/lib/date"
 import { formatYen as yen } from "@/lib/format"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
-// ブッキングカーブの表示区分（全体 / 部屋タイプ別 / 利用人数別）。
-// モックアップのため係数でスケールした系列を表示する
-const CURVE_SEGMENTS: Record<string, Array<{ value: string; label: string; occFactor: number; adrFactor: number }>> = {
-  total: [{ value: "total", label: "全体", occFactor: 1, adrFactor: 1 }],
-  roomType: [
-    { value: "standard", label: "スタンダード", occFactor: 1.0, adrFactor: 1.0 },
-    { value: "deluxe", label: "デラックス", occFactor: 0.94, adrFactor: 1.35 },
-    { value: "suite", label: "スイート", occFactor: 0.82, adrFactor: 1.9 },
-  ],
-  occupancy: [
-    { value: "1p", label: "1名利用", occFactor: 0.52, adrFactor: 0.78 },
-    { value: "2p", label: "2名利用", occFactor: 0.31, adrFactor: 1.32 },
-    { value: "3p", label: "3名利用", occFactor: 0.12, adrFactor: 1.65 },
-    { value: "4p", label: "4名以上", occFactor: 0.05, adrFactor: 1.95 },
-  ],
-}
+type SegmentType = "total" | "roomType" | "guests"
+const SEGMENT_TYPE_LABELS: Record<SegmentType, string> = { total: "全体", roomType: "部屋タイプ別", guests: "利用人数別" }
 
-// 月単位ブッキングカーブ（モックデータ。宿泊月からの残月数ごとの予約積み上げ）
-const MONTHLY_BOOKING_CURVE = [
-  { monthsBefore: 6, monthly: 500, cumulative: 1800, lastYearCumulative: 1600 },
-  { monthsBefore: 5, monthly: 700, cumulative: 3800, lastYearCumulative: 3300 },
-  { monthsBefore: 4, monthly: 900, cumulative: 7000, lastYearCumulative: 6300 },
-  { monthsBefore: 3, monthly: 1400, cumulative: 12000, lastYearCumulative: 11000 },
-  { monthsBefore: 2, monthly: 2600, cumulative: 20000, lastYearCumulative: 18200 },
-  { monthsBefore: 1, monthly: 4800, cumulative: 28000, lastYearCumulative: 26000 },
-  { monthsBefore: 0, monthly: 1200, cumulative: 30200, lastYearCumulative: 28400 },
-]
+/** 表示区分の選択肢。データのある区分だけ（日単位は breakdowns、月単位は利用人数の区分）。純関数 */
+export function curveSegmentOptions(
+  unit: "daily" | "monthly",
+  bookingCurve: BookingCurve | null,
+  monthCurve: MonthCurve | null,
+): { options: Record<SegmentType, string[]>; types: SegmentType[] } {
+  const options: Record<SegmentType, string[]> =
+    unit === "monthly"
+      ? { total: [], roomType: [], guests: monthCurve && monthCurve.reservations > 0 ? monthCurve.segmentNames : [] }
+      : {
+          total: [],
+          roomType: (bookingCurve?.breakdowns?.roomType ?? []).map((s) => s.label),
+          guests: (bookingCurve?.breakdowns?.guests ?? []).map((s) => s.label),
+        }
+  const types = (Object.keys(SEGMENT_TYPE_LABELS) as SegmentType[]).filter((t) => t === "total" || options[t].length > 0)
+  return { options, types }
+}
 
 /** ブッキングカーブグラフ（実データ: api.bookingCurve。表示単位・表示区分のセレクタを含む） */
 interface BookingCurveSectionProps {
@@ -92,8 +87,8 @@ export function BookingCurveSection({
   const [bookingCurveError, setBookingCurveError] = useState<string | null>(null)
   // 表示単位（日単位 / 月単位）と表示区分（全体 / 部屋タイプ別 / 利用人数別）
   const [curveUnit, setCurveUnit] = useState<"daily" | "monthly">("daily")
-  const [curveSegmentType, setCurveSegmentType] = useState<"total" | "roomType" | "occupancy">("total")
-  const [curveSegmentValue, setCurveSegmentValue] = useState("total")
+  const [curveSegmentType, setCurveSegmentType] = useState<SegmentType>("total")
+  const [curveSegmentValue, setCurveSegmentValue] = useState("")
 
   const loadBookingCurve = useCallback(async () => {
     if (!hotelId || !selectedStayDate) return
@@ -114,12 +109,31 @@ export function BookingCurveSection({
     loadBookingCurve()
   }, [loadBookingCurve])
 
-  const curveSegment = useMemo(() => {
-    const options = CURVE_SEGMENTS[curveSegmentType]
-    return options.find((o) => o.value === curveSegmentValue) ?? options[0]
-  }, [curveSegmentType, curveSegmentValue])
+  // 月単位（宿泊日の月。予約明細から）
+  const stayYear = selectedStayDate?.getFullYear() ?? 0
+  const stayMonth = selectedStayDate ? selectedStayDate.getMonth() + 1 : 0
+  const monthCurve = useApiQuery<MonthCurve>(
+    hotelId && selectedStayDate && curveUnit === "monthly" ? () => api.monthCurve(hotelId, stayYear, stayMonth) : null,
+    [hotelId, stayYear, stayMonth, curveUnit],
+    "月単位のブッキングカーブの取得に失敗しました",
+  )
 
-  // 宿泊日までの残日数（この日数より大きい daysBefore は「観測済み＝当日まで」の実績、小さい側はAI予測）
+  const { options: segmentOptions, types: availableTypes } = useMemo(
+    () => curveSegmentOptions(curveUnit, bookingCurve, monthCurve.data),
+    [curveUnit, bookingCurve, monthCurve.data],
+  )
+  const segmentType: SegmentType = availableTypes.includes(curveSegmentType) ? curveSegmentType : "total"
+  const segmentValue = segmentOptions[segmentType].includes(curveSegmentValue) ? curveSegmentValue : (segmentOptions[segmentType][0] ?? "")
+  const monthlyData = useMemo(() => {
+    if (!monthCurve.data) return []
+    return monthCurve.data.points.map((p) => ({
+      monthsBefore: p.monthsBefore,
+      cumulative: segmentType === "guests" ? (p.segments[segmentValue] ?? 0) : p.cumulative,
+      monthly: segmentType === "total" ? p.monthly : null,
+      lastYearCumulative: segmentType === "total" ? p.lastYearCumulative : null,
+    }))
+  }, [monthCurve.data, segmentType, segmentValue])
+
   const daysUntilStay = useMemo(() => {
     if (!selectedStayDate) return 0
     const diff = Math.ceil((selectedStayDate.getTime() - todayDateOnly.getTime()) / 86400000)
@@ -127,32 +141,43 @@ export function BookingCurveSection({
   }, [selectedStayDate, todayDateOnly])
 
   // X軸: daysBefore を右肩上がり（宿泊日に近づくほど右）に表示するため降順のまま reversed 指定。
-  // 現在ADR・現在の稼働室数とそれぞれのAI予測（当日以降は破線）、前年実績・予算を表示する。
-  // ADR・前年・予算は対応APIが未整備のため実測カーブから決定的に導出したモック値
+  // 全体: 稼働室数の実測・前年同曜日・予約の ADR。AI の予測は今日の実測から宿泊日の予測室数への破線。
+  // 区分別: その区分の予約室数と ADR（前年・予算・AI の予測は全体にしか無いので出さない）
   const bookingCurveData = useMemo(() => {
     if (!bookingCurve) return []
-    const sorted = [...bookingCurve.points].sort((a, b) => b.daysBefore - a.daysBefore)
-    const maxDays = sorted.length > 0 ? sorted[0].daysBefore : 90
-    return sorted.map((p, idx) => {
-      const observed = p.daysBefore >= daysUntilStay
-      const next = sorted[idx + 1]
-      const isBoundary = observed && !!next && next.daysBefore < daysUntilStay
-      const occ = Math.round(p.roomsBooked * curveSegment.occFactor)
-      const adr = Math.round(((14000 + p.occupancy * 5500) * curveSegment.adrFactor) / 10) * 10
-      const progress = maxDays > 0 ? (maxDays - p.daysBefore) / maxDays : 1
-      const lastYearOcc = Math.round(occ * 0.92)
-      const budgetOcc = Math.round(bookingCurve.totalRooms * 0.85 * curveSegment.occFactor * Math.pow(progress, 0.7))
-      return {
-        daysBefore: p.daysBefore,
-        occActual: observed ? occ : null,
-        occForecast: !observed || isBoundary ? occ : null,
-        adrActual: observed ? adr : null,
-        adrForecast: !observed || isBoundary ? adr : null,
-        lastYearOcc,
-        budgetOcc,
+    const rows = new Map<number, { daysBefore: number; occActual: number | null; occForecast: number | null; adrActual: number | null; lastYearOcc: number | null }>()
+    const row = (daysBefore: number) => {
+      let r = rows.get(daysBefore)
+      if (!r) {
+        r = { daysBefore, occActual: null, occForecast: null, adrActual: null, lastYearOcc: null }
+        rows.set(daysBefore, r)
       }
-    })
-  }, [bookingCurve, daysUntilStay, curveSegment])
+      return r
+    }
+    if (segmentType === "total") {
+      for (const p of bookingCurve.points) row(p.daysBefore).occActual = p.roomsBooked
+      if (bookingCurve.actual?.soldRooms != null && daysUntilStay === 0) row(0).occActual = bookingCurve.actual.soldRooms
+      for (const p of bookingCurve.reference?.points ?? []) row(p.daysBefore).lastYearOcc = p.roomsBooked
+      for (const a of bookingCurve.adrHistory ?? []) if (a.adr != null) row(a.daysBefore).adrActual = a.adr
+      // AI の予測: 直近の実測から宿泊日の予測室数へ
+      const latest = [...bookingCurve.points].sort((a, b) => a.daysBefore - b.daysBefore)[0]
+      if (bookingCurve.prediction && daysUntilStay > 0 && latest) {
+        row(latest.daysBefore).occForecast = latest.roomsBooked
+        row(0).occForecast = bookingCurve.prediction.rooms
+      }
+    } else {
+      const series = (bookingCurve.breakdowns?.[segmentType] ?? []).find((s) => s.label === segmentValue)
+      for (const p of series?.points ?? []) {
+        row(p.daysBefore).occActual = p.roomsBooked
+        row(p.daysBefore).adrActual = p.adr
+      }
+    }
+    return [...rows.values()].sort((a, b) => b.daysBefore - a.daysBefore)
+  }, [bookingCurve, daysUntilStay, segmentType, segmentValue])
+  const hasAdr = bookingCurveData.some((r) => r.adrActual != null)
+  const hasLastYear = bookingCurveData.some((r) => r.lastYearOcc != null)
+  const hasForecast = bookingCurveData.some((r) => r.occForecast != null)
+  const budgetRooms = segmentType === "total" ? (bookingCurve?.budget?.rooms ?? null) : null
 
   const maxDaysBefore = bookingCurveData.length > 0 ? bookingCurveData[0].daysBefore : 90
 
@@ -230,30 +255,32 @@ export function BookingCurveSection({
               </SelectContent>
             </Select>
             <Select
-              value={curveSegmentType}
-              onValueChange={(v: "total" | "roomType" | "occupancy") => {
+              value={segmentType}
+              onValueChange={(v: SegmentType) => {
                 setCurveSegmentType(v)
-                setCurveSegmentValue(CURVE_SEGMENTS[v][0].value)
+                setCurveSegmentValue(segmentOptions[v][0] ?? "")
               }}
             >
-              <SelectTrigger className="h-8 w-32 text-xs">
+              <SelectTrigger className="h-8 w-32 text-xs" aria-label="表示区分">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="total">全体</SelectItem>
-                <SelectItem value="roomType">部屋タイプ別</SelectItem>
-                <SelectItem value="occupancy">利用人数別</SelectItem>
+                {availableTypes.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {SEGMENT_TYPE_LABELS[t]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
-            {curveSegmentType !== "total" && (
-              <Select value={curveSegmentValue} onValueChange={setCurveSegmentValue}>
-                <SelectTrigger className="h-8 w-32 text-xs">
+            {segmentType !== "total" && (
+              <Select value={segmentValue} onValueChange={setCurveSegmentValue}>
+                <SelectTrigger className="h-8 w-32 text-xs" aria-label="区分">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {CURVE_SEGMENTS[curveSegmentType].map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
+                  {segmentOptions[segmentType].map((o) => (
+                    <SelectItem key={o} value={o}>
+                      {o}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -272,9 +299,18 @@ export function BookingCurveSection({
       </CardHeader>
       <CardContent className="pt-0">
         {curveUnit === "monthly" ? (
+          monthCurve.loading ? (
+            <Skeleton className="h-[300px] w-full" />
+          ) : monthCurve.error ? (
+            <ErrorState message={monthCurve.error} onRetry={monthCurve.reload} />
+          ) : !monthCurve.data || monthCurve.data.reservations === 0 ? (
+            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground" data-testid="no-month-curve">
+              この月の予約明細がまだ取り込まれていません。設定タブの「予約明細から作る」で取り込むと、月単位の積み上がりを表示します。
+            </p>
+          ) : (
           <div className="space-y-2">
             <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={MONTHLY_BOOKING_CURVE} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+              <LineChart data={monthlyData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
                 <XAxis
                   dataKey="monthsBefore"
@@ -294,21 +330,21 @@ export function BookingCurveSection({
                 />
                 <Tooltip content={<MonthlyCurveTooltip />} />
                 <Legend wrapperStyle={{ fontSize: "12px" }} />
-                <Line type="monotone" dataKey="cumulative" stroke="#2563eb" strokeWidth={3} dot={{ r: 4 }} name="累積予約室数" />
-                <Line type="monotone" dataKey="monthly" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} name="当月予約室数" />
-                <Line
-                  type="monotone"
-                  dataKey="lastYearCumulative"
-                  stroke="#9ca3af"
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  dot={false}
-                  name="前年累積予約室数"
-                />
+                {segmentType === "total" && monthCurve.data.budgetRooms != null && (
+                  <ReferenceLine y={monthCurve.data.budgetRooms} stroke="#16a34a" strokeDasharray="8 4" label={{ value: "月の予算", position: "insideTopLeft", fill: "#16a34a", fontSize: 11 }} />
+                )}
+                <Line type="monotone" dataKey="cumulative" stroke="#2563eb" strokeWidth={3} dot={{ r: 4 }} name={segmentType === "total" ? "累積予約室数" : `累積予約室数（${segmentValue}）`} />
+                {segmentType === "total" && <Line type="monotone" dataKey="monthly" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} name="その月に入った室数" />}
+                {segmentType === "total" && monthlyData.some((p) => p.lastYearCumulative != null) && (
+                  <Line type="monotone" dataKey="lastYearCumulative" stroke="#9ca3af" strokeWidth={2} strokeDasharray="5 5" dot={false} name="前年累積予約室数" />
+                )}
               </LineChart>
             </ResponsiveContainer>
-            <SampleDataNotice detail="月単位のブッキングカーブは対応APIが未実装のため、表示イメージ（サンプル）です。" />
+            <p className="text-[10px] text-muted-foreground">
+              予約明細 {monthCurve.data.reservations.toLocaleString()}件から集計。残月数1は宿泊月の前月末まで、0は月末（最終）の時点です。取消は取り消した時点から外します。
+            </p>
           </div>
+          )
         ) : bookingCurveLoading ? (
           <Skeleton className="h-[300px] w-full" />
         ) : bookingCurveError ? (
@@ -357,15 +393,22 @@ export function BookingCurveSection({
                     label={{ value: "本日", position: "top", fill: "#666", fontSize: 11 }}
                   />
                 )}
-                <Line yAxisId="left" type="monotone" dataKey="occActual" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3 }} name="現在の稼働室数" connectNulls={false} />
-                <Line yAxisId="left" type="monotone" dataKey="occForecast" stroke="#2563eb" strokeWidth={2.5} strokeDasharray="5 5" dot={false} name="稼働室数（AI予測）" connectNulls={false} />
-                <Line yAxisId="right" type="monotone" dataKey="adrActual" stroke="#ef4444" strokeWidth={2.5} dot={{ r: 3 }} name="現在ADR" connectNulls={false} />
-                <Line yAxisId="right" type="monotone" dataKey="adrForecast" stroke="#ef4444" strokeWidth={2.5} strokeDasharray="5 5" dot={false} name="ADR（AI予測）" connectNulls={false} />
-                <Line yAxisId="left" type="monotone" dataKey="lastYearOcc" stroke="#9ca3af" strokeWidth={1.5} strokeDasharray="3 3" dot={false} name="前年の稼働室数" />
-                <Line yAxisId="left" type="monotone" dataKey="budgetOcc" stroke="#16a34a" strokeWidth={1.5} strokeDasharray="8 4" dot={false} name="予算の稼働室数" />
+                {budgetRooms != null && (
+                  <ReferenceLine y={budgetRooms} yAxisId="left" stroke="#16a34a" strokeDasharray="8 4" label={{ value: "予算", position: "insideTopLeft", fill: "#16a34a", fontSize: 11 }} />
+                )}
+                <Line yAxisId="left" type="monotone" dataKey="occActual" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 3 }} name={segmentType === "total" ? "稼働室数" : `予約室数（${segmentValue}）`} connectNulls />
+                {hasForecast && (
+                  <Line yAxisId="left" type="linear" dataKey="occForecast" stroke="#2563eb" strokeWidth={2.5} strokeDasharray="5 5" dot={false} name="稼働室数（AI予測）" connectNulls />
+                )}
+                {hasAdr && <Line yAxisId="right" type="monotone" dataKey="adrActual" stroke="#ef4444" strokeWidth={2.5} dot={false} name="予約のADR" connectNulls />}
+                {hasLastYear && (
+                  <Line yAxisId="left" type="monotone" dataKey="lastYearOcc" stroke="#9ca3af" strokeWidth={1.5} strokeDasharray="3 3" dot={false} name="前年同曜日の稼働室数" connectNulls />
+                )}
               </LineChart>
             </ResponsiveContainer>
-            <SampleDataNotice detail="稼働室数の実測カーブは実データですが、ADR・前年・予算の系列と表示区分（部屋タイプ別・利用人数別）の内訳は対応APIが未実装のためサンプルです。" />
+            {!hasAdr && segmentType === "total" && (
+              <p className="text-[10px] text-muted-foreground">予約の ADR と利用人数別の内訳は、設定タブの「予約明細から作る」で室料・人数の入った予約明細を取り込むと表示します。</p>
+            )}
           </div>
         ) : (
           <div className="text-center py-8 text-sm text-muted-foreground">
