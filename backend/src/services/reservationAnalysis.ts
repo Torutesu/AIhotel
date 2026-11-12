@@ -167,7 +167,7 @@ export function aggregateBookingWindows({ rows, lastYearRows, start, end, totalR
   return { bookings, cancels, reservations: parts.length }
 }
 
-function guestSegment(r: ReservationRecord): (typeof GUEST_SEGMENTS)[number] {
+export function guestSegment(r: Pick<ReservationRecord, "guests" | "rooms">): (typeof GUEST_SEGMENTS)[number] {
   if (r.guests == null || r.rooms <= 0) return '人数不明'
   const perRoom = Math.round(r.guests / r.rooms)
   if (perRoom <= 1) return '1名'
@@ -289,7 +289,7 @@ export function aggregateStayDateCurve(rows: CurveRecord[], lastYearRows: CurveR
       lastYearRooms: lyStay.length > 0 ? sum(lyStay.filter((r) => onBooks(r, asOf - 364 * DAY_MS)).map((r) => r.rooms)) : null,
       segments: Object.fromEntries(
         GUEST_SEGMENTS.map((seg) => {
-          const list = live.filter((r) => guestSegment(r as ReservationRecord) === seg)
+          const list = live.filter((r) => guestSegment(r) === seg)
           return [seg, { rooms: sum(list.map((r) => r.rooms)), adr: adrOf(list) }]
         }),
       ) as Record<(typeof GUEST_SEGMENTS)[number], { rooms: number; adr: number | null }>,
@@ -321,7 +321,7 @@ export function aggregateStayMonthCurve(rows: CurveRecord[], lastYearRows: Curve
   const cumulative = ks.map((k) => asOf(nights, snapshot(start, k)))
   const lyCumulative = ks.map((k) => asOf(lyNights, snapshot(lyStart, k)))
   const segCumulative = Object.fromEntries(
-    GUEST_SEGMENTS.map((s) => [s, ks.map((k) => asOf(nights, snapshot(start, k), (r) => guestSegment(r as ReservationRecord) === s))]),
+    GUEST_SEGMENTS.map((s) => [s, ks.map((k) => asOf(nights, snapshot(start, k), (r) => guestSegment(r) === s))]),
   ) as Record<(typeof GUEST_SEGMENTS)[number], number[]>
   const points = ks.slice(1).map((k, i) => ({
     monthsBefore: k,

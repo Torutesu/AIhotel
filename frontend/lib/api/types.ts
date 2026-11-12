@@ -954,3 +954,19 @@ export interface MonthCurve {
     segments: Record<string, number>
   }>
 }
+
+/** フリー分析（GET /analysis/free — 予約明細から。D-13） */
+export type FreeAnalysisAxis = "channel" | "booking" | "guests" | "dayofweek" | "date"
+export type FreeAnalysisMetric = "rooms" | "occupancy" | "adr" | "revpar" | "revenue" | "bookings"
+export interface FreeAnalysis {
+  year: number
+  month: number
+  axis1: FreeAnalysisAxis
+  axis2: Exclude<FreeAnalysisAxis, "date"> | null
+  metric: FreeAnalysisMetric
+  axis1Values: string[]
+  axis2Values: string[]
+  /** 値は metric ごと: 室数・稼働率（%）・円・予約数。室料の無いセルの ADR などは null */
+  rows: Array<{ axis1: string; axis2: string | null; value: number | null }>
+  reservations: number
+}

@@ -16,6 +16,8 @@ import {
   getGuestCountsService,
   getStayMonthCurveService,
 } from '../services/reservationAnalysis.js'
+import { getFreeAnalysisService } from '../services/freeAnalysis.js'
+import type { FreeAnalysisQuery } from '../lib/validators.js'
 
 /**
  * 年間推移（月単位 — F-ANA-03）
@@ -126,4 +128,12 @@ export const getGuestCounts = asyncHandler(async (req: Request, res: Response) =
 export const getStayMonthCurve = asyncHandler(async (req: Request, res: Response) => {
   const { hotelId, year, month } = req.query as unknown as MonthQuery
   sendSuccess(res, await getStayMonthCurveService(hotelId, year, month))
+})
+
+/**
+ * フリー分析（予約明細から — D-13）
+ * GET /api/v1/analysis/free?hotelId=&year=&month=&axis1=&axis2=&metric=
+ */
+export const getFreeAnalysis = asyncHandler(async (req: Request, res: Response) => {
+  sendSuccess(res, await getFreeAnalysisService(req.query as unknown as FreeAnalysisQuery))
 })

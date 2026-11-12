@@ -795,6 +795,18 @@ export const monthQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
 })
 
+// フリー分析（GET /analysis/free — 予約明細から。D-13）。日付は軸1だけ（クロスすると表が大きくなりすぎる）
+export const FREE_ANALYSIS_AXES = ['channel', 'booking', 'guests', 'dayofweek', 'date'] as const
+export const FREE_ANALYSIS_METRICS = ['rooms', 'occupancy', 'adr', 'revpar', 'revenue', 'bookings'] as const
+export const freeAnalysisQuerySchema = monthQuerySchema
+  .extend({
+    axis1: z.enum(FREE_ANALYSIS_AXES),
+    axis2: z.enum(FREE_ANALYSIS_AXES.filter((a) => a !== 'date') as ['channel', 'booking', 'guests', 'dayofweek']).optional(),
+    metric: z.enum(FREE_ANALYSIS_METRICS),
+  })
+  .refine((q) => q.axis1 !== q.axis2, { message: '分析軸1と分析軸2は別のものを選んでください', path: ['axis2'] })
+export type FreeAnalysisQuery = z.infer<typeof freeAnalysisQuerySchema>
+
 /**
  * 日別価格カレンダー（GET /pricing/calendar）。roomTypeId を省くと ALL（全タイプの合計）、
  * 指定するとそのタイプの数値（2026-10-24 の画面修正: 現在・推奨料金ランクの上のタイプ切り替え）
