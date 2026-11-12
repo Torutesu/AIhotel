@@ -58,6 +58,7 @@ model Tenant {
   hotelIntegrations        HotelIntegration[]
   competitorObservations   CompetitorRateObservation[]
   competitorFetchRuns      CompetitorFetchRun[]
+  weatherForecasts         WeatherForecast[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
   alerts                   Alert[]
@@ -184,6 +185,9 @@ model Hotel {
   marketArea       String?
   // 販売開始: 宿泊日の何日前から売り始めるか（ホテル単位で固定。例 330・300・180 — 2026-10 PDF b04）。未設定は null
   saleOpenDaysBefore Int?
+  // 気象庁の府県予報区のコード（例 130000 = 東京都、016000 = 石狩・空知・後志地方 — D-13）。
+  // 未設定なら都道府県コードから決める（北海道・鹿児島・沖縄は地方ごとに分かれるので、道庁・県庁のある地方になる）
+  weatherAreaCode  String?
   isActive         Boolean    @default(true)
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
@@ -212,6 +216,7 @@ model Hotel {
   competitorFetchRuns      CompetitorFetchRun[]
   priceBoundPeriods        PriceBoundPeriod[]
   newHotelOpenings         NewHotelOpening[]
+  weatherForecasts         WeatherForecast[]
 
   @@index([tenantId])
 }
@@ -894,6 +899,36 @@ model NewHotelOpening {
   @@unique([hotelId, name, openingDate])
   @@index([tenantId])
   @@index([hotelId, openingDate])
+}
+
+// 天気の予報（気象庁 — D-13）。外部要因ジョブ（job external-signals）が毎日取り、宿泊日ごとに最後に取った予報で上書きする。
+// 過ぎた日は「前日までの最後の予報」が残るので、過去の日の天気の代わりに日の背景（dayPattern.ts）に使う
+model WeatherForecast {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId     String
+  hotel       Hotel    @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  // 気象庁の府県予報区のコード（取ったときの値）
+  areaCode    String
+  // 気象庁の天気コード（例 "101" = 晴れ時々くもり。先頭の桁が 1 晴れ・2 くもり・3 雨・4 雪）
+  weatherCode String
+  weatherText String?
+  // 降水確率（%。その日の最大）
+  pop         Int?
+  tempMax     Float?
+  tempMin     Float?
+  // 週間予報の信頼度（A・B・C。近い日は null）
+  reliability String?
+  source      String   @default("jma")
+  // 気象庁の発表時刻
+  reportedAt  DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([hotelId, date])
+  @@index([tenantId])
 }
 
 // ======================================
