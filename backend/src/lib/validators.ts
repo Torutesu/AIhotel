@@ -33,12 +33,23 @@ function withinMaxRange(start: Date, end: Date): boolean {
   return (end.getTime() - start.getTime()) / 86_400_000 < MAX_QUERY_RANGE_DAYS
 }
 
+/** 全体のチェックが出したエラーの目印（項目のエラーと見分けるため） */
+const OBJECT_CHECK_PARAMS = { objectCheck: true } as const
+
 /**
  * オブジェクト全体の追加チェック（期間の前後・合計100% など）を、中の項目がすべて合格したときだけ動かす。
  * zod 4 は中の項目が不合格でも追加チェックを動かすため、日付に変換される前の文字列が渡って例外（500）になる。
- * zod 3 と同じく、項目のエラーがあるときは項目のエラーだけを返す
+ * zod 3 と同じく、項目のエラーがあるときは項目のエラーだけを返す。
+ * ほかの全体のチェックのエラー（params の目印つき）は項目のエラーに数えないので、全体のチェックは前のものが
+ * 不合格でもすべて動き、エラーをまとめて返す（zod 3 と同じ）。
+ * superRefine では `{ when: ifFieldsValid.when }` を渡し、addIssue に `params: ifFieldsValid.params` を付ける。
+ * フロントエンドの lib/zod-resolver.ts にも同じものがある（バックエンドは shared の実行時コードを読み込めないため）
  */
-const ifFieldsValid = { when: (payload: { issues: readonly unknown[] }) => payload.issues.length === 0 }
+const ifFieldsValid = {
+  params: OBJECT_CHECK_PARAMS,
+  when: (payload: { issues: readonly unknown[] }) =>
+    payload.issues.every((issue) => (issue as { params?: Record<string, unknown> }).params?.objectCheck === true),
+}
 
 export const entityIdSchema = z
   .string()
@@ -749,6 +760,7 @@ export const recomputeForecastSchema = z.object({
   if (data.startDate && start < todayJst()) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
+      params: ifFieldsValid.params,
       path: ['startDate'],
       message: '開始日は本日以降の日付を指定してください',
     })
@@ -761,6 +773,7 @@ export const recomputeForecastSchema = z.object({
   if (end < start) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
+      params: ifFieldsValid.params,
       path: ['endDate'],
       message: '開始日は終了日以前である必要があります',
     })
@@ -771,11 +784,12 @@ export const recomputeForecastSchema = z.object({
   if (days > MAX_FORECAST_RANGE_DAYS) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
+      params: ifFieldsValid.params,
       path: ['endDate'],
       message: `再計算できる期間は最大${MAX_FORECAST_RANGE_DAYS}日です`,
     })
   }
-}, ifFieldsValid)
+}, { when: ifFieldsValid.when })
 
 // 重み付けは合計100%（F-DP-02）
 const rankBoundSchema = z.number().int().min(1).max(40)

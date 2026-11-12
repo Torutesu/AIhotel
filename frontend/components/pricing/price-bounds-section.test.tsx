@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 
 import { describePriceBound, validatePriceBoundDraft } from "./price-bounds-section"
-import { paceNote } from "./day-detail-dialog"
+import { paceNote } from "./recommendation-rationale"
 import type { RecommendationRationale } from "@/lib/api"
 
 // 価格の幅・予約の入り方・販売開始チェック（D-11）の表示ヘルパー

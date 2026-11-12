@@ -199,7 +199,9 @@ export function enrichMockPricingCalendar(calendar: ReturnType<typeof mockPricin
  * 料金カレンダーのタイプ別のデモ（2026-10-24 の画面修正: 現在・推奨料金ランクの上のタイプ切り替え）。
  * バックエンドの toRoomTypeDay と同じ扱い: 予算はタイプ別に持たない（null）。AI の想定値はホテル全体の予測を
  * 販売構成（室数の比）と単価の比（上位のタイプほど高い — タイプ別の実績のデモと同じ）で配る。
- * 予約（オンハンド）もデモでは ALL を同じ比で配って見せる（バックエンドは PMS 連携まで先の日のタイプ別の予約は null）
+ * 予約（オンハンド）もデモでは ALL を同じ比で配って見せる（バックエンドは PMS 連携まで先の日のタイプ別の予約は null）。
+ * 配り方の式はバックエンドの toRoomTypeDay（services/pricingService.ts）と揃える。バックエンドは shared の実行時コードを
+ * 読み込めない（tsc の rootDir が src）ため共通化していない。式を変えるときは両方を直す
  */
 export function mockPricingCalendarForRoomType(hotelId: string, year: number, month: number, roomTypeId: string): PricingCalendar {
   const all = enrichMockPricingCalendar(mockPricingCalendar(hotelId, year, month))
@@ -223,7 +225,9 @@ export function mockPricingCalendarForRoomType(hotelId: string, year: number, mo
       const adr = day.onHandAdr != null ? Math.round(day.onHandAdr * adrRatio) : null
       const occupancy = sold != null ? round3(sold / type.count) : null
       const isPast = day.actualAdr != null
-      const predictedRooms = day.predictedOccupancy != null ? Math.round(day.predictedOccupancy * hotelRooms * roomShare) : null
+      // バックエンドと同じく、配った室数はこのタイプの室数を超えない
+      const predictedRooms =
+        day.predictedOccupancy != null ? Math.min(type.count, Math.round(day.predictedOccupancy * hotelRooms * roomShare)) : null
       const expectedAdrBase = day.predictedAdr ?? day.recommendedPrice
       return {
         ...day,
@@ -237,7 +241,7 @@ export function mockPricingCalendarForRoomType(hotelId: string, year: number, mo
         currentRevenue: sold != null && adr != null ? sold * adr : null,
         actualOccupancy: isPast ? occupancy : null,
         actualAdr: isPast ? adr : null,
-        predictedOccupancy: predictedRooms != null ? Math.min(1, round3(predictedRooms / type.count)) : null,
+        predictedOccupancy: predictedRooms != null ? round3(predictedRooms / type.count) : null,
         predictedAdr: day.predictedAdr != null ? Math.round(day.predictedAdr * adrRatio) : null,
         expectedRevenue:
           predictedRooms != null && expectedAdrBase != null ? Math.round(predictedRooms * expectedAdrBase * adrRatio) : null,
