@@ -3,6 +3,7 @@ import { BadRequestError, NotFoundError } from '../middlewares/errorHandler.js'
 import { addUtcDays, todayJst } from '../lib/date.js'
 import { loadDayTypeModel } from './dayTypeService.js'
 import { PICKUP_TERM_LABELS } from './forecast/dayPattern.js'
+import { JMA_ATTRIBUTION } from './externalSignals/jmaWeather.js'
 import { buildDayTypeTimeline, DAY_CATEGORY_LABELS, weightsForModel, type DayModel } from './forecast/dayType.js'
 import { outcomeAt, simulateOccupancy, type SimulatedOutcome } from './forecast/daySimulation.js'
 import { leadDaysBetween, otbAtLead, type BookingCurvePoint } from './forecast/pace.js'
@@ -54,7 +55,7 @@ export async function getDayInsightService(hotelId: string, date: Date) {
   const to = addUtcDays(date, SIMILAR_DAY_RANGE)
   const curveFrom = from > today ? from : today
 
-  const [model, daily, recommendations, curveRows, events, strategy] = await Promise.all([
+  const [model, daily, recommendations, curveRows, events, strategy, weather] = await Promise.all([
     loadDayTypeModel(hotelId, today),
     prisma.dailyData.findMany({
       where: { hotelId, date: { gte: from, lte: to } },
@@ -75,6 +76,11 @@ export async function getDayInsightService(hotelId: string, date: Date) {
       orderBy: { startDate: 'asc' },
     }),
     prisma.pricingStrategyConfig.findUnique({ where: { hotelId }, select: { dayModelAdjust: true } }),
+    // 天気（気象庁の予報 — D-13）。過ぎた日は最後に取った予報
+    prisma.weatherForecast.findUnique({
+      where: { hotelId_date: { hotelId, date } },
+      select: { weatherCode: true, weatherText: true, pop: true, tempMax: true, tempMin: true, reliability: true, reportedAt: true },
+    }),
   ])
 
   const curves = new Map<number, BookingCurvePoint[]>()
@@ -189,9 +195,9 @@ export async function getDayInsightService(hotelId: string, date: Date) {
     /** マイルストーン別のピックアップと、背景・入り方の近い過去の日からの着地（D-13）。先の日だけ */
     pattern: patternOf(),
     similarDays: pickSimilarDays(candidates, { date: iso(date), dayType: current?.name ?? null }),
-    /** その日の外部要因（登録したイベント）。天候は外部データの取り込み前のため無い */
+    /** その日の外部要因（登録したイベント・天気） */
     events,
-    weather: null,
+    weather: weather ? { ...weather, reportedAt: weather.reportedAt.toISOString(), attribution: JMA_ATTRIBUTION } : null,
   }
 }
 

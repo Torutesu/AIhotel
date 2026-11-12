@@ -436,8 +436,17 @@ export interface DayInsight {
   similarDays: Array<{ date: string; dayType: string; isActual: boolean; occupancy: number | null; adr: number | null; recommendedPrice: number | null }>
   /** その日の外部要因（登録したイベント） */
   events: Array<{ name: string; type: string; location: string | null; expectedImpact: string | null; excludeFromHistory: boolean }>
-  /** 天候（外部データの取り込み前のため null） */
-  weather: null
+  /** 天気（気象庁の予報 — D-13。過ぎた日は最後に取った予報。予報が無ければ null。表示するときは attribution を添える） */
+  weather: {
+    weatherCode: string
+    weatherText: string | null
+    pop: number | null
+    tempMax: number | null
+    tempMin: number | null
+    reliability: string | null
+    reportedAt: string
+    attribution: string
+  } | null
 }
 
 export interface DaySimulationOption {

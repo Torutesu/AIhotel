@@ -10,6 +10,7 @@ import { purgeExpiredTrialsService } from '../services/trialsService.js'
 import { purgeOldAuditLogsService } from '../services/auditService.js'
 import { evaluateAlertsService } from '../services/alertRulesService.js'
 import { config } from '../lib/config.js'
+import { loadStoredHolidays } from '../services/externalSignals/holidays.js'
 
 // 日次バッチ（N-5）。開発時は `pnpm --filter backend job:daily`、
 // 本番コンテナ（devDependencies を含まない）では `node dist/jobs/daily.js` で実行する。
@@ -51,6 +52,7 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
     return { year: year + Math.floor(offset / 12), month: (offset % 12) + 1 }
   })
 
+  await loadStoredHolidays()
   const hotels = await listActiveHotelsForJobService()
   logger.info(
     { hotels: hotels.length, targetYear: year, targetMonth: month, monthsAhead: config.DAILY_JOB_MONTHS_AHEAD },

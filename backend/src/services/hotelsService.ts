@@ -68,7 +68,17 @@ export async function findActiveHotelService(
  * リクエスト処理からは呼ばないこと（バッチ専用）。
  */
 export async function listActiveHotelsForJobService(): Promise<
-  Array<{ id: string; name: string; tenantId: string }>
+  Array<{
+    id: string
+    name: string
+    tenantId: string
+    address: string | null
+    prefectureCode: string | null
+    municipalityCode: string | null
+    marketArea: string | null
+    weatherAreaCode: string | null
+    totalRooms: number
+  }>
 > {
   return prisma.hotel.findMany({
     // 契約停止中・期限切れのトライアルのテナントは対象外（誰も使えないホテルの予測を作らない）
@@ -79,7 +89,18 @@ export async function listActiveHotelsForJobService(): Promise<
         OR: [{ trialExpiresAt: null }, { trialExpiresAt: { gt: new Date() } }],
       },
     },
-    select: { id: true, name: true, tenantId: true },
+    // 外部要因ジョブ（D-13）がホテルの所在地（天気の予報区・エージェントの検索範囲）を使う
+    select: {
+      id: true,
+      name: true,
+      tenantId: true,
+      address: true,
+      prefectureCode: true,
+      municipalityCode: true,
+      marketArea: true,
+      weatherAreaCode: true,
+      totalRooms: true,
+    },
     orderBy: { createdAt: 'asc' },
   })
 }
