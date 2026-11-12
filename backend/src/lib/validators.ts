@@ -1060,3 +1060,19 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>
 export type UpdateAlertStatusInput = z.infer<typeof updateAlertStatusSchema>
 export type MonthTargetInput = z.infer<typeof monthTargetSchema>
 export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>
+
+// AI チャット（D-13）。会話はブラウザが持ち、毎回まとめて送る（サーバーに会話を保存しない）
+export const chatSchema = z.object({
+  hotelId: entityIdSchema,
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().trim().min(1, 'メッセージを入力してください').max(2000, 'メッセージは2000文字以内で入力してください'),
+      })
+    )
+    .min(1)
+    .max(20, '会話が長すぎます。新しい会話を始めてください')
+    .refine((list) => list[list.length - 1]?.role === 'user', '最後のメッセージは質問にしてください'),
+})
+export type ChatInput = z.infer<typeof chatSchema>

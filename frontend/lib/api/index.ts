@@ -40,6 +40,7 @@ import {
 } from "./demo-revenue"
 import { adminEndpoints } from "./admin"
 import { demoAdmin } from "./demo-admin"
+import { mockChatReply } from "./demo-chat"
 import { demoShared, demoSharedStatus } from "./demo-shared"
 import { currentTrialId } from "@/lib/demo-trials/link"
 import { analysisEndpoints } from "./analysis"
@@ -248,6 +249,14 @@ export const api = {
     return withDemoFallback(
       () => rawRequest(`/api/v1/dashboard/alerts?hotelId=${hotelId}${levelParam}`),
       () => mockAlerts(minLevel)
+    )
+  },
+
+  /** AI チャット（D-13）。会話はブラウザが持ち、毎回まとめて送る */
+  chat(hotelId: string, messages: Array<{ role: "user" | "assistant"; content: string }>): Promise<{ reply: string }> {
+    return withDemoFallback(
+      () => rawRequest("/api/v1/chat", { method: "POST", body: JSON.stringify({ hotelId, messages }) }),
+      async () => ({ reply: mockChatReply(messages[messages.length - 1]?.content ?? "") })
     )
   },
 
