@@ -466,6 +466,32 @@ export async function populateDemoHotelData(
       modelVersion: 'seed-v1',
     },
   })
+  // 価格の提案（{level, text} の配列の JSON）と外部需要の総合コメント。本番は日次バッチが Claude API で作る（D-13）
+  await db.aiComment.createMany({
+    data: [
+      {
+        hotelId,
+        tenantId,
+        section: 'pricing',
+        content: JSON.stringify([
+          { level: 'high', text: '週末（金・土）は予約の入りが早く、満室に近い日が続きます。週末の料金ランクの引き上げを検討してください。' },
+          { level: 'medium', text: '平日の火曜・水曜は稼働が予算を下回っています。平日の料金ランクの引き下げか、平日限定プランを検討してください。' },
+          { level: 'low', text: '競合価格に大きな動きはありません。今の価格の幅を維持してください。' },
+        ]),
+        modelVersion: 'seed-v1',
+      },
+      {
+        hotelId,
+        tenantId,
+        section: 'external-outlook',
+        content:
+          '【総合見通し】年末年始と春節に向けて需要が強まる見込みです。\n' +
+          '【注意事項】正月明けは1年で稼働が最も落ちる時期です。\n' +
+          '【推奨アクション】年末年始は価格の幅の上限を確かめ、正月明けは早めに平日プランを準備してください。',
+        modelVersion: 'seed-v1',
+      },
+    ],
+  })
 
   // 13. 月間着地シミュレーション（当月）
   await db.monthlyLandingSimulation.upsert({

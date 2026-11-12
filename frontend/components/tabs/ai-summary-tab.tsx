@@ -2,15 +2,13 @@
 
 // 外部需要動向（メニュー名は 2026-10 に「AIまとめ」から変更）。
 // 月別需要指数・外部要因の取得状況・要因カード（気候・インバウンド・アクセス）・週別の見通し・今後の注意事項は実データ
-// （GET /external-signals/demand-index・/status・/factors — D-13）。AI総合予測コメントは Claude API による文章の生成が未実装のためサンプル。
+// （GET /external-signals/demand-index・/status・/factors — D-13）。AI総合予測コメントは日次バッチが Claude API で作る（AiComment の external-outlook）。
 // イベントと周辺の新規ホテルは登録データ（GET /events・GET /new-hotels）を表示し、個別登録と規定フォーム（CSV）の取り込みができる。
 // 要因のカードをクリックすると一覧が開き、CSV に書き出せる。
 
 import { useState, type ReactNode } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Globe, ExternalLink, Sun, Plane, Calendar, Building2, Sparkles, type LucideIcon } from "lucide-react"
-import { SampleDataNotice } from "@/components/sample-data-notice"
+import { Globe, ExternalLink, Sun, Plane, Calendar, Building2, type LucideIcon } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { FactorListDialog } from "@/components/external-demand/factor-list-dialog"
@@ -18,6 +16,7 @@ import { FactorCategoryCard } from "@/components/external-demand/factor-category
 import { WeeklyOutlookSection } from "@/components/external-demand/weekly-outlook-section"
 import { UpcomingCautionsCard } from "@/components/external-demand/upcoming-cautions-card"
 import { ErrorState } from "@/components/error-state"
+import { AiOutlookCard } from "@/components/external-demand/ai-outlook-card"
 import { EventsDialog, upcomingEvents } from "@/components/external-demand/events-dialog"
 import { NewHotelsDialog } from "@/components/external-demand/new-hotels-dialog"
 import { DemandIndexSection } from "@/components/external-demand/demand-index-section"
@@ -148,41 +147,9 @@ export function AISummaryTab() {
         </p>
       </div>
 
-      <SampleDataNotice detail="AI総合予測コメントは Claude API による文章の生成が未実装のためサンプルです。そのほかの数値・要因は実データ（要因は気象庁の予報と、外部要因エージェントが集めた市場の動き）です。" />
 
-      {/* AI総合コメント */}
-      <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            AI総合予測コメント
-            <SampleDataNotice compact />
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4 text-sm leading-relaxed">
-            <p>
-              <strong>【先6ヶ月の総合見通し】</strong><br />
-              2026年2月〜7月の期間は、<span className="brand-highlight">3月下旬〜5月上旬が最大の需要期</span>となる見込みです。
-              中国春節（2月上旬）のインバウンド需要に始まり、桜シーズン・ゴールデンウィークと続く高需要期間では、
-              価格戦略の最適化が収益最大化の鍵となります。
-            </p>
-            <p>
-              <strong>【注意事項】</strong><br />
-              <span className="text-warning">6月の梅雨シーズン</span>は需要が大幅に落ち込む予測のため、
-              早期の価格調整とプロモーション施策の準備を推奨します。
-              また、<span className="text-warning">4月に周辺で2軒の新規ホテルが開業予定</span>のため、
-              競合動向の監視を強化してください。
-            </p>
-            <p>
-              <strong>【推奨アクション】</strong><br />
-              ・桜シーズン（3月下旬〜4月上旬）：早期予約促進キャンペーンの実施<br />
-              ・GW（4/29〜5/5）：連泊割引プランの準備<br />
-              ・梅雨期（6月）：平日限定プランや地元向けプロモーションの検討
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* AI総合予測コメント（日次バッチが Claude API で作る — D-13） */}
+      <AiOutlookCard hotelId={hotelId} />
 
       {/* 月別需要指数（実データ — D-13）と外部要因の取得状況 */}
       <DemandIndexSection />

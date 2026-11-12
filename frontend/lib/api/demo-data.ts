@@ -352,6 +352,30 @@ export function updateMockAlertStatus(id: string, status: AlertStatus): AlertIte
 
 export function mockAiSummary(section?: string): AiSummary {
   const upcoming = demoUpcomingDates()
+  if (section === "pricing") {
+    // 価格の提案は {level, text} の配列の JSON（日次バッチが Claude API で作る形と同じ — D-13）
+    return {
+      id: "mock-ai-pricing",
+      section,
+      content: JSON.stringify([
+        { level: "high", text: "週末の需要が高まる見込みです。週末（既定は金・土曜日）にかけて段階的な価格引き上げを推奨します。" },
+        { level: "medium", text: "平日の稼働が予算を下回っています。平日の料金ランクの引き下げか、平日限定プランを検討してください。" },
+        { level: "low", text: "競合価格は直近で大きな動きがありません。今の価格の幅を維持してください。" },
+      ]),
+      generatedAt: new Date().toISOString(),
+    }
+  }
+  if (section === "external-outlook") {
+    return {
+      id: "mock-ai-outlook",
+      section,
+      content:
+        "【総合見通し】年末年始と春節に向けて需要が強まる見込みです。直行便の増便でインバウンドも追い風です。\n" +
+        "【注意事項】正月明けは1年で稼働が最も落ちる時期です。周辺で新規ホテルの開業が予定されています。\n" +
+        "【推奨アクション】年末年始は価格の幅の上限を確かめ、正月明けは早めに平日プランを準備してください。",
+      generatedAt: new Date().toISOString(),
+    }
+  }
   return {
     id: "mock-ai-summary",
     section: section ?? "dashboard-summary",

@@ -11,6 +11,8 @@ import { purgeOldAuditLogsService } from '../services/auditService.js'
 import { evaluateAlertsService } from '../services/alertRulesService.js'
 import { config } from '../lib/config.js'
 import { loadStoredHolidays } from '../services/externalSignals/holidays.js'
+import { createAgentClient } from '../services/externalSignals/agent/collect.js'
+import { generateAiCommentsForHotel } from '../services/aiComments/generate.js'
 
 // 日次バッチ（N-5）。開発時は `pnpm --filter backend job:daily`、
 // 本番コンテナ（devDependencies を含まない）では `node dist/jobs/daily.js` で実行する。
@@ -21,7 +23,9 @@ import { loadStoredHolidays } from '../services/externalSignals/holidays.js'
 //   2. 月間着地シミュレーションの再計算（MonthlyLandingSimulation）。当月＋先 DAILY_JOB_MONTHS_AHEAD か月
 //   3. 当日時点の KPI スナップショット（KpiSnapshot — 月初比較・日付比較の比較元）。当月のみ
 //      （スナップショットは実績から作るため、先の月は常に空になる）
-//   4. アラートの自動生成と解決（#83）。着地予測と需要予測を使うので最後に行う
+//   4. アラートの自動生成と解決（#83）。着地予測と需要予測を使う
+//   5. AI 解説の生成（D-13。ANTHROPIC_API_KEY を設定したときだけ）。1〜4 の結果を材料にするので最後に行う。
+//      失敗してもホテルの日次処理は失敗にしない（前日の解説が残る）
 // 最後にテナント横断の後始末として、期限切れリフレッシュトークン（#49-4）と、期限から30日たったトライアルを削除する。
 //
 // 順序に意味がある: 着地シミュレーションは AI 予測を使うため、予測を先に更新する。
@@ -60,6 +64,8 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
   )
 
   const results: HotelJobResult[] = []
+  const aiClient = createAgentClient()
+  let aiCommentFailures = 0
 
   for (const hotel of hotels) {
     try {
@@ -89,6 +95,14 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
         },
         `${hotel.name}: 予測・着地・スナップショット・アラートを更新しました`
       )
+      if (aiClient) {
+        try {
+          await generateAiCommentsForHotel(aiClient, hotel.id, today)
+        } catch (error) {
+          aiCommentFailures++
+          logger.error({ err: error, hotelId: hotel.id }, `${hotel.name}: AI 解説を作れませんでした（前日の解説が残ります）`)
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       results.push({ hotelId: hotel.id, hotelName: hotel.name, error: message })
@@ -134,6 +148,7 @@ export async function runDailyJob(): Promise<{ succeeded: number; failed: number
       purgedRefreshTokens,
       purgedTrials,
       purgedAuditLogs,
+      aiComments: aiClient ? { failed: aiCommentFailures } : 'disabled',
       failures: results.filter((r) => r.error).map((r) => ({ hotelId: r.hotelId, error: r.error })),
     },
     `日次バッチが完了しました（成功 ${succeeded} / 失敗 ${failed}）`
