@@ -101,17 +101,31 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
     () => (roomTypesData ?? []).filter((t) => t.isActive).map((t) => ({ id: t.id, name: t.name })),
     [roomTypesData],
   )
+  // 選んでいたタイプが一覧から消えたら（無効にされた・再読込で無くなった）ALL に戻す。黙って ALL の数値を出さない
+  if (
+    roomTypesData &&
+    calendarRoomType !== ALL_ROOM_TYPES &&
+    !roomTypeOptions.some((t) => t.id === calendarRoomType)
+  ) {
+    setCalendarRoomType(ALL_ROOM_TYPES)
+  }
   // 選んだタイプの数値（ALL のときは取らない。着地予測・オンハンド状況は ALL のまま）
   const {
     data: typeCalendarData,
     loading: typeCalendarLoading,
     error: typeCalendarError,
     reload: reloadTypeCalendar,
-  } = useApiQuery<MonthCalendar>(
+  } = useApiQuery<MonthCalendar & { roomTypeId: string }>(
     hotelId && calendarRoomType !== ALL_ROOM_TYPES
       ? async () => {
           const calendar = await api.pricingCalendar(hotelId, selectedYear, selectedMonth, calendarRoomType)
-          return { year: calendar.year, month: calendar.month, totalRooms: calendar.totalRooms, calendar: calendar.calendar }
+          return {
+            roomTypeId: calendarRoomType,
+            year: calendar.year,
+            month: calendar.month,
+            totalRooms: calendar.totalRooms,
+            calendar: calendar.calendar,
+          }
         }
       : null,
     [hotelId, selectedYear, selectedMonth, calendarRoomType],
@@ -240,6 +254,7 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
                 totalRooms={monthData.totalRooms ?? hotel?.totalRooms ?? null}
                 saleOpenDaysBefore={hotel?.saleOpenDaysBefore ?? null}
                 highlightedDate={highlightedDate}
+                events={events}
                 onSelectRowForAnalysis={setSelectedRowForAnalysis}
                 roomTypeSwitch={{
                   options: roomTypeOptions,

@@ -12,6 +12,7 @@ import {
   dateOnlyInputSchema,
   eventsQuerySchema,
   competitorPricesQuerySchema,
+  createPriceBoundSchema,
 } from './validators.js'
 import { addUtcDays, todayJst } from './date.js'
 
@@ -315,6 +316,39 @@ describe('期間の上限 (#90)', () => {
         expect(result.error.issues.map((i) => i.path.join('.'))).toEqual(['startDate'])
         expect(result.error.issues[0].message).toBe('日付は YYYY-MM-DD 形式で指定してください')
       }
+    }
+  })
+})
+
+describe('全体のチェックの並び（zod 4 の ifFieldsValid）', () => {
+  it('前の全体のチェックが不合格でも、後ろの全体のチェックのエラーもまとめて返す（zod 3 と同じ）', () => {
+    const result = createPriceBoundSchema.safeParse({
+      hotelId: 'demo-hotel-001',
+      startDate: '2026-02-10',
+      endDate: '2026-02-01',
+      minRank: 10,
+      maxRank: 5,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.message)).toEqual([
+        '開始日は終了日以前である必要があります',
+        '下限は上限以下にしてください',
+      ])
+    }
+  })
+
+  it('項目のエラーがあるときは全体のチェックを動かさない', () => {
+    const result = createPriceBoundSchema.safeParse({
+      hotelId: 'demo-hotel-001',
+      startDate: '2026-02-10',
+      endDate: '2026-02-01',
+      minRank: 0,
+      maxRank: 5,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.map((i) => i.path.join('.'))).toEqual(['minRank'])
     }
   })
 })

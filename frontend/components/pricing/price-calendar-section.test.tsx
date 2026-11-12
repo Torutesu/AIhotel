@@ -171,7 +171,7 @@ describe("PriceCalendarSection", () => {
   })
 
   it("タイプを選ぶとそのタイプの数値を表に出し、予算は「-」。オンハンド状況のグラフは ALL のまま", () => {
-    renderWith({ value: "rt-2", data: { year: 2026, month: 12, totalRooms: 50, calendar: TYPE_DAYS } })
+    renderWith({ value: "rt-2", data: { roomTypeId: "rt-2", year: 2026, month: 12, totalRooms: 50, calendar: TYPE_DAYS } })
     expect(screen.getByTestId("calendar-room-type").textContent).toBe("モデレートツイン")
     expect(screen.getByText("日別価格カレンダー（2026年12月・モデレートツイン）")).toBeTruthy()
     expect(screen.getByText(/数値は「モデレートツイン」（50室）の値です。予算はタイプ別には持たないため「-」/)).toBeTruthy()
@@ -189,6 +189,34 @@ describe("PriceCalendarSection", () => {
     // 先の日のタイプ別の予約は PMS 連携後
     expect(screen.getByText(/タイプ別の先の日の予約（現在稼働率・現在ADR・現在売上）は、PMS／サイトコントローラー連携後に表示します/)).toBeTruthy()
     expect(screen.getByText("オンハンド状況")).toBeTruthy()
+  })
+
+  it("手元のタイプのデータが前の月・前のタイプのものなら使わず、読み込み中にする（切り替えた直後の一瞬）", () => {
+    const { unmount } = renderWith({ value: "rt-2", data: { roomTypeId: "rt-2", year: 2026, month: 11, totalRooms: 50, calendar: TYPE_DAYS } })
+    expect(screen.queryByRole("button", { name: "12月1日のAI分析を開く" })).toBeNull()
+    expect(screen.queryByText("月計")).toBeNull()
+    unmount()
+    renderWith({ value: "rt-2", data: { roomTypeId: "rt-1", year: 2026, month: 12, totalRooms: 30, calendar: TYPE_DAYS } })
+    expect(screen.queryByRole("button", { name: "12月1日のAI分析を開く" })).toBeNull()
+  })
+
+  it("登録済みのイベントがある日は、日付の横にイベントのバッジを出す（#80）", () => {
+    render(
+      <PriceCalendarSection
+        monthData={{ year: 2026, month: 12, calendar: DAYS }}
+        totalRooms={100}
+        highlightedDate={null}
+        events={[
+          { id: "ev-1", name: "地域花火大会", startDate: "2026-12-01", endDate: "2026-12-01" } as never,
+        ]}
+        onSelectRowForAnalysis={vi.fn()}
+      />,
+    )
+    const firstRow = screen.getByRole("button", { name: "12月1日のAI分析を開く" })
+    const badge = within(firstRow).getByTestId("calendar-event-badge")
+    expect(badge.textContent).toBe("イベント")
+    expect(badge.getAttribute("title")).toBe("地域花火大会")
+    expect(screen.getAllByTestId("calendar-event-badge")).toHaveLength(1)
   })
 
   it("タイプの数値の取得中は表を読み込み中に、失敗したらエラーと再試行を出す（タイプの切り替えは残す）", () => {

@@ -1,124 +1,13 @@
 "use client"
 
-// 日別の詳細情報ダイアログ（U-15 で pricing-tab.tsx から分割）
-// その日の推奨価格・需要予測と、その日にかかる登録済みイベント（GET /events）を表示する。
-// 以前は画面内だけに保持する「メモ保存」があり、保存したように見えてリロードで消えていたため廃止した（#80）。
-// イベントの登録・取り込みは「外部需要動向」のイベントから行う（2026-10）。編集・削除は「当月のイベント情報」からもできる。
+// AI 推奨の根拠（#24 E4・D-11）。以前は日別の詳細情報ダイアログ（タイプ別人数別カレンダーのセルから開く）にあった。
+// 2026-10-24 にカレンダー表示を外したため、表の行から開く 日のAI分析 に移した。
 
 import { Badge } from "@/components/ui/badge"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  BUDGET_SOURCE_LABELS,
-  demandDescription,
-  eventTypeLabel,
-  formatEventRange,
-  impactBadgeClass,
-  impactLabel,
-} from "@/components/pricing/pricing-constants"
-import { EventSourceBadge } from "@/components/external-demand/event-source-badge"
-import { DAY_NAMES } from "@/lib/date"
-import { formatPercent as pct, formatRooms, formatYen as yen } from "@/lib/format"
+import { BUDGET_SOURCE_LABELS } from "@/components/pricing/pricing-constants"
 import type { PricingCalendarDay, RecommendationRationale } from "@/lib/api"
-import type { Event as HotelEvent } from "@shared/types"
+import { formatPercent as pct, formatRooms, formatYen as yen } from "@/lib/format"
 
-interface DayDetailDialogProps {
-  day: PricingCalendarDay | null
-  /** その日にかかっている登録済みイベント */
-  events: HotelEvent[]
-  onClose: () => void
-}
-
-export function DayDetailDialog({ day, events, onClose }: DayDetailDialogProps) {
-  return (
-    <Dialog
-      open={day !== null}
-      onOpenChange={(open) => {
-        if (!open) onClose()
-      }}
-    >
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        {day &&
-          (() => {
-            const [y, m, d] = day.date.split("-").map(Number)
-            const dow = new Date(day.date).getDay()
-            const dateString = `${y}年${m}月${d}日（${DAY_NAMES[dow]}）`
-
-            return (
-              <>
-                <DialogHeader>
-                  <DialogTitle>{dateString} の詳細情報</DialogTitle>
-                  <DialogDescription>AIによる推奨価格・需要アラートの詳細です</DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-6 mt-4">
-                  <div className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="font-medium">推奨価格（料金ランク {day.rankLabel ?? "-"}）</div>
-                      {day.confidence != null && <Badge variant="outline" className="text-xs">信頼度 {(day.confidence * 100).toFixed(0)}%</Badge>}
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                      <div>1名料金：{yen(day.price1P)}</div>
-                      <div>2名料金：{yen(day.price2P)}</div>
-                      <div>3名料金：{yen(day.price3P)}</div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm border-t pt-3">
-                      <div>アラート：{day.demandLevel ?? "-"}（{demandDescription(day.demandLevel)}）</div>
-                      <div>稼働率予測：{pct(day.predictedOccupancy)}</div>
-                      <div>競合価格水準（中央値）：{yen(day.competitorMedianPrice)}</div>
-                      <div>AI予測ADR：{yen(day.predictedAdr)}</div>
-                      {day.actualAdr != null && <div>実績ADR：{yen(day.actualAdr)}</div>}
-                      {day.actualOccupancy != null && <div>実績稼働率：{pct(day.actualOccupancy)}</div>}
-                    </div>
-                    <DayBudgetLine day={day} />
-                    {day.rationale && <RationaleSection rationale={day.rationale} />}
-                  </div>
-
-                  <div className="space-y-3 border-t pt-4">
-                    <h3 className="font-semibold text-base">この日のイベント</h3>
-                    {events.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">この日にかかる登録済みのイベントはありません。</p>
-                    ) : (
-                      <ul className="space-y-2">
-                        {events.map((ev) => (
-                          <li key={ev.id} className="rounded-lg border px-3 py-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="text-sm font-medium">{ev.name}</span>
-                              <Badge variant="outline" className="text-[10px]">
-                                {eventTypeLabel(ev.type)}
-                              </Badge>
-                              {ev.expectedImpact && (
-                                <Badge className={`${impactBadgeClass(ev.expectedImpact)} text-[10px]`}>
-                                  {impactLabel(ev.expectedImpact)}
-                                </Badge>
-                              )}
-                              <EventSourceBadge event={ev} />
-                            </div>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {formatEventRange(ev.startDate, ev.endDate)}
-                              {ev.location ? ` ・ ${ev.location}` : ""}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      イベントの登録と規定フォームでの取り込みは、メニューの「外部需要動向」＞イベントから行えます（編集・削除は画面下の「当月のイベント情報」からも可能）。登録したイベントは需要予測に反映されます。
-                    </p>
-                  </div>
-                </div>
-              </>
-            )
-          })()}
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 const FACTOR_LABELS: Record<RecommendationRationale["factors"][number]["key"], string> = {
   occupancy: "稼働率",
@@ -151,7 +40,7 @@ const ADJUSTMENT_LABELS: Record<RecommendationRationale["adjustments"][number]["
   market: "市場の動き（インバウンド・アクセスなど）",
 }
 
-/** 日の予算（室数・売上）と、その出どころ。予算が無ければ何も出さない */
+/** 日の予算（室数・売上）と、その出どころ（D-13）。予算が無ければ何も出さない */
 export function DayBudgetLine({ day }: { day: Pick<PricingCalendarDay, "budgetRooms" | "budgetRevenue" | "budgetSource"> }) {
   if (day.budgetRooms == null && day.budgetRevenue == null) return null
   return (
@@ -188,7 +77,7 @@ export function budgetStanceNote(budget: BudgetStance): string {
   return `月の予算まで ${yen(gap)} 足りず、残りの期間では届かない見込みのため、予算は追わずに売上が最大になる価格にしています。`
 }
 
-/** 補正の材料を一文にする（似た日の着地・実績が少ないホテルの補い — D-13）。材料が無ければ null */
+/** 補正の材料を一文にする（似た日の着地・市場の動き・実績が少ないホテルの補い — D-13）。材料が無ければ null */
 export function adjustmentNote(adjustment: RecommendationRationale["adjustments"][number]): string | null {
   const input = adjustment.input
   if (!input) return null

@@ -91,8 +91,10 @@ export function toRoomTypeDay<
   const actualOccupancy = sold != null && count > 0 ? round3(sold / count) : null
   const actualAdr = sold != null && sold > 0 && actual?.revenue != null ? Math.round(actual.revenue / sold) : null
 
-  const predictedRooms = day.predictedOccupancy != null ? Math.round(day.predictedOccupancy * hotelRooms * mix.roomShare) : null
-  const predictedOccupancy = predictedRooms != null && count > 0 ? Math.min(1, round3(predictedRooms / count)) : null
+  // 配った室数はこのタイプの室数を超えない（稼働率と想定売上で同じ室数を使う）
+  const predictedRooms =
+    day.predictedOccupancy != null ? Math.min(count, Math.round(day.predictedOccupancy * hotelRooms * mix.roomShare)) : null
+  const predictedOccupancy = predictedRooms != null && count > 0 ? round3(predictedRooms / count) : null
   const predictedAdr = day.predictedAdr != null ? Math.round(day.predictedAdr * mix.adrRatio) : null
   const expectedAdrBase = day.predictedAdr ?? day.recommendedPrice
   const expectedRevenue =
@@ -116,6 +118,23 @@ export function toRoomTypeDay<
   return { ...day, ...values }
 }
 
+/** タイプ別の数値に使うクエリ（その月のタイプ別の実績・過去 ROOM_TYPE_MIX_DAYS 日の販売構成・有効なタイプの室数） */
+function loadRoomTypeQueries(hotelId: string, roomTypeId: string, start: Date, end: Date, today: Date) {
+  const mixFrom = addUtcDays(today, -ROOM_TYPE_MIX_DAYS)
+  return Promise.all([
+    prisma.dailyRoomData.findMany({
+      where: { roomTypeId, dailyData: { hotelId, date: { gte: start, lt: end } } },
+      select: { soldRooms: true, revenue: true, dailyData: { select: { date: true } } },
+    }),
+    prisma.dailyRoomData.groupBy({
+      by: ['roomTypeId'],
+      where: { roomType: { hotelId, isActive: true }, dailyData: { hotelId, date: { gte: mixFrom, lt: today } } },
+      _sum: { soldRooms: true, revenue: true },
+    }),
+    prisma.roomType.findMany({ where: { hotelId, isActive: true }, select: { count: true } }),
+  ])
+}
+
 /**
  * 日別価格カレンダー（F-DP-01）
  * 現在価格・AI推奨ランク・需要レベル・競合平均を日別に返す。
@@ -135,7 +154,7 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
   const { start, end } = monthRange(year, month)
 
   const today = todayJst()
-  const [recommendations, dailyData, priceRanks, competitorPrices, context, dayTypeModel] = await Promise.all([
+  const [recommendations, dailyData, priceRanks, competitorPrices, context, dayTypeModel, typeQueries] = await Promise.all([
     prisma.aiPriceRecommendation.findMany({
       where: { hotelId, date: { gte: start, lt: end }, roomTypeId: null },
       orderBy: { date: 'asc' },
@@ -159,6 +178,8 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     // 前年同曜日の予約積上はカレンダーでは使わない（日のタイプは型の典型カーブで判定する）
     loadMonthContext(hotelId, hotel.totalRooms, year, month, { lastYearCurves: false }),
     loadDayTypeModel(hotelId, today),
+    // タイプ別: その月のタイプ別の実績と、配分に使う過去の販売構成（有効なタイプだけで割合を出す）。ALL のときは取らない
+    roomType ? loadRoomTypeQueries(hotelId, roomType.id, start, end, today) : null,
   ])
 
   const totalRooms = hotel.totalRooms
@@ -253,22 +274,9 @@ export async function getPricingCalendarService(hotelId: string, year: number, m
     }
   })
 
-  if (!roomType) return { hotelId, year, month, totalRooms, roomType: null, calendar }
+  if (!roomType || !typeQueries) return { hotelId, year, month, totalRooms, roomType: null, calendar }
 
-  // タイプ別: その月のタイプ別の実績と、配分に使う過去の販売構成（有効なタイプだけで割合を出す）
-  const mixFrom = addUtcDays(today, -ROOM_TYPE_MIX_DAYS)
-  const [typeActuals, mixTotals, activeTypes] = await Promise.all([
-    prisma.dailyRoomData.findMany({
-      where: { roomTypeId: roomType.id, dailyData: { hotelId, date: { gte: start, lt: end } } },
-      select: { soldRooms: true, revenue: true, dailyData: { select: { date: true } } },
-    }),
-    prisma.dailyRoomData.groupBy({
-      by: ['roomTypeId'],
-      where: { roomType: { hotelId, isActive: true }, dailyData: { hotelId, date: { gte: mixFrom, lt: today } } },
-      _sum: { soldRooms: true, revenue: true },
-    }),
-    prisma.roomType.findMany({ where: { hotelId, isActive: true }, select: { count: true } }),
-  ])
+  const [typeActuals, mixTotals, activeTypes] = typeQueries
   const activeCount = activeTypes.reduce((a, t) => a + t.count, 0)
   const mix = roomTypeMixFrom(
     mixTotals.map((t) => ({ roomTypeId: t.roomTypeId, soldRooms: t._sum.soldRooms ?? 0, revenue: t._sum.revenue ?? 0 })),

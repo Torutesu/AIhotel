@@ -6,6 +6,7 @@
 //   - この日のブッキングカーブ・ADR推移（合計／タイプ別／利用人数別。初期値は合計）
 //   - 同じタイプの日（参考に5日。前後の日付ではなく、日のタイプが同じ傾向の日）
 //   - AI インサイト（この日だけの外部要因 = イベント・天候を項目別に、型の見立て、競合・実績）
+//   - 推奨の根拠（#24 E4。以前の日別の詳細情報ダイアログから移した — 2026-10-24）
 //   - 日単位のシミュレーション（優先モデル・料金ランクを変えたときの見込み。先の日だけ。保存しない）
 // 表示はカレンダー API と GET /pricing/day-insight・/pricing/day-simulation の実データから導出した説明文。
 
@@ -29,7 +30,7 @@ import {
   type DayInsightItem,
 } from "@/components/pricing/day-analysis-sections"
 import { DayPatternSection } from "@/components/pricing/day-pattern-section"
-import { DayBudgetLine, RationaleSection } from "@/components/pricing/day-detail-dialog"
+import { DayBudgetLine, RationaleSection } from "@/components/pricing/recommendation-rationale"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { DAY_NAMES, parseDateStr, todayJstStr } from "@/lib/date"
 import { formatPercent as pct, formatSignedYen as signedYen, formatYen as yen } from "@/lib/format"
@@ -195,10 +196,10 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
             </Card>
           </div>
 
-          {/* 推奨の根拠（#24 E4）と日の予算の出どころ（D-13） */}
+          {/* 推奨の根拠（観点ごとのランクと重み・補正・ガードレール — #24 E4）と日の予算の出どころ（D-13）。推奨の無い日・古い推奨は根拠を出さない */}
           {(day.rationale || day.budgetRooms != null || day.budgetRevenue != null) && (
-            <Card data-testid="day-rationale">
-              <CardContent className="space-y-3 pt-4 [&>*:first-child]:border-t-0 [&>*:first-child]:pt-0">
+            <Card data-testid="recommendation-rationale">
+              <CardContent className="space-y-3 pt-1 [&>*:first-child]:border-t-0 [&>*:first-child]:pt-0">
                 <DayBudgetLine day={day} />
                 {day.rationale && <RationaleSection rationale={day.rationale} />}
               </CardContent>

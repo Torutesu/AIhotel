@@ -142,8 +142,10 @@ describe('toRoomTypeDay', () => {
     })
   })
 
-  it('予測の稼働率は 100% を超えない', () => {
+  it('予測の稼働率は 100% を超えず、想定売上もこのタイプの室数までで出す', () => {
     const result = toRoomTypeDay({ ...day, predictedOccupancy: 1 }, { count: 10, hotelRooms: 100, mix: { roomShare: 0.5, adrRatio: 1 }, actual: null })
     expect(result.predictedOccupancy).toBe(1)
+    // 配ると 50 室になるが、このタイプは 10 室しかない
+    expect(result.expectedRevenue).toBe(10 * 11_000)
   })
 })
