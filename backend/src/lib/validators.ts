@@ -482,6 +482,37 @@ export const importBookingCurveSchema = z.object({
 })
 export type ImportBookingCurveInput = z.infer<typeof importBookingCurveSchema>
 
+/**
+ * 予約明細の取り込み（D-13 — 過去の予約の推移を作る推奨の方法）。stayFrom〜stayTo の泊にかかる予約をすべて含めて送る
+ * （月ごとに分けて送れるよう、範囲は62日まで）。明細から宿泊日 × 残日数の予約室数を作って予約積上に入れる
+ */
+export const MAX_RESERVATION_IMPORT_ROWS = 10000
+export const importReservationsSchema = z
+  .object({
+    hotelId: entityIdSchema,
+    dryRun: z.boolean().optional(),
+    stayFrom: importDateSchema,
+    stayTo: importDateSchema,
+    rows: z
+      .array(
+        z.object({
+          bookedDate: importDateSchema,
+          checkInDate: importDateSchema,
+          nights: z.number().int('泊数は整数で入力してください').min(1, '泊数は1以上で入力してください').max(60, '泊数は60泊までです'),
+          rooms: z.number().int('室数は整数で入力してください').min(1, '室数は1以上で入力してください'),
+          cancelledDate: importDateSchema.nullable().optional(),
+        })
+      )
+      .min(1, '取り込む行がありません')
+      .max(MAX_RESERVATION_IMPORT_ROWS, `1回に取り込めるのは${MAX_RESERVATION_IMPORT_ROWS}行までです`),
+  })
+  .refine((d) => d.stayFrom <= d.stayTo && (Date.parse(d.stayTo) - Date.parse(d.stayFrom)) / 86_400_000 <= 62, {
+    ...ifFieldsValid,
+    path: ['stayTo'],
+    message: '宿泊日の範囲は62日以内で、開始が終了より前になるように指定してください',
+  })
+export type ImportReservationsInput = z.infer<typeof importReservationsSchema>
+
 // イベントの取り込み（外部需要動向の規定フォーム — 2026-10）。同じホテル・同じ名前・同じ開始日のイベントは上書きする
 export const MAX_EVENT_IMPORT_ROWS = 500
 export const importEventsSchema = z.object({

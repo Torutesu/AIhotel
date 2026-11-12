@@ -968,7 +968,7 @@ model WeatherForecast {
 
 // 市場の動き（D-13。先方の資料「外部要因と旅行（宿泊）の関連付け」の ③インバウンド・④桜／紅葉・⑤アクセス など、
 // 日ではなく期間で効く外部要因）。外部要因エージェントがホテルのエリアについて集める。
-// 月別需要指数（GET /external-signals/demand-index）の材料にする。予測の推奨ランクには今は使わない（クライアント確認待ち）
+// 月別需要指数（GET /external-signals/demand-index）の材料にし、需要予測にも ±6pt までの補正として効かせる（2026-11-12 先方の判断）
 model MarketSignal {
   id          String   @id @default(cuid())
   tenantId    String

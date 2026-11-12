@@ -1,8 +1,8 @@
 import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireHotelAccess, requireRole } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
-import { importBookingCurveSchema, importCompetitorPricesSchema, importDailyDataSchema, importOtbSchema } from '../lib/validators.js'
-import { importBookingCurve, importCompetitorPrices, importDailyData, importOtb } from '../controllers/importsController.js'
+import { importBookingCurveSchema, importReservationsSchema, importCompetitorPricesSchema, importDailyDataSchema, importOtbSchema } from '../lib/validators.js'
+import { importBookingCurve, importReservations, importCompetitorPrices, importDailyData, importOtb } from '../controllers/importsController.js'
 
 // 実績データの取り込み（#82）。PMS 連携までのつなぎで、MANAGER 以上だけが実行できる
 export const importsRouter: ExpressRouter = Router()
@@ -43,4 +43,13 @@ importsRouter.post(
   validate(importBookingCurveSchema),
   requireHotelAccess((req) => req.body?.hotelId),
   importBookingCurve
+)
+
+// POST /api/v1/imports/reservations — 予約明細から過去の予約の推移を作る（D-13）。MANAGER 以上
+importsRouter.post(
+  '/reservations',
+  requireRole('ADMIN', 'MANAGER'),
+  validate(importReservationsSchema),
+  requireHotelAccess((req) => req.body?.hotelId),
+  importReservations
 )

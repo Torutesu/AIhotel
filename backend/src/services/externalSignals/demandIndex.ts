@@ -3,7 +3,7 @@ import { config } from '../../lib/config.js'
 import { addUtcDays, todayJst } from '../../lib/date.js'
 import { holidaysKnownThrough } from '../../lib/jpHolidays.js'
 import { TRAVEL_SEASON_LABELS, travelSeasonsOf, type TravelSeasonKey } from '../../lib/travelSeasons.js'
-import { computeEventImpact, type EventImpactRecord } from '../forecast/eventImpact.js'
+import { computeEventImpact, MARKET_SIGNAL_PT, type EventImpactRecord } from '../forecast/eventImpact.js'
 import { isInRanges, type DateRange } from '../forecast/pace.js'
 import { NotFoundError } from '../../middlewares/errorHandler.js'
 
@@ -12,11 +12,10 @@ import { NotFoundError } from '../../middlewares/errorHandler.js'
 //   - 季節: 前年同月の稼働が MIN_SEASON_DAYS 日以上ある月だけ。無ければ 100（平均）として扱い seasonal は null
 //   - イベント: 月の日ごとのイベントの影響（稼働率の加算幅 — 需要予測と同じ値）の平均を、平均稼働に対する割合で足す
 //   - 市場の動き: 外部要因エージェントが集めた期間の動き（high 5pt・medium 3pt・low 1pt の稼働率の増減の見立て）を、
-//     月に重なる日数で按分して同じく足す。見立ての大きさは暫定値（クライアント確認待ち）
+//     月に重なる日数で按分して同じく足す。大きさは需要予測の補正と同じ値（forecast/eventImpact.ts の MARKET_SIGNAL_PT）
 // 特殊日（予測の基準から外す期間）の実績は季節の計算に使わない。純関数 computeDemandIndex をテストで固定する。
 
 export const MIN_SEASON_DAYS = 15
-const SIGNAL_PT: Record<string, number> = { high: 0.05, medium: 0.03, low: 0.01 }
 const SIGNAL_SIGN: Record<string, number> = { up: 1, down: -1, neutral: 0 }
 
 export interface DemandIndexInput {
@@ -68,7 +67,7 @@ export function computeDemandIndex(input: DemandIndexInput): DemandIndexMonth[] 
     const monthSignals = input.signals.filter((s) => s.periodStart <= last && s.periodEnd >= first)
     for (const s of monthSignals) {
       const overlap = days.filter((d) => d >= s.periodStart && d <= s.periodEnd).length
-      marketPt += (SIGNAL_PT[s.magnitude] ?? 0) * (SIGNAL_SIGN[s.direction] ?? 0) * (overlap / days.length)
+      marketPt += (MARKET_SIGNAL_PT[s.magnitude] ?? 0) * (SIGNAL_SIGN[s.direction] ?? 0) * (overlap / days.length)
     }
     const events = base ? round1((eventPt / base) * 100) : 0
     const market = base ? round1((marketPt / base) * 100) : 0
@@ -117,7 +116,7 @@ export async function getDemandIndexService(hotelId: string, months: number) {
   return {
     months: computeDemandIndex({ months: list, history, today, events: events.filter((e) => !e.excludeFromHistory), signals }),
     /** 指数の作り方（画面の注記に使う） */
-    basis: '100 = 直近1年の平均稼働。季節（前年同月）＋イベント＋市場の動きの見立て。市場の動きの大きさは暫定値',
+    basis: '100 = 直近1年の平均稼働。季節（前年同月）＋イベント＋市場の動きの見立て。市場の動きは推奨にも稼働率 ±6pt まで効かせています',
   }
 }
 

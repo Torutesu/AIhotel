@@ -1,7 +1,8 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma.js'
 import { todayJst } from '../lib/date.js'
-import type { ImportBookingCurveInput, ImportOtbInput } from '../lib/validators.js'
+import type { ImportBookingCurveInput, ImportOtbInput, ImportReservationsInput } from '../lib/validators.js'
+import { reservationsToCurve } from './imports/reservationCurve.js'
 import {
   commitImport,
   loadImportHotel,
@@ -134,6 +135,42 @@ export async function importBookingCurveService(input: ImportBookingCurveInput):
     dryRun: input.dryRun,
     dates: input.rows.map((r) => r.stayDate),
     existing: await prisma.bookingCurveData.count({
+      where: { hotelId: hotel.id, OR: points.map((p) => ({ stayDate: p.stayDate, daysBefore: p.daysBefore })) },
+    }),
+    write: (tx) => upsertCurvePoints(tx, hotel, points, (p) => new Date(p.stayDate.getTime() - p.daysBefore * DAY_MS)),
+  })
+}
+
+// ======================================
+// 予約明細から作る（D-13 — 過去の予約の推移を入れる推奨の方法）
+// ======================================
+
+export function findReservationRowErrors(rows: ImportReservationsInput['rows'], totalRooms: number): RowError[] {
+  const errors = new RowErrors()
+  rows.forEach((row, index) => {
+    if (row.bookedDate > row.checkInDate) errors.add(index, 'bookedDate', `予約日 ${row.bookedDate} がチェックイン日 ${row.checkInDate} より後です`)
+    if (row.cancelledDate && row.cancelledDate < row.bookedDate) errors.add(index, 'cancelledDate', `取消日 ${row.cancelledDate} が予約日より前です`)
+    if (row.rooms > totalRooms) errors.add(index, 'rooms', `室数 ${row.rooms} がホテルの客室数 ${totalRooms} を超えています`)
+  })
+  return errors.list
+}
+
+export async function importReservationsService(input: ImportReservationsInput): Promise<ImportSummary & { reservations: number }> {
+  const hotel = await loadImportHotel(input.hotelId)
+  rejectRows(findReservationRowErrors(input.rows, hotel.totalRooms))
+  const curve = reservationsToCurve(input.rows, input.stayFrom, input.stayTo)
+  if (curve.length === 0) rejectRows([{ field: 'stayFrom', message: '指定した宿泊日の範囲に、作れる予約の推移がありません（予約日が宿泊日より後の明細しかない）' }])
+  const over = curve.find((p) => p.roomsBooked > hotel.totalRooms)
+  if (over) {
+    rejectRows([{ field: 'rows', message: `宿泊日 ${over.stayDate} の${over.daysBefore}日前の予約が ${over.roomsBooked} 室で、客室数を超えます（重複した明細が無いか確かめてください）` }])
+  }
+  const points = curve.map((p) => ({ stayDate: toDate(p.stayDate), daysBefore: p.daysBefore, roomsBooked: p.roomsBooked }))
+  return commitImport({
+    hotel,
+    dryRun: input.dryRun,
+    dates: curve.map((p) => p.stayDate),
+    extra: { reservations: input.rows.length },
+    existing: points.length === 0 ? 0 : await prisma.bookingCurveData.count({
       where: { hotelId: hotel.id, OR: points.map((p) => ({ stayDate: p.stayDate, daysBefore: p.daysBefore })) },
     }),
     write: (tx) => upsertCurvePoints(tx, hotel, points, (p) => new Date(p.stayDate.getTime() - p.daysBefore * DAY_MS)),

@@ -4,8 +4,8 @@ import { sendSuccess } from '../utils/response.js'
 import { writeAuditLog } from '../services/auditService.js'
 import { importDailyDataService } from '../services/importsService.js'
 import { importCompetitorPricesService } from '../services/competitorPriceImportService.js'
-import { importOtbService, importBookingCurveService } from '../services/otbImportService.js'
-import type { ImportBookingCurveInput, ImportCompetitorPricesInput, ImportDailyDataInput, ImportOtbInput } from '../lib/validators.js'
+import { importOtbService, importBookingCurveService, importReservationsService } from '../services/otbImportService.js'
+import type { ImportReservationsInput, ImportBookingCurveInput, ImportCompetitorPricesInput, ImportDailyDataInput, ImportOtbInput } from '../lib/validators.js'
 
 /**
  * 日次実績の取り込み（MANAGER 以上・監査対象 — #82）
@@ -106,5 +106,22 @@ export const importBookingCurve = asyncHandler(async (req: Request, res: Respons
     result,
     200,
     `過去の予約積上 ${result.total}行（宿泊日 ${result.startDate}〜${result.endDate}）を${verb}（新規 ${result.created} / 更新 ${result.updated}）`
+  )
+})
+
+/**
+ * 予約明細から過去の予約の推移を作る（D-13）
+ * POST /api/v1/imports/reservations
+ */
+export const importReservations = asyncHandler(async (req: Request, res: Response) => {
+  const input = req.body as ImportReservationsInput
+  const { tenantId, ...result } = await importReservationsService(input)
+  await auditImport(req, tenantId, 'BookingCurveData', 'reservations', result)
+  const verb = result.dryRun ? '確認しました' : '取り込みました'
+  sendSuccess(
+    res,
+    result,
+    200,
+    `予約明細 ${result.reservations}件から、宿泊日 ${input.stayFrom}〜${input.stayTo} の予約の推移 ${result.total}点を${verb}（新規 ${result.created} / 更新 ${result.updated}）`
   )
 })

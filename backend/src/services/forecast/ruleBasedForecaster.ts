@@ -36,7 +36,7 @@ import { patternBlendWeight, type PatternPrediction } from './dayPattern.js'
 import { coldStartOccupancy, MIN_OWN_HISTORY_DAYS, type ColdStartResult } from './coldStart.js'
 import { loadBudgetStances, modelForStance, monthsBetween } from '../budgetStance.js'
 import { loadDayTypeModel } from '../dayTypeService.js'
-import { computeEventImpact, type EventImpactRecord } from './eventImpact.js'
+import { computeEventImpact, computeMarketImpact, type EventImpactRecord, type MarketSignalRecord } from './eventImpact.js'
 
 export { computeEventImpact, type EventImpactRecord }
 
@@ -201,7 +201,8 @@ export function computeDailyForecastCore(
   maxRank = DEFAULT_MAX_RANK,
   pace?: PaceInput,
   pattern?: PatternInput,
-  fallbackOccupancy?: number
+  fallbackOccupancy?: number,
+  marketImpact = 0
 ): Omit<DailyForecast, 'recommendedPrice' | 'predictedAdr' | 'modelVersion'> & { pace?: PaceResult; pattern?: PatternResult } {
   const movingAverage = computeMovingAverageBySameWeekday(history, targetDate)
   const yearOverYear = computeYearOverYearOccupancy(history, targetDate)
@@ -211,7 +212,7 @@ export function computeDailyForecastCore(
   const baseOccupancy = computePredictedOccupancy({
     movingAverage,
     yearOverYear,
-    eventImpact,
+    eventImpact: eventImpact + marketImpact,
     weekendAdjustment,
     fallback: fallbackOccupancy,
   })
@@ -291,7 +292,7 @@ async function loadForecastContext(input: Pick<ForecastInput, 'hotelId' | 'start
   const lastYearEnd = lastYearSameWeekday(endDate)
 
   const today = todayJst()
-  const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily, dayTypeModel, budgetStances] =
+  const [dailyData, allEvents, priceRanks, strategyConfig, competitorPrices, previous, priceBounds, curve, lastYearDaily, dayTypeModel, budgetStances, marketSignals] =
     await Promise.all([
     prisma.dailyData.findMany({
       where: {
@@ -353,6 +354,11 @@ async function loadForecastContext(input: Pick<ForecastInput, 'hotelId' | 'start
     loadDayTypeModel(hotelId, today),
     // 月の予算への向き合い方（D-13）
     loadBudgetStances(hotelId, monthsBetween(startDate, endDate), today),
+    // 市場の動き（D-13）
+    prisma.marketSignal.findMany({
+      where: { hotelId, periodStart: { lte: endDate }, periodEnd: { gte: startDate } },
+      select: { periodStart: true, periodEnd: true, direction: true, magnitude: true },
+    }),
   ])
 
   const events = allEvents.filter((e) => e.endDate >= startDate)
@@ -435,6 +441,7 @@ async function loadForecastContext(input: Pick<ForecastInput, 'hotelId' | 'start
     bounds,
     dayTypeModel,
     budgetStances,
+    marketSignals: marketSignals as MarketSignalRecord[],
   }
 }
 
@@ -468,6 +475,7 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
     bounds,
     dayTypeModel,
     budgetStances,
+    marketSignals,
   } = ctx
   const totalDays = Math.round((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1
   const results: DailyForecast[] = []
@@ -498,6 +506,7 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
             points: curveByStayDate.get(date.getTime()) ?? [],
           })
         : null
+    const market = computeMarketImpact(marketSignals, date)
     const coldStart =
       history.length < MIN_OWN_HISTORY_DAYS
         ? coldStartOccupancy({ hotelType: hotel.hotelType, lead: leadDays, otbRooms: pace?.otbRooms ?? null, totalRooms: hotel.totalRooms })
@@ -510,7 +519,8 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
       maxRank,
       pace,
       prediction ? { prediction, leadDays } : undefined,
-      coldStart?.occupancy
+      coldStart?.occupancy,
+      market.impact
     )
 
     // 日のタイプで優先モデルを決め、初期値の重みを稼働寄り・単価寄りに寄せる（予約が進んで型が変わればモデルも変わる）
@@ -577,6 +587,7 @@ function computeForecasts(ctx: ForecastContext, modelOverride?: ForecastInput['m
         prediction,
         patternResult,
         coldStart,
+        market,
         dayType: dayType || modelOverride ? { name: dayType?.name ?? null, model: dayModel } : undefined,
         budget: stance && !modelOverride ? { stance: stance.stance, gap: stance.gap } : undefined,
       }),
@@ -628,6 +639,7 @@ function buildRationale(params: {
   prediction?: PatternPrediction | null
   patternResult?: PatternResult
   coldStart?: ColdStartResult | null
+  market?: { impact: number; count: number }
   dayType?: RationaleV1['dayType']
   budget?: RationaleV1['budget']
 }): RationaleV1 {
@@ -693,6 +705,9 @@ function buildRationale(params: {
         weight: paceResult.weight,
       },
     })
+  }
+  if (params.market && params.market.impact !== 0) {
+    adjustments.push({ key: 'market', impact: params.market.impact, input: { signals: params.market.count } })
   }
   if (params.coldStart) {
     adjustments.push({

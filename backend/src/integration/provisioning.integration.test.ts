@@ -217,6 +217,31 @@ describeIntegration('新しいテナントの立ち上げと、開業直後の�
     expect(await prisma.auditLog.count({ where: { entity: 'BookingCurveData', entityId: hotelId } })).toBe(1)
   })
 
+  it('予約明細から過去の予約の推移を作って取り込む（D-13 の推奨の方法）', async () => {
+    const post = (payload: object) =>
+      request(app).post('/api/v1/imports/reservations').set('Authorization', `Bearer ${tokens.newAdmin}`).send({ hotelId, ...payload })
+    const stay = addUtcDays(today, -100)
+    const rows = [
+      { bookedDate: iso(addUtcDays(stay, -60)), checkInDate: iso(stay), nights: 2, rooms: 3 },
+      { bookedDate: iso(addUtcDays(stay, -10)), checkInDate: iso(stay), nights: 1, rooms: 2, cancelledDate: iso(addUtcDays(stay, -2)) },
+    ]
+    const bad = await post({ stayFrom: iso(stay), stayTo: iso(stay), rows: [{ ...rows[0], bookedDate: iso(addUtcDays(stay, 1)) }] })
+    expect(bad.status).toBe(400)
+    expect(bad.body.errors[0].field).toBe('rows.0.bookedDate')
+    const tooLong = await post({ stayFrom: iso(stay), stayTo: iso(addUtcDays(stay, 70)), rows })
+    expect(tooLong.status).toBe(400)
+
+    const ok = await post({ stayFrom: iso(stay), stayTo: iso(addUtcDays(stay, 1)), rows })
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200)
+    expect(ok.body.data.reservations).toBe(2)
+    const point = (d: Date, lead: number) =>
+      prisma.bookingCurveData.findUnique({ where: { hotelId_stayDate_daysBefore: { hotelId, stayDate: d, daysBefore: lead } } })
+    expect((await point(stay, 30))?.roomsBooked).toBe(3)
+    expect((await point(stay, 7))?.roomsBooked).toBe(5) // 取消前
+    expect((await point(stay, 0))?.roomsBooked).toBe(3) // 2日前に取消
+    expect((await point(addUtcDays(stay, 1), 0))?.roomsBooked).toBe(3) // 連泊の2泊目
+  })
+
   async function hotelTenant() {
     return prisma.hotel.findUniqueOrThrow({ where: { id: hotelId }, select: { tenantId: true } })
   }

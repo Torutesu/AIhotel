@@ -482,6 +482,35 @@ describeIntegration('需要予測と推奨価格（#76 / #77 / #90）', () => {
       }
     })
 
+    it('市場の動き（エージェントが集めたもの）を予測稼働率に足し、推奨理由に残す（D-13）', async () => {
+      await setWeights(100, 0, 0)
+      await recomputeAndReadRanks()
+      const before = await readPredictedOccupancy()
+      await prisma.marketSignal.create({
+        data: {
+          tenantId: TENANT,
+          hotelId: HOTEL,
+          kind: 'access',
+          title: '新しい直行便',
+          summary: '冬ダイヤで増便',
+          periodStart: today,
+          periodEnd: endDate,
+          direction: 'up',
+          magnitude: 'medium',
+        },
+      })
+      try {
+        await recomputeAndReadRanks()
+        const after = await readPredictedOccupancy()
+        after.forEach((occ, i) => expect(occ).toBeGreaterThan(before[i]))
+        const row = await prisma.aiPriceRecommendation.findFirstOrThrow({ where: { hotelId: HOTEL, roomTypeId: null, date: today } })
+        const market = (row.rationale as { adjustments: Array<{ key: string; impact: number }> }).adjustments.find((a) => a.key === 'market')
+        expect(market?.impact).toBe(0.03)
+      } finally {
+        await prisma.marketSignal.deleteMany({ where: { hotelId: HOTEL } })
+      }
+    })
+
     it('特殊日に登録した期間の実績は、同曜日平均の基準に使わない', async () => {
       await setWeights(100, 0, 0)
       const lastWeek = { gte: addUtcDays(today, -7), lte: addUtcDays(today, -1) }
