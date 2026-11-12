@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { isAllowed, parseRobotsTxt, productToken } from './robots.js'
 import { PoliteFetcher, RobotsDisallowedError } from './politeFetcher.js'
-import { createScriptedSource, CRAWL_MAX_DAYS_AHEAD, type SiteScript } from './scriptedSource.js'
+import { createScriptedSource, CRAWL_MAX_DAYS_AHEAD, mergeRates, type SiteScript } from './scriptedSource.js'
+import { decodeHtml, detectBlock, SiteBlockedError } from './pageSignals.js'
 
 // 競合サイトの自前巡回の基盤（D-13）: robots.txt、間隔・再試行、決まった手順の取得元のひな形
 
@@ -104,7 +105,7 @@ describe('createScriptedSource', () => {
   const target = { competitorId: 'c1', competitorName: '競合A', url: 'https://site.example/hotel/1' }
   const script: SiteScript = {
     key: 'jalan',
-    buildRequests: (t, dates) => dates.map((d) => ({ url: `${t.url}?date=${d}`, stayDates: [d] })),
+    buildRequests: (t, dates) => dates.map((d) => ({ url: `${t.url}?date=${d}`, stayDates: [d], occupancy: 2 as const })),
     parse: (html, req) => {
       const price = Number(html.match(/price=(\d+)/)?.[1])
       if (!price) throw new Error('料金が見つかりません（ページの構造が変わった可能性）')
@@ -113,7 +114,7 @@ describe('createScriptedSource', () => {
   }
   const dates = Array.from({ length: 120 }, (_, i) => new Date(Date.UTC(2026, 11, 1 + i)).toISOString().slice(0, 10))
 
-  it('90日先までだけを取り、一部の日の失敗は飛ばす', async () => {
+  it('90日先まで・遠い日ほど間引いて取り、一部の日の失敗は飛ばす', async () => {
     const requested: string[] = []
     const fetcher = {
       getText: async (url: string) => {
@@ -122,15 +123,17 @@ describe('createScriptedSource', () => {
       },
       permit: async () => {},
     }
-    const rates = await createScriptedSource(script, fetcher).fetch(target, dates)
-    expect(requested).toHaveLength(CRAWL_MAX_DAYS_AHEAD)
-    expect(rates).toHaveLength(CRAWL_MAX_DAYS_AHEAD - 1)
+    const rates = await createScriptedSource(script, fetcher, { maxRequestsPerRun: 1000 }).fetch(target, dates)
+    // 0〜30日は毎日（31日）、31〜60日は2日おき（15日）、61〜89日は4日おき（7日）
+    expect(requested).toHaveLength(53)
+    expect(requested.some((u) => u.endsWith(dates[CRAWL_MAX_DAYS_AHEAD]))).toBe(false)
+    expect(rates).toHaveLength(52)
     expect(rates[0]).toMatchObject({ stayDate: '2026-12-01', price2P: 18000 })
   })
 
   it('1日も取れなければ例外、robots.txt の禁止はすぐ止める', async () => {
     const broken = { getText: async () => '<html></html>', permit: async () => {} }
-    await expect(createScriptedSource(script, broken).fetch(target, dates.slice(0, 3))).rejects.toThrow('1日も取れませんでした')
+    await expect(createScriptedSource(script, broken, { maxRequestsPerRun: 100 }).fetch(target, dates.slice(0, 3))).rejects.toThrow('1日も取れませんでした')
     let count = 0
     const forbidden = {
       getText: async (url: string) => {
@@ -139,7 +142,53 @@ describe('createScriptedSource', () => {
       },
       permit: async () => {},
     }
-    await expect(createScriptedSource(script, forbidden).fetch(target, dates.slice(0, 3))).rejects.toBeInstanceOf(RobotsDisallowedError)
+    await expect(createScriptedSource(script, forbidden, { maxRequestsPerRun: 100 }).fetch(target, dates.slice(0, 3))).rejects.toBeInstanceOf(RobotsDisallowedError)
     expect(count).toBe(1)
+  })
+
+  it('止められた兆候があればすぐやめ、その回はもう取らない。1回の上限を超えた分は取らない', async () => {
+    let count = 0
+    const blocked = {
+      getText: async (url: string) => {
+        count++
+        throw new SiteBlockedError(url, 'CAPTCHA')
+      },
+      permit: async () => {},
+    }
+    const source = createScriptedSource(script, blocked, { maxRequestsPerRun: 100 })
+    await expect(source.fetch(target, dates.slice(0, 5))).rejects.toBeInstanceOf(SiteBlockedError)
+    expect(await source.fetch({ ...target, competitorId: 'c2' }, dates.slice(0, 5))).toEqual([])
+    expect(count).toBe(1)
+
+    const ok = { getText: async () => 'price=10000', permit: async () => {} }
+    const limited = createScriptedSource(script, ok, { maxRequestsPerRun: 3 })
+    expect(await limited.fetch(target, dates.slice(0, 10))).toHaveLength(3)
+    expect(await limited.fetch(target, dates.slice(0, 10))).toEqual([])
+  })
+})
+
+describe('ページの判定', () => {
+  it('Shift_JIS のページを読み、CAPTCHA・アクセス制限・403 をブロックとみなす', () => {
+    const sjis = new Uint8Array([0x8c, 0xb3, 0x93, 0xfa]) // 「元日」
+    expect(decodeHtml(sjis, 'text/html; charset=Shift_JIS')).toBe('元日')
+    const withMeta = new Uint8Array([...new TextEncoder().encode('<meta charset="Shift_JIS">'), 0x8c, 0xb3])
+    expect(decodeHtml(withMeta, 'text/html')).toContain('元')
+    expect(detectBlock(403, null)).toBe('HTTP 403')
+    expect(detectBlock(200, '<html><div class="g-recaptcha"></div></html>')).toBe('CAPTCHA')
+    expect(detectBlock(200, '<title>アクセスが集中しています</title>')).toBe('アクセス制限の画面')
+    expect(detectBlock(200, '<html>料金 12,000円</html>')).toBeNull()
+  })
+
+  it('人数ごとの結果を宿泊日ごとにまとめる', () => {
+    expect(
+      mergeRates([
+        { stayDate: '2026-12-01', price1P: null, price2P: 20000, price3P: null, soldOut: false },
+        { stayDate: '2026-12-01', price1P: 12000, price2P: null, price3P: null, soldOut: false },
+        { stayDate: '2026-12-02', price1P: null, price2P: null, price3P: null, soldOut: true },
+      ])
+    ).toEqual([
+      { stayDate: '2026-12-01', price1P: 12000, price2P: 20000, price3P: null, soldOut: false },
+      { stayDate: '2026-12-02', price1P: null, price2P: null, price3P: null, soldOut: true },
+    ])
   })
 })

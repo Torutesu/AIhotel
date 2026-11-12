@@ -163,6 +163,19 @@ const envSchema = z.object({
     ),
   // 同じホストへのリクエストの最小間隔（ミリ秒）。robots.txt の Crawl-delay が長ければそちらに従う
   CRAWL_MIN_INTERVAL_MS: z.coerce.number().int().min(1000).default(5000),
+  // 間隔のゆらぎ（0.5 なら最小間隔の 1.0〜1.5 倍）。決まった間隔で叩き続けない
+  CRAWL_JITTER_RATIO: z.coerce.number().min(0).max(3).default(0.5),
+  // 1回の取得ジョブで1サイトに送るリクエストの上限（全ホテル・全競合の合計）。超えた分は次の回に回す
+  CRAWL_MAX_REQUESTS_PER_RUN: z.coerce.number().int().min(1).max(5000).default(300),
+  // ブロックの兆候（403・429 の連続・CAPTCHA の画面）を見つけたら、そのサイトをこの時間止める
+  CRAWL_BLOCK_COOLDOWN_HOURS: z.coerce.number().int().min(1).max(720).default(24),
+  // 取る人数（カンマ区切り）。1サイト・1日あたりのリクエストが人数の数だけ増える
+  CRAWL_OCCUPANCIES: z
+    .string()
+    .default('2')
+    .transform((v) => [...new Set(v.split(',').map((s) => Number(s.trim())).filter((n) => n === 1 || n === 2 || n === 3))] as Array<1 | 2 | 3>),
+  // 読み取り処理を手で書いていないサイト（Booking.com・Agoda）の料金を、描画したページから読むモデル（AI で読む取得）
+  COMPETITOR_EXTRACT_MODEL: z.string().min(1).default('claude-opus-5-5'),
 
   // 監査ログの保持日数（#49-5 / #21 D2-2）。設定すると日次バッチがこれより古い行を削除する。
   // 未設定なら削除しない（保持期間はクライアント確認中のため、既定では消さない）

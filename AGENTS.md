@@ -71,7 +71,7 @@ pnpm --filter backend build && pnpm --filter frontend build
 
 ## 未実装領域（Phase 4 — 「実装済み」と報告しないこと）
 
-PMS/OTA連携・競合サイトごとの巡回処理（巡回の基盤はある。登録済みのサイトは無い — 規約の確認待ち）・需要予測ML・
+PMS/OTA連携・Booking.com・Agoda の巡回の実ページでの確認（取得元は登録済みだが未確認。じゃらんは確認済み・楽天は公式 API）・需要予測ML・
 Claude APIによるAIコメント（AI解説）の生成。
 対応するDBテーブルとAPIの器は存在し、現在はseedデータ・CSV 取り込み（#82）・ルールベース予測で動作している。
 

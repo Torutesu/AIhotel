@@ -2,6 +2,10 @@ import { config } from '../../lib/config.js'
 import { createRakutenTravelSource } from './rakutenTravel.js'
 import type { CompetitorRateSource } from './types.js'
 import { createScriptedSource, type SiteScript } from './crawler/scriptedSource.js'
+import { jalanScript } from './crawler/sites/jalan.js'
+import { agodaUrl, bookingUrl } from './crawler/sites/browserSites.js'
+import { createLlmSiteScript } from './crawler/llmExtract.js'
+import { createAgentClient } from '../externalSignals/agent/collect.js'
 import { logger } from '../../utils/logger.js'
 
 // 登録済みの取得元（#9）。
@@ -10,10 +14,23 @@ import { logger } from '../../utils/logger.js'
 //   RAKUTEN_BACKUP_APPLICATION_IDS はメインの ID が無効になったときの切り替え先
 // - ほかのサイト（じゃらん・一休・Booking.com など）は自前巡回（crawler/ — D-13）。各サイトの利用規約をクライアントが確認した後、
 //   crawler/sites/<key>.ts に SiteScript を書いて CRAWL_SITE_SCRIPTS に登録し、CRAWL_ENABLED_SOURCES に足したものだけを動かす。
-//   今は登録したサイトが無い（規約の確認待ち）
+//   - じゃらん: 手書きの読み取り（実際のページで確認済み — sites/jalan.ts）
+//   - Booking.com・Agoda: ブラウザで描画して AI で読む（ANTHROPIC_API_KEY と Playwright の入ったイメージが要る。実際のページは未確認）
+//   - 一休・Expedia・Trip.com: robots.txt が拒否・禁止しているため作らない
 // 登録が無い取得元の競合価格は CSV の取り込み（POST /imports/competitor-prices）で入れる。
-/** 自前巡回のサイト（規約の確認が済んで実装したもの）。今は無い */
-export const CRAWL_SITE_SCRIPTS: SiteScript[] = []
+/** 自前巡回のサイト。CRAWL_ENABLED_SOURCES に並べたものだけが動く */
+function siteScripts(): SiteScript[] {
+  const scripts: SiteScript[] = [jalanScript]
+  const client = createAgentClient()
+  if (client) {
+    scripts.push(
+      createLlmSiteScript({ key: 'booking', siteName: 'Booking.com', buildUrl: bookingUrl, client }),
+      createLlmSiteScript({ key: 'agoda', siteName: 'Agoda', buildUrl: agodaUrl, client })
+    )
+  }
+  return scripts
+}
+export const CRAWL_SITE_SCRIPTS: SiteScript[] = siteScripts()
 
 function crawlSources(): CompetitorRateSource[] {
   const enabled = new Set(config.CRAWL_ENABLED_SOURCES)

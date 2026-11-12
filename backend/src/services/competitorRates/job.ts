@@ -1,6 +1,6 @@
 import { logger } from '../../utils/logger.js'
 import { listActiveHotelsForJobService } from '../hotelsService.js'
-import { fetchCompetitorRatesForHotel, type HotelFetchResult } from './fetchService.js'
+import { BLOCKED_PREFIX, fetchCompetitorRatesForHotel, type HotelFetchResult } from './fetchService.js'
 import { competitorRateSources } from './sources.js'
 import type { CompetitorRateSource } from './types.js'
 
@@ -30,7 +30,11 @@ export async function runCompetitorPricesJob(
   for (const r of results.filter((r) => r.status === 'failed')) {
     logger.error(
       { hotelId: r.hotelId, source: r.source, error: r.errorMessage },
-      r.consecutiveFailure ? '競合価格の取得が連続失敗しています（取得処理の修正が必要）' : '競合価格の取得に失敗しました'
+      r.errorMessage?.startsWith(BLOCKED_PREFIX)
+        ? 'サイトに止められた兆候があるため、この取得元を休止します（間隔・量の見直しか、公式 API・業者への切り替えを検討）'
+        : r.consecutiveFailure
+          ? '競合価格の取得が連続失敗しています（取得処理の修正が必要）'
+          : '競合価格の取得に失敗しました'
     )
   }
   const summary = {
@@ -40,6 +44,7 @@ export async function runCompetitorPricesJob(
   logger.info(
     {
       ...summary,
+      skipped: results.filter((r) => r.status === 'skipped').length,
       observations: results.reduce((s, r) => s + r.observations, 0),
       priceMoveAlerts: results.reduce((s, r) => s + r.alerts, 0),
     },
