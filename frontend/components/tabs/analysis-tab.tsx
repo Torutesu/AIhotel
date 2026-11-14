@@ -104,7 +104,7 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
       </div>
 
       {/* アラートの欄は置かない（2026-10 PDF c分析01実績推移1「ここは不要」。アラートはダッシュボードで確認し、対応・解決で外す） */}
-      <DailyAiInsightSection />
+      <DailyAiInsightSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
 
       <Tabs
         value={activeView}
@@ -162,7 +162,7 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
 
         {/* 需要構成: どこから・何を・誰が（3つを同じ表・グラフで — c分析02） */}
         <TabsContent value="composition" className="space-y-4">
-          <CompositionInsightSection />
+          <CompositionInsightSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
           <ChannelAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
           <RoomTypeAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />
           <GuestCountAnalysisSection targetPeriod={targetPeriod} onTargetPeriodChange={setTargetPeriod} />

@@ -879,3 +879,94 @@ export interface CompetitorFetchSourceStatus {
   lastSucceededAt: string | null
   consecutiveFailures: number
 }
+
+/** 予約動向（リードタイム別の予約とキャンセル — GET /analysis/booking-windows。予約明細から — D-13） */
+export interface BookingWindows {
+  bookings: Array<{
+    window: string
+    soldRooms: number
+    occupancy: number | null
+    adr: number | null
+    guestUnitPrice: number | null
+    revenue: number | null
+    /** 室料売上の構成比（%） */
+    revenueShare: number | null
+    /** CXL率（%） */
+    cancelRate: number | null
+    dor: number | null
+    avgNights: number | null
+    /** 前年同月比（%）。前年の明細が無ければ null */
+    yoy: number | null
+  }>
+  cancels: Array<{
+    window: string
+    rooms: number
+    cancelRate: number | null
+    adr: number | null
+    guestUnitPrice: number | null
+    revenue: number | null
+    share: number | null
+    dor: number | null
+    avgNights: number | null
+    yoy: number | null
+  }>
+  /** 対象月の泊にかかる予約明細の件数（0 なら未取り込み） */
+  reservations: number
+}
+
+/** 利用人数別（GET /analysis/guest-counts。予約明細から — D-13） */
+export interface GuestCounts {
+  segments: Array<{
+    key: string
+    name: string
+    soldRooms: number
+    occupancy: number | null
+    adr: number | null
+    guestUnitPrice: number | null
+    revenue: number | null
+    revenueShare: number | null
+    roomsShare: number | null
+    dor: number | null
+    avgNights: number | null
+    yoy: number | null
+    /** 区分ごとの月の予約の積み上がり（残日数 → 予約室数・前年） */
+    curve: Array<{ lead: number; rooms: number; lastYear: number | null }>
+  }>
+  reservations: number
+}
+
+/** 月単位のブッキングカーブ（GET /analysis/month-curve — 予約明細から。D-13） */
+export interface MonthCurve {
+  year: number
+  month: number
+  totalRooms: number
+  /** 月の予算の室数（最終の目標） */
+  budgetRooms: number | null
+  /** 利用人数の区分の名前（segments のキー） */
+  segmentNames: string[]
+  reservations: number
+  /** 残月数 6 → 0（0 は月末＝最終）。monthly はその月に入った室数 */
+  points: Array<{
+    monthsBefore: number
+    cumulative: number
+    monthly: number
+    lastYearCumulative: number | null
+    segments: Record<string, number>
+  }>
+}
+
+/** フリー分析（GET /analysis/free — 予約明細から。D-13） */
+export type FreeAnalysisAxis = "channel" | "booking" | "guests" | "dayofweek" | "date"
+export type FreeAnalysisMetric = "rooms" | "occupancy" | "adr" | "revpar" | "revenue" | "bookings"
+export interface FreeAnalysis {
+  year: number
+  month: number
+  axis1: FreeAnalysisAxis
+  axis2: Exclude<FreeAnalysisAxis, "date"> | null
+  metric: FreeAnalysisMetric
+  axis1Values: string[]
+  axis2Values: string[]
+  /** 値は metric ごと: 室数・稼働率（%）・円・予約数。室料の無いセルの ADR などは null */
+  rows: Array<{ axis1: string; axis2: string | null; value: number | null }>
+  reservations: number
+}

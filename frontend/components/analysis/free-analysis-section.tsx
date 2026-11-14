@@ -1,397 +1,225 @@
 "use client"
 
-// フリー分析（U-15 で analysis-tab.tsx から分割）。集計APIが未実装のためサンプル表示。
+// フリー分析（U-15 で analysis-tab.tsx から分割。D-13 で予約明細の実データに — GET /analysis/free）。
+// 分析軸（1〜2つ）と集計項目を選ぶと、対象月の泊を集計して、単一軸はグラフ＋表、クロスは表で出す。
+// 軸はチャネル・予約期間・利用人数・曜日・日付（日付は軸1だけ）。部屋タイプと顧客セグメントは予約明細に無いので出さない。
 
-import { useMemo, useState } from "react"
-import {
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-} from "recharts"
+import { useState } from "react"
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { SampleDataNotice } from "@/components/sample-data-notice"
-import type { AnalysisSectionProps } from "@/components/analysis/section-props"
+import { ErrorState } from "@/components/error-state"
+import { useAuth } from "@/components/auth-provider"
+import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysis/section-props"
+import { useApiQuery } from "@/hooks/use-api-query"
+import { api, type FreeAnalysis, type FreeAnalysisAxis, type FreeAnalysisMetric } from "@/lib/api"
+import { monthLabel, parseMonthStr } from "@/lib/date"
 import { toNumber, type ChartTooltipEntry, type ChartTooltipProps } from "@/lib/chart-tooltip"
 
-/** フリー分析のサンプル行（軸1 × 軸2 の集計値） */
-interface FreeAnalysisRow {
-  axis1Label: string
-  axis1Value?: string
-  axis2Label?: string
-  value: number
+type CrossAxis = Exclude<FreeAnalysisAxis, "date">
+
+export const FREE_AXIS_LABELS: Record<FreeAnalysisAxis, string> = {
+  channel: "チャネル",
+  booking: "予約期間",
+  guests: "利用人数",
+  dayofweek: "曜日",
+  date: "日付",
+}
+export const FREE_METRIC_LABELS: Record<FreeAnalysisMetric, string> = {
+  rooms: "販売室数",
+  occupancy: "稼働率",
+  adr: "ADR",
+  revpar: "REV-Per",
+  revenue: "室料売上",
+  bookings: "予約数",
 }
 
-export function FreeAnalysisSection(_props: AnalysisSectionProps = {}) {
-  const [freeAnalysisAxis1, setFreeAnalysisAxis1] = useState<string>("")
-  const [freeAnalysisAxis2, setFreeAnalysisAxis2] = useState<string>("")
-  const [freeAnalysisMetric, setFreeAnalysisMetric] = useState<string>("")
+/** 集計項目に合わせた表示（null は「—」） */
+export function formatFreeValue(metric: FreeAnalysisMetric, value: number | null): string {
+  if (value == null) return "—"
+  if (metric === "occupancy") return `${value.toFixed(1)}%`
+  if (metric === "adr" || metric === "revpar" || metric === "revenue") return `¥${value.toLocaleString()}`
+  if (metric === "rooms") return `${value.toLocaleString()}室`
+  return `${value.toLocaleString()}件`
+}
 
-  // フリー分析用のデータ生成
-  const freeAnalysisData = useMemo(() => {
-    if (!freeAnalysisAxis1 || !freeAnalysisMetric) return []
+export function FreeAnalysisSection(props: AnalysisSectionProps = {}) {
+  const { targetPeriod } = useTargetPeriod(props)
+  const { hotelId } = useAuth()
+  const { year, month } = parseMonthStr(targetPeriod)
+  const [axis1, setAxis1] = useState<FreeAnalysisAxis | "">("")
+  const [axis2, setAxis2] = useState<CrossAxis | "none">("none")
+  const [metric, setMetric] = useState<FreeAnalysisMetric | "">("")
+  const cross = axis2 !== "none" && axis2 !== axis1 ? axis2 : null
 
-    // サンプルデータ（実際の実装では、選択された軸と集計項目に基づいてAPIから取得）
-    const sampleData: FreeAnalysisRow[] = []
-
-    // 各軸の値リストを定義
-    const axis1Values: Record<string, string[]> = {
-      channel: ["公式サイト", "OTA（楽天トラベル）", "OTA（じゃらん）", "電話直接", "公式アプリ"],
-      roomtype: ["スタンダードシングル", "スタンダードツイン", "デラックスツイン", "デラックスダブル", "スイート"],
-      booking: ["当日", "1-3日前", "4-7日前", "8-14日前", "15-30日前", "31-60日前", "61日以上前"],
-      segment: ["ビジネス", "レジャー（個人）", "レジャー（家族）", "団体", "VIP/リピーター"],
-      dayofweek: ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"],
-      date: Array.from({ length: 14 }, (_, i) => `4/${i + 1}`),
-    }
-
-    const axis2Values: Record<string, string[]> = {
-      channel: ["公式サイト", "OTA（楽天トラベル）", "OTA（じゃらん）", "電話直接", "公式アプリ"],
-      roomtype: ["スタンダードシングル", "スタンダードツイン", "デラックスツイン", "デラックスダブル", "スイート"],
-      booking: ["当日", "1-3日前", "4-7日前", "8-14日前", "15-30日前", "31-60日前", "61日以上前"],
-      segment: ["ビジネス", "レジャー（個人）", "レジャー（家族）", "団体", "VIP/リピーター"],
-      dayofweek: ["月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日", "日曜日"],
-    }
-
-    // 集計項目ごとの値の範囲を定義
-    const metricRanges: Record<string, { min: number; max: number; multiplier: number }> = {
-      rooms: { min: 10, max: 50, multiplier: 1 },
-      occupancy: { min: 50, max: 100, multiplier: 1 },
-      adr: { min: 15000, max: 30000, multiplier: 1 },
-      revpar: { min: 10000, max: 25000, multiplier: 1 },
-      revenue: { min: 200000, max: 500000, multiplier: 1 },
-      bookings: { min: 10, max: 30, multiplier: 1 },
-    }
-
-    const axis1List = axis1Values[freeAnalysisAxis1] || []
-    const hasAxis2 = freeAnalysisAxis2 && freeAnalysisAxis2 !== "none"
-    const axis2List = hasAxis2 ? (axis2Values[freeAnalysisAxis2] || []) : []
-    const metricRange = metricRanges[freeAnalysisMetric] || { min: 0, max: 100, multiplier: 1 }
-
-    // クロス分析の場合
-    if (hasAxis2 && axis2List.length > 0) {
-      axis1List.forEach((axis1Value, index1) => {
-        axis2List.forEach((axis2Value, index2) => {
-          // インデックスベースで一貫性のある値を生成（Math.random()の代わりに）
-          const seed = (index1 * 1000 + index2 * 100 + freeAnalysisAxis1.length + freeAnalysisAxis2.length) % 1000
-          const normalizedValue = (seed / 1000) * (metricRange.max - metricRange.min) + metricRange.min
-
-          let value: number
-          if (freeAnalysisMetric === "occupancy") {
-            value = Math.round(normalizedValue)
-          } else {
-            value = Math.round(normalizedValue * metricRange.multiplier)
-          }
-
-          sampleData.push({
-            axis1Label: axis1Value,
-            axis2Label: axis2Value,
-            value: value,
-          })
-        })
-      })
-    } else {
-      // 単一軸分析の場合
-      axis1List.forEach((axis1Value, index) => {
-        // インデックスベースで一貫性のある値を生成
-        const seed = (index * 100 + freeAnalysisAxis1.length) % 1000
-        const normalizedValue = (seed / 1000) * (metricRange.max - metricRange.min) + metricRange.min
-
-        let value: number
-        if (freeAnalysisMetric === "occupancy") {
-          value = Math.round(normalizedValue)
-        } else {
-          value = Math.round(normalizedValue * metricRange.multiplier)
-        }
-
-        sampleData.push({
-          axis1Label: axis1Value,
-          axis1Value: axis1Value,
-          value: value,
-        })
-      })
-    }
-
-    return sampleData
-  }, [freeAnalysisAxis1, freeAnalysisAxis2, freeAnalysisMetric])
+  const query = useApiQuery<FreeAnalysis>(
+    hotelId && axis1 && metric ? () => api.freeAnalysis(hotelId, year, month, axis1, cross, metric) : null,
+    [hotelId, year, month, axis1, cross, metric],
+    "フリー分析の集計に失敗しました",
+  )
+  const data = query.data
+  const valueAt = (a: string, b: string | null) => data?.rows.find((r) => r.axis1 === a && r.axis2 === b)?.value ?? null
 
   const FreeAnalysisTooltip = ({ active, payload }: ChartTooltipProps) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload as FreeAnalysisRow | undefined
-      const metricLabel =
-        freeAnalysisMetric === "rooms" ? "販売室数" :
-          freeAnalysisMetric === "occupancy" ? "稼働率" :
-            freeAnalysisMetric === "adr" ? "ADR" :
-              freeAnalysisMetric === "revpar" ? "REV-Per" :
-                freeAnalysisMetric === "revenue" ? "室料売上" :
-                  freeAnalysisMetric === "bookings" ? "予約数" : "値"
-
-      return (
-        <div className="bg-background border border-border rounded-lg shadow-lg p-3">
-          <p className="text-sm font-medium mb-2">{data?.axis1Label}{data?.axis2Label ? ` × ${data.axis2Label}` : ""}</p>
-          <div className="space-y-1">
-            {payload.map((entry: ChartTooltipEntry, index: number) => {
-              const value = toNumber(entry.value)
-              return (
-                <p key={index} className="text-xs flex items-center gap-2">
-                  <span className="w-3 h-0.5" style={{ backgroundColor: entry.color }}></span>
-                  <span>
-                    {metricLabel}: {
-                      freeAnalysisMetric === "occupancy"
-                        ? `${value}%`
-                        : freeAnalysisMetric === "adr" || freeAnalysisMetric === "revpar"
-                          ? `¥${value.toLocaleString()}`
-                          : freeAnalysisMetric === "revenue"
-                            ? `¥${value.toLocaleString()}`
-                            : `${value}${freeAnalysisMetric === "rooms" ? "室" : ""}`
-                    }
-                  </span>
-                </p>
-              )
-            })}
-          </div>
-        </div>
-      )
-    }
-    return null
+    if (!active || !payload?.length || !metric) return null
+    const row = payload[0].payload as { axis1: string } | undefined
+    return (
+      <div className="rounded-lg border border-border bg-background p-3 shadow-lg">
+        <p className="mb-2 text-sm font-medium">{row?.axis1}</p>
+        {payload.map((entry: ChartTooltipEntry, index: number) => (
+          <p key={index} className="text-xs">
+            {FREE_METRIC_LABELS[metric]}: {formatFreeValue(metric, toNumber(entry.value))}
+          </p>
+        ))}
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-4">
-      <SampleDataNotice detail="フリー分析の集計APIが未実装のため、表示される値はサンプルです。" />
-      {/* AI解説を一番上に */}
-      <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium flex items-center gap-2">
-            <span className="text-xl" aria-hidden>
-              🤖
-            </span>
-            フリー分析インサイト
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-2 text-sm leading-relaxed">
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 rounded-full bg-[color:var(--positive)] mt-2 flex-shrink-0" />
-              <p>
-                カスタム分析軸を選択することで、独自の視点からデータを分析できます。複数の軸を組み合わせたクロス分析も可能です。
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 rounded-full bg-[color:var(--chart-2)] mt-2 flex-shrink-0" />
-              <p>
-                分析軸1と集計項目を選択すると、自動的にグラフとテーブルが生成されます。分析軸2を追加することで、より詳細なクロス分析が可能です。
-              </p>
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-medium">フリー分析（{monthLabel(year, month)}）</CardTitle>
+        <p className="mt-1 text-xs text-muted-foreground">
+          分析軸と集計項目を選んで、対象月の泊を自由に集計します（予約明細から。取消は数えません）。部屋タイプ・顧客セグメントの軸は予約明細にその列が入ってから使えます。
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-0">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="free-analysis-axis1" className="whitespace-nowrap text-xs">
+              分析軸1
+            </Label>
+            <Select value={axis1} onValueChange={(v: FreeAnalysisAxis) => setAxis1(v)}>
+              <SelectTrigger id="free-analysis-axis1" className="h-8 w-40 text-xs">
+                <SelectValue placeholder="選択してください" />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(FREE_AXIS_LABELS) as FreeAnalysisAxis[]).map((a) => (
+                  <SelectItem key={a} value={a}>
+                    {FREE_AXIS_LABELS[a]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="free-analysis-axis2" className="whitespace-nowrap text-xs">
+              分析軸2
+            </Label>
+            <Select value={axis2} onValueChange={(v: CrossAxis | "none") => setAxis2(v)} disabled={axis1 === "date"}>
+              <SelectTrigger id="free-analysis-axis2" className="h-8 w-40 text-xs">
+                <SelectValue placeholder="なし（単一軸）" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">なし（単一軸）</SelectItem>
+                {(Object.keys(FREE_AXIS_LABELS) as FreeAnalysisAxis[])
+                  .filter((a): a is CrossAxis => a !== "date" && a !== axis1)
+                  .map((a) => (
+                    <SelectItem key={a} value={a}>
+                      {FREE_AXIS_LABELS[a]}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Label htmlFor="free-analysis-metric" className="whitespace-nowrap text-xs">
+              集計項目
+            </Label>
+            <Select value={metric} onValueChange={(v: FreeAnalysisMetric) => setMetric(v)}>
+              <SelectTrigger id="free-analysis-metric" className="h-8 w-40 text-xs">
+                <SelectValue placeholder="選択してください" />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(FREE_METRIC_LABELS) as FreeAnalysisMetric[]).map((m) => (
+                  <SelectItem key={m} value={m}>
+                    {FREE_METRIC_LABELS[m]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {!axis1 || !metric ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">分析軸1と集計項目を選択して分析を開始してください</div>
+        ) : query.loading ? (
+          <p className="text-sm text-muted-foreground">集計しています…</p>
+        ) : query.error ? (
+          <ErrorState message={query.error} onRetry={query.reload} />
+        ) : !data || data.reservations === 0 ? (
+          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground" data-testid="no-free-analysis">
+            この月の予約明細がまだ取り込まれていません。設定タブの「予約明細から作る」で取り込むと集計できます。
+          </p>
+        ) : cross ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs" data-testid="free-analysis-cross-table">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-2 py-2 text-left font-medium">
+                    {FREE_AXIS_LABELS[axis1]} ＼ {FREE_AXIS_LABELS[cross]}
+                  </th>
+                  {data.axis2Values.map((b) => (
+                    <th key={b} className="px-2 py-2 text-right font-medium">
+                      {b}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.axis1Values.map((a) => (
+                  <tr key={a} className="border-b hover:bg-muted/50">
+                    <td className="px-2 py-2 font-medium">{a}</td>
+                    {data.axis2Values.map((b) => (
+                      <td key={b} className="px-2 py-2 text-right tabular-nums">
+                        {formatFreeValue(metric, valueAt(a, b))}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={data.rows} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
+                <XAxis dataKey="axis1" tick={{ fontSize: 11 }} stroke="currentColor" opacity={0.5} angle={-45} textAnchor="end" height={80} />
+                <YAxis
+                  tick={{ fontSize: 11 }}
+                  stroke="currentColor"
+                  opacity={0.5}
+                  label={{ value: FREE_METRIC_LABELS[metric], angle: -90, position: "insideLeft", style: { textAnchor: "middle", fontSize: 12 } }}
+                />
+                <Tooltip content={<FreeAnalysisTooltip />} />
+                <Bar dataKey="value" fill="#2563eb" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs" data-testid="free-analysis-table">
+                <thead>
+                  <tr className="border-b">
+                    <th className="px-2 py-2 text-left font-medium">{FREE_AXIS_LABELS[axis1]}</th>
+                    <th className="px-2 py-2 text-right font-medium">{FREE_METRIC_LABELS[metric]}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.rows.map((row) => (
+                    <tr key={row.axis1} className="border-b hover:bg-muted/50">
+                      <td className="px-2 py-2 font-medium">{row.axis1}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{formatFreeValue(metric, row.value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-medium">フリー分析</CardTitle>
-          <p className="text-xs text-muted-foreground mt-1">カスタム分析軸を選択して自由に分析</p>
-        </CardHeader>
-        <CardContent className="pt-0 space-y-4">
-          {/* 分析軸選択プルダウン */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="free-analysis-axis1" className="text-xs whitespace-nowrap">分析軸1</Label>
-              <Select value={freeAnalysisAxis1} onValueChange={setFreeAnalysisAxis1}>
-                <SelectTrigger id="free-analysis-axis1" className="h-8 w-40 text-xs">
-                  <SelectValue placeholder="選択してください" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="channel">チャネル</SelectItem>
-                  <SelectItem value="roomtype">部屋タイプ</SelectItem>
-                  <SelectItem value="booking">予約期間</SelectItem>
-                  <SelectItem value="segment">顧客セグメント</SelectItem>
-                  <SelectItem value="dayofweek">曜日</SelectItem>
-                  <SelectItem value="date">日付</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="free-analysis-axis2" className="text-xs whitespace-nowrap">分析軸2</Label>
-              <Select value={freeAnalysisAxis2} onValueChange={setFreeAnalysisAxis2}>
-                <SelectTrigger id="free-analysis-axis2" className="h-8 w-40 text-xs">
-                  <SelectValue placeholder="なし（単一軸）" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">なし（単一軸）</SelectItem>
-                  <SelectItem value="channel">チャネル</SelectItem>
-                  <SelectItem value="roomtype">部屋タイプ</SelectItem>
-                  <SelectItem value="booking">予約期間</SelectItem>
-                  <SelectItem value="segment">顧客セグメント</SelectItem>
-                  <SelectItem value="dayofweek">曜日</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <Label htmlFor="free-analysis-metric" className="text-xs whitespace-nowrap">集計項目</Label>
-              <Select value={freeAnalysisMetric} onValueChange={setFreeAnalysisMetric}>
-                <SelectTrigger id="free-analysis-metric" className="h-8 w-40 text-xs">
-                  <SelectValue placeholder="選択してください" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="rooms">販売室数</SelectItem>
-                  <SelectItem value="occupancy">稼働率</SelectItem>
-                  <SelectItem value="adr">ADR</SelectItem>
-                  <SelectItem value="revpar">REV-Per</SelectItem>
-                  <SelectItem value="revenue">室料売上</SelectItem>
-                  <SelectItem value="bookings">予約数</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* 分析結果表示 */}
-          {freeAnalysisAxis1 && freeAnalysisMetric ? (
-            <div className="space-y-4">
-              {/* グラフ表示 */}
-              {freeAnalysisAxis2 && freeAnalysisAxis2 !== "none" ? (
-                // クロス分析の場合はテーブル表示
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-2 px-2 font-medium">
-                          {freeAnalysisAxis1 === "channel" ? "チャネル" :
-                            freeAnalysisAxis1 === "roomtype" ? "部屋タイプ" :
-                              freeAnalysisAxis1 === "booking" ? "予約期間" :
-                                freeAnalysisAxis1 === "segment" ? "顧客セグメント" :
-                                  freeAnalysisAxis1 === "dayofweek" ? "曜日" : "日付"}
-                        </th>
-                        {Array.from(new Set(freeAnalysisData.map((d) => d.axis2Label).filter((label): label is string => label != null))).map((axis2Label, index) => (
-                          <th key={`axis2-${axis2Label}-${index}`} className="text-right py-2 px-2 font-medium">{axis2Label}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.from(new Set(freeAnalysisData.map((d) => d.axis1Label))).map((axis1Label) => {
-                        const rowData = freeAnalysisData.filter((d) => d.axis1Label === axis1Label)
-                        return (
-                          <tr key={axis1Label} className="border-b hover:bg-muted/50">
-                            <td className="py-2 px-2 font-medium">{axis1Label}</td>
-                            {Array.from(new Set(freeAnalysisData.map((d) => d.axis2Label).filter((label): label is string => label != null))).map((axis2Label, cellIndex) => {
-                              const cellData = rowData.find((d) => d.axis2Label === axis2Label)
-                              const value = cellData?.value || 0
-                              return (
-                                <td key={`cell-${axis1Label}-${axis2Label}-${cellIndex}`} className="text-right py-2 px-2">
-                                  {freeAnalysisMetric === "occupancy"
-                                    ? `${value}%`
-                                    : freeAnalysisMetric === "adr" || freeAnalysisMetric === "revpar"
-                                      ? `¥${value.toLocaleString()}`
-                                      : freeAnalysisMetric === "revenue"
-                                        ? `¥${value.toLocaleString()}`
-                                        : `${value}${freeAnalysisMetric === "rooms" ? "室" : ""}`}
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                // 単一軸分析の場合はグラフ表示
-                <div>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={freeAnalysisData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.1} />
-                      <XAxis
-                        dataKey="axis1Label"
-                        tick={{ fontSize: 11 }}
-                        stroke="currentColor"
-                        opacity={0.5}
-                        angle={-45}
-                        textAnchor="end"
-                        height={80}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 11 }}
-                        stroke="currentColor"
-                        opacity={0.5}
-                        label={{
-                          value: freeAnalysisMetric === "occupancy" ? "稼働率 (%)" :
-                            freeAnalysisMetric === "adr" ? "ADR (¥)" :
-                              freeAnalysisMetric === "revpar" ? "REV-Per (¥)" :
-                                freeAnalysisMetric === "revenue" ? "室料売上 (¥)" :
-                                  freeAnalysisMetric === "rooms" ? "販売室数 (室)" : "予約数",
-                          angle: -90,
-                          position: "insideLeft",
-                          style: { textAnchor: "middle", fontSize: 12 }
-                        }}
-                      />
-                      <Tooltip content={<FreeAnalysisTooltip />} />
-                      <Bar
-                        dataKey="value"
-                        fill="#2563eb"
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {/* テーブル表示（単一軸分析の場合もテーブルを表示） */}
-              {(!freeAnalysisAxis2 || freeAnalysisAxis2 === "none") && (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left py-2 px-2 font-medium">
-                          {freeAnalysisAxis1 === "channel" ? "チャネル" :
-                            freeAnalysisAxis1 === "roomtype" ? "部屋タイプ" :
-                              freeAnalysisAxis1 === "booking" ? "予約期間" :
-                                freeAnalysisAxis1 === "segment" ? "顧客セグメント" :
-                                  freeAnalysisAxis1 === "dayofweek" ? "曜日" : "日付"}
-                        </th>
-                        <th className="text-right py-2 px-2 font-medium">
-                          {freeAnalysisMetric === "rooms" ? "販売室数" :
-                            freeAnalysisMetric === "occupancy" ? "稼働率" :
-                              freeAnalysisMetric === "adr" ? "ADR" :
-                                freeAnalysisMetric === "revpar" ? "REV-Per" :
-                                  freeAnalysisMetric === "revenue" ? "室料売上" :
-                                    freeAnalysisMetric === "bookings" ? "予約数" : "値"}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {freeAnalysisData.map((row, index) => (
-                        <tr key={index} className="border-b hover:bg-muted/50">
-                          <td className="py-2 px-2 font-medium">{row.axis1Label}</td>
-                          <td className="text-right py-2 px-2">
-                            {freeAnalysisMetric === "occupancy"
-                              ? `${row.value}%`
-                              : freeAnalysisMetric === "adr" || freeAnalysisMetric === "revpar"
-                                ? `¥${row.value.toLocaleString()}`
-                                : freeAnalysisMetric === "revenue"
-                                  ? `¥${row.value.toLocaleString()}`
-                                  : `${row.value}${freeAnalysisMetric === "rooms" ? "室" : ""}`}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-sm text-muted-foreground">
-              分析軸1と集計項目を選択して分析を開始してください
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </div>
+        )}
+        {data && data.reservations > 0 && <p className="text-[10px] text-muted-foreground">予約明細 {data.reservations.toLocaleString()}件から集計</p>}
+      </CardContent>
+    </Card>
   )
 }

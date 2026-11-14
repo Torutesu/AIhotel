@@ -240,6 +240,48 @@ describeIntegration('新しいテナントの立ち上げと、開業直後の�
     expect((await point(stay, 7))?.roomsBooked).toBe(5) // 取消前
     expect((await point(stay, 0))?.roomsBooked).toBe(3) // 2日前に取消
     expect((await point(addUtcDays(stay, 1), 0))?.roomsBooked).toBe(3) // 連泊の2泊目
+
+    // 明細も保存し、同じ範囲を取り込み直すと入れ替わる（二重にならない）
+    expect(await prisma.reservation.count({ where: { hotelId } })).toBe(2)
+    expect((await post({ stayFrom: iso(stay), stayTo: iso(addUtcDays(stay, 1)), rows: [{ ...rows[0], guests: 6, revenue: 120_000 }] })).status).toBe(200)
+    expect(await prisma.reservation.count({ where: { hotelId } })).toBe(1)
+
+    // 予約動向・利用人数別の集計
+    const y = stay.getUTCFullYear()
+    const m = stay.getUTCMonth() + 1
+    const windows = await request(app).get(`/api/v1/analysis/booking-windows?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(windows.status, JSON.stringify(windows.body)).toBe(200)
+    expect(windows.body.data.reservations).toBe(1)
+    const sixty = windows.body.data.bookings.find((b: { window: string }) => b.window === '31-60日前')
+    expect(sixty.soldRooms).toBeGreaterThan(0)
+    const guests = await request(app).get(`/api/v1/analysis/guest-counts?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(guests.body.data.segments.find((s: { name: string }) => s.name === '2名').soldRooms).toBeGreaterThan(0)
+    const other = await request(app).get(`/api/v1/analysis/guest-counts?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.tenantadmin}`)
+    expect(other.status).toBe(403)
+
+    // ブッキングカーブの系列: 宿泊日のカーブに ADR の推移と利用人数別の内訳、月単位の積み上がり
+    const stayCurve = await request(app).get(`/api/v1/daily/booking-curve?hotelId=${hotelId}&date=${iso(stay)}`).set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(stayCurve.status, JSON.stringify(stayCurve.body)).toBe(200)
+    expect(stayCurve.body.data.adrHistory.at(-1)).toEqual({ daysBefore: 0, adr: 20_000 }) // 12万円 ÷ 2泊 ÷ 3室
+    expect(stayCurve.body.data.breakdowns.guests).toEqual([
+      expect.objectContaining({ label: '2名利用', points: expect.arrayContaining([{ daysBefore: 0, roomsBooked: 3, adr: 20_000 }]) }),
+    ])
+    const monthCurve = await request(app).get(`/api/v1/analysis/month-curve?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(monthCurve.status).toBe(200)
+    expect(monthCurve.body.data.points.at(-1)).toMatchObject({ monthsBefore: 0 })
+    expect(monthCurve.body.data.reservations).toBe(1)
+    // フリー分析
+    const free = await request(app)
+      .get(`/api/v1/analysis/free?hotelId=${hotelId}&year=${y}&month=${m}&axis1=guests&metric=rooms`)
+      .set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(free.status, JSON.stringify(free.body)).toBe(200)
+    expect(free.body.data.rows).toContainEqual({ axis1: '2名', axis2: null, value: expect.any(Number) })
+    const sameAxis = await request(app)
+      .get(`/api/v1/analysis/free?hotelId=${hotelId}&year=${y}&month=${m}&axis1=guests&axis2=guests&metric=rooms`)
+      .set('Authorization', `Bearer ${tokens.newAdmin}`)
+    expect(sameAxis.status).toBe(400)
+    const otherCurve = await request(app).get(`/api/v1/analysis/month-curve?hotelId=${hotelId}&year=${y}&month=${m}`).set('Authorization', `Bearer ${tokens.tenantadmin}`)
+    expect(otherCurve.status).toBe(403)
   })
 
   async function hotelTenant() {

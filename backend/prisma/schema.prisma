@@ -61,6 +61,7 @@ model Tenant {
   weatherForecasts         WeatherForecast[]
   marketSignals            MarketSignal[]
   dailyBudgets             DailyBudget[]
+  reservations             Reservation[]
   externalAgentRuns        ExternalAgentRun[]
   aiPriceRecommendations   AiPriceRecommendation[]
   monthlyLandingSimulation MonthlyLandingSimulation[]
@@ -225,6 +226,7 @@ model Hotel {
   weatherForecasts         WeatherForecast[]
   marketSignals            MarketSignal[]
   dailyBudgets             DailyBudget[]
+  reservations             Reservation[]
   externalAgentRuns        ExternalAgentRun[]
 
   @@index([tenantId])
@@ -574,6 +576,33 @@ enum DemandLevel {
 }
 
 // 月間着地シミュレーション（F-DP-04）
+// 予約明細（D-13）。PMS・サイトコントローラーの明細を取り込み（POST /imports/reservations）で保存する。
+// 予約積上（BookingCurveData）を作る材料で、予約動向（リードタイム・キャンセル）と利用人数別の集計にも使う。
+// 取り込みは「宿泊日の範囲にかかる明細の入れ替え」なので、同じ範囲を何度取り込んでも同じ結果になる
+model Reservation {
+  id             String    @id @default(cuid())
+  tenantId       String
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hotelId        String
+  hotel          Hotel     @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  // PMS の予約番号（任意。照合に使う）
+  reservationCode String?
+  bookedDate     DateTime  @db.Date
+  checkInDate    DateTime  @db.Date
+  nights         Int
+  rooms          Int
+  // 宿泊人数（全室・1泊あたり）。無ければ null
+  guests         Int?
+  // 室料（税込・全泊の合計）。無ければ null
+  revenue        Float?
+  channel        String?
+  cancelledDate  DateTime? @db.Date
+  createdAt      DateTime  @default(now())
+
+  @@index([tenantId])
+  @@index([hotelId, checkInDate])
+}
+
 // 日別の予算（D-13。日の予算を持つ施設が登録する）。登録した日はこの値を優先し、月次予算の残りをほかの日に配る
 // （services/budgetAllocation.ts）。登録の無い日は、3か月以内なら AI の予測、それより先は前年同曜日の比で月次予算を配る
 model DailyBudget {

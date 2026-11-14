@@ -227,4 +227,16 @@ describeIntegration('外部要因エージェント（D-13）', () => {
     expect(status.body.data.agent.recentRuns.length).toBeGreaterThan(0)
     expect(status.body.data.holidays.knownThrough).toBeGreaterThanOrEqual(2027)
   })
+
+  it('要因カードに市場の動きを種類ごとに出し、週別の見通しを8週分返す', async () => {
+    const res = await request(app).get(`/api/v1/external-signals/factors?hotelId=${HOTEL}`).set('Authorization', `Bearer ${tokens.operator}`)
+    expect(res.status, JSON.stringify(res.body)).toBe(200)
+    const access = res.body.data.categories.access
+    expect(access[0]).toMatchObject({ name: '羽田〜台北線の増便', status: 'positive', trend: 'up', source: 'agent', sourceUrl: 'https://example.com/flight' })
+    expect(access[0].kpis.map((k: { label: string }) => k.label)).toContain('稼働率予測への補正')
+    expect(res.body.data.weekly).toHaveLength(8)
+    expect(res.body.data.hasAgentSignals).toBe(true)
+    const other = await request(app).get(`/api/v1/external-signals/factors?hotelId=${HOTEL}`).set('Authorization', `Bearer ${tokens.other}`)
+    expect(other.status).toBe(403)
+  })
 })

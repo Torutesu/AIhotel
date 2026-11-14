@@ -1,43 +1,29 @@
 "use client"
 
 // 外部需要動向（メニュー名は 2026-10 に「AIまとめ」から変更）。
-// 月別需要指数と外部要因の取得状況は実データ（GET /external-signals/demand-index・/status — D-13）。
-// 外部要因（気候・インバウンド・アクセス）の要因カード・週別の予測・AIコメントは、Claude API による文章の生成が未実装のためサンプル。
+// 月別需要指数・外部要因の取得状況・要因カード（気候・インバウンド・アクセス）・週別の見通し・今後の注意事項は実データ
+// （GET /external-signals/demand-index・/status・/factors — D-13）。AI総合予測コメントは日次バッチが Claude API で作る（AiComment の external-outlook）。
 // イベントと周辺の新規ホテルは登録データ（GET /events・GET /new-hotels）を表示し、個別登録と規定フォーム（CSV）の取り込みができる。
 // 要因のカードをクリックすると一覧が開き、CSV に書き出せる。
 
 import { useState, type ReactNode } from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import {
-  Globe,
-  List,
-  ExternalLink,
-  Sun,
-  Plane,
-  Calendar,
-  Building2,
-  CloudRain,
-  Sparkles,
-  TrendingUp,
-  TrendingDown,
-  Minus,
-  AlertTriangle,
-  type LucideIcon,
-} from "lucide-react"
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { SampleDataNotice } from "@/components/sample-data-notice"
-import { XAxis, YAxis, CartesianGrid, BarChart, Bar, ReferenceLine, Legend } from "recharts"
+import { Globe, ExternalLink, Sun, Plane, Calendar, Building2, type LucideIcon } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { useApiQuery } from "@/hooks/use-api-query"
 import { FactorListDialog } from "@/components/external-demand/factor-list-dialog"
+import { FactorCategoryCard } from "@/components/external-demand/factor-category-card"
+import { WeeklyOutlookSection } from "@/components/external-demand/weekly-outlook-section"
+import { UpcomingCautionsCard } from "@/components/external-demand/upcoming-cautions-card"
+import { ErrorState } from "@/components/error-state"
+import { AiOutlookCard } from "@/components/external-demand/ai-outlook-card"
 import { EventsDialog, upcomingEvents } from "@/components/external-demand/events-dialog"
 import { NewHotelsDialog } from "@/components/external-demand/new-hotels-dialog"
 import { DemandIndexSection } from "@/components/external-demand/demand-index-section"
 import { ExternalSignalsStatusCard } from "@/components/external-demand/external-signals-status-card"
 import type { ExternalFactorRow } from "@/components/external-demand/factors"
 import { formatEventRange, impactLabel } from "@/components/pricing/pricing-constants"
-import { api, type NewHotelOpening } from "@/lib/api"
+import { api, type ExternalFactors, type NewHotelOpening } from "@/lib/api"
 import { toDateStr } from "@/lib/date"
 import type { Event as HotelEvent } from "@shared/types"
 
@@ -51,211 +37,15 @@ function upcomingPeriodLabel(): string {
   return `${from.getFullYear()}年${from.getMonth() + 1}月〜${to.getFullYear()}年${to.getMonth() + 1}月`
 }
 
-// 外部要因カテゴリ別の影響度データ（数値はデモ用ダミー）
-const externalFactorsData: Record<string, { name: string; icon: LucideIcon; color: string; factors: ExternalFactorRow[] }> = {
-  climate: {
-    name: "気候要因",
-    icon: Sun,
-    color: "var(--chart-1)",
-    factors: [
-      {
-        name: "気温",
-        status: "normal",
-        trend: "up",
-        note: "3〜5月は好天寄りの長期予報。快適指数が需要にプラス",
-        kpis: [
-          { label: "予報偏差（3-5月平均）", value: "+1.6°C", hint: "気象庁週次アンサンブル比" },
-          { label: "需要寄与（指数）", value: "+2.8pt", hint: "当館モデル推定" },
-        ],
-      },
-      {
-        name: "梅雨",
-        status: "warning",
-        trend: "down",
-        note: "6月入梅は平年比やや早め。週末レジャー需要に抑制",
-        kpis: [
-          { label: "降雨日数（6月予測）", value: "18日", hint: "平年比 +3日" },
-          { label: "需要寄与（指数）", value: "-11.4pt", hint: "過去類似年から推定" },
-        ],
-      },
-      {
-        name: "台風",
-        status: "warning",
-        trend: "down",
-        note: "接近シナリオ時は過去5年同帯の実績からキャンセル・新規を推定（下記は代表シナリオ）",
-        kpis: [
-          { label: "想定キャンセル増（7日窓）", value: "+27件", hint: "ピーク日±3日・全チャネル合算" },
-          { label: "想定新規予約", value: "-9件", hint: "同一窓・ネット直販中心" },
-          { label: "純影響（室夜）", value: "-41室夜", hint: "延べ・加重平均" },
-          { label: "稼働率インパクト", value: "-3.6pt", hint: "前年同週比換算" },
-          { label: "モデル信頼度", value: "74%", hint: "類似気象イベント n=12" },
-        ],
-      },
-    ],
-  },
-  inbound: {
-    name: "インバウンド動向",
-    icon: Plane,
-    color: "var(--chart-2)",
-    factors: [
-      {
-        name: "JNTOデータ",
-        status: "positive",
-        trend: "up",
-        note: "当エリアの宿泊者数トレンドは前年を上回る見込み",
-        kpis: [
-          { label: "前年比（推定）", value: "+12.4%", hint: "直近3ヶ月移動平均" },
-          { label: "月間宿泊者数（推定）", value: "約118万人", hint: "広域エリア指標" },
-        ],
-      },
-      {
-        name: "海外SNS傾向",
-        status: "positive",
-        trend: "up",
-        note: "桜・温泉関連ハッシュタグの投稿量が季節要因で増加",
-        kpis: [
-          { label: "投稿量 YoY", value: "+31%", hint: "主要3言語・週次" },
-          { label: "センチメント", value: "0.71", hint: "−1〜1 正が好意的" },
-        ],
-      },
-      {
-        name: "為替影響",
-        status: "positive",
-        trend: "up",
-        note: "円安継続でインバウンド客単価が押し上げ",
-        kpis: [
-          { label: "USD/JPY（参考）", value: "¥157.8", hint: "予測レンジ 154〜161" },
-          { label: "客単価寄与", value: "+2.3%", hint: "当館モデル・為替感応度" },
-        ],
-      },
-    ],
-  },
-  events: {
-    name: "イベント",
-    icon: Calendar,
-    color: "var(--chart-3)",
-    factors: [
-      {
-        name: "桜開花",
-        status: "positive",
-        trend: "up",
-        note: "開花平年並み〜やや早め。ピーク週の検索需要が先行上昇",
-        kpis: [
-          { label: "満開予想ピーク", value: "4/1〜4/4", hint: "地域モデル" },
-          { label: "検索需要指数", value: "+26%", hint: "前年同週比" },
-        ],
-      },
-      {
-        name: "GW",
-        status: "positive",
-        trend: "up",
-        note: "連休カレンダー良好。連泊・ファミリー需要が堅調",
-        kpis: [
-          { label: "稼働率予測", value: "93.8%", hint: "4/29〜5/5" },
-          { label: "REV-Per 予測伸び", value: "+17.2%", hint: "前年同週比" },
-        ],
-      },
-      {
-        name: "コンサート・祭事",
-        status: "normal",
-        trend: "neutral",
-        note: "都心大型イベントは週次で変動。直近は小規模が中心",
-        kpis: [
-          { label: "週次イベント件数", value: "14件", hint: "半径50km" },
-          { label: "当館需要寄与", value: "+0.9pt", hint: "平均的週への上乗せ" },
-        ],
-      },
-    ],
-  },
-  access: {
-    name: "アクセス",
-    icon: Plane,
-    color: "var(--chart-4)",
-    factors: [
-      {
-        name: "国際線",
-        status: "positive",
-        trend: "up",
-        note: "当空港の国際座席供給が増便・機材大型化で拡大",
-        kpis: [
-          { label: "座席供給 YoY", value: "+8.6%", hint: "夏ダイヤ想定込み" },
-          { label: "ロード係数（参考）", value: "82.4%", hint: "直近週" },
-        ],
-      },
-      {
-        name: "国内線",
-        status: "normal",
-        trend: "neutral",
-        note: "便数はおおむね横ばい。遅延率のみやや注意",
-        kpis: [
-          { label: "便数 前月比", value: "+0.4%", hint: "季節調整後" },
-          { label: "定時運航率", value: "88.1%", hint: "当空港発着" },
-        ],
-      },
-      {
-        name: "高速道路",
-        status: "normal",
-        trend: "neutral",
-        note: "GW期間は渋滞指数が上昇。ドライブ需要の日帰り圧が変動",
-        kpis: [
-          { label: "GW渋滞指数", value: "6.2/10", hint: "10が最悪・予測モデル" },
-          { label: "所要時間延長（ピーク日）", value: "+38分", hint: "主要IC間・中央値" },
-        ],
-      },
-    ],
-  },
-  hotels: {
-    name: "新規ホテル",
-    icon: Building2,
-    color: "var(--chart-5)",
-    factors: [
-      {
-        name: "周辺新規開業",
-        status: "warning",
-        trend: "down",
-        note: "4月に同商圈で客室数が一括増。価格競争が一段と活発化",
-        kpis: [
-          { label: "新規供給（客室数）", value: "+186室", hint: "2物件合算" },
-          { label: "推定シェア押下", value: "-1.9pt", hint: "稼働率ベース・12ヶ月先" },
-          { label: "開業日", value: "4/12・4/28", hint: "プレオープン除く" },
-        ],
-      },
-    ],
-  },
-}
-
-// 週別の詳細予測データ（デイリー/時間軸c対応）
-const weeklyDetailData = [
-  { week: "W5 (1/27-)", base: 70, event: 5, inbound: 10, climate: 0, total: 85 },
-  { week: "W6 (2/3-)", base: 75, event: 15, inbound: 20, climate: 0, total: 110, label: "春節" },
-  { week: "W7 (2/10-)", base: 70, event: 10, inbound: 15, climate: 0, total: 95 },
-  { week: "W8 (2/17-)", base: 68, event: 5, inbound: 10, climate: 0, total: 83, label: "受験" },
-  { week: "W9 (2/24-)", base: 70, event: 5, inbound: 8, climate: 0, total: 83 },
-  { week: "W10 (3/3-)", base: 75, event: 10, inbound: 12, climate: 5, total: 102 },
-  { week: "W11 (3/10-)", base: 80, event: 15, inbound: 15, climate: 5, total: 115, label: "春休み開始" },
-  { week: "W12 (3/17-)", base: 85, event: 20, inbound: 25, climate: 5, total: 135, label: "桜開花" },
+// 要因のカード。気候・インバウンド・アクセスは GET /external-signals/factors、イベント・新規ホテルは登録データ
+const CATEGORIES: Array<{ key: string; name: string; icon: LucideIcon }> = [
+  { key: "climate", name: "気候要因", icon: Sun },
+  { key: "inbound", name: "インバウンド動向", icon: Plane },
+  { key: "events", name: "イベント", icon: Calendar },
+  { key: "access", name: "アクセス", icon: ExternalLink },
+  { key: "hotels", name: "新規ホテル", icon: Building2 },
 ]
-
-// チャート設定
-const weeklyChartConfig = {
-  base: { label: "ベース需要", color: "hsl(210, 70%, 50%)" },
-  event: { label: "イベント効果", color: "hsl(150, 70%, 50%)" },
-  inbound: { label: "インバウンド効果", color: "hsl(30, 70%, 50%)" },
-  climate: { label: "気候効果", color: "hsl(280, 70%, 50%)" },
-}
-
-function TrendIcon({ trend }: { trend: string }) {
-  if (trend === "up") return <TrendingUp className="w-4 h-4 text-positive" />
-  if (trend === "down") return <TrendingDown className="w-4 h-4 text-negative" />
-  return <Minus className="w-4 h-4 text-muted-foreground" />
-}
-
-function StatusBadge({ status }: { status: string }) {
-  if (status === "positive") return <Badge className="bg-positive/10 text-positive">好調</Badge>
-  if (status === "warning") return <Badge className="bg-warning/10 text-warning">注意</Badge>
-  if (status === "normal") return <Badge variant="secondary">通常</Badge>
-  return <Badge variant="outline">-</Badge>
-}
+const SIGNAL_CATEGORIES = new Set(["climate", "inbound", "access"])
 
 /** 登録データの要約（イベント・新規ホテルのカードの上部） */
 function RegisteredSummary({
@@ -302,6 +92,14 @@ export function AISummaryTab() {
   const [openCategory, setOpenCategory] = useState<string | null>(null)
   const eventsQuery = useApiQuery<HotelEvent[]>(hotelId ? () => api.events(hotelId) : null, [hotelId], "イベントの取得に失敗しました")
   const hotelsQuery = useApiQuery<NewHotelOpening[]>(hotelId ? () => api.newHotels(hotelId) : null, [hotelId], "新規ホテルの取得に失敗しました")
+  const factorsQuery = useApiQuery<ExternalFactors>(hotelId ? () => api.externalFactors(hotelId) : null, [hotelId], "外部要因の取得に失敗しました")
+  const signalFactors = (key: string): ExternalFactorRow[] =>
+    SIGNAL_CATEGORIES.has(key) ? (factorsQuery.data?.categories[key as "climate" | "inbound" | "access"] ?? []) : []
+  const factorStatus: ReactNode = factorsQuery.loading ? (
+    <p className="mb-3 text-xs text-muted-foreground">読み込み中…</p>
+  ) : factorsQuery.error ? (
+    <ErrorState message={factorsQuery.error} onRetry={factorsQuery.reload} className="mb-3" />
+  ) : null
 
   const upcoming = upcomingEvents(eventsQuery.data ?? [])
   const today = toDateStr(new Date())
@@ -334,7 +132,7 @@ export function AISummaryTab() {
       />
     ),
   }
-  const openedFactors = openCategory ? externalFactorsData[openCategory] : null
+  const openedCategory = CATEGORIES.find((c) => c.key === openCategory && SIGNAL_CATEGORIES.has(c.key)) ?? null
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -349,147 +147,35 @@ export function AISummaryTab() {
         </p>
       </div>
 
-      <SampleDataNotice detail="Claude APIによるAIコメント生成と要因別の数値の取り込みが未実装のため、月別需要指数・外部要因の取得状況・登録したイベント・新規ホテル（「登録データ」の欄）以外の数値・コメントはサンプルです。" />
 
-      {/* AI総合コメント */}
-      <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-primary" />
-            AI総合予測コメント
-            <SampleDataNotice compact />
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4 text-sm leading-relaxed">
-            <p>
-              <strong>【先6ヶ月の総合見通し】</strong><br />
-              2026年2月〜7月の期間は、<span className="brand-highlight">3月下旬〜5月上旬が最大の需要期</span>となる見込みです。
-              中国春節（2月上旬）のインバウンド需要に始まり、桜シーズン・ゴールデンウィークと続く高需要期間では、
-              価格戦略の最適化が収益最大化の鍵となります。
-            </p>
-            <p>
-              <strong>【注意事項】</strong><br />
-              <span className="text-warning">6月の梅雨シーズン</span>は需要が大幅に落ち込む予測のため、
-              早期の価格調整とプロモーション施策の準備を推奨します。
-              また、<span className="text-warning">4月に周辺で2軒の新規ホテルが開業予定</span>のため、
-              競合動向の監視を強化してください。
-            </p>
-            <p>
-              <strong>【推奨アクション】</strong><br />
-              ・桜シーズン（3月下旬〜4月上旬）：早期予約促進キャンペーンの実施<br />
-              ・GW（4/29〜5/5）：連泊割引プランの準備<br />
-              ・梅雨期（6月）：平日限定プランや地元向けプロモーションの検討
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* AI総合予測コメント（日次バッチが Claude API で作る — D-13） */}
+      <AiOutlookCard hotelId={hotelId} />
 
       {/* 月別需要指数（実データ — D-13）と外部要因の取得状況 */}
       <DemandIndexSection />
       <ExternalSignalsStatusCard />
 
-      {/* 週別詳細予測（デイリー対応）*/}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calendar className="w-5 h-5" />
-            週別需要予測（直近8週間）
-            <SampleDataNotice compact />
-          </CardTitle>
-          <CardDescription>
-            要因別の需要貢献度を積み上げグラフで表示（時間軸c: デイリー対応）
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ChartContainer config={weeklyChartConfig} className="h-[280px] w-full">
-            <BarChart data={weeklyDetailData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-              <XAxis dataKey="week" className="text-xs" tick={{ fontSize: 10 }} />
-              <YAxis domain={[0, 150]} className="text-xs" />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Legend />
-              <ReferenceLine y={100} stroke="var(--destructive)" strokeDasharray="5 5" label={{ value: "高需要ライン", position: "right", fontSize: 10 }} />
-              <Bar dataKey="base" name="ベース需要" stackId="a" fill="hsl(210, 70%, 50%)" />
-              <Bar dataKey="event" name="イベント効果" stackId="a" fill="hsl(150, 70%, 50%)" />
-              <Bar dataKey="inbound" name="インバウンド効果" stackId="a" fill="hsl(30, 70%, 50%)" />
-              <Bar dataKey="climate" name="気候効果" stackId="a" fill="hsl(280, 70%, 50%)" />
-            </BarChart>
-          </ChartContainer>
-        </CardContent>
-      </Card>
+      {/* 週別の見通し（実データ — D-13） */}
+      <WeeklyOutlookSection data={factorsQuery.data} loading={factorsQuery.loading} error={factorsQuery.error} onRetry={factorsQuery.reload} />
 
       {/* 外部要因カテゴリ別詳細（時間軸b: 要因による期間）。カードをクリックすると一覧・CSV出力（2026-10） */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {Object.entries(externalFactorsData).map(([key, category]) => {
-          const IconComponent = category.icon
-          return (
-            <Card
-              key={key}
-              role="button"
-              tabIndex={0}
-              aria-label={`${category.name}の一覧を開く`}
-              onClick={() => setOpenCategory(key)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault()
-                  setOpenCategory(key)
-                }
-              }}
-              className="cursor-pointer transition-colors hover:border-primary/50 hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center justify-between gap-2 text-base font-medium">
-                  <span className="flex items-center gap-2">
-                    <IconComponent className="w-4 h-4" />
-                    {category.name}
-                  </span>
-                  <span className="flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
-                    <List className="h-3.5 w-3.5" aria-hidden />
-                    {key === "events" || key === "hotels" ? "一覧・登録・CSV" : "一覧・CSV出力"}
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {registered[key]}
-                <div className="space-y-3">
-                  {category.factors.map((factor, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <TrendIcon trend={factor.trend} />
-                        <span>{factor.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={factor.status} />
-                      </div>
-                    </div>
-                  ))}
-                  <div className="space-y-3 pt-2 border-t">
-                    {category.factors.map((factor, idx) => (
-                      <div key={idx} className="rounded-md bg-muted/40 px-2.5 py-2">
-                        <p className="text-xs text-muted-foreground leading-snug">
-                          <span className="font-medium text-foreground">{factor.name}</span>
-                          <span className="text-muted-foreground"> — {factor.note}</span>
-                        </p>
-                        {factor.kpis && factor.kpis.length > 0 ? (
-                          <dl className="mt-2 grid grid-cols-1 gap-x-3 gap-y-1.5 sm:grid-cols-2">
-                            {factor.kpis.map((kpi, k) => (
-                              <div key={k} className="flex flex-col gap-0.5 border-l-2 border-primary/25 pl-2">
-                                <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{kpi.label}</dt>
-                                <dd className="text-sm font-semibold tabular-nums tracking-tight">{kpi.value}</dd>
-                                {kpi.hint ? <span className="text-[10px] text-muted-foreground">{kpi.hint}</span> : null}
-                              </div>
-                            ))}
-                          </dl>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
+        {CATEGORIES.map((category) => (
+          <FactorCategoryCard
+            key={category.key}
+            name={category.name}
+            icon={category.icon}
+            factors={signalFactors(category.key)}
+            linkLabel={SIGNAL_CATEGORIES.has(category.key) ? "一覧・CSV出力" : "一覧・登録・CSV"}
+            onOpen={() => setOpenCategory(category.key)}
+            top={SIGNAL_CATEGORIES.has(category.key) ? factorStatus : registered[category.key]}
+            emptyText={
+              SIGNAL_CATEGORIES.has(category.key) && !factorsQuery.loading && !factorsQuery.error
+                ? "まだ集めた動きがありません。外部要因エージェントがホテルごとに週1回集めます。"
+                : undefined
+            }
+          />
+        ))}
       </div>
 
       <EventsDialog
@@ -509,47 +195,15 @@ export function AISummaryTab() {
         onReload={hotelsQuery.reload}
       />
       <FactorListDialog
-        open={openedFactors != null && openCategory !== "events" && openCategory !== "hotels"}
+        open={openedCategory != null}
         onOpenChange={(open) => !open && setOpenCategory(null)}
-        category={openedFactors?.name ?? ""}
-        factors={openedFactors?.factors ?? []}
+        category={openedCategory?.name ?? ""}
+        factors={openedCategory ? signalFactors(openedCategory.key) : []}
+        attribution={factorsQuery.data?.weatherAttribution}
       />
 
-      {/* 注意事項 */}
-      <Card className="bg-warning/10 border-warning/30">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-warning">
-            <AlertTriangle className="w-5 h-5" />
-            今後の注意事項
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-start gap-2">
-              <CloudRain className="w-4 h-4 mt-0.5 text-warning flex-shrink-0" />
-              <div>
-                <span className="font-medium">梅雨シーズン（6月）</span>: 需要指数は<span className="tabular-nums font-medium">70</span>
-                前後まで低下する見込み（前年同月比<span className="tabular-nums">-8.1%</span>想定）。早期の価格調整とプロモーション施策を準備してください。
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <Building2 className="w-4 h-4 mt-0.5 text-warning flex-shrink-0" />
-              <div>
-                <span className="font-medium">新規ホテル開業（4月）</span>: 周辺<span className="tabular-nums">2</span>軒・計
-                <span className="tabular-nums">186</span>室の供給増。推定で稼働率
-                <span className="tabular-nums">-1.9pt</span>の押下リスク。競合価格の監視と差別化を検討してください。
-              </div>
-            </div>
-            <div className="flex items-start gap-2">
-              <ExternalLink className="w-4 h-4 mt-0.5 text-warning flex-shrink-0" />
-              <div>
-                <span className="font-medium">インバウンド動向</span>: 中国春節期間中（2/1〜2/12頃）はピーク日で新規予約
-                <span className="tabular-nums">+340</span>件/日（前年比<span className="tabular-nums">+19%</span>）のシナリオ。オペレーションと在庫配分の余裕を確保してください。
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* 今後の注意事項（実データ — D-13） */}
+      <UpcomingCautionsCard factors={factorsQuery.data} events={upcoming} hotels={hotelsQuery.data ?? []} today={today} />
     </div>
   )
 }

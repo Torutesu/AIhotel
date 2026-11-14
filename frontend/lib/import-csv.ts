@@ -269,13 +269,18 @@ export interface ReservationCsvRow {
   nights: number
   rooms: number
   cancelledDate?: string
+  /** 任意の列（予約動向・利用人数別の分析に使う — D-13） */
+  reservationCode?: string
+  guests?: number
+  revenue?: number
+  channel?: string
 }
 
 export const RESERVATION_CSV_TEMPLATE =
-  "予約日,チェックイン日,泊数,室数,取消日\n" +
-  "2025-07-03,2025-10-01,2,1,\n" +
-  "2025-08-20,2025-10-10,1,3,\n" +
-  "2025-09-01,2025-10-11,1,1,2025-09-15\n"
+  "予約日,チェックイン日,泊数,室数,取消日,予約番号,人数,室料,チャネル\n" +
+  "2025-07-03,2025-10-01,2,1,,R0001,2,36000,楽天トラベル\n" +
+  "2025-08-20,2025-10-10,1,3,,R0002,6,54000,自社サイト\n" +
+  "2025-09-01,2025-10-11,1,1,2025-09-15,R0003,1,12000,じゃらん\n"
 
 const RESERVATION_ALIASES = {
   bookedDate: ["bookeddate", "予約日"],
@@ -283,6 +288,10 @@ const RESERVATION_ALIASES = {
   nights: ["nights", "泊数"],
   rooms: ["rooms", "室数"],
   cancelledDate: ["cancelleddate", "取消日"],
+  reservationCode: ["reservationcode", "予約番号"],
+  guests: ["guests", "人数", "宿泊人数"],
+  revenue: ["revenue", "室料", "室料売上"],
+  channel: ["channel", "チャネル", "販売チャネル"],
 }
 
 export function parseReservationCsv(text: string): { rows: ReservationCsvRow[]; errors: CsvParseError[] } {
@@ -299,6 +308,12 @@ export function parseReservationCsv(text: string): { rows: ReservationCsvRow[]; 
     const rooms = parseNumber(cell(cells, index.rooms))
     const cancelledRaw = cell(cells, index.cancelledDate)
     const cancelledDate = cancelledRaw === "" ? null : normalizeDate(cancelledRaw)
+    const reservationCode = cell(cells, index.reservationCode).trim()
+    const guestsRaw = cell(cells, index.guests).trim()
+    const guests = guestsRaw === "" ? null : parseNumber(guestsRaw)
+    const revenueRaw = cell(cells, index.revenue).trim()
+    const revenue = revenueRaw === "" ? null : parseNumber(revenueRaw)
+    const channel = cell(cells, index.channel).trim()
 
     const problems: string[] = []
     if (!bookedDate) problems.push("予約日は YYYY-MM-DD または YYYY/M/D 形式で入力してください")
@@ -310,6 +325,10 @@ export function parseReservationCsv(text: string): { rows: ReservationCsvRow[]; 
     if (cancelledRaw !== "" && !cancelledDate) problems.push("取消日は YYYY-MM-DD または YYYY/M/D 形式で入力してください")
     if (bookedDate && checkInDate && bookedDate > checkInDate) problems.push("予約日がチェックイン日より後です")
     if (bookedDate && cancelledDate && cancelledDate < bookedDate) problems.push("取消日が予約日より前です")
+    if (guests !== null && (Number.isNaN(guests) || !Number.isInteger(guests) || guests < 0)) problems.push("人数は0以上の整数で入力してください")
+    if (revenue !== null && (Number.isNaN(revenue) || revenue < 0)) problems.push("室料は0以上の数値で入力してください")
+    if (reservationCode.length > 100) problems.push("予約番号は100文字以内で入力してください")
+    if (channel.length > 100) problems.push("チャネルは100文字以内で入力してください")
     if (problems.length > 0) {
       errors.push({ line, message: problems.join("／") })
       continue
@@ -320,6 +339,10 @@ export function parseReservationCsv(text: string): { rows: ReservationCsvRow[]; 
       nights: nights!,
       rooms: rooms!,
       ...(cancelledDate ? { cancelledDate } : {}),
+      ...(reservationCode ? { reservationCode } : {}),
+      ...(guests !== null ? { guests } : {}),
+      ...(revenue !== null ? { revenue } : {}),
+      ...(channel ? { channel } : {}),
     })
   }
   return { rows, errors }

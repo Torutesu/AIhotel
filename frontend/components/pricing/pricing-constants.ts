@@ -123,22 +123,7 @@ export function specialDayNameOf(date: Date): string | null {
   return null
 }
 
-// AI価格最適化の提案（モック。レベルを色付きバッジで表示）
-export const AI_PRICING_PROPOSALS: Array<{ level: "high" | "medium" | "low"; text: string }> = [
-  {
-    level: "high",
-    text: "週末の需要が高まる見込みです。週末（既定は金・土曜日）にかけて段階的な価格引き上げを推奨します（平均+12%の増収見込み）。",
-  },
-  {
-    level: "medium",
-    text: "平日の稼働率向上のため、週末以外の日の価格を5%引き下げることで、稼働率を15%向上できる見込みです。",
-  },
-  {
-    level: "low",
-    text: "競合ホテルの価格動向を監視中です。現在の価格設定は市場平均より2.5%高く、品質優位性を考慮すると適正範囲内です。",
-  },
-]
-
+// AI価格最適化の提案の優先度の表示（提案そのものは日次バッチが Claude API で作る — D-13）
 export const PROPOSAL_LEVEL_STYLE: Record<string, { label: string; className: string }> = {
   high: { label: "レベル高", className: "bg-negative text-white" },
   medium: { label: "レベル中", className: "bg-warning text-white" },

@@ -466,6 +466,49 @@ export async function populateDemoHotelData(
       modelVersion: 'seed-v1',
     },
   })
+  // 価格の提案（{level, text} の配列の JSON）と外部需要の総合コメント。本番は日次バッチが Claude API で作る（D-13）
+  await db.aiComment.createMany({
+    data: [
+      {
+        hotelId,
+        tenantId,
+        section: 'pricing',
+        content: JSON.stringify([
+          { level: 'high', text: '週末（金・土）は予約の入りが早く、満室に近い日が続きます。週末の料金ランクの引き上げを検討してください。' },
+          { level: 'medium', text: '平日の火曜・水曜は稼働が予算を下回っています。平日の料金ランクの引き下げか、平日限定プランを検討してください。' },
+          { level: 'low', text: '競合価格に大きな動きはありません。今の価格の幅を維持してください。' },
+        ]),
+        modelVersion: 'seed-v1',
+      },
+      {
+        hotelId,
+        tenantId,
+        section: 'external-outlook',
+        content:
+          '【総合見通し】年末年始と春節に向けて需要が強まる見込みです。\n' +
+          '【注意事項】正月明けは1年で稼働が最も落ちる時期です。\n' +
+          '【推奨アクション】年末年始は価格の幅の上限を確かめ、正月明けは早めに平日プランを準備してください。',
+        modelVersion: 'seed-v1',
+      },
+      {
+        hotelId,
+        tenantId,
+        section: 'analysis-insights',
+        content: JSON.stringify({
+          year: today.getUTCFullYear(),
+          month: today.getUTCMonth() + 1,
+          segments: [
+            { segment: '部屋タイプ', text: 'ツインの販売比率が高く、ADR もダブルを上回っています。週末はツインから先に埋まります。' },
+            { segment: '利用人数', text: '2名利用が販売室数の過半を占め、1名利用は平日に偏っています。' },
+            { segment: 'チャネル', text: '公式サイトと楽天トラベルで室料売上の約半分を占めます。' },
+          ],
+          composition: ['上位2チャネルの前年同月比はともにプラスで、伸びの中心は公式サイトです。'],
+          leadTime: ['8-14日前と15-30日前の予約で販売室数の約4割を占めます。この期間の料金ランクが月の売上に大きく効きます。'],
+        }),
+        modelVersion: 'seed-v1',
+      },
+    ],
+  })
 
   // 13. 月間着地シミュレーション（当月）
   await db.monthlyLandingSimulation.upsert({

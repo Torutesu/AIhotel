@@ -496,6 +496,11 @@ export const importReservationsSchema = z
           nights: z.number().int('泊数は整数で入力してください').min(1, '泊数は1以上で入力してください').max(60, '泊数は60泊までです'),
           rooms: z.number().int('室数は整数で入力してください').min(1, '室数は1以上で入力してください'),
           cancelledDate: importDateSchema.nullable().optional(),
+          // 任意の項目（予約動向・利用人数別の集計に使う — D-13）
+          reservationCode: z.string().trim().max(100).nullable().optional(),
+          guests: z.number().int('宿泊人数は整数で入力してください').min(0, '宿泊人数は0以上で入力してください').nullable().optional(),
+          revenue: z.number().min(0, '室料は0以上で入力してください').nullable().optional(),
+          channel: z.string().trim().max(100).nullable().optional(),
         })
       )
       .min(1, '取り込む行がありません')
@@ -774,6 +779,18 @@ export const monthQuerySchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
 })
 
+// フリー分析（GET /analysis/free — 予約明細から。D-13）。日付は軸1だけ（クロスすると表が大きくなりすぎる）
+export const FREE_ANALYSIS_AXES = ['channel', 'booking', 'guests', 'dayofweek', 'date'] as const
+export const FREE_ANALYSIS_METRICS = ['rooms', 'occupancy', 'adr', 'revpar', 'revenue', 'bookings'] as const
+export const freeAnalysisQuerySchema = monthQuerySchema
+  .extend({
+    axis1: z.enum(FREE_ANALYSIS_AXES),
+    axis2: z.enum(FREE_ANALYSIS_AXES.filter((a) => a !== 'date') as ['channel', 'booking', 'guests', 'dayofweek']).optional(),
+    metric: z.enum(FREE_ANALYSIS_METRICS),
+  })
+  .refine((q) => q.axis1 !== q.axis2, { message: '分析軸1と分析軸2は別のものを選んでください', path: ['axis2'] })
+export type FreeAnalysisQuery = z.infer<typeof freeAnalysisQuerySchema>
+
 /**
  * 日別価格カレンダー（GET /pricing/calendar）。roomTypeId を省くと ALL（全タイプの合計）、
  * 指定するとそのタイプの数値（2026-10-24 の画面修正: 現在・推奨料金ランクの上のタイプ切り替え）
@@ -1039,3 +1056,19 @@ export type UpdateUserInput = z.infer<typeof updateUserSchema>
 export type UpdateAlertStatusInput = z.infer<typeof updateAlertStatusSchema>
 export type MonthTargetInput = z.infer<typeof monthTargetSchema>
 export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>
+
+// AI チャット（D-13）。会話はブラウザが持ち、毎回まとめて送る（サーバーに会話を保存しない）
+export const chatSchema = z.object({
+  hotelId: entityIdSchema,
+  messages: z
+    .array(
+      z.object({
+        role: z.enum(['user', 'assistant']),
+        content: z.string().trim().min(1, 'メッセージを入力してください').max(2000, 'メッセージは2000文字以内で入力してください'),
+      })
+    )
+    .min(1)
+    .max(20, '会話が長すぎます。新しい会話を始めてください')
+    .refine((list) => list[list.length - 1]?.role === 'user', '最後のメッセージは質問にしてください'),
+})
+export type ChatInput = z.infer<typeof chatSchema>

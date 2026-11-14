@@ -7,10 +7,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Send, X, Sparkles } from "lucide-react"
-import { SampleDataNotice } from "@/components/sample-data-notice"
+import { useAuth } from "@/components/auth-provider"
+import { api, ApiClientError } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { APP_NAME } from "@/lib/brand"
 import type { Message } from "@shared/types"
+
+const GREETING_ID = "greeting"
 
 type ChatInterfaceProps = {
   isOpen: boolean
@@ -18,12 +21,14 @@ type ChatInterfaceProps = {
 }
 
 export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
+  const { hotelId } = useAuth()
+  const [error, setError] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([
     {
-      id: "1",
+      id: GREETING_ID,
       role: "assistant",
       content:
-        `こんにちは！${APP_NAME}のAIアシスタントです。データ分析や価格設定についてお気軽にご質問ください。`,
+        `こんにちは！${APP_NAME}のAIアシスタントです。このホテルの予算・予測・アラート・分析の集計をもとにお答えします。`,
       timestamp: new Date(),
     },
   ])
@@ -44,65 +49,33 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
     }
   }, [messages])
 
-  const handleSend = async () => {
-    if (!input.trim()) return
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: input,
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
-    setInput("")
+  // 会話のうち、挨拶（最初の固定文）を除いたものを API に送る。長すぎる会話は直近の20件まで
+  const send = async (history: Message[]) => {
+    if (!hotelId) return
     setIsTyping(true)
-
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: getAIResponse(input),
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, aiResponse])
+    setError(null)
+    try {
+      const conversation = history
+        .filter((m) => m.id !== GREETING_ID)
+        .slice(-20)
+        .map((m) => ({ role: m.role, content: m.content }))
+      const { reply } = await api.chat(hotelId, conversation)
+      setMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "assistant", content: reply, timestamp: new Date() }])
+    } catch (err) {
+      setError(err instanceof ApiClientError && err.message ? err.message : "AI の答えを取得できませんでした")
+    } finally {
       setIsTyping(false)
-    }, 1500)
+    }
   }
 
-  const getAIResponse = (query: string): string => {
-    const lowerQuery = query.toLowerCase()
-
-    if (lowerQuery.includes("稼働率") || lowerQuery.includes("occupancy")) {
-      return "現在の稼働率は82.5%です。前月比-2.1%とやや低下していますが、週末は95%以上を維持しています。平日の稼働率向上のため、ビジネス客向けプロモーションの実施を推奨します。"
-    }
-
-    if (lowerQuery.includes("adr") || lowerQuery.includes("平均客室単価")) {
-      return "現在のADRは¥18,250です。前年同月比+3.2%と好調に推移しています。競合の価格水準（中央値）が¥17,800であることを考慮すると、さらに5-8%の値上げ余地があると分析しています。"
-    }
-
-    if (lowerQuery.includes("価格") || lowerQuery.includes("プライシング") || lowerQuery.includes("料金")) {
-      return "ダイナミックプライシング分析によると、4月5日（土）は需要が非常に高いため、現在価格¥24,000から¥26,500への値上げを推奨します。これにより約10.4%の増収が見込まれます。"
-    }
-
-    if (lowerQuery.includes("チャネル") || lowerQuery.includes("予約")) {
-      return "公式サイトが全体の38.5%を占め、最も重要な予約チャネルとなっています。公式アプリの成長率が+24.8%と突出しており、モバイル戦略の強化が効果を発揮しています。"
-    }
-
-    if (lowerQuery.includes("収益") || lowerQuery.includes("売上") || lowerQuery.includes("revenue")) {
-      return "今月の室料売上は¥12,450,000で、予算比+8.5%、前年比+12.3%と好調です。ADRの上昇が主な要因で、価格戦略が効果的に機能しています。"
-    }
-
-    if (lowerQuery.includes("レポート") || lowerQuery.includes("report")) {
-      return "レポートタブから月次レポート、四半期レポート、カスタムレポートを生成できます。PDF、Excel、CSV形式でのエクスポートに対応しています。定期レポートの自動配信設定も可能です。"
-    }
-
-    if (lowerQuery.includes("予測") || lowerQuery.includes("forecast")) {
-      return "AI予測によると、来月の稼働率は87.0%、ADRは¥18,333、室料売上は¥13,200,000に達する見込みです。地域イベントの開催により需要増加が期待されます。"
-    }
-
-    return "ご質問ありがとうございます。ダッシュボード、価格設定、日別分析、各種分析、レポートなど、システムの各機能についてサポートいたします。具体的にどのような情報をお探しですか？"
+  const handleSend = async () => {
+    const text = input.trim()
+    if (!text || isTyping) return
+    const userMessage: Message = { id: Date.now().toString(), role: "user", content: text, timestamp: new Date() }
+    const next = [...messages, userMessage]
+    setMessages(next)
+    setInput("")
+    await send(next)
   }
 
   // onKeyPress は非推奨（React 17+ / DOM 仕様）のため onKeyDown を使う
@@ -114,10 +87,10 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
   }
 
   const suggestedQuestions = [
-    "今月の稼働率は？",
+    "今月は予算に届きそう？",
     "価格を上げるべき日は？",
-    "最も収益性の高いチャネルは？",
-    "来月の予測を教えて",
+    "売上の大きいチャネルは？",
+    "来月の見通しを教えて",
   ]
 
   if (!isOpen) return null
@@ -140,9 +113,9 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
         </Button>
       </div>
 
-      <div className="border-b border-border p-3">
-        <SampleDataNotice detail="Claude API との接続が未実装のため、応答は定型のサンプルです。" />
-      </div>
+      <p className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
+        AI がこのホテルのデータ（予算と着地・30日の推奨・アラート・イベント・分析の集計）だけをもとに答えます。価格の変更はできません。
+      </p>
 
       {/* Messages */}
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
@@ -178,6 +151,14 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
                   />
                 </div>
               </div>
+            </div>
+          )}
+          {error && (
+            <div className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm" role="alert">
+              <p>{error}</p>
+              <Button size="sm" variant="outline" onClick={() => send(messages)} disabled={isTyping}>
+                もう一度送る
+              </Button>
             </div>
           )}
         </div>

@@ -3,12 +3,66 @@
 import { rawRequest, withDemoFallback } from "./client"
 import { mockChannelBreakdown, mockRoomTypeBreakdown } from "./demo-data"
 import { mockDailyPerformance, mockDayOfWeekBreakdown, mockDayTypeBreakdown, mockMonthPace } from "./demo-revenue"
-import type { ChannelBreakdown, DailyPerformance, DayOfWeekBreakdown, DayTypeBreakdown, MonthPace, RoomTypeBreakdown } from "./types"
+import { mockBookingWindows, mockFreeAnalysis, mockGuestCounts, mockMonthCurve } from "./demo-reservations"
+import type {
+  BookingWindows,
+  ChannelBreakdown,
+  DailyPerformance,
+  DayOfWeekBreakdown,
+  DayTypeBreakdown,
+  FreeAnalysis,
+  FreeAnalysisAxis,
+  FreeAnalysisMetric,
+  GuestCounts,
+  MonthCurve,
+  MonthPace,
+  RoomTypeBreakdown,
+} from "./types"
 
 const monthQuery = (hotelId: string, year: number, month: number) =>
   `hotelId=${encodeURIComponent(hotelId)}&year=${year}&month=${month}`
 
 export const analysisEndpoints = {
+  /** 予約動向（リードタイム別の予約とキャンセル。予約明細から — D-13） */
+  bookingWindows(hotelId: string, year: number, month: number): Promise<BookingWindows> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/booking-windows?${monthQuery(hotelId, year, month)}`),
+      () => mockBookingWindows(year, month)
+    )
+  },
+
+  /** 利用人数別（予約明細から — D-13） */
+  guestCounts(hotelId: string, year: number, month: number): Promise<GuestCounts> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/guest-counts?${monthQuery(hotelId, year, month)}`),
+      () => mockGuestCounts(year, month)
+    )
+  },
+
+  /** 月単位のブッキングカーブ（予約明細から — D-13） */
+  monthCurve(hotelId: string, year: number, month: number): Promise<MonthCurve> {
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/month-curve?${monthQuery(hotelId, year, month)}`),
+      () => mockMonthCurve(year, month)
+    )
+  },
+
+  /** フリー分析（予約明細から — D-13） */
+  freeAnalysis(
+    hotelId: string,
+    year: number,
+    month: number,
+    axis1: FreeAnalysisAxis,
+    axis2: Exclude<FreeAnalysisAxis, "date"> | null,
+    metric: FreeAnalysisMetric
+  ): Promise<FreeAnalysis> {
+    const axis2Param = axis2 ? `&axis2=${axis2}` : ""
+    return withDemoFallback(
+      () => rawRequest(`/api/v1/analysis/free?${monthQuery(hotelId, year, month)}&axis1=${axis1}${axis2Param}&metric=${metric}`),
+      () => mockFreeAnalysis(year, month, axis1, axis2, metric)
+    )
+  },
+
   /** チャネル別の実績（対象月。前月比つき） */
   channelBreakdown(hotelId: string, year: number, month: number): Promise<ChannelBreakdown> {
     return withDemoFallback(

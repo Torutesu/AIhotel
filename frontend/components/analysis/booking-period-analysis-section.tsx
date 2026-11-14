@@ -1,24 +1,31 @@
 "use client"
 
-// リードタイム分析（予約期間別。U-15 で analysis-tab.tsx から分割）。
-// 予約明細の集計APIが未実装のためサンプル表示。2026-10 PDF c分析03 に合わせて
-//  - 期間に 61-90日前・91-120日前・121-180日前 を足す（181日以上前は施設へのヒアリング後）
+// リードタイム分析（予約期間別。U-15 で analysis-tab.tsx から分割、D-13 で予約明細の実データに — GET /analysis/booking-windows）。
+// 2026-10 PDF c分析03 に合わせて
+//  - 期間は 当日〜121-180日前、181日以上前
 //  - 予約の表: 販売室数・稼働率・ADR・客単価・室料売上・売上構成比・CXL率・DOR・平均宿泊数・前年同月比
 //  - 下に CXL（キャンセル）の表: 室数・CXL率・ADR・客単価・CXL室料・構成比・DOR・平均宿泊数・前年同月比
-// 「日のタイプ」の列は 2026-10 xlsx 分析03（その予約期間の時点で対象月の日に最も多かった日のタイプ）。
+// 「日のタイプ」の列（xlsx 分析03）は、予約期間ごとの型の推移の集計ができるまで出さない。
+// 予約明細が取り込まれていない月は、取り込みの案内を出す（サンプルは出さない）。
 
-import { useMemo, type ReactNode } from "react"
+import { type ReactNode } from "react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { SampleDataNotice } from "@/components/sample-data-notice"
-import { buildPeriodData } from "@/components/analysis/sample-period-data"
-import { DayTypeBadge, DayTypeHelp } from "@/components/pricing/day-type"
+import { AnalysisInsightsBody } from "@/components/analysis/analysis-insights"
+import { ErrorState } from "@/components/error-state"
+import { useAuth } from "@/components/auth-provider"
 import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysis/section-props"
+import { useApiQuery } from "@/hooks/use-api-query"
+import { api, type BookingWindows } from "@/lib/api"
+import { parseMonthStr } from "@/lib/date"
 import { formatPercent, formatPt, formatRooms, formatYen } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-function signClass(value: number): string {
-  if (value === 0) return "text-muted-foreground"
+const pctText = (v: number | null, digits = 1) => (v == null ? "—" : `${v.toFixed(digits)}%`)
+const numText = (v: number | null, digits: number, unit = "") => (v == null ? "—" : `${v.toFixed(digits)}${unit}`)
+
+function signClass(value: number | null): string {
+  if (value == null || value === 0) return "text-muted-foreground"
   return value > 0 ? "text-positive" : "text-negative"
 }
 
@@ -32,19 +39,34 @@ function Td({ children, className }: { children: ReactNode; className?: string }
 
 export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
   const { targetPeriod } = useTargetPeriod(props)
-  const { bookingWindowData, cancelData } = useMemo(() => buildPeriodData(targetPeriod), [targetPeriod])
+  const { hotelId } = useAuth()
+  const { year, month } = parseMonthStr(targetPeriod)
+  const query = useApiQuery<BookingWindows>(
+    hotelId ? () => api.bookingWindows(hotelId, year, month) : null,
+    [hotelId, year, month],
+    "予約動向の取得に失敗しました",
+  )
+  const bookingWindowData = query.data?.bookings ?? []
+  const cancelData = query.data?.cancels ?? []
+
+  if (query.loading) return <p className="p-4 text-sm text-muted-foreground">読み込み中…</p>
+  if (query.error) return <ErrorState message={query.error} onRetry={query.reload} />
 
   return (
     <div className="space-y-4">
-      <SampleDataNotice detail="予約期間（リードタイム）別・キャンセルの集計APIが未実装のため、以下の数値はサンプルです。" />
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-medium">リードタイム分析</CardTitle>
           <p className="text-xs text-muted-foreground">
-            対象月の予約を、予約が入った時期（宿泊日の何日前か）で分けて集計します。181日以上前の区分は施設へのヒアリング後に追加します。
+            対象月の泊を、予約が入った時期（チェックイン日の何日前に予約されたか）で分けて集計します。予約明細 {query.data?.reservations ?? 0}件から集計しています。
           </p>
         </CardHeader>
         <CardContent className="space-y-5 pt-0">
+          {query.data?.reservations === 0 && (
+            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground" data-testid="no-reservations">
+              この月の予約明細がまだ取り込まれていません。設定タブの「予約明細から作る」で PMS・サイトコントローラーの予約明細を取り込むと表示されます。
+            </p>
+          )}
           <div className="space-y-1.5">
             <h3 className="text-sm font-medium">予約</h3>
             <div className="overflow-x-auto">
@@ -52,9 +74,6 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
                 <thead>
                   <tr className="border-b">
                     <Th left>期間</Th>
-                    <th className="px-2 py-2 text-center font-medium">
-                      <DayTypeHelp />
-                    </th>
                     <Th>販売室数</Th>
                     <Th>稼働率</Th>
                     <Th>ADR</Th>
@@ -71,18 +90,15 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
                   {bookingWindowData.map((row) => (
                     <tr key={row.window} className="border-b hover:bg-muted/50">
                       <td className="px-2 py-2 font-medium">{row.window}</td>
-                      <td className="px-2 py-2 text-center">
-                        <DayTypeBadge dayType={row.dayType} />
-                      </td>
                       <Td>{formatRooms(row.soldRooms)}</Td>
                       <Td>{formatPercent(row.occupancy)}</Td>
                       <Td>{formatYen(row.adr)}</Td>
                       <Td>{formatYen(row.guestUnitPrice)}</Td>
                       <Td className="font-medium">{formatYen(row.revenue)}</Td>
-                      <Td>{row.revenueShare.toFixed(1)}%</Td>
-                      <Td className={row.cancelRate > 8 ? "text-negative" : undefined}>{row.cancelRate.toFixed(1)}%</Td>
-                      <Td>{row.dor.toFixed(2)}</Td>
-                      <Td>{row.avgNights.toFixed(1)}泊</Td>
+                      <Td>{pctText(row.revenueShare)}</Td>
+                      <Td className={(row.cancelRate ?? 0) > 8 ? "text-negative" : undefined}>{pctText(row.cancelRate)}</Td>
+                      <Td>{numText(row.dor, 2)}</Td>
+                      <Td>{numText(row.avgNights, 1, "泊")}</Td>
                       <Td className={signClass(row.yoy)}>{formatPt(row.yoy)}</Td>
                     </tr>
                   ))}
@@ -90,7 +106,7 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
               </table>
             </div>
             <p className="text-[10px] text-muted-foreground">
-              日のタイプは、その予約期間の時点で対象月の日に最も多かった日のタイプ（平日A型など）です。さかのぼって並べると、予約の入り方で型がどう変わったかが分かります。
+              ADR・客単価・売上は室料の入った明細だけ、DOR・客単価は人数の入った明細だけで計算します。前年同月比は前年同月の明細があるときだけ出します。
             </p>
           </div>
 
@@ -117,15 +133,15 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
                     <tr key={row.window} className="border-b hover:bg-muted/50">
                       <td className="px-2 py-2 font-medium">{row.window}</td>
                       <Td>{formatRooms(row.rooms)}</Td>
-                      <Td className={row.cancelRate > 8 ? "text-negative" : undefined}>{row.cancelRate.toFixed(1)}%</Td>
+                      <Td className={(row.cancelRate ?? 0) > 8 ? "text-negative" : undefined}>{pctText(row.cancelRate)}</Td>
                       <Td>{formatYen(row.adr)}</Td>
                       <Td>{formatYen(row.guestUnitPrice)}</Td>
                       <Td className="font-medium">{formatYen(row.revenue)}</Td>
-                      <Td>{row.share.toFixed(1)}%</Td>
-                      <Td>{row.dor.toFixed(2)}</Td>
-                      <Td>{row.avgNights.toFixed(1)}泊</Td>
+                      <Td>{pctText(row.share)}</Td>
+                      <Td>{numText(row.dor, 2)}</Td>
+                      <Td>{numText(row.avgNights, 1, "泊")}</Td>
                       {/* キャンセルは減るほど良いので、増えたら赤 */}
-                      <Td className={signClass(-row.yoy)}>{formatPt(row.yoy)}</Td>
+                      <Td className={signClass(row.yoy == null ? null : -row.yoy)}>{formatPt(row.yoy)}</Td>
                     </tr>
                   ))}
                 </tbody>
@@ -141,17 +157,16 @@ export function BookingPeriodAnalysisSection(props: AnalysisSectionProps) {
           <CardTitle className="text-base font-medium">リードタイム分析インサイト</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 pt-0">
-          <SampleDataNotice detail="Claude APIによるAIコメント生成が未実装のため、以下は固定文のサンプルです。" />
-          {[
-            "8-14日前と15-30日前の予約で販売室数の約4割を占めます。この期間の料金ランクが月の売上に大きく効きます。",
-            "61日以上前の予約は前年同月より2割以上増え、ADRも高い水準ですが、CXL率も1割を超えます。早期の予約にはキャンセル規定の見直しを検討してください。",
-            "当日〜3日前の直前予約は1名利用が中心で、客単価は低めです。直前の値下げは平日B型の日に絞ると効果的です。",
-          ].map((text) => (
-            <div key={text} className="flex items-start gap-3">
-              <div className="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-[color:var(--chart-3)]" />
-              <p className="text-sm leading-relaxed">{text}</p>
-            </div>
-          ))}
+          <AnalysisInsightsBody period={targetPeriod} pick={(i) => i.leadTime.length}>
+            {(insights) =>
+              insights.leadTime.map((text) => (
+                <div key={text} className="flex items-start gap-3">
+                  <div className="mt-2 h-2 w-2 flex-shrink-0 rounded-full bg-[color:var(--chart-3)]" />
+                  <p className="text-sm leading-relaxed">{text}</p>
+                </div>
+              ))
+            }
+          </AnalysisInsightsBody>
         </CardContent>
       </Card>
     </div>

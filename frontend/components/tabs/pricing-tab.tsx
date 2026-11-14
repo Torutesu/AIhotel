@@ -7,12 +7,10 @@
 // サンプル表示: AI価格最適化の提案（Claude API未実装）
 
 import { useEffect, useMemo, useState } from "react"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ErrorCard } from "@/components/error-state"
-import { SampleDataNotice } from "@/components/sample-data-notice"
 import { LabeledMonthPicker } from "@/components/month-picker"
 import { useAppState, usePeriod } from "@/components/app-state-provider"
 import { useAuth } from "@/components/auth-provider"
@@ -23,12 +21,11 @@ import { ALL_ROOM_TYPES, PriceCalendarSection } from "@/components/pricing/price
 import { EventListCard } from "@/components/pricing/event-list-card"
 import { DayAnalysisDialog } from "@/components/pricing/day-analysis-dialog"
 import {
-  AI_PRICING_PROPOSALS,
-  PROPOSAL_LEVEL_STYLE,
   type MonthCalendar,
 } from "@/components/pricing/pricing-constants"
 
 import { api, type PricingCalendarDay, type RoomType } from "@/lib/api"
+import { AiPricingProposals } from "@/components/pricing/ai-pricing-proposals"
 import type { Event as HotelEvent } from "@shared/types"
 import { monthRange, toDateStr } from "@/lib/date"
 import { average } from "@/lib/format"
@@ -183,33 +180,8 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
         <p className="mt-1 text-sm text-muted-foreground">需要予測に基づく最適価格設定</p>
       </div>
 
-      {/* AI価格最適化の提案（Claude API未実装のため固定文のサンプル — U-7） */}
-      <Card className="border-[color:var(--cyan-edge)]/40 bg-[color:var(--sky-wash)]/25">
-        <CardHeader className="pb-1">
-          <CardTitle className="flex items-center gap-2 text-base font-medium">
-            <span className="text-xl" aria-hidden>
-              🤖
-            </span>
-            AI価格最適化の提案
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 pt-0">
-          <SampleDataNotice detail="Claude APIによるAIコメント生成が未実装のため、以下は固定文のサンプルです。" />
-          <div className="space-y-2 text-sm leading-relaxed">
-            {AI_PRICING_PROPOSALS.map((proposal, index) => {
-              const style = PROPOSAL_LEVEL_STYLE[proposal.level]
-              return (
-                <div key={index} className="flex items-start gap-3">
-                  <Badge className={`${style.className} mt-0.5 flex-shrink-0 px-1.5 text-[10px]`}>
-                    {style.label}
-                  </Badge>
-                  <p>{proposal.text}</p>
-                </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
+      {/* AI価格最適化の提案（日次バッチが Claude API で作る — D-13） */}
+      <AiPricingProposals hotelId={hotelId} />
 
       {/* 価格戦略の重み付け・推奨の調整・価格の幅・固定期間は、ヒアリングで決める初期値として設定画面へ移した（2026-10 PDF b01） */}
       <p className="text-xs text-muted-foreground">
