@@ -9,6 +9,7 @@ import { useState } from "react"
 import { KeyRound, Pause, Play, Plus, Timer, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
+import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -41,12 +42,14 @@ export function trialStatusBadge(trial: TrialSummary): { label: string; variant:
 type PendingAction = { kind: "reset" | "delete"; trial: TrialSummary }
 
 export function TrialManagementSection() {
+  const [search, setSearch] = useState("")
   const { data, loading, error, reload } = useApiQuery<TrialSummary[]>(
     () => api.trials(),
     [],
     "トライアルの一覧を取得できませんでした",
   )
   const trials = data ?? []
+  const visibleTrials = trials.filter(t => `${t.name} ${t.loginEmail ?? ""}`.toLowerCase().includes(search.toLowerCase()))
   const [createOpen, setCreateOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -142,9 +145,9 @@ export function TrialManagementSection() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+      <CardHeader className="flex flex-col gap-4 space-y-0 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <CardTitle>トライアル管理（運営）</CardTitle>
+          <CardTitle>トライアル一覧</CardTitle>
           <CardDescription>
             販売店・営業先ホテルに渡すデモ用のログイン ID を管理します。1件ごとにデモデータ入りの専用ホテルを持ち、
             期限を過ぎるとログインできなくなります（30日後に自動で削除）。
@@ -156,6 +159,7 @@ export function TrialManagementSection() {
         </Button>
       </CardHeader>
       <CardContent>
+        <Input aria-label="トライアルを検索" placeholder="顧客名・メールアドレスで検索" value={search} onChange={e => setSearch(e.target.value)} className="mb-4 sm:max-w-sm" />
         {!loading && !error && <TrialCommandBox trials={trials} onRun={runCommand} />}
         {loading ? (
           <Skeleton className="h-32 w-full" />
@@ -165,8 +169,8 @@ export function TrialManagementSection() {
           <p className="py-6 text-center text-sm text-muted-foreground">発行したトライアルはありません。</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] text-xs">
-              <thead>
+            <table className="block w-full text-sm md:table md:text-xs">
+              <thead className="hidden md:table-header-group">
                 <tr className="border-b text-left text-muted-foreground">
                   <th className="py-2 pr-3 font-medium">渡し先</th>
                   <th className="py-2 pr-3 font-medium">ログイン ID</th>
@@ -175,21 +179,23 @@ export function TrialManagementSection() {
                   <th className="py-2 font-medium">操作</th>
                 </tr>
               </thead>
-              <tbody>
-                {trials.map((trial) => {
+              <tbody className="block md:table-row-group">
+                {!visibleTrials.length && <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">該当するトライアルはありません。</td></tr>}
+                {visibleTrials.map((trial) => {
                   const badge = trialStatusBadge(trial)
                   const busy = busyId === trial.id
                   return (
-                    <tr key={trial.id} className="border-b align-top last:border-0">
-                      <td className="py-2 pr-3">
+                    <tr key={trial.id} className="grid grid-cols-2 gap-x-3 border-b py-4 align-top last:border-0 md:table-row md:py-0">
+                      <td className="col-span-2 block break-all py-2 md:table-cell md:pr-3">
                         <span className="font-medium">{trial.name}</span>
                         <Badge variant="outline" className="ml-2 text-[10px]">
                           {TRIAL_KIND_LABELS[trial.kind]}
                         </Badge>
                         {trial.note && <span className="mt-0.5 block text-muted-foreground">{trial.note}</span>}
                       </td>
-                      <td className="py-2 pr-3 font-mono">{trial.loginEmail ?? "—"}</td>
-                      <td className="whitespace-nowrap py-2 pr-3">
+                      <td className="col-span-2 block break-all pb-3 text-xs md:table-cell md:py-2 md:pr-3">{trial.loginEmail ?? "—"}</td>
+                      <td className="block py-2 text-xs md:table-cell md:whitespace-nowrap md:pr-3">
+                        <span className="mb-1 block text-muted-foreground md:hidden">利用期限</span>
                         {formatDate(trial.expiresAt)}まで
                         <Badge variant={badge.variant} className="ml-2 text-[10px]">
                           {badge.label}
@@ -198,10 +204,11 @@ export function TrialManagementSection() {
                           <span className="block text-muted-foreground">{formatDate(trial.purgeAt)}に自動削除</span>
                         )}
                       </td>
-                      <td className="whitespace-nowrap py-2 pr-3">
+                      <td className="block py-2 text-xs md:table-cell md:whitespace-nowrap md:pr-3">
+                        <span className="mb-1 block text-muted-foreground md:hidden">最終ログイン</span>
                         {trial.lastLoginAt ? new Date(trial.lastLoginAt).toLocaleString("ja-JP") : "未ログイン"}
                       </td>
-                      <td className="py-2">
+                      <td className="col-span-2 block py-2 md:table-cell">
                         <div className="flex flex-wrap gap-1">
                           <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={busy}
                             onClick={() => void run(trial.id, async () => {

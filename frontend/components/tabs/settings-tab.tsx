@@ -36,8 +36,6 @@ import { CompetitorFetchStatusSection } from "@/components/settings/competitor-f
 import { UserManagementSection } from "@/components/settings/user-management-section"
 import { HotelManagementSection } from "@/components/settings/hotel-management-section"
 import { RoomTypeSection } from "@/components/settings/room-type-section"
-import { TenantManagementSection } from "@/components/settings/tenant-management-section"
-import { TrialManagementSection } from "@/components/settings/trials/trial-management-section"
 import { DailyDataImportSection } from "@/components/settings/daily-data-import-section"
 import {
   BookingCurveImportSection,
@@ -206,12 +204,6 @@ export function SettingsTab() {
 
       {/* パスワード変更・全端末ログアウト（全ロール — #89） */}
       <AccountSecurityCard />
-
-      {/* テナントの作成・契約停止（運営のみ — #81） */}
-      {user?.role === "PLATFORM_ADMIN" && <TenantManagementSection />}
-
-      {/* トライアル（デモ）アカウントの管理（運営のみ） */}
-      {user?.role === "PLATFORM_ADMIN" && <TrialManagementSection />}
 
       {/* 外観（テーマ）— next-themes が localStorage に保存し、即座に反映される */}
       <Card>

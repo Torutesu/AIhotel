@@ -1,5 +1,6 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { useEffect, useState, useRef } from "react"
 import {
   LayoutDashboard,
@@ -64,6 +65,7 @@ const TAB_TITLES: Record<Tab, string> = {
 }
 
 export function MainLayout() {
+  const router = useRouter()
   // タブ・対象年月・分析ビューは URL（?tab=&year=&month=&view=）が唯一の出所（U-8）
   const { tab: activeTab, setTab, navigate, setPeriodMonth } = useAppState()
   const chatButtonRef = useRef<HTMLButtonElement>(null)
@@ -84,6 +86,10 @@ export function MainLayout() {
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const { user, loading, logout, restoreError, retryRestore, canSwitchHotel, hotels } = useAuth()
+
+  useEffect(() => {
+    if (user?.role === "PLATFORM_ADMIN" && process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true") router.replace("/operations")
+  }, [user, router])
 
   // 表示中のタブをブラウザのタブ名に反映する（F-8）
   useEffect(() => {
@@ -148,6 +154,8 @@ export function MainLayout() {
   if (user.mustChangePassword) {
     return <ForcePasswordChange />
   }
+
+  if (user.role === "PLATFORM_ADMIN" && process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true") return null
 
   // アクセスできるホテルが無いと、どのタブも表示するものが無い。初期設定の画面を出す（#81）
   if (hotels.length === 0) {
