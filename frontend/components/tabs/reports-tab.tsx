@@ -84,10 +84,10 @@ export function ReportsTab() {
   }
 
   return (
-    <div className="p-4 space-y-3">
+    <div className="app-page">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-heading font-medium tracking-tight text-balance">レポート</h2>
+        <h1 className="text-2xl font-heading font-medium tracking-tight text-balance">レポート</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           対象月の実績・予算・日別明細をPDFまたはExcelで出力します
         </p>
@@ -96,12 +96,12 @@ export function ReportsTab() {
       <Card>
         <CardContent className="py-3 px-4">
           <div className="flex items-end gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
               <Label htmlFor="report-type" className="text-xs whitespace-nowrap">
                 レポートタイプ
               </Label>
               <Select value={reportType} onValueChange={setReportType}>
-                <SelectTrigger id="report-type" className="h-9 w-44 text-sm">
+                <SelectTrigger id="report-type" className="h-11 w-44 max-w-full text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -122,7 +122,7 @@ export function ReportsTab() {
               onChange={setPeriodMonth}
             />
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
               <Label htmlFor="report-format" className="text-xs whitespace-nowrap">
                 出力形式
               </Label>

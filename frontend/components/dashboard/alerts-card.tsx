@@ -133,7 +133,7 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
                           </button>
                         )}
                       </div>
-                      <p className={`text-sm ${style.text}`}>
+                      <p className="text-sm leading-relaxed text-foreground">
                         {alert.title}: {alert.message}
                       </p>
                       {/* 確認済み・解決済みの操作（X-4） */}

@@ -155,7 +155,8 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="app-page">
+      <header className="space-y-2"><h1 className="text-2xl font-semibold">ダッシュボード</h1><p className="text-sm text-muted-foreground">収益の状況と、今日確認したい項目。</p></header>
       {/* 初期設定の必須項目が揃うまで出す（#13） */}
       <SetupChecklistCard />
       {/* 予測の準備状況（D-13）。準備完了でないときだけ出す */}

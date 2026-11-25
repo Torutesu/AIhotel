@@ -127,7 +127,7 @@ export function specialDayNameOf(date: Date): string | null {
 export const PROPOSAL_LEVEL_STYLE: Record<string, { label: string; className: string }> = {
   high: { label: "レベル高", className: "bg-negative text-white" },
   medium: { label: "レベル中", className: "bg-warning text-white" },
-  low: { label: "レベル低", className: "bg-primary text-white" },
+  low: { label: "レベル低", className: "bg-primary text-primary-foreground" },
 }
 
 /** 表示中の1か月分のカレンダー */

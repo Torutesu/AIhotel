@@ -87,7 +87,7 @@ export function LabeledMonthPicker({
   ...props
 }: MonthPickerProps & { label: string; id: string }) {
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
       <Label htmlFor={id} className="whitespace-nowrap text-xs">
         {label}
       </Label>

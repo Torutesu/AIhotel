@@ -1,15 +1,15 @@
 import type React from "react"
 import type { Metadata } from "next"
 import { headers } from "next/headers"
-import { Inter } from "next/font/google"
+import { Noto_Sans_JP } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { APP_NAME, APP_NAME_EN } from "@/lib/brand"
 import "./globals.css"
 
-// Inter — OpenAI Sansの代替。単一書体をweightのみで使い分ける（OpenAI Developersスタイル）
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
+// 日本語UIの字形と行送りを統一する。
+const noto = Noto_Sans_JP({ subsets: ["latin"], variable: "--font-noto", display: "swap" })
 
 export const metadata: Metadata = {
   title: APP_NAME,
@@ -29,7 +29,7 @@ export default async function RootLayout({
   return (
     // next-themes は描画前に html へ class を付けるため suppressHydrationWarning が必要（U-12）
     <html lang="ja" suppressHydrationWarning>
-      <body className={`${inter.variable} font-sans antialiased`}>
+      <body className={`${noto.variable} font-sans antialiased`}>
         <ThemeProvider
           attribute="class"
           defaultTheme="system"

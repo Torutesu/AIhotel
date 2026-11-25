@@ -136,7 +136,7 @@ export function SettingsTab() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-6">
+    <div className="app-page">
       <div>
         <h1 className="font-heading text-2xl font-medium tracking-tight">設定</h1>
         <p className="mt-1 text-sm text-muted-foreground">
