@@ -66,6 +66,7 @@ const TAB_TITLES: Record<Tab, string> = {
 export function MainLayout() {
   // タブ・対象年月・分析ビューは URL（?tab=&year=&month=&view=）が唯一の出所（U-8）
   const { tab: activeTab, setTab, navigate, setPeriodMonth } = useAppState()
+  const chatButtonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLButtonElement>(null)
   const mainRef = useRef<HTMLElement>(null)
   useEffect(() => { mainRef.current?.scrollTo({ top: 0 }) }, [activeTab])
@@ -317,17 +318,18 @@ export function MainLayout() {
 
       {/* Chat Button - Bottom Right */}
       <Button
+        ref={chatButtonRef}
         size="icon"
-        className="fixed bottom-6 right-6 z-30 h-14 w-14 rounded-full shadow-xs"
+        className={cn("fixed bottom-5 right-5 z-30 h-11 w-auto gap-2 rounded-md border border-border bg-background px-4 text-foreground shadow-xs hover:bg-background hover:border-foreground", chatOpen && "invisible")}
         onClick={() => setChatOpen(!chatOpen)}
         aria-label={chatOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"}
         aria-expanded={chatOpen}
       >
-        <MessageCircle className="h-6 w-6" aria-hidden />
+        <MessageCircle className="h-5 w-5" aria-hidden /><span className="text-sm">AIチャット</span>
       </Button>
 
       {/* Chat Interface */}
-      <ChatInterface isOpen={chatOpen} onClose={() => setChatOpen(false)} />
+      <ChatInterface isOpen={chatOpen} onClose={() => setChatOpen(false)} onRestoreFocus={() => chatButtonRef.current?.focus()} />
 
       {/* ログアウトの確認（F-5） */}
       <ConfirmDialog

@@ -55,8 +55,9 @@ export function AlertActions({ alert, onUpdated }: AlertActionsProps) {
         <Button
           variant="outline"
           size="sm"
-          className="h-7 gap-1 text-xs"
+          className="min-h-11 gap-1.5 text-xs"
           disabled={pending !== null || !hotelId}
+          title="確認したことを記録します。アラートは一覧に残ります"
           onClick={() => void update("ACKNOWLEDGED")}
         >
           {pending === "ACKNOWLEDGED" ? (
@@ -71,8 +72,9 @@ export function AlertActions({ alert, onUpdated }: AlertActionsProps) {
         <Button
           variant="outline"
           size="sm"
-          className="h-7 gap-1 text-xs"
+          className="min-h-11 gap-1.5 text-xs"
           disabled={pending !== null || !hotelId}
+          title="対応が完了したアラートを一覧から外します"
           onClick={() => void update("RESOLVED")}
         >
           {pending === "RESOLVED" ? (
