@@ -21,6 +21,9 @@ import { api, ApiClientError } from "@/lib/api"
 import { TRIAL_KIND_LABELS, type TrialLoginInfo, type TrialSummary } from "@shared/types"
 import { TrialCreateDialog, toCreateTrialRequest, type TrialFormValues } from "./trial-create-dialog"
 import { TrialCredentialsDialog } from "./trial-credentials-dialog"
+import { AgencySelect } from "@/components/operations-directory"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { demoShared } from "@/lib/api/demo-shared"
 import { TrialCommandBox } from "./trial-command-box"
 import type { TrialCommand } from "@/lib/trial-command"
 
@@ -41,7 +44,10 @@ export function trialStatusBadge(trial: TrialSummary): { label: string; variant:
 
 type PendingAction = { kind: "reset" | "delete"; trial: TrialSummary }
 
-export function TrialManagementSection() {
+export function TrialManagementSection({ platform = false }: { platform?: boolean }) {
+  const agencies = useApiQuery(() => platform ? demoShared.agencies() : Promise.resolve([]), [platform], "代理店を取得できませんでした")
+  const [assignment, setAssignment] = useState<TrialSummary | null>(null)
+  const [owner, setOwner] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const { data, loading, error, reload } = useApiQuery<TrialSummary[]>(
     () => api.trials(),
@@ -188,6 +194,7 @@ export function TrialManagementSection() {
                     <tr key={trial.id} className="grid grid-cols-2 gap-x-3 border-b py-4 align-top last:border-0 md:table-row md:py-0">
                       <td className="col-span-2 block break-all py-2 md:table-cell md:pr-3">
                         <span className="font-medium">{trial.name}</span>
+                        {platform && <p className="my-2 text-xs text-muted-foreground">担当：{trial.agencyId ? agencies.data?.find(a => a.id === trial.agencyId)?.name ?? "代理店" : "全体管理者のみ"}</p>}
                         <Badge variant="outline" className="ml-2 text-[10px]">
                           {TRIAL_KIND_LABELS[trial.kind]}
                         </Badge>
@@ -210,6 +217,7 @@ export function TrialManagementSection() {
                       </td>
                       <td className="col-span-2 block py-2 md:table-cell">
                         <div className="flex flex-wrap gap-1">
+                          {platform && <Button variant="outline" size="sm" disabled={busy} onClick={() => { setAssignment(trial); setOwner(trial.agencyId ?? null) }}>担当変更</Button>}
                           <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={busy}
                             onClick={() => void run(trial.id, async () => {
                               setCredentials(await api.trialLoginInfo(trial.id))
@@ -259,6 +267,7 @@ export function TrialManagementSection() {
         )}
       </CardContent>
 
+      <Dialog open={!!assignment} onOpenChange={v => { if (!v) setAssignment(null) }}><DialogContent><DialogHeader><DialogTitle>トライアルの担当代理店を変更</DialogTitle><DialogDescription>割り当てた代理店に、ログイン情報・操作権限・過去の活用状況を共有します。元の代理店はアクセスできなくなります。</DialogDescription></DialogHeader><p className="text-sm break-words">{assignment?.name}</p><AgencySelect accounts={agencies.data ?? []} value={owner} onChange={setOwner} /><Button disabled={!!busyId} onClick={() => { if (assignment) void run(assignment.id, async () => { await demoShared.assignTrial(assignment.id, owner); setAssignment(null) }, "担当変更に失敗しました") }}>担当を変更する</Button></DialogContent></Dialog>
       <TrialCreateDialog open={createOpen} onOpenChange={setCreateOpen} saving={saving} onSubmit={(v) => void handleCreate(v)} />
       <TrialCredentialsDialog credentials={credentials} onClose={() => setCredentials(null)} />
       <ConfirmDialog

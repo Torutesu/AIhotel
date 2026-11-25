@@ -1,3 +1,4 @@
+import { demoShared } from "./demo-shared"
 import type { UsageEvent, UsageReport } from '@shared/types/usage'
 import { isDemoModeEnabled, rawRequest } from './client'
 export async function trackUsage(event: UsageEvent, hotelId: string) {
@@ -11,8 +12,5 @@ export async function trackUsage(event: UsageEvent, hotelId: string) {
 }
 export async function getUsageReport(): Promise<UsageReport> {
   if (!isDemoModeEnabled()) return rawRequest('/api/v1/platform/usage')
-  const response = await fetch('/api/demo/usage', { cache: 'no-store', credentials: 'same-origin' })
-  const result = await response.json()
-  if (!response.ok || !result.success) throw new Error('活用状況を取得できませんでした')
-  return result.data
+  return demoShared.usageReport()
 }

@@ -12,14 +12,14 @@ export const runtime = "nodejs"
 type Context = { params: Promise<{ id: string }> }
 
 export async function GET(request: NextRequest, context: Context) {
-  return handle(request, { admin: true }, async (kv) => {
+  return handle(request, { admin: true }, async (kv, actor) => {
     const { id } = await context.params
-    return ok(await trialLoginInfo(kv, id))
+    return ok(await trialLoginInfo(kv, id, Date.now(), actor))
   })
 }
 
 export async function PUT(request: NextRequest, context: Context) {
-  return handle(request, { admin: true }, async (kv) => {
+  return handle(request, { admin: true }, async (kv, actor) => {
     const { id } = await context.params
     const body = await readJson(request)
     const input: UpdateTrialRequest = {}
@@ -27,14 +27,14 @@ export async function PUT(request: NextRequest, context: Context) {
     if (typeof body.note === "string" || body.note === null) input.note = body.note as string | null
     if (typeof body.isActive === "boolean") input.isActive = body.isActive
     if (typeof body.extendDays === "number") input.extendDays = body.extendDays
-    return ok(await updateTrial(kv, id, input))
+    return ok(await updateTrial(kv, id, input, Date.now(), actor))
   })
 }
 
 export async function DELETE(request: NextRequest, context: Context) {
-  return handle(request, { admin: true }, async (kv) => {
+  return handle(request, { admin: true }, async (kv, actor) => {
     const { id } = await context.params
-    await deleteTrial(kv, id)
+    await deleteTrial(kv, id, actor)
     return ok(null)
   })
 }

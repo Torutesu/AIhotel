@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 // app/api/demo/ のルートの共通処理（サーバー専用）。
 //
 // - デモモード（NEXT_PUBLIC_DEMO_MODE=true）のビルドでだけ動く。本番ビルドではすべて 404
@@ -10,7 +11,8 @@ import { NextResponse, type NextRequest } from "next/server"
 import { clientIpOptionsFromEnv, resolveClientIp } from "@/lib/client-ip"
 import { DemoTrialError } from "../core"
 import { kvConfigFromEnv, upstashKv, type DemoKv } from "./kv"
-import { verifyAdminSession } from "./service"
+import { operationsSession } from "./operations"
+import type { OperationsIdentity } from "@/lib/operations-types"
 
 export const ADMIN_COOKIE = "demo_admin"
 export const TRIAL_COOKIE = "demo_trial"
@@ -70,19 +72,27 @@ interface HandlerOptions {
 export async function handle(
   request: NextRequest,
   options: HandlerOptions,
-  run: (kv: DemoKv) => Promise<NextResponse>,
+  run: (kv: DemoKv, actor: OperationsIdentity) => Promise<NextResponse>,
 ): Promise<NextResponse> {
   if (!isDemoBuild()) return fail(404, "見つかりません")
+  const origin = request.headers.get("origin")
+  if (!["GET", "HEAD"].includes(request.method) && origin && origin !== request.nextUrl.origin) return fail(403, "Invalid request origin")
   const kv = sharedKv()
   if (!kv) return fail(503, "デモの共有保存が設定されていません")
   try {
+    let actor: OperationsIdentity | null = null
     if (options.admin) {
       if (!isAdminConsole()) return fail(403, "この URL では運営の操作はできません")
-      if (!(await verifyAdminSession(kv, request.cookies.get(ADMIN_COOKIE)?.value))) {
+      actor = await operationsSession(kv, request.cookies.get(ADMIN_COOKIE)?.value)
+      if (!actor) {
         return fail(401, "運営としてログインし直してください")
       }
     }
-    return await run(kv)
+    const response = await run(kv, actor!)
+    if (actor && response.status < 400 && (request.method !== "GET" || /^\/api\/demo\/trials\/[^/]+$/.test(request.nextUrl.pathname))) {
+      await kv.hset("operations:audit", randomUUID(), JSON.stringify({ actorId: actor.id, role: actor.role, method: request.method, path: request.nextUrl.pathname, at: new Date().toISOString() }))
+    }
+    return response
   } catch (err) {
     if (err instanceof DemoTrialError) return fail(err.status, err.message)
     console.error("[demo-trials]", err instanceof Error ? err.message : "unknown error")

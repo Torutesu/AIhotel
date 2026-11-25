@@ -1,0 +1,83 @@
+import { expect, test, webkit } from '@playwright/test'
+
+test('operations: agency isolation, reassignment, revocation, and expired local login', async ({page, browser}) => {
+  await page.goto('/operations?section=agencies')
+  await page.getByLabel('メールアドレス',{exact:true}).fill('owner@example.test')
+  await page.getByLabel('パスワード',{exact:true}).fill('local-e2e-owner-pass')
+  await page.getByRole('button',{name:'ログイン',exact:true}).click()
+  await page.getByRole('button',{name:'代理店を登録',exact:true}).click()
+  const dialog=page.getByRole('dialog')
+  await dialog.getByLabel('代理店名',{exact:true}).fill('確認用代理店A')
+  await dialog.getByLabel('ログイン用メールアドレス').fill('agency-a@example.test')
+  const result=page.waitForResponse(r=>r.url().endsWith('/api/demo/operations/agencies')&&r.request().method()==='POST')
+  await dialog.getByRole('button',{name:'登録してログイン情報を表示'}).click()
+  const agency=(await (await result).json()).data
+  await expect(dialog.getByText('代理店のログイン情報',{exact:true})).toBeVisible()
+  await dialog.getByRole('button',{name:'控えて閉じる'}).click()
+  const b=(await (await page.request.post('/api/demo/operations/agencies',{data:{name:'確認用代理店B',email:'agency-b@example.test'}})).json()).data
+  const trial=(await (await page.request.post('/api/demo/trials',{data:{name:'A担当ホテル',kind:'PROSPECT_HOTEL'}})).json()).data
+  const secretTrial=(await (await page.request.post('/api/demo/trials',{data:{name:'B担当ホテル',kind:'PROSPECT_HOTEL',agencyId:b.account.id}})).json()).data
+  await page.goto('/operations?section=trials')
+  const row=page.getByRole('row').filter({hasText:'A担当ホテル'})
+  await row.getByRole('button',{name:'担当変更',exact:true}).click()
+  await dialog.getByLabel('担当代理店',{exact:true}).selectOption(agency.account.id)
+  await dialog.getByRole('button',{name:'担当を変更する'}).click()
+  await expect(dialog).toHaveCount(0)
+  await page.goto('/operations?section=customers')
+  await page.getByRole('button',{name:'顧客を登録',exact:true}).click()
+  await dialog.getByLabel('顧客名',{exact:true}).fill('A担当の顧客企業')
+  await dialog.getByLabel('担当代理店',{exact:true}).selectOption(agency.account.id)
+  await dialog.getByRole('button',{name:'保存する',exact:true}).click()
+  await expect(dialog).toHaveCount(0)
+  await page.request.post('/api/demo/operations/customers',{data:{name:'B担当の非公開顧客',agencyId:b.account.id}})
+  console.info('agency QA: records ready')
+  const ctx=await browser.newContext()
+  console.info('agency QA: secondary context ready')
+  const agent=await ctx.newPage()
+  console.info('agency QA: secondary page ready')
+  await agent.goto('http://localhost:3100/operations')
+  await agent.getByLabel('メールアドレス',{exact:true}).fill(agency.account.email)
+  await agent.getByLabel('パスワード',{exact:true}).fill(agency.password)
+  await agent.getByRole('button',{name:'ログイン',exact:true}).click()
+  await expect(agent.getByRole('heading',{name:'概要',exact:true})).toBeVisible()
+  await expect(agent.getByRole('button',{name:'代理店管理',exact:true})).toHaveCount(0)
+  await expect(agent.getByText('B担当ホテル',{exact:true})).toHaveCount(0)
+  await expect(agent.getByText('A担当ホテル',{exact:true})).toBeVisible()
+  expect((await agent.request.get(`/api/demo/trials/${secretTrial.trial.id}`)).status()).toBe(404)
+  expect((await agent.request.put(`/api/demo/trials/${secretTrial.trial.id}`,{data:{isActive:false}})).status()).toBe(404)
+  expect((await agent.request.get('/api/demo/operations/agencies')).status()).toBe(403)
+  const report=(await (await agent.request.get('/api/demo/usage')).json()).data
+  expect(report.accounts.map((a:{id:string})=>a.id)).toEqual([trial.trial.id])
+  await agent.goto('http://localhost:3100/operations?section=customers')
+  await expect(agent.getByText('A担当の顧客企業',{exact:true})).toBeVisible()
+  await expect(agent.getByText('B担当の非公開顧客',{exact:true})).toHaveCount(0)
+  console.info('agency QA: desktop isolation passed')
+  // WebKit mobile: same authenticated session, both themes and every available page.
+  const safari=await webkit.launch({ executablePath: webkit.executablePath() })
+  console.info('agency QA: WebKit started')
+  const mobile=await safari.newContext({storageState:await ctx.storageState(),viewport:{width:375,height:812}})
+  const phone=await mobile.newPage()
+  for(const theme of ['light','dark']) {
+    await phone.addInitScript(value=>localStorage.setItem('theme',value),theme)
+    for(const section of ['overview','customers','trials','usage']) {
+      await phone.goto(`http://localhost:3100/operations?section=${section}`)
+      await expect(phone.locator('h1')).toHaveCount(1)
+      await expect(phone.getByRole('button',{name:'ログアウト',exact:true})).toBeVisible()
+      await phone.waitForTimeout(500)
+      expect(await phone.evaluate(()=>document.documentElement.scrollWidth)).toBe(375)
+      await phone.screenshot({path:`test-results/agency-${theme}-${section}.png`,fullPage:true})
+    }
+  }
+  await safari.close()
+  // Revocation removes old access, even when the browser still has the local role marker.
+  await page.request.put(`/api/demo/operations/agencies/${agency.account.id}`,{data:{active:false}})
+  await agent.reload()
+  await expect(agent.getByRole('button',{name:'ログイン',exact:true})).toBeVisible()
+  expect((await agent.request.get('/api/demo/trials')).status()).toBe(401)
+  // The screenshot's stale platform session is reproduced by deleting only the httpOnly cookie.
+  await page.context().clearCookies({name:'demo_admin'})
+  await page.reload()
+  await expect(page.getByRole('button',{name:'ログイン',exact:true})).toBeVisible()
+  await expect(page.getByText('運営としてログインし直してください')).toHaveCount(0)
+  await ctx.close()
+})

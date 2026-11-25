@@ -47,7 +47,7 @@ export function LoginForm({ audience = "hotel" }: { audience?: "hotel" | "operat
         <CardHeader>
           <BrandLogo className="mb-4" />
           <h1 className="text-2xl font-semibold">ログイン</h1>
-          <CardDescription>{audience === "operations" ? "運営アカウントでログインしてください。顧客向けアカウントでは利用できません。" : personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
+          <CardDescription>{audience === "operations" ? "全体管理者または代理店のアカウントでログインしてください。ホテル向けアカウントでは利用できません。" : personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>

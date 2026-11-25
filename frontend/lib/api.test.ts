@@ -379,7 +379,7 @@ describe("共有保存のログイン", () => {
     vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "true")
     const fetcher = vi.fn(async (url: string) => {
       if (url === "/api/demo/status") return ok({ shared: true })
-      if (url === "/api/demo/admin/session") return ok({ loggedIn: true })
+      if (url === "/api/demo/admin/session") return ok({ loggedIn: true, identity: { id: "platform", role: "PLATFORM_ADMIN", name: "Owner", email: "owner@example.test" } })
       return proxyUnreachable()
     })
     vi.stubGlobal("fetch", fetcher)
@@ -403,4 +403,37 @@ describe("共有保存のログイン", () => {
     expect(result.user.trial?.expiresAt).toBe("2026-10-28")
     expect(fetcher.mock.calls.some(([url]) => url === "/api/demo/admin/session")).toBe(false)
   })
+})
+
+describe('operations session restoration',()=>{
+ beforeEach(async()=>{clearTokens();vi.stubEnv('NEXT_PUBLIC_DEMO_MODE','true');vi.stubEnv('NEXT_PUBLIC_DEMO_ADMIN_CONSOLE','true');(await import('./api/demo-shared')).resetDemoSharedStatus()})
+ it('does not restore a stale browser PLATFORM_ADMIN without a valid cookie',async()=>{
+  const {storeMockUser}=await import('./api/client')
+  const identity={id:'platform',role:'PLATFORM_ADMIN' as const,name:'Owner',email:'owner@example.test'}
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>url==='/api/demo/status'?ok({shared:true}):ok({loggedIn:true,identity})))
+  const result=await api.login(identity.email,'test-only-password')
+  storeMockUser(result.user)
+  vi.stubGlobal('fetch',vi.fn(async()=>fail(401)))
+  await expect(api.me()).rejects.toMatchObject({status:401})
+  expect(getAccessToken()).toBeNull()
+ })
+ it('maps an agency session without granting platform or hotel privileges',async()=>{
+  const identity={id:'agency-a',role:'AGENCY' as const,name:'Agency A',email:'a@example.test'}
+  vi.stubGlobal('fetch',vi.fn(async(url:string)=>url==='/api/demo/status'?ok({shared:true}):ok({loggedIn:true,identity})))
+  const result=await api.login(identity.email,'test-only-password')
+  expect(result.user.role).toBe('OPERATOR')
+  expect(result.user.operationsAccess).toEqual(identity)
+  expect(result.user.hotelId).toBeNull()
+  expect(result.user.tenantId).toBeNull()
+ })
+ it('expires the UI when a protected operations request returns 401',async()=>{
+  const {demoShared}=await import('./api/demo-shared')
+  storeTokens('old','old')
+  const listener=vi.fn();window.addEventListener(AUTH_EXPIRED_EVENT,listener)
+  vi.stubGlobal('fetch',vi.fn(async()=>fail(401)))
+  await expect(demoShared.trials()).rejects.toMatchObject({status:401})
+  expect(listener).toHaveBeenCalledOnce()
+  expect(getAccessToken()).toBeNull()
+  window.removeEventListener(AUTH_EXPIRED_EVENT,listener)
+ })
 })

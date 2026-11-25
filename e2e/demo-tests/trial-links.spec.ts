@@ -23,7 +23,7 @@ test("個別URL・自動ID発行・再表示・別トライアルへの切替", 
   await expect(dialog.locator("pre")).toContainText(issued.loginUrl)
   await dialog.getByRole("button", { name: "閉じる", exact: true }).click()
   await page.reload()
-  await page.getByRole("button", { name: "ログイン情報", exact: true }).click()
+  await page.getByRole("row").filter({ hasText: issued.trial.name }).getByRole("button", { name: "ログイン情報", exact: true }).click()
   await expect(dialog.locator("pre")).toContainText(issued.password)
   await expect(dialog.locator("pre")).toContainText(issued.loginUrl)
   await dialog.getByRole("button", { name: "閉じる", exact: true }).click()

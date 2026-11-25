@@ -89,7 +89,7 @@ export function MainLayout() {
   const { user, loading, logout, restoreError, retryRestore, canSwitchHotel, hotels, hotelId } = useAuth()
 
   useEffect(() => {
-    if (user?.role === "PLATFORM_ADMIN" && process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true") router.replace("/operations")
+    if ((user?.operationsAccess || user?.role === "PLATFORM_ADMIN") && process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true") router.replace("/operations")
   }, [user, router])
 
   const usageView = useRef("")
@@ -165,7 +165,7 @@ export function MainLayout() {
     return <ForcePasswordChange />
   }
 
-  if (user.role === "PLATFORM_ADMIN" && process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true") return null
+  if ((user.operationsAccess || user.role === "PLATFORM_ADMIN") && process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true") return null
 
   // アクセスできるホテルが無いと、どのタブも表示するものが無い。初期設定の画面を出す（#81）
   if (hotels.length === 0) {

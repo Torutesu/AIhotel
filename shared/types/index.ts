@@ -39,6 +39,8 @@ export function canManage(role: UserRole | null | undefined): boolean {
 }
 
 export interface User {
+  /** Separate shared operations identity; never grants tenant API access. */
+  operationsAccess?: { id: string; role: "PLATFORM_ADMIN" | "AGENCY"; name: string; email: string }
   id: string
   tenantId: string | null
   email: string
@@ -659,6 +661,8 @@ export type TrialStatus = 'ACTIVE' | 'EXPIRED' | 'SUSPENDED'
 
 /** GET /api/v1/platform/trials の1行 */
 export interface TrialSummary {
+  /** Shared operations console owner; unassigned records are visible to the platform only. */
+  agencyId?: string | null
   id: string
   name: string
   kind: TrialKind

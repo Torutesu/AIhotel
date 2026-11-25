@@ -1,46 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import { NextRequest } from "next/server"
-
-const auth = vi.hoisted(() => vi.fn(async () => "test-session"))
-vi.mock("./service", () => ({ ADMIN_SESSION_SECONDS: 3600, adminLogin: auth }))
-vi.mock("./http", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./http")>()
-  return { ...actual, handle: async (_request: unknown, _options: unknown, fn: (kv: unknown) => unknown) => fn({}) }
-})
-import { POST } from "@/app/api/demo/admin/session/route"
-
-function request(email: string) {
-  return new NextRequest("https://example.test/api/demo/admin/session", {
-    method: "POST", body: JSON.stringify({ email, password: "test-only-password" }),
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { NextRequest } from 'next/server'
+import { memoryKv } from './kv'
+let kv = memoryKv()
+vi.mock('./kv', async original => ({ ...await original<typeof import('./kv')>(), kvConfigFromEnv: () => ({}), upstashKv: () => kv }))
+import { POST, GET } from '@/app/api/demo/admin/session/route'
+const request = (email: string) => new NextRequest('https://example.test/api/demo/admin/session', { method: 'POST', body: JSON.stringify({ email, password: 'test-owner-password' }) })
+describe('server operations login', () => {
+  beforeEach(() => { kv=memoryKv();vi.stubEnv('NEXT_PUBLIC_DEMO_MODE','true');vi.stubEnv('NEXT_PUBLIC_DEMO_ADMIN_CONSOLE','true');vi.stubEnv('DEMO_ADMIN_EMAIL','owner@example.test') })
+  it('issues and restores the verified platform identity', async()=>{
+    const response=await POST(request(' OWNER@example.test '))
+    expect(response.status).toBe(200)
+    expect((await response.json()).data.identity.role).toBe('PLATFORM_ADMIN')
+    const cookie=response.cookies.get('demo_admin')!.value
+    expect((await GET(new NextRequest('https://example.test/api/demo/admin/session',{headers:{cookie:`demo_admin=${cookie}`}}))).status).toBe(200)
   })
-}
-
-describe("運営 ID のサーバー照合", () => {
-  beforeEach(() => {
-    auth.mockClear()
-    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "true")
-    vi.stubEnv("DEMO_ADMIN_EMAIL", "owner@example.test")
+  it('rejects missing and expired cookies instead of trusting the browser role',async()=>{
+    expect((await GET(new NextRequest('https://example.test/api/demo/admin/session'))).status).toBe(401)
+    expect((await GET(new NextRequest('https://example.test/api/demo/admin/session',{headers:{cookie:'demo_admin=1.fake'}}))).status).toBe(401)
   })
-  it("設定された ID と一致したときだけパスワード認証する", async () => {
-    const response = await POST(request(" OWNER@example.test "))
-    expect(auth).toHaveBeenCalledOnce()
-    expect(await response.json()).toEqual({ success: true, data: { loggedIn: true } })
-    expect(response.cookies.get("demo_admin")?.value).toBe("test-session")
-  })
-  it("別の ID では認証も Cookie 発行もしない", async () => {
-    const response = await POST(request("visitor@example.test"))
-    expect(auth).not.toHaveBeenCalled()
-    expect(response.cookies.get("demo_admin")).toBeUndefined()
-    expect(await response.json()).toEqual({ success: true, data: { loggedIn: false } })
-  })
-  it("ID 未設定ではログインを拒否する", async () => {
-    vi.stubEnv("DEMO_ADMIN_EMAIL", "")
-    await expect(POST(request("owner@example.test"))).rejects.toMatchObject({ status: 503 })
-    expect(auth).not.toHaveBeenCalled()
-  })
-  it("配布用 URL では運営ログインを拒否する", async () => {
-    vi.stubEnv("NEXT_PUBLIC_DEMO_ADMIN_CONSOLE", "")
-    await expect(POST(request("owner@example.test"))).rejects.toMatchObject({ status: 403 })
-    expect(auth).not.toHaveBeenCalled()
-  })
+  it('rejects unknown logins without issuing a cookie',async()=>{const response=await POST(request('unknown@example.test'));expect(response.status).toBe(401);expect(response.cookies.get('demo_admin')).toBeUndefined()})
+  it('fails closed without configuration and on external builds',async()=>{vi.stubEnv('DEMO_ADMIN_EMAIL','');expect((await POST(request('owner@example.test'))).status).toBe(503);vi.stubEnv('NEXT_PUBLIC_DEMO_ADMIN_CONSOLE','false');expect((await POST(request('owner@example.test'))).status).toBe(403)})
 })

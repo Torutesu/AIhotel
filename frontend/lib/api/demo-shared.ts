@@ -1,10 +1,11 @@
+import type { OperationsIdentity, AgencyAccount, OperationsCustomer } from "@/lib/operations-types"
 // デモのトライアルの共有保存（app/api/demo/）を呼ぶ。デモモードでだけ使う。
 //
 // 共有保存（Upstash Redis）が設定されていれば、運営用 URL で発行したトライアルの ID が
 // 配布用 URL や他の人の端末でも使える。未設定ならブラウザ内の保存（demo-admin.ts）に戻る。
 
 import type { CreateTrialRequest, TrialCredentials, TrialLoginInfo, TrialSummary, UpdateTrialRequest } from "@shared/types"
-import { ApiClientError } from "./client"
+import { ApiClientError, clearTokens, AUTH_EXPIRED_EVENT } from "./client"
 
 export interface DemoSharedStatus {
   shared: boolean
@@ -28,6 +29,10 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   const body = (await res.json().catch(() => null)) as Envelope<T> | null
   if (!res.ok || !body || !body.success) {
+    if (res.status === 401 && path !== "/api/demo/admin/session" && path !== "/api/demo/trial-session") {
+      clearTokens()
+      if (typeof window !== "undefined") window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
+    }
     throw new ApiClientError(res.status, body && !body.success ? body.error : "処理に失敗しました")
   }
   return body.data
@@ -50,7 +55,15 @@ export function resetDemoSharedStatus() {
 }
 
 export const demoShared = {
-  adminLogin(email: string, password: string): Promise<{ loggedIn: boolean }> {
+  usageReport: () => call<import("@shared/types").UsageReport>("/api/demo/usage"),
+  operationsSession: () => call<OperationsIdentity>("/api/demo/admin/session"),
+  agencies: () => call<AgencyAccount[]>("/api/demo/operations/agencies"),
+  createAgency: (input: { name: string; email: string }) => call<{ account: AgencyAccount; password: string }>("/api/demo/operations/agencies", { method: "POST", body: JSON.stringify(input) }),
+  updateAgency: (id: string, input: { active?: boolean; resetPassword?: boolean }) => call<{ account: AgencyAccount; password?: string }>(`/api/demo/operations/agencies/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+  customers: () => call<OperationsCustomer[]>("/api/demo/operations/customers"),
+  saveCustomer: (input: Partial<OperationsCustomer>, id?: string) => call<OperationsCustomer>(`/api/demo/operations/customers${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
+  assignTrial: (id: string, agencyId: string | null) => call(`/api/demo/trials/${encodeURIComponent(id)}/assignment`, { method: "PUT", body: JSON.stringify({ agencyId }) }),
+  adminLogin(email: string, password: string): Promise<{ loggedIn: boolean; identity: OperationsIdentity }> {
     return call("/api/demo/admin/session", { method: "POST", body: JSON.stringify({ email, password }) })
   },
   async adminLogout(): Promise<void> {

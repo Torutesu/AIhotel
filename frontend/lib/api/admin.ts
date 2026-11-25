@@ -7,7 +7,7 @@ import type {
   TrialSummary, TrialLoginInfo, CreateTrialRequest, UpdateTrialRequest, TrialCredentials, IpAllowEntry, IpRestrictionSettings
 } from "@shared/types"
 import { rawBinaryRequest, rawRequest, withDemoFallback, type BinaryDownload } from "./client"
-import { ApiClientError } from "./client"
+import { ApiClientError, getMockUser, isDemoModeEnabled } from "./client"
 import { demoShared, demoSharedStatus } from "./demo-shared"
 import { demoAdmin, demoTrials } from "./demo-admin"
 import { mockAuditLogs, mockRoomTypes } from "./demo-data"
@@ -15,6 +15,8 @@ import type { CompetitorPriceCsvRow, OtbCsvRow } from "@/lib/import-csv"
 import type {
   CopyableSettingsItem, HotelIntegration, HotelIntegrationInput, IntegrationKind, SetupWorkbookResult
 } from "./types"
+
+const sharedOperations = () => isDemoModeEnabled() && !!getMockUser()?.operationsAccess
 
 export const adminEndpoints = {
   // ---- 実績データの取り込み（#82） ----
@@ -206,11 +208,13 @@ export const adminEndpoints = {
 
   /** トライアルの一覧（期限の近い順） */
   trials(): Promise<TrialSummary[]> {
+    if (sharedOperations()) return demoShared.trials()
     return withDemoFallback(() => rawRequest("/api/v1/platform/trials"), () => demoTrials.trials())
   },
 
   /** トライアルの発行。デモデータ入りの専用ホテルとログイン ID を作る。パスワードはこの戻り値でしか得られない */
   createTrial(input: CreateTrialRequest): Promise<TrialCredentials> {
+    if (sharedOperations()) return demoShared.createTrial(input)
     return withDemoFallback(
       () => rawRequest("/api/v1/platform/trials", { method: "POST", body: JSON.stringify(input) }),
       () => demoTrials.createTrial(input),
@@ -219,6 +223,7 @@ export const adminEndpoints = {
 
   /** 名前・メモの変更、停止／再開、期限の延長 */
   updateTrial(id: string, input: UpdateTrialRequest): Promise<TrialSummary> {
+    if (sharedOperations()) return demoShared.updateTrial(id, input)
     return withDemoFallback(
       () => rawRequest(`/api/v1/platform/trials/${id}`, { method: "PUT", body: JSON.stringify(input) }),
       () => demoTrials.updateTrial(id, input),
@@ -227,6 +232,7 @@ export const adminEndpoints = {
 
   /** ログイン用パスワードの再発行。新しいパスワードはこの戻り値でしか得られない */
   resetTrialPassword(id: string): Promise<TrialCredentials> {
+    if (sharedOperations()) return demoShared.resetTrialPassword(id)
     return withDemoFallback(
       () => rawRequest(`/api/v1/platform/trials/${id}/reset-password`, { method: "POST" }),
       () => demoTrials.resetTrialPassword(id),
@@ -235,6 +241,7 @@ export const adminEndpoints = {
 
   /** トライアルの削除（デモデータごと消す） */
   deleteTrial(id: string): Promise<void> {
+    if (sharedOperations()) return demoShared.deleteTrial(id)
     return withDemoFallback(
       () => rawRequest(`/api/v1/platform/trials/${id}`, { method: "DELETE" }),
       () => demoTrials.deleteTrial(id),

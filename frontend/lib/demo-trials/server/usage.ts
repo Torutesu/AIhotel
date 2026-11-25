@@ -1,3 +1,4 @@
+import type { OperationsIdentity } from "@/lib/operations-types"
 import type { UsageDay, UsageEvent, UsageReport } from '@shared/types/usage'
 import type { DemoKv } from './kv'
 import { listTrials, trialSession } from './service'
@@ -29,7 +30,7 @@ export async function recordUsage(kv: DemoKv, cookie: string | undefined, event:
   }
   throw new DemoTrialError(503, '計測を保存できませんでした')
 }
-export async function usageReport(kv: DemoKv): Promise<UsageReport> {
-  const trials = await listTrials(kv)
+export async function usageReport(kv: DemoKv, actor?: OperationsIdentity): Promise<UsageReport> {
+  const trials = await listTrials(kv, Date.now(), actor)
   return { source: 'trial', startedAt: await kv.get('usage:startedAt'), accounts: await Promise.all(trials.map(async t => ({ id: t.id, name: t.name, days: JSON.parse(await kv.get(`usage:trial:${t.id}`) ?? '[]') as UsageDay[] }))) }
 }

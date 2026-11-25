@@ -4,7 +4,7 @@ import { recordUsage, usageReport } from '@/lib/demo-trials/server/usage'
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export async function GET(request: NextRequest) {
-  return handle(request, { admin: true }, async kv => ok(await usageReport(kv)))
+  return handle(request, { admin: true }, async (kv, actor) => ok(await usageReport(kv, actor)))
 }
 export async function POST(request: NextRequest) {
   return handle(request, {}, async kv => {

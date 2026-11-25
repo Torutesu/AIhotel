@@ -89,7 +89,10 @@ async function demoLogin(email: string, password: string): Promise<LoginResult> 
   if ((await demoSharedStatus()).shared) {
     if (isDemoAdminConsole() && !trialId) {
       const result = await demoShared.adminLogin(loginEmail, password)
-      if (result.loggedIn) return mockLoginAs(loginEmail, { name: "運営", role: "PLATFORM_ADMIN" })
+      if (result.loggedIn) {
+        const base = mockLoginAs(loginEmail, { name: result.identity.name, role: result.identity.role === "PLATFORM_ADMIN" ? "PLATFORM_ADMIN" : "OPERATOR" })
+        return { ...base, user: { ...base.user, id: result.identity.id, hotelId: null, tenantId: null, operationsAccess: result.identity } }
+      }
     }
     const trial = await demoShared.trialLogin(loginEmail, password, trialId ?? undefined)
     if (trial) return demoTrialResult(trial.email, trial)
@@ -107,6 +110,15 @@ async function demoLogin(email: string, password: string): Promise<LoginResult> 
  */
 async function restoreDemoUser(user: User): Promise<User & { hotel?: Hotel | null }> {
   const trialId = currentTrialId()
+  if (user.operationsAccess || user.role === "PLATFORM_ADMIN") {
+    try {
+      const identity = await demoShared.operationsSession()
+      return { ...user, id: identity.id, name: identity.name, email: identity.email, role: identity.role === "PLATFORM_ADMIN" ? "PLATFORM_ADMIN" : "OPERATOR", operationsAccess: identity, hotelId: null, tenantId: null, hotel: null }
+    } catch (err) {
+      if (err instanceof ApiClientError && (err.status === 401 || err.status === 403)) clearTokens()
+      throw err
+    }
+  }
   if (trialId && !user.trial) {
     clearTokens()
     throw new ApiClientError(401, "このトライアルのパスワードでログインしてください")
@@ -132,8 +144,8 @@ export const api = {
   ...externalSignalsEndpoints,
 
   async login(email: string, password: string): Promise<LoginResult> {
-    if (isDemoModeEnabled() && currentTrialId()) {
-      const result = await demoLogin("", password)
+    if (isDemoModeEnabled() && (currentTrialId() || isDemoAdminConsole())) {
+      const result = await demoLogin(currentTrialId() ? "" : email, password)
       markDemoDataInUse()
       storeTokens(result.tokens.accessToken, result.tokens.refreshToken)
       storeMockUser(result.user)

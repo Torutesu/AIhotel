@@ -14,6 +14,7 @@ import {
   DemoTrialError, LOGIN_FAILED_MESSAGE, applyTrialUpdate, assertCanLogin, newTrialRecord, randomPassword, sortTrials,
   summarize, type DemoTrialRecord,
 } from "../core"
+import type { OperationsIdentity } from "@/lib/operations-types"
 import type { DemoKv } from "./kv"
 import { encryptTrialPassword, decryptTrialPassword, trialLoginUrl } from "./credentials"
 
@@ -70,16 +71,20 @@ async function readAdmin(kv: DemoKv): Promise<AdminRecord | null> {
 }
 
 async function readTrials(kv: DemoKv): Promise<DemoTrialRecord[]> {
-  return Object.values(await kv.hgetall(KEY_TRIALS)).map((raw) => JSON.parse(raw) as DemoTrialRecord)
+  const [records, owners] = await Promise.all([kv.hgetall(KEY_TRIALS), kv.hgetall("operations:trial-owners")])
+  return Object.values(records).map(raw => {
+    const record = JSON.parse(raw) as DemoTrialRecord
+    return { ...record, agencyId: Object.hasOwn(owners, record.id) ? owners[record.id] || null : record.agencyId ?? null }
+  })
 }
 
 async function writeTrial(kv: DemoKv, record: DemoTrialRecord) {
   await kv.hset(KEY_TRIALS, record.id, JSON.stringify(record))
 }
 
-async function findTrial(kv: DemoKv, id: string): Promise<DemoTrialRecord> {
+async function findTrial(kv: DemoKv, id: string, actor?: OperationsIdentity): Promise<DemoTrialRecord> {
   const trial = (await readTrials(kv)).find((t) => t.id === id)
-  if (!trial) throw new DemoTrialError(404, "トライアルが見つかりません")
+  if (!trial || (actor?.role === "AGENCY" && trial.agencyId !== actor.id)) throw new DemoTrialError(404, "トライアルが見つかりません")
   return trial
 }
 
@@ -161,29 +166,30 @@ export async function verifyAdminSession(kv: DemoKv, cookie: string | undefined,
 
 // ---- トライアルの管理（運営） ----
 
-export async function listTrials(kv: DemoKv, now = Date.now()): Promise<TrialSummary[]> {
-  return sortTrials((await readTrials(kv)).map((t) => summarize(t, now)))
+export async function listTrials(kv: DemoKv, now = Date.now(), actor?: OperationsIdentity): Promise<TrialSummary[]> {
+  return sortTrials((await readTrials(kv)).filter(t => !actor || actor.role === "PLATFORM_ADMIN" || t.agencyId === actor.id).map((t) => summarize(t, now)))
 }
 
-export async function createTrial(kv: DemoKv, input: CreateTrialRequest, now = Date.now()): Promise<TrialCredentials> {
+export async function createTrial(kv: DemoKv, input: CreateTrialRequest, now = Date.now(), actor?: OperationsIdentity, agencyId?: string | null): Promise<TrialCredentials> {
   const password = randomPassword()
   const record = newTrialRecord(input, await readTrials(kv), await hashPassword(password), now)
   record.encryptedPassword = encryptTrialPassword(record.id, password)
+  record.agencyId = actor?.role === "AGENCY" ? actor.id : agencyId ?? null
   const loginUrl = trialLoginUrl(record.id)
   await writeTrial(kv, record)
   return { trial: summarize(record, now), password, loginUrl, redisplayable: true }
 }
 
-export async function updateTrial(kv: DemoKv, id: string, input: UpdateTrialRequest, now = Date.now()): Promise<TrialSummary> {
-  const record = applyTrialUpdate(await findTrial(kv, id), input, now)
+export async function updateTrial(kv: DemoKv, id: string, input: UpdateTrialRequest, now = Date.now(), actor?: OperationsIdentity): Promise<TrialSummary> {
+  const record = applyTrialUpdate(await findTrial(kv, id, actor), input, now)
   await writeTrial(kv, record)
   return summarize(record, now)
 }
 
 /** パスワードを作り直す。ログイン中の端末の Cookie も使えなくなる（署名に今のハッシュを含めているため） */
-export async function resetTrialPassword(kv: DemoKv, id: string, now = Date.now()): Promise<TrialCredentials> {
+export async function resetTrialPassword(kv: DemoKv, id: string, now = Date.now(), actor?: OperationsIdentity): Promise<TrialCredentials> {
   const password = randomPassword()
-  const record = { ...(await findTrial(kv, id)), secret: await hashPassword(password) }
+  const record = { ...(await findTrial(kv, id, actor)), secret: await hashPassword(password) }
   record.encryptedPassword = encryptTrialPassword(record.id, password)
   const loginUrl = trialLoginUrl(record.id)
   await writeTrial(kv, record)
@@ -191,8 +197,8 @@ export async function resetTrialPassword(kv: DemoKv, id: string, now = Date.now(
 }
 
 /** 呼び出し側で運営セッション必須。旧レコードはパスワードを変えずに null を返す */
-export async function trialLoginInfo(kv: DemoKv, id: string, now = Date.now()): Promise<TrialLoginInfo> {
-  const record = await findTrial(kv, id)
+export async function trialLoginInfo(kv: DemoKv, id: string, now = Date.now(), actor?: OperationsIdentity): Promise<TrialLoginInfo> {
+  const record = await findTrial(kv, id, actor)
   return {
     trial: summarize(record, now),
     password: record.encryptedPassword ? decryptTrialPassword(record.id, record.encryptedPassword) : null,
@@ -201,8 +207,8 @@ export async function trialLoginInfo(kv: DemoKv, id: string, now = Date.now()): 
   }
 }
 
-export async function deleteTrial(kv: DemoKv, id: string): Promise<void> {
-  await findTrial(kv, id)
+export async function deleteTrial(kv: DemoKv, id: string, actor?: OperationsIdentity): Promise<void> {
+  await findTrial(kv, id, actor)
   await kv.hdel(KEY_TRIALS, id)
 }
 
@@ -264,4 +270,12 @@ export async function trialSession(
     return { active: false, message: err instanceof DemoTrialError && err.status === 401 && record.isActive ? err.message : ended.message }
   }
   return { active: true, name: record.name, expiresAt: record.expiresAt }
+}
+
+/** Platform-only route validates the new owner before calling. Legacy records remain unassigned. */
+export async function assignTrial(kv: DemoKv, id: string, agencyId: string | null): Promise<TrialSummary> {
+  const record = await findTrial(kv, id)
+  await kv.hset("operations:trial-owners", id, agencyId ?? "")
+  record.agencyId = agencyId
+  return summarize(record)
 }
