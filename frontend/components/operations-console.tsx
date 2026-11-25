@@ -1,5 +1,6 @@
 "use client"
 
+import { OperationsUsage } from "@/components/operations-usage"
 import Link from "next/link"
 import { useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -21,7 +22,7 @@ import { cn } from "@/lib/utils"
 const views = [
   { id: "overview", label: "概要", icon: LayoutDashboard, description: "顧客とトライアルの状況を、ひと目で確認。" },
   { id: "customers", label: "顧客一覧", icon: Building2, description: "顧客企業・ホテル・管理者を管理します。" },
-  { id: "usage", label: "利用状況", icon: ChartNoAxesColumn, description: "トライアルの最終ログインと、フォローが必要な相手を確認します。" },
+  { id: "usage", label: "活用状況", icon: ChartNoAxesColumn, description: "顧客ごとの利用頻度と、機能がどこまで活用されているかを確認します。" },
   { id: "trials", label: "トライアル管理", icon: Clock3, description: "営業先への発行から、期限の延長・停止まで。" },
 ] as const
 
@@ -56,7 +57,7 @@ function ConsoleContent({ onLogout }: { onLogout: () => Promise<void> }) {
     <aside className="border-b lg:fixed lg:inset-y-0 lg:w-60 lg:border-r lg:border-b-0">
       <div className="flex items-center justify-between px-5 py-5 lg:block"><BrandLogo /><p className="text-xs tracking-widest text-muted-foreground lg:mt-3">運営管理</p></div>
       <nav aria-label="運営メニュー" className="grid grid-cols-4 gap-1 px-3 pb-3 lg:grid-cols-1 lg:gap-2 lg:pt-7">{views.map(v => <button key={v.id} onClick={() => navigate(v.id)} aria-current={current.id === v.id ? "page" : undefined} className={cn("flex min-h-12 flex-col items-center justify-center gap-1 rounded-md px-1 py-3 text-xs focus-visible:outline focus-visible:outline-2 lg:flex-row lg:justify-start lg:gap-3 lg:px-4 lg:text-sm", current.id === v.id ? "font-semibold underline decoration-2 underline-offset-8" : "text-muted-foreground hover:text-foreground")}><v.icon className="h-4 w-4" aria-hidden /><span className="lg:hidden">{v.id === "trials" ? "トライアル" : v.label}</span><span className="hidden lg:inline">{v.label}</span></button>)}</nav>
-      <div className="hidden px-6 text-xs leading-6 text-muted-foreground lg:absolute lg:bottom-6 lg:block">レベスト 運営専用<br />ホテル画面とは別の管理画面です</div>
+      <div className="hidden px-6 text-xs leading-6 text-muted-foreground lg:absolute lg:bottom-6 lg:block">レブスト 運営専用<br />ホテル画面とは別の管理画面です</div>
     </aside>
     <div className="lg:ml-60">
       <header className="flex items-center justify-between gap-3 border-b px-5 py-3 sm:px-8"><p className="text-xs text-muted-foreground">運営管理 <span aria-hidden>/</span> {current.label}</p><div className="flex gap-2"><Button variant="ghost" size="icon" aria-label="配色を切り替える" onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}><Sun className="h-4 w-4 dark:hidden" /><Moon className="hidden h-4 w-4 dark:block" /></Button><Button variant="ghost" size="sm" onClick={() => void onLogout()}><LogOut className="mr-2 h-4 w-4" />ログアウト</Button></div></header>
@@ -65,7 +66,8 @@ function ConsoleContent({ onLogout }: { onLogout: () => Promise<void> }) {
         {isDemoModeEnabled() && <p className="border-l-2 pl-3 text-xs leading-6 text-muted-foreground">顧客・ホテル情報はサンプルです。トライアルの情報・操作は実際の発行アカウントに反映されます。</p>}
         {current.id === "customers" && <TenantManagementSection />}
         {current.id === "trials" && <TrialManagementSection />}
-        {(current.id === "overview" || current.id === "usage") && <>
+        {current.id === "usage" && <OperationsUsage />}
+        {current.id === "overview" && <>
           {trials.error ? <ErrorState message={trials.error} onRetry={trials.reload} /> : trials.loading ? <p role="status">利用状況を読み込んでいます…</p> : <>
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{[
               { label: "利用中のトライアル", value: active.length, suffix: "件" },

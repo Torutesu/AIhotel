@@ -5,7 +5,7 @@ import { AppStateProvider } from "@/components/app-state-provider"
 import { OperationsConsole } from "@/components/operations-console"
 
 export const dynamic = "force-dynamic"
-export const metadata = { title: "運営管理 | レベスト", robots: { index: false, follow: false } }
+export const metadata = { title: "運営管理 | レブスト", robots: { index: false, follow: false } }
 
 export default function OperationsPage() {
   // Fail closed: customer deployments do not serve the console, even at a direct URL.

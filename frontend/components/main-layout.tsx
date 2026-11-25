@@ -1,5 +1,6 @@
 "use client"
 
+import { trackUsage } from "@/lib/api/usage"
 import { useRouter } from "next/navigation"
 import { useEffect, useState, useRef } from "react"
 import {
@@ -85,11 +86,20 @@ export function MainLayout() {
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
-  const { user, loading, logout, restoreError, retryRestore, canSwitchHotel, hotels } = useAuth()
+  const { user, loading, logout, restoreError, retryRestore, canSwitchHotel, hotels, hotelId } = useAuth()
 
   useEffect(() => {
     if (user?.role === "PLATFORM_ADMIN" && process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true") router.replace("/operations")
   }, [user, router])
+
+  const usageView = useRef("")
+  useEffect(() => {
+    const key = `${user?.id}:${hotelId}:${activeTab}`
+    if (user && user.role !== "PLATFORM_ADMIN" && hotelId && usageView.current !== key) {
+      usageView.current = key
+      void trackUsage(`view_${activeTab}`, hotelId)
+    }
+  }, [activeTab, user, hotelId])
 
   // 表示中のタブをブラウザのタブ名に反映する（F-8）
   useEffect(() => {

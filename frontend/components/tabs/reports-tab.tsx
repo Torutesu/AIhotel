@@ -1,5 +1,7 @@
 "use client"
 
+import { trackUsage } from "@/lib/api/usage"
+
 // レポートタブ（U-4 / F-REP-01・F-REP-02）
 // GET /api/v1/reports/monthly?format=pdf|excel を呼び、返ってきたバイナリを
 // ブラウザのダウンロードとして保存する。架空の「最近のレポート」「定期レポート設定」
@@ -54,6 +56,7 @@ export function ReportsTab() {
     setDownloading(true)
     try {
       const { blob, filename } = await api.monthlyReport(hotelId, year, month, reportFormat)
+      void trackUsage("report_exported", hotelId)
       const extension =
         REPORT_FORMATS.find((f) => f.value === reportFormat)?.extension ?? reportFormat
       const fallbackName = `月次レポート_${hotel?.name ?? "hotel"}_${year}-${String(month).padStart(2, "0")}.${extension}`

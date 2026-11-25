@@ -1,5 +1,7 @@
 "use client"
 
+import { trackUsage } from "@/lib/api/usage"
+
 import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -69,6 +71,7 @@ function HotelChat({ isOpen, onClose, onRestoreFocus }: ChatInterfaceProps) {
     try {
       const conversation = history.slice(-20).map(({ role, content }) => ({ role, content }))
       const { reply } = await api.chat(hotelId, conversation)
+      void trackUsage("chat_completed", hotelId)
       setMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "assistant", content: reply, timestamp: new Date() }])
     } catch (err) {
       setError(err instanceof ApiClientError && err.message ? err.message : "回答を取得できませんでした。もう一度お試しください。")

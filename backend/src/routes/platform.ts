@@ -1,3 +1,4 @@
+import { getUsage } from '../controllers/usageController.js'
 import { Router, type Router as ExpressRouter } from 'express'
 import { authenticate, requireRole } from '../middlewares/auth.js'
 import { validate } from '../middlewares/validate.js'
@@ -25,6 +26,7 @@ import {
 export const platformRouter: ExpressRouter = Router()
 
 platformRouter.use(authenticate, requireRole('PLATFORM_ADMIN'))
+platformRouter.get('/usage', getUsage)
 
 // GET /api/v1/platform/tenants
 platformRouter.get('/tenants', getTenants)

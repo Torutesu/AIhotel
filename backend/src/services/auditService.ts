@@ -7,6 +7,7 @@ export interface AuditLogEntry {
   tenantId?: string | null
   userId?: string | null
   action:
+    | 'USAGE'
     | 'CREATE'
     | 'UPDATE'
     | 'DELETE'
@@ -93,7 +94,7 @@ export async function listAuditLogsService(query: AuditLogQuery) {
   const rows = await prisma.auditLog.findMany({
     where: {
       tenantId: hotel.tenantId,
-      ...(query.action && { action: query.action }),
+      action: query.action ?? { not: 'USAGE' },
       ...((query.from || query.to) && { createdAt }),
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],

@@ -11,7 +11,7 @@ import "./globals.css"
 // 日本語UIの字形と行送りを統一する。
 const noto = Noto_Sans_JP({ subsets: ["latin"], variable: "--font-noto", display: "swap" })
 
-const description = "料金設定・実績分析・需要予測をひとつに。ホテル収益管理システム「レベスト」。"
+const description = "料金設定・実績分析・需要予測をひとつに。ホテル収益管理システム「レブスト」。"
 const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || "a-ihotel-frontend.vercel.app"
 
 export const metadata: Metadata = {

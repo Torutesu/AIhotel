@@ -799,3 +799,8 @@ export interface ReviewScore {
   /** 取得日時（ISO 8601 文字列） */
   capturedAt: string
 }
+
+export type UsageEventType = 'view_dashboard' | 'view_pricing' | 'view_analysis' | 'view_reports' | 'view_ai-summary' | 'view_settings' | 'pricing_saved' | 'report_exported' | 'chat_completed'
+export interface UsageDay { day: string; counts: Partial<Record<UsageEventType, number>>; lastAt: string }
+export interface UsageAccount { id: string; name: string; days: UsageDay[] }
+export interface UsageReport { startedAt: string | null; accounts: UsageAccount[]; source: 'trial' | 'customer' }

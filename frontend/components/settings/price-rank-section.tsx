@@ -1,5 +1,7 @@
 "use client"
 
+import { trackUsage } from "@/lib/api/usage"
+
 // 料金ランク設定（U-3 / U-11 / U-15 / F-SET-02）
 // 一覧・追加（POST）・編集（PUT）・削除（DELETE）。最大40段階をUIで強制する。
 // 人数別価格は 1名 ≤ 2名 ≤ 3名 ≤ 4名 を zod でインライン検証する。
@@ -165,9 +167,11 @@ export function PriceRankSection() {
           return
         }
         await api.createPriceRank({ hotelId, rank: nextRankNumber, ...values })
+        void trackUsage("pricing_saved", hotelId)
         toast.success("料金ランクを追加しました")
       } else {
         await api.updatePriceRank(target.id, hotelId, values)
+        void trackUsage("pricing_saved", hotelId)
         toast.success("料金ランクを更新しました")
       }
       setTarget(null)
