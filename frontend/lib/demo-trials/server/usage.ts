@@ -5,7 +5,7 @@ import { listTrials, trialSession } from './service'
 import { DemoTrialError } from '../core'
 import { USAGE_EVENTS } from '@shared/types/usage'
 
-// Only aggregate dates and feature identifiers. Never retain prompts, answers or entered values.
+// Retain only dates, operation timestamps and fixed feature identifiers. Never retain prompts, answers or entered values.
 export async function recordUsage(kv: DemoKv, cookie: string | undefined, event: unknown, now = Date.now()) {
   const session = await trialSession(kv, cookie, now)
   if (!session.active) throw new DemoTrialError(401, 'ログインしてください')
@@ -25,12 +25,15 @@ export async function recordUsage(kv: DemoKv, cookie: string | undefined, event:
     let row = days.find(d => d.day === day)
     if (!row) { row = { day, counts: {}, lastAt: at }; days.push(row) }
     row.counts[event as UsageEvent] = (row.counts[event as UsageEvent] ?? 0) + 1
-    row.lastAt = at
+    if (row.lastAt < at) row.lastAt = at
+    row.lastByEvent ??= {}
+    if (!row.lastByEvent[event as UsageEvent] || row.lastByEvent[event as UsageEvent]! < at) row.lastByEvent[event as UsageEvent] = at
+    row.events = [...(row.events ?? []), { event: event as UsageEvent, at }].sort((a,b)=>a.at.localeCompare(b.at)).slice(-30)
     if (await kv.compareAndSet(key, before, JSON.stringify(days))) return
   }
   throw new DemoTrialError(503, '計測を保存できませんでした')
 }
 export async function usageReport(kv: DemoKv, actor?: OperationsIdentity): Promise<UsageReport> {
   const trials = await listTrials(kv, Date.now(), actor)
-  return { source: 'trial', startedAt: await kv.get('usage:startedAt'), accounts: await Promise.all(trials.map(async t => ({ id: t.id, name: t.name, days: JSON.parse(await kv.get(`usage:trial:${t.id}`) ?? '[]') as UsageDay[] }))) }
+  return { source: 'trial', generatedAt: new Date().toISOString(), startedAt: await kv.get('usage:startedAt'), accounts: await Promise.all(trials.map(async t => ({ id: t.id, name: t.name, email: t.loginEmail, lastLoginAt: t.lastLoginAt, expiresAt: t.expiresAt, status: t.status, days: (JSON.parse(await kv.get(`usage:trial:${t.id}`) ?? '[]') as UsageDay[]).filter(d => d.day >= new Date(Date.now() - 89 * 86400000 + 9 * 3600000).toISOString().slice(0,10)) }))) }
 }

@@ -23,3 +23,25 @@ describe('活用状況の共有計測', () => {
     expect(report.accounts[0].id).toBe(trial.trial.id)
   })
 })
+
+describe('時刻付きの操作記録',()=>{
+  it('本文を保持せず日別回数と機能別最終時刻を維持し、直近履歴だけを返す',async()=>{
+    vi.stubEnv('DEMO_PUBLIC_URL','https://example.test');vi.stubEnv('DEMO_TRIAL_CREDENTIALS_KEY','ab'.repeat(32))
+    const kv=memoryKv()
+    await adminLogin(kv,'test-usage-password-2',null)
+    const issued=await createTrial(kv,{name:'時刻テスト',kind:'PROSPECT_HOTEL'})
+    const login=await trialLogin(kv,issued.trial.loginEmail!,issued.password,null)
+    const base=Date.now()
+    for(let i=0;i<35;i++)await recordUsage(kv,login!.cookie,i===0?'chat_completed':'view_analysis',base+i)
+    const report=await usageReport(kv)
+    const account=report.accounts[0],day=account.days[0]
+    expect(day.counts).toEqual({chat_completed:1,view_analysis:34})
+    expect(day.events).toHaveLength(30)
+    expect(day.lastByEvent?.chat_completed).toBe(new Date(base).toISOString())
+    expect(day.lastByEvent?.view_analysis).toBe(new Date(base+34).toISOString())
+    expect(Object.keys(day.events![0]).sort()).toEqual(['at','event'])
+    expect(account.email).toBe(issued.trial.loginEmail)
+    expect(account.status).toBe('ACTIVE')
+    expect(report.generatedAt).toBeTruthy()
+  })
+})

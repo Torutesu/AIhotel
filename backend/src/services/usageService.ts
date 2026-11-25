@@ -13,12 +13,14 @@ export async function getUsageReportService(): Promise<UsageReport> {
   `
   const hotels = await prisma.hotel.findMany({ select: { id: true, name: true, tenant: { select: { name: true } } } })
   const first = await prisma.auditLog.findFirst({ where: { action: 'USAGE', entity: { startsWith: 'Usage:' } }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } })
-  return { source: 'customer', startedAt: first?.createdAt.toISOString() ?? null, accounts: hotels.map(h => {
+  return { source: 'customer', generatedAt: new Date().toISOString(), startedAt: first?.createdAt.toISOString() ?? null, accounts: hotels.map(h => {
     const days: UsageReport['accounts'][number]['days'] = []
     for (const r of rows.filter(r => r.id === h.id)) {
       let d = days.find(d => d.day === r.day)
       if (!d) { d = { day: r.day, counts: {}, lastAt: r.lastAt.toISOString() }; days.push(d) }
       d.counts[r.event as UsageEvent] = Number(r.count)
+      d.lastByEvent ??= {}
+      d.lastByEvent[r.event as UsageEvent] = r.lastAt.toISOString()
       if (d.lastAt < r.lastAt.toISOString()) d.lastAt = r.lastAt.toISOString()
     }
     return { id: h.id, name: `${h.tenant.name} / ${h.name}`, days }
