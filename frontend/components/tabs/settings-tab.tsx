@@ -285,7 +285,7 @@ export function SettingsTab() {
                     checked={dashboardKpiItems.includes(item.key)}
                     onCheckedChange={(checked) => toggleDashboardKpiItem(item.key, checked === true)}
                   />
-                  <Label htmlFor={`dashboard-kpi-${item.key}`} className="font-normal">
+                  <Label htmlFor={`dashboard-kpi-${item.key}`} className="min-h-11 flex-1 cursor-pointer sm:min-h-0 font-normal">
                     {item.label}
                   </Label>
                 </div>

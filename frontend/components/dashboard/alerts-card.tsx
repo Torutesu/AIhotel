@@ -126,7 +126,7 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
                         {link && (
                           <button
                             onClick={() => onAlertNavigate?.(link)}
-                            className="text-xs text-primary hover:underline hover:text-[color:var(--cyan-edge)] transition-colors"
+                            className="min-h-11 text-left text-xs text-primary sm:min-h-0 hover:underline hover:text-[color:var(--cyan-edge)] transition-colors"
                           >
                             {alertDateLabel(alert)}
                             {` (${link.label})`}

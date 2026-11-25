@@ -197,7 +197,7 @@
 .skip-link:focus { transform: translateY(0); }
 :where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
 @media (max-width: 639px) {
-  [data-slot="button"] { min-height: 44px; }
+  [data-slot="button"], [data-slot="select-trigger"] { min-height: 44px; min-width: 44px; }
   input, textarea, select { font-size: 16px; }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -238,7 +238,7 @@ export function InventoryTableCard({ totalRooms, year, month }: InventoryTableCa
             </div>
             <div className="flex items-center gap-1.5">
               <Switch id="inventory-segment" checked={bySegment} onCheckedChange={setBySegment} />
-              <Label htmlFor="inventory-segment" className="whitespace-nowrap text-xs">
+              <Label htmlFor="inventory-segment" className="min-h-11 cursor-pointer whitespace-nowrap text-xs sm:min-h-0">
                 団体をセグメント別に表示
               </Label>
             </div>

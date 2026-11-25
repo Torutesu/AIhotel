@@ -359,7 +359,7 @@ export function KpiProgressSection({
               key={option.key}
               onClick={() => setComparisonAxis(option.key)}
               title={option.description}
-              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              className={`min-h-11 rounded-full border px-3 py-1 sm:min-h-0 text-xs font-medium transition-colors ${
                 comparisonAxis === option.key
                   ? "border-transparent bg-primary text-primary-foreground"
                   : "border-border text-muted-foreground hover:bg-accent hover:text-accent-foreground"

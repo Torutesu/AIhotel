@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, type KeyboardEvent } from "react"
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from "react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
@@ -44,6 +44,22 @@ function HotelChat({ isOpen, onClose, onRestoreFocus }: ChatInterfaceProps) {
     const viewport = viewportRef.current
     if (viewport) viewport.scrollTop = viewport.scrollHeight
   }, [messages, isTyping, error, isOpen])
+
+  const resizeObserverRef = useRef<ResizeObserver | null>(null)
+  const attachViewport = useCallback((viewport: HTMLDivElement | null) => {
+    resizeObserverRef.current?.disconnect()
+    viewportRef.current = viewport
+    if (!viewport || typeof ResizeObserver === "undefined") return
+    let previousHeight = viewport.clientHeight
+    const observer = new ResizeObserver(() => {
+      // 末尾を読んでいた場合は、入力欄や画面の高さが変わっても最新回答を見失わない。
+      const wasAtBottom = viewport.scrollHeight - viewport.scrollTop - previousHeight <= 48
+      previousHeight = viewport.clientHeight
+      if (wasAtBottom) viewport.scrollTop = viewport.scrollHeight
+    })
+    resizeObserverRef.current = observer
+    observer.observe(viewport)
+  }, [])
 
   const send = async (history: Message[]) => {
     if (!hotelId || pendingRef.current) return
@@ -107,7 +123,7 @@ function HotelChat({ isOpen, onClose, onRestoreFocus }: ChatInterfaceProps) {
         <DialogDescription className="shrink-0 border-b px-5 py-3 text-xs leading-relaxed">
           このホテルの予算・需要予測・分析データをもとに回答します。料金や設定は変更しません。
         </DialogDescription>
-        <div ref={viewportRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
+        <div ref={attachViewport} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
           {messages.length === 0 && (
             <div className="space-y-4">
               <p className="text-sm font-medium">確認したいことを入力してください</p>

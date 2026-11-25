@@ -98,4 +98,35 @@ describe("ChatInterface", () => {
     expect(chat.mock.calls[1][1]).toEqual([{ role: "user", content: "来月" }])
   })
 
+  it("高さが縮んだときは最新回答を追い、過去の会話を読んでいる位置は維持する", () => {
+    let resize = () => {}
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: () => void) { resize = callback }
+      observe() {}
+      disconnect() {}
+    })
+    try {
+      const view = render(<ChatInterface isOpen onClose={vi.fn()} />)
+      const viewport = screen.getByRole("log").parentElement!
+      let height = 500
+      let top = 500
+      Object.defineProperties(viewport, {
+        scrollHeight: { configurable: true, get: () => 1000 },
+        clientHeight: { configurable: true, get: () => height },
+        scrollTop: { configurable: true, get: () => top, set: (value) => { top = Math.min(value, 1000 - height) } },
+      })
+      resize()
+      height = 250
+      resize()
+      expect(top).toBe(750)
+      top = 100
+      height = 200
+      resize()
+      expect(top).toBe(100)
+      view.unmount()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
 })
