@@ -241,7 +241,9 @@ export function SettingsTab() {
         <CardHeader>
           <CardTitle>ダッシュボード表示設定</CardTitle>
           <CardDescription>
-            ダッシュボードに表示するセクションとKPI項目を選びます。利用者ごとに保存され、別の端末でも同じ表示になります。
+            {process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+              ? "ダッシュボードに表示する項目を試せます。デモでの変更は画面内のみの反映で、再読み込みすると元に戻ります。別の端末には共有されません。"
+              : "ダッシュボードに表示するセクションとKPI項目を選びます。利用者ごとに保存され、別の端末でも同じ表示になります。"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
