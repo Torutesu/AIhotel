@@ -307,7 +307,7 @@ export function MainLayout() {
         </header>
 
         {/* Main Content Area */}
-        <main ref={mainRef} id="main-content" tabIndex={-1} className="app-main min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <main ref={mainRef} id="main-content" tabIndex={-1} className="app-main relative min-h-0 min-w-0 flex-1 overflow-y-auto">
           <DemoModeBanner />
           <TrialBanner />
           {/* タブごとにエラー境界で囲む。key でタブを切り替えたら境界の状態も戻す（#91） */}
