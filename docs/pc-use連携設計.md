@@ -81,20 +81,31 @@ AI サービスへ送るのは画面部品の構造情報（項目名・ラベ�
 
 | 設定 | 効果 |
 |---|---|
-| `permissions.deny` に**素のツール名**を書く | そのツールが Claude に渡される情報から取り除かれ、AI からは存在しなくなる（「A bare tool name like `Bash` removes the tool from Claude's context entirely, so Claude never sees it」）。`Bash` / `Write` / `Edit` / `WebFetch` / `WebSearch` をこれで消す |
+| `permissions.deny` に**素のツール名**を書く | そのツールが Claude に渡される情報から取り除かれ、AI からは存在しなくなる（「A bare tool name like `Bash` removes the tool from Claude's context entirely, so Claude never sees it」） |
+| **Windows では `PowerShell` も deny する** | `Bash` だけでは不十分。Git Bash が無い環境ではシェル実行が PowerShell ツール経由になる（公式ドキュメントも「Match `Bash|PowerShell` in hooks that inspect shell commands; matching `Bash` alone is not enough」と明記）。あわせて `CLAUDE_CODE_USE_POWERSHELL_TOOL=0`、および Git for Windows を入れない |
 | `permissions.allow` に `mcp__agent-desktop__*` | agent-desktop のツールのみ自動承認。allow の glob は `mcp__<server>__` 接頭辞の後ろにしか書けないため、サーバを特定した許可になる |
 | `permissions.defaultMode` を `dontAsk` | 許可されていない操作は確認を求めず**拒否**される。無人実行で人の判断を待って止まらない |
 | `permissions.blockReadsOutsideWorkingDirectories` / `...blockWritesOutsideWorkingDirectories` を `true` | 作業ディレクトリ外のパスを全権限モードで拒否。`bypassPermissions` でも効き、どのスコープの `true` も優先される |
 | `permissions.disableBypassPermissionsMode` を `"disable"` | 権限確認を省略するモードを使えなくする |
 | `env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | 自動更新・利用統計・エラー報告・フィーチャーフラグ取得を止める |
-| managed settings（`managed-settings.json` / MDM） | 顧客の情報システム部門が配布すれば、当社側の設定では上書きできない |
+| managed settings（`managed-settings.json` / MDM / claude.ai 管理コンソール） | 顧客の情報システム部門が配布すれば、当社側の設定では上書きできない。Windows では `C:\Program Files\ClaudeCode\managed-settings.json` と `HKLM\SOFTWARE\Policies\ClaudeCode` が書き込みに管理者権限を要するため改変耐性がある |
+| `allowManagedPermissionRulesOnly` | 権限ルールの出所を managed settings だけに限定する。当社が置く設定ファイルの権限ルールは読まれなくなる |
+| `allowManagedMcpServersOnly` ＋ `allowedMcpServers` | 接続できる MCP サーバを agent-desktop だけに限定 |
+| `allowManagedHooksOnly` / `strictPluginOnlyCustomization` | フック・スキル・サブエージェントの出所を限定 |
+| `requiredMinimumVersion` / `requiredMaximumVersion` | 指定バージョン以外では起動を拒否。当社の「固定して配布する」より強い |
+| `forceLoginMethod` / `forceLoginOrgUUID` | ログイン先を顧客の組織に限定。いずれかを設定すると `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `apiKeyHelper` による認証は起動時に遮断される |
 
 重要な順序の注意: **deny → ask → allow の順で評価され、allow は deny の例外を作れない。**
 したがって `deny: ["*"]` ＋ `allow: ["mcp__agent-desktop__*"]` は成立しない（全部拒否になる）。
 消したいツールを個別に列挙すること。
 
-`PreToolUse` フックでの追加検査も可能だが、フックの `allow` は deny ルールを覆せないため、
-あくまで deny の上積みとして使う。
+列挙方式は、将来のバージョンで新しいツールが増えたときに取りこぼす。`PreToolUse` フックで
+agent-desktop 以外の呼び出しを拒否する多重防御を併せて置く。フックの `allow` は deny ルールを
+覆せないため、この併用で設定が弱まることはない。
+
+**ネイティブ Windows ではサンドボックス機能が使えない**（WSL 2 のみ対応）。OS レベルの
+ネットワーク遮断はできないため、接続先の限定は顧客側のプロキシ／ファイアウォールに依存する。
+Claude Code 側は Web 取得・検索とシェル実行のツールを取り除くことで、AI から外部へ出る手段を無くす。
 
 ### 5.2 プログラム側で担保する
 
