@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""レベスト 営業資料 B：レベニューマネージャー・支配人向け（実務者）"""
+"""レブスト 営業資料 B：レベニューマネージャー・支配人向け（実務者）"""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import bar, src, weight_dots, render
 
-SPEC = "レベスト機能仕様（2026年9月時点）"
+SPEC = "レブスト機能仕様（2026年9月時点）"
 CHIPS = ["朝の確認", "価格の決定", "需要の読み取り", "設定と報告"]
 
 def B(active):
@@ -50,7 +50,7 @@ S = []
 S.append(dict(kind="cover", head=bar("レベニューマネージャー・支配人向け　2026年9月"), body="""
   <div class="big">明日の客室料金を決めるまでを、<br>ひと続きの流れでたどる</div>
   <div class="rule"></div>
-  <div class="sub">レベスト｜ホテル収益管理システム</div>
+  <div class="sub">レブスト｜ホテル収益管理システム</div>
 """))
 
 # ── P1 全体マップ ──
@@ -149,7 +149,7 @@ S.append(dict(kind="body", head=B("価格の決定"), body="""
         </table>
       </div>
     </div>
-""" + src("料金ランクは最大40段階。マネージャー以上は推奨ADRへの一括リセットを行える　／　レベスト機能仕様（2026年9月時点）") + """
+""" + src("料金ランクは最大40段階。マネージャー以上は推奨ADRへの一括リセットを行える　／　レブスト機能仕様（2026年9月時点）") + """
   </div>
 """))
 
@@ -174,7 +174,7 @@ S.append(dict(kind="body", head=B("価格の決定"), body="""
         </ul>
       </div>
     </div>
-""" + src("設定を変えられるのはマネージャー以上。過去の日付は計算し直さない　／　レベスト機能仕様（2026年9月時点）") + """
+""" + src("設定を変えられるのはマネージャー以上。過去の日付は計算し直さない　／　レブスト機能仕様（2026年9月時点）") + """
   </div>
 """))
 
@@ -201,7 +201,7 @@ S.append(dict(kind="body", head=B("価格の決定"), body="""
         </ul>
       </div>
     </div>
-""" + src("予測ADRが無い日は、その日の推奨ADRを代わりに使う　／　レベスト機能仕様（2026年9月時点）") + """
+""" + src("予測ADRが無い日は、その日の推奨ADRを代わりに使う　／　レブスト機能仕様（2026年9月時点）") + """
   </div>
 """))
 
@@ -244,7 +244,7 @@ S.append(dict(kind="body", head=B("需要の読み取り"), body="""
         <td>曜日ごとの価格を表にして横並びにする</td>
         <td>週末の価格差が、平日と同じ幅で付いているかを確かめる</td></tr>
     </table>
-""" + src("登録した競合は、OTA（オンライン旅行会社）ごとのURLを持てる　／　レベスト機能仕様（2026年9月時点）") + """
+""" + src("登録した競合は、OTA（オンライン旅行会社）ごとのURLを持てる　／　レブスト機能仕様（2026年9月時点）") + """
   </div>
 """))
 
@@ -280,11 +280,11 @@ S.append(dict(kind="body", head=bar(chips=CHIPS), body="""
 
 # ── 裏表紙 ──
 S.append(dict(kind="back", head=bar("　"), body="""
-  <div class="big" style="margin-top:60mm;font-size:22pt">レベスト</div>
+  <div class="big" style="margin-top:60mm;font-size:22pt">レブスト</div>
   <div class="sub">ホテル収益管理システム</div>
   <div class="src" style="position:absolute;left:16mm;bottom:14mm">本資料は consulting-pptx-skill（github.com/carnot-tech/consulting-pptx-skill）で作成</div>
 """))
 
 html, pages = render(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'revest_jitsumusha.html'),
-                     "レベスト 営業資料｜レベニューマネージャー・支配人向け", S)
+                     "レブスト 営業資料｜レベニューマネージャー・支配人向け", S)
 print("pages:", pages, "slides:", len(S))

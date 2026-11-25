@@ -123,3 +123,6 @@ temp/
 .localhost/
 # Claude Code のエージェント用 worktree
 .claude/worktrees/
+
+# Python
+__pycache__/

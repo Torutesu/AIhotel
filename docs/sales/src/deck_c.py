@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
-"""レベスト 営業資料 C：販売代理店・パートナー向け"""
+"""レブスト 営業資料 C：販売代理店・パートナー向け"""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import bar, src, render
 
-SPEC = "レベスト機能仕様（2026年9月時点）"
+SPEC = "レブスト機能仕様（2026年9月時点）"
 S = []
 
 S.append(dict(kind="cover", head=bar("販売代理店・パートナー向け　2026年9月"), body="""
   <div class="big">勘に頼っていた客室料金の判断を、<br>数字で決める仕組みとして売る</div>
   <div class="rule"></div>
-  <div class="sub">レベスト｜ホテル収益管理システム</div>
+  <div class="sub">レブスト｜ホテル収益管理システム</div>
 """))
 
 # ── P1 提供範囲 ──
 S.append(dict(kind="body", head=bar("何を売るか"), body="""
-  <h1>レベストが扱うのは、実績の可視化・価格の決定・需要の把握・月次の報告</h1>
+  <h1>レブストが扱うのは、実績の可視化・価格の決定・需要の把握・月次の報告</h1>
   <div class="c" style="justify-content:center">
     <div class="pil grid g4 fix">
       <div class="p"><span class="pt">実績の可視化</span><span class="px">室料売上・販売室数・ADR（平均客室単価）・稼働率・REV-Per（販売可能客室1室あたりの収益。RevPARと同じ指標）などを月別に並べ、予算比と前年比を同じ画面で確認できる</span></div>
@@ -53,7 +53,7 @@ S.append(dict(kind="body", head=bar("顧客のなかでの使われ方"), body="
     <div class="legend"><span><span class="hb q4"><i></i></span>できる</span><span><span class="hb q2"><i></i></span>一部できる（対象が限られる）</span><span><span class="hb q0"><i></i></span>できない</span></div>
     <table>
       <tr><th class="ax" style="width:42mm">ロール</th><th class="hbc" style="width:26mm">実績の閲覧</th><th class="hbc" style="width:26mm">設定の変更</th><th class="hbc" style="width:30mm">ユーザー管理</th><th class="hbc" style="width:32mm">他社のデータ</th><th>誰が持つか</th></tr>
-      <tr><td class="ax">運営</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td>レベストを提供する当社が持つ。顧客にもパートナーにも渡さない</td></tr>
+      <tr><td class="ax">運営</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td>レブストを提供する当社が持つ。顧客にもパートナーにも渡さない</td></tr>
       <tr><td class="ax">管理者</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>契約企業の情報システム担当や経営企画が持つ</td></tr>
       <tr><td class="ax">マネージャー</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q2"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>支配人やレベニュー担当が持つ。管理者の権限は付与できない</td></tr>
       <tr><td class="ax">オペレーター</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q2"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>フロント担当が持つ。設定のうち変えられるのはイベントだけで、価格の設定には触れない</td></tr>
@@ -116,7 +116,7 @@ S.append(dict(kind="body", head=bar("構築と運用"), body="""
       <div class="cv"><span class="n">3</span><span class="t">データベースの整合</span><span class="x">データベースの定義と更新手順がずれていないかを検査し、初期データを何度投入しても同じ状態になることを確かめる</span></div>
       <div class="cv"><span class="n">4</span><span class="t">ビルドと監査</span><span class="x">両方のビルドと依存関係の脆弱性監査、本番用Dockerイメージの構築まで通す</span></div>
     </div>
-""" + src("4段はすべて必須で、1つでも失敗した変更は製品に反映しない　／　レベストの継続的インテグレーション設定（2026年9月時点）") + """
+""" + src("4段はすべて必須で、1つでも失敗した変更は製品に反映しない　／　レブストの継続的インテグレーション設定（2026年9月時点）") + """
   </div>
 """))
 
@@ -188,16 +188,16 @@ S.append(dict(kind="body", head=bar("次に決めること"), body="""
         <td>デモに使う環境を、パートナー側に常設するかどうか</td>
         <td>サンプルデータを入れた環境を用意し、画面を触りながら説明できる形にする</td></tr>
     </table>
-""" + src("レベスト機能仕様（2026年9月時点）。当社の考えは提案であり、実測値にもとづくものではない") + """
+""" + src("レブスト機能仕様（2026年9月時点）。当社の考えは提案であり、実測値にもとづくものではない") + """
   </div>
 """))
 
 S.append(dict(kind="back", head=bar("　"), body="""
-  <div class="big" style="margin-top:60mm;font-size:22pt">レベスト</div>
+  <div class="big" style="margin-top:60mm;font-size:22pt">レブスト</div>
   <div class="sub">ホテル収益管理システム</div>
   <div class="src" style="position:absolute;left:16mm;bottom:14mm">本資料は consulting-pptx-skill（github.com/carnot-tech/consulting-pptx-skill）で作成</div>
 """))
 
 html, pages = render(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'revest_partner.html'),
-                     "レベスト 営業資料｜販売代理店・パートナー向け", S)
+                     "レブスト 営業資料｜販売代理店・パートナー向け", S)
 print("pages:", pages, "slides:", len(S))

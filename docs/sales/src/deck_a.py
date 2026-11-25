@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""レベスト 営業資料 A：ホテル運営会社の経営層向け（初回商談）"""
+"""レブスト 営業資料 A：ホテル運営会社の経営層向け（初回商談）"""
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import bar, src, weight_dots, render
 
 SRC_ISSUE = "初期導入先の運営会社との要件定義で整理した論点（2026年7月）"
-SRC_SPEC = "レベスト機能仕様（2026年9月時点）"
+SRC_SPEC = "レブスト機能仕様（2026年9月時点）"
 
 S = []
 
@@ -13,7 +13,7 @@ S = []
 S.append(dict(kind="cover", head=bar("経営層向け　2026年9月"), body="""
   <div class="big">担当者の経験で決めている客室料金を、<br>運用の仕組みに移す</div>
   <div class="rule"></div>
-  <div class="sub">レベスト｜ホテル収益管理システム</div>
+  <div class="sub">レブスト｜ホテル収益管理システム</div>
 """))
 
 # ── P1 課題 ───────────────────────────────────────────
@@ -65,8 +65,8 @@ S.append(dict(kind="body", head=bar("収益管理の現状"), body="""
 """))
 
 # ── P3 提供範囲（柱＋土台） ─────────────────────────────
-S.append(dict(kind="body", head=bar("レベストの提供範囲"), body="""
-  <h1>レベストは、実績・価格・需要・報告を同じシステムにまとめる</h1>
+S.append(dict(kind="body", head=bar("レブストの提供範囲"), body="""
+  <h1>レブストは、実績・価格・需要・報告を同じシステムにまとめる</h1>
   <div class="c" style="justify-content:center">
     <div class="pil grid g4 fix">
       <div class="p"><span class="pt">ダッシュボード</span><span class="px">室料売上・ADR・稼働率・REV-Per（販売可能客室1室あたりの収益。RevPARと同じ指標）など8つの指標を月別に並べ、予算比と前年比を同じ画面で確認できる</span></div>
@@ -81,7 +81,7 @@ S.append(dict(kind="body", head=bar("レベストの提供範囲"), body="""
 """))
 
 # ── P4 重み付け ────────────────────────────────────────
-S.append(dict(kind="body", head=bar("レベストの提供範囲"), body="""
+S.append(dict(kind="body", head=bar("レブストの提供範囲"), body="""
   <h1>稼働率・ADR・競合追従度の重みを合計100%で決め、<br>価格の根拠を設定として残す</h1>
   <div class="c">
     <div class="two" style="grid-template-columns:1.45fr auto 1fr">
@@ -101,7 +101,7 @@ S.append(dict(kind="body", head=bar("レベストの提供範囲"), body="""
         </ul>
       </div>
     </div>
-""" + src("重みの合計が100%にならない設定は保存できない　／　レベスト機能仕様（2026年9月時点）") + """
+""" + src("重みの合計が100%にならない設定は保存できない　／　レブスト機能仕様（2026年9月時点）") + """
   </div>
 """))
 
@@ -115,7 +115,7 @@ S.append(dict(kind="body", head=bar("複数施設での運用"), body="""
         <div class="cm">施設ごとの事情を残したまま、全社を横断して見る</div>
       </div>
       <div class="sb">
-        <div class="axh"><span>単位ごとに決まること</span><span class="u">レベストの設定構造</span></div>
+        <div class="axh"><span>単位ごとに決まること</span><span class="u">レブストの設定構造</span></div>
         <table>
           <tr><th class="ax" style="width:36mm">設定の単位</th><th style="width:34mm">役割</th><th>そこで決まること</th></tr>
           <tr><td class="ax">契約企業</td><td class="b">契約の単位</td><td>所属する施設とユーザーをまとめる。この境界の外のデータは参照できない</td></tr>
@@ -124,7 +124,7 @@ S.append(dict(kind="body", head=bar("複数施設での運用"), body="""
         </table>
       </div>
     </div>
-""" + src("週末の既定は金曜・土曜で、施設ごとに変更できる　／　レベスト機能仕様（2026年9月時点）") + """
+""" + src("週末の既定は金曜・土曜で、施設ごとに変更できる　／　レブスト機能仕様（2026年9月時点）") + """
   </div>
 """))
 
@@ -135,7 +135,7 @@ S.append(dict(kind="body", head=bar("複数施設での運用"), body="""
     <div class="legend"><span><span class="hb q4"><i></i></span>できる</span><span><span class="hb q2"><i></i></span>一部できる</span><span><span class="hb q0"><i></i></span>できない</span></div>
     <table>
       <tr><th class="ax" style="width:44mm">ロール</th><th class="hbc" style="width:26mm">実績の閲覧</th><th class="hbc" style="width:26mm">設定の変更</th><th class="hbc" style="width:30mm">ユーザー管理</th><th class="hbc" style="width:32mm">他社のデータ</th><th>権限が及ぶ範囲</th></tr>
-      <tr><td class="ax">運営</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td>レベストを提供する当社が持つ。顧客には渡さない</td></tr>
+      <tr><td class="ax">運営</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td>レブストを提供する当社が持つ。顧客には渡さない</td></tr>
       <tr><td class="ax">管理者</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>自社のなかで最上位。施設の追加とユーザー登録を行う</td></tr>
       <tr><td class="ax">マネージャー</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q2"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>価格戦略・料金ランク・予算・競合を変える。他のユーザーに管理者の権限は付与できない</td></tr>
       <tr><td class="ax">オペレーター</td><td class="hbc"><span class="hb q4"><i></i></span></td><td class="hbc"><span class="hb q2"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td class="hbc"><span class="hb q0"><i></i></span></td><td>イベントの登録とアラートの確認を行う。価格は変えない</td></tr>
@@ -161,7 +161,7 @@ S.append(dict(kind="body", head=bar("導入の進め方"), body="""
         <td><ul class="cb"><li>現行の価格決定と並走し、ずれを指摘する</li></ul></td></tr>
       <tr><td class="ax">本運用</td>
         <td><ul class="cb"><li>問い合わせに対応し、設定変更を支援する</li></ul></td>
-        <td><ul class="cb"><li>日々の価格決定でレベストの画面を使う</li></ul></td></tr>
+        <td><ul class="cb"><li>日々の価格決定でレブストの画面を使う</li></ul></td></tr>
     </table>
 """ + src(SRC_SPEC) + """
   </div>
@@ -186,17 +186,17 @@ S.append(dict(kind="body", head=bar("次に決めること"), body="""
         <td>レベニュー担当に絞るか、支配人まで、あるいは現場のフロント担当まで広げるか</td>
         <td>閲覧とイベント登録だけのオペレーターロールがあるため、フロント担当まで広げても設定は守られる</td></tr>
     </table>
-""" + src("レベスト機能仕様（2026年9月時点）。当社の考えは提案であり、実測値にもとづくものではない") + """
+""" + src("レブスト機能仕様（2026年9月時点）。当社の考えは提案であり、実測値にもとづくものではない") + """
   </div>
 """))
 
 # ── 裏表紙 ────────────────────────────────────────────
 S.append(dict(kind="back", head=bar("　"), body="""
-  <div class="big" style="margin-top:60mm;font-size:22pt">レベスト</div>
+  <div class="big" style="margin-top:60mm;font-size:22pt">レブスト</div>
   <div class="sub">ホテル収益管理システム</div>
   <div class="src" style="position:absolute;left:16mm;bottom:14mm">本資料は consulting-pptx-skill（github.com/carnot-tech/consulting-pptx-skill）で作成</div>
 """))
 
 html, pages = render(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'revest_keieiso.html'),
-                     "レベスト 営業資料｜経営層向け", S)
+                     "レブスト 営業資料｜経営層向け", S)
 print("pages:", pages, "slides:", len(S))

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""レベスト営業資料の共通ビルダー。consulting-pptx-skill の基本パーツ集（.s 系）1家系のみで組む。"""
+"""レブスト営業資料の共通ビルダー。consulting-pptx-skill の基本パーツ集（.s 系）1家系のみで組む。"""
 import io, os, re
 
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -75,7 +75,7 @@ HEAD = """<!DOCTYPE html>
 """
 TAIL = "</main>\n</body></html>\n"
 
-BRAND = "レベスト"
+BRAND = "レブスト"
 
 
 def bar(kicker=None, chips=None, active=None):
