@@ -14,10 +14,10 @@ import { useAuth } from "@/components/auth-provider"
 import { ApiClientError } from "@/lib/api"
 import { BrandLogo } from "@/components/brand-logo"
 
-export function LoginForm() {
+export function LoginForm({ audience = "hotel" }: { audience?: "hotel" | "operations" }) {
   const { login } = useAuth()
   const params = useSearchParams()
-  const personalTrial = process.env.NEXT_PUBLIC_DEMO_MODE === "true" && params.has("trial")
+  const personalTrial = audience !== "operations" && process.env.NEXT_PUBLIC_DEMO_MODE === "true" && params.has("trial")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -47,7 +47,7 @@ export function LoginForm() {
         <CardHeader>
           <BrandLogo className="mb-4" />
           <h1 className="text-2xl font-semibold">ログイン</h1>
-          <CardDescription>{personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
+          <CardDescription>{audience === "operations" ? "運営アカウントでログインしてください。顧客向けアカウントでは利用できません。" : personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>

@@ -30,7 +30,7 @@ const EXTEND_DAYS = 30
 const SOON_DAYS = 7
 
 const formatDate = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleDateString("ja-JP", { year: "numeric", month: "numeric", day: "numeric" }) : "—"
+  iso ? new Date(iso).toLocaleDateString("ja-JP", { year: "numeric", month: "numeric", day: "numeric", timeZone: "Asia/Tokyo" }) : "—"
 
 export function trialStatusBadge(trial: TrialSummary): { label: string; variant: "secondary" | "destructive" | "outline" } {
   if (trial.status === "SUSPENDED") return { label: "停止中", variant: "outline" }
@@ -206,7 +206,7 @@ export function TrialManagementSection() {
                       </td>
                       <td className="block py-2 text-xs md:table-cell md:whitespace-nowrap md:pr-3">
                         <span className="mb-1 block text-muted-foreground md:hidden">最終ログイン</span>
-                        {trial.lastLoginAt ? new Date(trial.lastLoginAt).toLocaleString("ja-JP") : "未ログイン"}
+                        {trial.lastLoginAt ? new Date(trial.lastLoginAt).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" }) : "未ログイン"}
                       </td>
                       <td className="col-span-2 block py-2 md:table-cell">
                         <div className="flex flex-wrap gap-1">

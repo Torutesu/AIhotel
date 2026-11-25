@@ -25,7 +25,7 @@ export function DemoModeBanner() {
     >
       <Info className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
       <span>
-        デモモードで表示しています。バックエンドに接続できないため、画面のデータはすべてサンプルです。
+        デモモード：売上・予約・需要予測などのホテル業務データはサンプルです。アカウントの期限と利用記録は実際の情報です。
       </span>
     </div>
   )

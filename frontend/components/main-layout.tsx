@@ -58,7 +58,7 @@ const SIDEBAR_COLLAPSED_KEY = "hrms.sidebarCollapsed"
 /** タブごとのブラウザタブ表示名（F-8） */
 const TAB_TITLES: Record<Tab, string> = {
   dashboard: "ダッシュボード",
-  pricing: "ダイナミックプライシング",
+  pricing: "料金設定",
   analysis: "分析",
   reports: "レポート",
   "ai-summary": "外部需要動向",
@@ -82,7 +82,7 @@ export function MainLayout() {
     desktop.addEventListener("change", closeOnDesktop)
     return () => desktop.removeEventListener("change", closeOnDesktop)
   }, [])
-  // 分析タブの日付からダイナミックプライシングへ遷移する際の対象日
+  // 分析タブの日付から料金設定へ遷移する際の対象日
   const [pricingFocusDate, setPricingFocusDate] = useState<Date | null>(null)
   // ログアウト確認ダイアログ（F-5）
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
@@ -157,7 +157,7 @@ export function MainLayout() {
   }
 
   if (!user) {
-    return <LoginForm />
+    return <LoginForm audience={process.env.NEXT_PUBLIC_DEMO_ADMIN_CONSOLE === "true" ? "operations" : "hotel"} />
   }
 
   // 一時パスワードでログインした直後は、パスワードを変えるまで他の画面を使えない（#89）

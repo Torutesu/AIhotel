@@ -1,36 +1,15 @@
-// デモモード用の AI チャットの答え（NEXT_PUBLIC_DEMO_MODE=true でバックエンドに接続できないときだけ使われる）。
-// 本番は POST /api/v1/chat が Claude API でホテルのデータから答える（D-13）。ここの数字はすべてサンプル
-
+// Fixed demo guidance: never present invented values or unavailable features as facts.
 export function mockChatReply(query: string): string {
-  const lowerQuery = query.toLowerCase()
-
-  if (lowerQuery.includes("稼働率") || lowerQuery.includes("occupancy")) {
-    return "現在の稼働率は82.5%です。前月比-2.1%とやや低下していますが、週末は95%以上を維持しています。平日の稼働率向上のため、ビジネス客向けプロモーションの実施を推奨します。"
+  const q = query.toLowerCase()
+  const notice = "デモ用の回答例です。実際のホテルデータを分析した結果ではありません。\n\n"
+  if (q.includes("レポート") || q.includes("report")) {
+    return notice + "レポート画面では月次レポートの対象年月を選べます。PDF・Excelの出力には実APIへの接続が必要で、現在の公開デモでは出力できません。四半期レポート・CSV出力・自動配信は提供していません。"
   }
-
-  if (lowerQuery.includes("adr") || lowerQuery.includes("平均客室単価")) {
-    return "現在のADRは¥18,250です。前年同月比+3.2%と好調に推移しています。競合の価格水準（中央値）が¥17,800であることを考慮すると、さらに5-8%の値上げ余地があると分析しています。"
-  }
-
-  if (lowerQuery.includes("価格") || lowerQuery.includes("プライシング") || lowerQuery.includes("料金")) {
-    return "ダイナミックプライシング分析によると、4月5日（土）は需要が非常に高いため、現在価格¥24,000から¥26,500への値上げを推奨します。これにより約10.4%の増収が見込まれます。"
-  }
-
-  if (lowerQuery.includes("チャネル") || lowerQuery.includes("予約")) {
-    return "公式サイトが全体の38.5%を占め、最も重要な予約チャネルとなっています。公式アプリの成長率が+24.8%と突出しており、モバイル戦略の強化が効果を発揮しています。"
-  }
-
-  if (lowerQuery.includes("収益") || lowerQuery.includes("売上") || lowerQuery.includes("revenue")) {
-    return "今月の室料売上は¥12,450,000で、予算比+8.5%、前年比+12.3%と好調です。ADRの上昇が主な要因で、価格戦略が効果的に機能しています。"
-  }
-
-  if (lowerQuery.includes("レポート") || lowerQuery.includes("report")) {
-    return "レポートタブから月次レポート、四半期レポート、カスタムレポートを生成できます。PDF、Excel、CSV形式でのエクスポートに対応しています。定期レポートの自動配信設定も可能です。"
-  }
-
-  if (lowerQuery.includes("予測") || lowerQuery.includes("forecast")) {
-    return "AI予測によると、来月の稼働率は87.0%、ADRは¥18,333、室料売上は¥13,200,000に達する見込みです。地域イベントの開催により需要増加が期待されます。"
-  }
-
-  return "ご質問ありがとうございます。ダッシュボード、価格設定、日別分析、各種分析、レポートなど、システムの各機能についてサポートいたします。具体的にどのような情報をお探しですか？"
+  if (q.includes("稼働率") || q.includes("occupancy")) return notice + "稼働率は、販売した客室数を販売可能な客室数で割った割合です。ダッシュボードで予算・前年との差を、分析画面で日別の変化を確認できます。デモの数値はサンプルです。"
+  if (q.includes("adr") || q.includes("平均客室単価")) return notice + "ADRは、室料売上を販売客室数で割った平均客室単価です。ダッシュボードや分析画面で稼働率とあわせて確認してください。"
+  if (q.includes("料金") || q.includes("価格") || q.includes("プライシング")) return notice + "料金設定画面では、日別の需要予測や推奨料金を確認できます。実際の料金判断には予約状況・予算・競合価格を照合してください。このチャットから料金は変更されません。"
+  if (q.includes("予約") || q.includes("チャネル")) return notice + "分析画面で予約の積み上がりや日別の傾向を確認できます。PMS・OTAの自動連携は現在のデモには接続していません。実データの分析には取り込み・接続が必要です。"
+  if (q.includes("収益") || q.includes("売上") || q.includes("予算") || q.includes("revenue")) return notice + "ダッシュボードで室料売上・稼働率・ADRと予算との差を確認できます。表示されているデモの数値から、実際の収益改善効果を判断することはできません。"
+  if (q.includes("予測") || q.includes("需要") || q.includes("来月")) return notice + "料金設定画面と外部需要動向画面で、需要予測やイベント情報の表示例を確認できます。この固定回答は実際の将来需要を予測したものではありません。"
+  return notice + "ダッシュボード、料金設定、分析、月次レポートの使い方を確認できます。確認したい画面や指標を教えてください。"
 }

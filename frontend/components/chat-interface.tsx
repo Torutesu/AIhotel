@@ -124,7 +124,7 @@ function HotelChat({ isOpen, onClose, onRestoreFocus }: ChatInterfaceProps) {
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="AIアシスタントを閉じる"><X className="h-5 w-5" aria-hidden /></Button>
         </header>
         <DialogDescription className="shrink-0 border-b px-5 py-3 text-xs leading-relaxed">
-          このホテルの予算・需要予測・分析データをもとに回答します。料金や設定は変更しません。
+          実データ接続時はホテルの予算・需要予測・分析をもとに回答し、デモでは回答例を表示します。料金や設定は変更しません。
         </DialogDescription>
         <div ref={attachViewport} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5">
           {messages.length === 0 && (

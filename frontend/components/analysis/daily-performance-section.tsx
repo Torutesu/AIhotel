@@ -38,7 +38,7 @@ interface DailyPerformanceSectionProps {
   /** 対象月（"YYYY-MM"）。省略時は内部stateで管理する */
   targetMonth?: string
   onTargetMonthChange?: (value: string) => void
-  /** 日別テーブルの日付からダイナミックプライシング画面の同じ日へ遷移する */
+  /** 日別テーブルの日付から料金設定画面の同じ日へ遷移する */
   onNavigateToPricing?: (date: Date) => void
   /** 行・日付の選択で宿泊日が選ばれたことを親に伝える（予約動向のブッキングカーブを同じ日にそろえる。画面は移動しない） */
   onSelectStayDate?: (date: Date) => void
@@ -316,7 +316,7 @@ export function DailyPerformanceSection({
           <p className="text-xs text-muted-foreground">
             過去は実績、先の日は今の予約実数を、AIの想定・日割り予算・予算差異と項目ごとに並べます。「差異で見る」で予算差異・AI想定差異・前年比に切り替えます
             （料金カレンダーの「結果」「想定差異」はここへ移しました）。
-            行をクリックすると、下の日のグラフにその日を表示します。日付からダイナミックプライシングの同じ日へ移動できます。
+            行をクリックすると、下の日のグラフにその日を表示します。日付から料金設定の同じ日へ移動できます。
           </p>
         </CardHeader>
         <CardContent className="space-y-6 pt-0">
