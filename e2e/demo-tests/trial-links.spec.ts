@@ -50,5 +50,10 @@ test("個別URL・自動ID発行・再表示・別トライアルへの切替", 
   await visitor.getByLabel("パスワード", { exact: true }).fill(second.password)
   await visitor.getByRole("button", { name: "ログイン", exact: true }).click()
   await expect(visitor.getByRole("button", { name: "ダッシュボード", exact: true }).first()).toBeVisible()
+  await expect.poll(async () => {
+    const response = await page.request.get("/api/demo/usage")
+    const report = (await response.json()).data
+    return report.accounts.find((account: { id: string }) => account.id === second.trial.id)?.days.length ?? 0
+  }).toBeGreaterThan(0)
   await guest.close()
 })

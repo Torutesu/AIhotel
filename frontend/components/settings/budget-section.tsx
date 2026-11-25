@@ -322,7 +322,7 @@ export function BudgetSection() {
               <span>予算室数は稼働率と客室数から自動計算されます</span>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full min-w-[1100px] border-collapse text-xs">
                 <thead>
                   <tr className="border-b bg-muted/30">
