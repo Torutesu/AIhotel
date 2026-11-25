@@ -3,6 +3,7 @@
 // 需要構成インサイト（2026-10 PDF c分析02「インサイトは需要構成すべてにかかるコメントを」）。
 // チャネル・部屋タイプ・利用人数をまたいだコメント。D-13 で Claude API の実データに（analysis-insights.tsx）。
 
+import { MessageSquareText } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AnalysisInsightsBody } from "@/components/analysis/analysis-insights"
 import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysis/section-props"
@@ -10,12 +11,10 @@ import { useTargetPeriod, type AnalysisSectionProps } from "@/components/analysi
 export function CompositionInsightSection(props: AnalysisSectionProps) {
   const { targetPeriod } = useTargetPeriod(props)
   return (
-    <Card className="bg-[color:var(--sky-wash)]/25 border-[color:var(--cyan-edge)]/40">
+    <Card className="border-border bg-card">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base font-medium">
-          <span className="text-xl" aria-hidden>
-            🤖
-          </span>
+          <MessageSquareText className="h-5 w-5 shrink-0" aria-hidden="true" />
           需要構成インサイト
         </CardTitle>
         <p className="text-xs text-muted-foreground">チャネル・部屋タイプ・利用人数をまたいだ需要構成全体へのコメントです</p>

@@ -26,7 +26,7 @@ export function TrialBanner() {
       role="status"
       className={
         "flex items-center justify-center gap-2 border-b px-4 py-2 text-xs " +
-        (soon ? "border-warning/50 bg-warning/10 text-foreground" : "border-border bg-muted text-muted-foreground")
+        (soon ? "border-warning/50 bg-warning/10 text-foreground" : "border-border bg-background text-muted-foreground")
       }
     >
       <Clock className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />

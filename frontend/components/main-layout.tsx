@@ -45,7 +45,7 @@ import { parseDateStr } from "@/lib/date"
 
 const tabs = [
   { id: "dashboard" as const, label: "ダッシュボード", icon: LayoutDashboard },
-  { id: "pricing" as const, label: "ダイナミックプライシング", icon: TrendingUp },
+  { id: "pricing" as const, label: "料金設定", icon: TrendingUp },
   { id: "analysis" as const, label: "分析", icon: BarChart3 },
   { id: "reports" as const, label: "レポート", icon: FileText },
   { id: "ai-summary" as const, label: "外部需要動向", icon: Globe },
@@ -209,15 +209,15 @@ export function MainLayout() {
                 title={collapsed ? tab.label : undefined}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex w-full items-center gap-3 min-h-12 rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+                  "flex min-h-12 w-full cursor-pointer items-center gap-3 border-l-2 px-4 py-3 text-sm transition-colors",
                   collapsed && "lg:justify-center lg:px-0",
                   isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    ? "border-sidebar-foreground text-sidebar-foreground font-semibold"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-sidebar-foreground",
                 )}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" aria-hidden />
-                <span className={cn("text-left leading-6", collapsed && "lg:hidden")}>{tab.id === "pricing" ? <>ダイナミック<br />プライシング</> : tab.label}</span>
+                <span className={cn("text-left leading-6", collapsed && "lg:hidden")}>{tab.label}</span>
               </button>
             )
           })}
@@ -229,11 +229,11 @@ export function MainLayout() {
             aria-current={activeTab === "settings" ? "page" : undefined}
             title={collapsed ? "設定" : undefined}
             className={cn(
-              "flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+              "flex min-h-12 w-full cursor-pointer items-center gap-3 border-l-2 px-4 py-3 text-sm transition-colors",
               collapsed && "lg:justify-center lg:px-0",
               activeTab === "settings"
-                ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                ? "border-sidebar-foreground text-sidebar-foreground font-semibold"
+                : "border-transparent text-muted-foreground hover:border-border hover:text-sidebar-foreground",
             )}
           >
             <Settings className="h-5 w-5 flex-shrink-0" aria-hidden />
@@ -270,7 +270,7 @@ export function MainLayout() {
   return (
     <div className="flex h-dvh min-h-0 overflow-hidden bg-background">
       <a href="#main-content" className="skip-link">本文へ移動</a>
-      <aside aria-label="メインナビゲーション" className={cn("hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex", collapsed ? "w-[72px]" : "w-[272px]")}>{navigation}</aside>
+      <aside aria-label="メインナビゲーション" className={cn("hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex", collapsed ? "w-[72px]" : "w-[240px]")}>{navigation}</aside>
       <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <DialogContent showCloseButton={false} onCloseAutoFocus={(event) => { event.preventDefault(); menuRef.current?.focus() }} className="inset-y-0 left-0 top-0 flex h-dvh max-h-none w-[min(320px,calc(100vw-2rem))] max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none p-0 sm:max-w-none">
           <DialogTitle className="sr-only">メインメニュー</DialogTitle>

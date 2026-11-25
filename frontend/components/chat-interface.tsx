@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Send, X, Sparkles } from "lucide-react"
+import { Send, X, MessageSquareText } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { api, ApiClientError } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -101,7 +101,7 @@ export function ChatInterface({ isOpen, onClose }: ChatInterfaceProps) {
       <div className="flex items-center justify-between p-4 border-b border-border bg-muted/50">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
-            <Sparkles className="w-5 h-5 text-foreground" />
+            <MessageSquareText className="w-5 h-5 text-foreground" />
           </div>
           <div>
             <h3 className="font-heading font-medium tracking-tight">AIアシスタント</h3>

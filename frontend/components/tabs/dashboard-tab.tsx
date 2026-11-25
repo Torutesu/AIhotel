@@ -162,18 +162,10 @@ export function DashboardTab({ onAlertNavigate }: DashboardTabProps) {
       {/* 予測の準備状況（D-13）。準備完了でないときだけ出す */}
       <ForecastReadinessCard hideWhenFull />
       <div className="space-y-4">
-        {/* 上部は現在〜先々のお知らせ（PDF a01）: ホテル名・客室数・アラート・AI解説。対象年月には連動しない */}
+        {/* 上部は現在〜先々のお知らせ（PDF a01）: ホテル名・アラート・AI解説。対象年月には連動しない */}
         <div className="flex flex-wrap items-center gap-3">
           {hotel?.name && <h2 className="min-w-0 truncate text-lg font-semibold">{hotel.name}</h2>}
-          {totalRooms != null && (
-            <div className="ml-auto flex items-center gap-2 rounded-md bg-muted/50 px-3 py-1.5">
-              <p className="text-xs text-muted-foreground">客室数</p>
-              <div className="text-lg font-bold">
-                {totalRooms.toLocaleString()}
-                <span className="ml-0.5 text-sm font-semibold">室</span>
-              </div>
-            </div>
-          )}
+
         </div>
 
         {noticesError ? (

@@ -4,10 +4,10 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* OpenAI Developers style reference — stark white laboratory */
+  /* 白い作業面と最小限の区切りを基本にする。 */
   --background: #ffffff; /* paper white canvas */
   --foreground: #282828; /* graphite — repeated body/UI text */
-  --card: #f9f9f9; /* fog white */
+  --card: #ffffff; /* content surfaces stay white */
   --card-foreground: #282828;
   --popover: #ffffff;
   --popover-foreground: #282828;
@@ -21,7 +21,7 @@
   --accent-foreground: #181818;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #ededed; /* mist gray hairline */
+  --border: #e5e5e5; /* subtle separators on white */
   --input: #ededed;
   --ring: #0d0d0d; /* neutral ink — no chromatic accent on controls */
   /* グラフ/データ指標色は元のパレットに戻す */
@@ -54,7 +54,7 @@
 .dark {
   --background: #0d0d0d;
   --foreground: #ededed;
-  --card: #181818;
+  --card: #0d0d0d;
   --card-foreground: #ededed;
   --popover: #181818;
   --popover-foreground: #ededed;

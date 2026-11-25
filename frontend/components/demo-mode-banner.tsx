@@ -21,7 +21,7 @@ export function DemoModeBanner() {
   return (
     <div
       role="status"
-      className="flex items-center justify-center gap-2 border-b border-border bg-muted px-4 py-2 text-xs text-muted-foreground"
+      className="flex items-center justify-center gap-2 border-b border-border bg-background px-4 py-2 text-xs text-muted-foreground"
     >
       <Info className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
       <span>
