@@ -13,7 +13,7 @@ export function UsageDetails({ current, data, period, now, onClose }: { current?
   const model=current?usageOverview({...data,accounts:[current]},period,now):null
   return <Dialog open={!!current} onOpenChange={open=>{if(!open)onClose()}}><DialogContent className="min-w-0 sm:max-w-4xl">
     {current&&model&&<>
-      <DialogHeader><DialogTitle className="break-words">{current.name}の活用状況</DialogTitle><DialogDescription className="break-all">直近{period}日 · {current.email??'ホテル単位の集計'} · 日本時間</DialogDescription></DialogHeader>
+      <DialogHeader><DialogTitle className="break-words">{current.name}の活用状況</DialogTitle><DialogDescription className="break-all">直近{period}日 · {current.email??'対象範囲の集計'} · 日本時間</DialogDescription></DialogHeader>
       <dl className="grid grid-cols-2 gap-4 rounded-md border p-4 text-sm sm:grid-cols-4">{[
         ['利用日数',`${current.activeDays}日`],['閲覧 / 完了',`${current.views}回 / ${current.actions}回`],['最終操作',formatUsageTime(current.last)],['最終ログイン',current.lastLoginAt===undefined?'対象外':formatUsageTime(current.lastLoginAt)],
       ].map(([label,value])=><div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-2 tabular-nums">{value}</dd></div>)}</dl>

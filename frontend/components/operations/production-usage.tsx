@@ -25,7 +25,7 @@ export function ProductionUsage({platform}:{platform:boolean}) {
  const grouped=groupProductionUsage(scoped,grouping),model=usageOverview(grouped,period,now)
  const raw=usageOverview(scoped,period,now)
  const agencies=[...new Map(report.accounts.map(a=>[a.agencyId??'unassigned',a.agencyName??'未割り当て'])).entries()]
- const rows=model.accounts.filter(a=>`${a.name} ${a.email??''}`.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>b.total-a.total)
+ const rows=model.accounts.filter(a=>`${a.name} ${a.email??''} ${a.tenantName??''}`.toLowerCase().includes(query.toLowerCase())).sort((a,b)=>b.total-a.total)
  const users=new Set(raw.accounts.filter(a=>a.total>0&&a.userId).map(a=>a.userId)).size
  return <div className="min-w-0 space-y-6">
   <div className="flex flex-wrap gap-2"><div role="group" aria-label="本番の集計期間" className="flex gap-2">{[7,30,90].map(n=><Button key={n} variant={period===n?'default':'outline'} aria-pressed={period===n} onClick={()=>setPeriod(n)}>直近{n}日</Button>)}</div><Button variant="ghost" onClick={state.reload}>最新に更新</Button>{platform&&<Button variant="outline" onClick={()=>setAssigning(true)}>本番顧客の担当を設定</Button>}</div>
