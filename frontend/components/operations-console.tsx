@@ -1,5 +1,6 @@
 "use client"
 
+import { ProductionUsage } from "@/components/operations/production-usage"
 import { OperationsUsage } from "@/components/operations-usage"
 import Link from "next/link"
 import { useState } from "react"
@@ -40,6 +41,7 @@ export function OperationsConsole() {
 }
 
 function ConsoleContent({ onLogout, platform, name }: { onLogout: () => Promise<void>; platform: boolean; name: string }) {
+  const [usageSource,setUsageSource]=useState<'trial'|'customer'>('trial')
   const router = useRouter()
   const params = useSearchParams()
   const availableViews = views.filter(v => v.id !== "agencies" || (platform && isDemoModeEnabled()))
@@ -71,7 +73,7 @@ function ConsoleContent({ onLogout, platform, name }: { onLogout: () => Promise<
         {current.id === "customers" && (isDemoModeEnabled() ? <OperationsCustomers platform={platform} /> : <TenantManagementSection />)}
         {current.id === "agencies" && platform && <OperationsAgencies />}
         {current.id === "trials" && <TrialManagementSection platform={platform && isDemoModeEnabled()} />}
-        {current.id === "usage" && <OperationsUsage scope={platform ? "all" : "assigned"} />}
+        {current.id === "usage" && <><div role="group" aria-label="利用状況の対象" className="flex flex-wrap gap-2"><Button variant={usageSource==='trial'?'default':'outline'} aria-pressed={usageSource==='trial'} onClick={()=>setUsageSource('trial')}>トライアル</Button><Button variant={usageSource==='customer'?'default':'outline'} aria-pressed={usageSource==='customer'} onClick={()=>setUsageSource('customer')}>本番顧客</Button></div>{usageSource==='customer'?<ProductionUsage platform={platform}/>:<OperationsUsage scope={platform ? "all" : "assigned"} />}</>}
         {current.id === "overview" && <>
           {trials.error ? <ErrorState message={trials.error} onRetry={trials.reload} /> : trials.loading ? <p role="status">利用状況を読み込んでいます…</p> : <>
             <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{[

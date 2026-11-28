@@ -1078,3 +1078,11 @@ export const usageEventSchema = z.object({
   event: z.enum(['view_dashboard', 'view_pricing', 'view_analysis', 'view_reports', 'view_ai-summary', 'view_settings', 'pricing_saved', 'report_exported', 'chat_completed', 'chat_sent', 'chat_failed', 'chat_retried']),
 })
 export type UsageEventInput = z.infer<typeof usageEventSchema>
+
+// Server-to-server, read-only usage scope. Never supplied by a hotel browser.
+export const operationsUsageScopeSchema = z.object({
+  actorId: z.string().min(1).max(200),
+  role: z.enum(['PLATFORM_ADMIN','AGENCY']),
+  tenantIds: z.array(z.string().min(1).max(200)).max(500).optional(),
+}).strict().refine(v => v.role === 'PLATFORM_ADMIN' || v.tenantIds !== undefined, '代理店には担当範囲が必要です')
+export type OperationsUsageScope = z.infer<typeof operationsUsageScopeSchema>

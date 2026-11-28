@@ -55,6 +55,9 @@ export function resetDemoSharedStatus() {
 }
 
 export const demoShared = {
+  productionUsage: () => call<import('@shared/types').UsageReport>('/api/demo/production-usage'),
+  productionTenants: () => call<import('@shared/types').ProductionUsageTenant[]>('/api/demo/production-usage?view=tenants'),
+  assignProductionTenant: (tenantId:string, agencyId:string|null) => call('/api/demo/production-usage',{method:'PUT',body:JSON.stringify({tenantId,agencyId})}),
   usageReport: () => call<import("@shared/types").UsageReport>("/api/demo/usage"),
   operationsSession: () => call<OperationsIdentity>("/api/demo/admin/session"),
   agencies: () => call<AgencyAccount[]>("/api/demo/operations/agencies"),

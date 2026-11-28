@@ -806,5 +806,7 @@ export interface ReviewScore {
 
 export type UsageEventType = 'view_dashboard' | 'view_pricing' | 'view_analysis' | 'view_reports' | 'view_ai-summary' | 'view_settings' | 'pricing_saved' | 'report_exported' | 'chat_completed' | 'chat_sent' | 'chat_failed' | 'chat_retried'
 export interface UsageDay { day: string; counts: Partial<Record<UsageEventType, number>>; lastAt: string; lastByEvent?: Partial<Record<UsageEventType, string>>; events?: Array<{ event: UsageEventType; at: string }> }
-export interface UsageAccount { createdAt?: string; id: string; name: string; days: UsageDay[]; email?: string | null; lastLoginAt?: string | null; expiresAt?: string; status?: TrialStatus }
+export interface UsageAccount { userId?: string; userName?: string; userRole?: string; tenantId?: string; tenantName?: string; hotelId?: string; hotelName?: string; agencyId?: string | null; agencyName?: string; createdAt?: string; id: string; name: string; days: UsageDay[]; email?: string | null; lastLoginAt?: string | null; expiresAt?: string; status?: TrialStatus }
 export interface UsageReport { generatedAt?: string; startedAt: string | null; accounts: UsageAccount[]; source: 'trial' | 'customer' }
+
+export interface ProductionUsageTenant { id: string; name: string; isActive: boolean; agencyId?: string | null; agencyName?: string }
