@@ -27,6 +27,9 @@ test('operations: agency isolation, reassignment, revocation, and expired local 
   await page.getByRole('button',{name:'顧客を登録',exact:true}).click()
   await dialog.getByLabel('顧客名',{exact:true}).fill('A担当の顧客企業')
   await dialog.getByLabel('担当代理店',{exact:true}).selectOption(agency.account.id)
+  await dialog.getByLabel('A担当ホテル',{exact:true}).check()
+  await dialog.getByLabel('契約状況',{exact:true}).selectOption('TRIAL')
+  await dialog.getByLabel('対応履歴を追加').fill('初回操作の案内を実施')
   await dialog.getByRole('button',{name:'保存する',exact:true}).click()
   await expect(dialog).toHaveCount(0)
   await page.request.post('/api/demo/operations/customers',{data:{name:'B担当の非公開顧客',agencyId:b.account.id}})
@@ -51,6 +54,10 @@ test('operations: agency isolation, reassignment, revocation, and expired local 
   await agent.goto('http://localhost:3100/operations?section=customers')
   await expect(agent.getByText('A担当の顧客企業',{exact:true})).toBeVisible()
   await expect(agent.getByText('B担当の非公開顧客',{exact:true})).toHaveCount(0)
+  await agent.getByRole('button',{name:'顧客詳細',exact:true}).click()
+  await expect(agent.getByRole('dialog').getByText('初回操作の案内を実施',{exact:true})).toBeVisible()
+  await expect(agent.getByRole('dialog').getByText(/A担当ホテル/)).toBeVisible()
+  await agent.keyboard.press('Escape')
   console.info('agency QA: desktop isolation passed')
   // WebKit mobile: same authenticated session, both themes and every available page.
   const safari=await webkit.launch({ executablePath: webkit.executablePath() })
@@ -65,6 +72,14 @@ test('operations: agency isolation, reassignment, revocation, and expired local 
       await expect(phone.getByRole('button',{name:'ログアウト',exact:true})).toBeVisible()
       await phone.waitForTimeout(500)
       expect(await phone.evaluate(()=>document.documentElement.scrollWidth)).toBe(375)
+      if(section==='customers'){
+        await phone.getByRole('button',{name:'顧客詳細',exact:true}).click()
+        await expect(phone.getByRole('dialog').getByText('初回操作の案内を実施',{exact:true})).toBeVisible()
+        expect(await phone.getByRole('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+        await expect(phone.getByRole('dialog')).toHaveCSS('opacity','1')
+        await phone.screenshot({path:`test-results/customer-detail-${theme}.png`,fullPage:true,animations:'disabled'})
+        await phone.keyboard.press('Escape')
+      }
       await phone.screenshot({path:`test-results/agency-${theme}-${section}.png`,fullPage:true})
     }
   }

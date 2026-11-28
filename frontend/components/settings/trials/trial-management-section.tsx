@@ -3,7 +3,7 @@
 // トライアル（デモ）アカウントの管理（運営 = PLATFORM_ADMIN 専用）。
 // 販売店・営業先ホテルに渡す期限つきのログイン ID を、発行・延長・停止／再開・パスワード再発行・削除する。
 // 1件ごとに専用のデモホテル（デモデータ入り）を持つので、触られても他のトライアルや顧客には影響しない。
-// 期限を過ぎると使えなくなり、30日後に自動で削除される。
+// 期限を過ぎると使えなくなり、削除操作を行うまで保持される。
 
 import { useState } from "react"
 import { KeyRound, Pause, Play, Plus, Timer, Trash2 } from "lucide-react"
@@ -156,7 +156,7 @@ export function TrialManagementSection({ platform = false }: { platform?: boolea
           <CardTitle>トライアル一覧</CardTitle>
           <CardDescription>
             販売店・営業先ホテルに渡すデモ用のログイン ID を管理します。1件ごとにデモデータ入りの専用ホテルを持ち、
-            期限を過ぎるとログインできなくなります（30日後に自動で削除）。
+            期限を過ぎるとログインできなくなります。不要になったトライアルは削除してください。
           </CardDescription>
         </div>
         <Button size="sm" className="gap-2" onClick={() => setCreateOpen(true)}>

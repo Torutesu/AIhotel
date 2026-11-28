@@ -54,13 +54,14 @@ export async function createAgency(kv: DemoKv, actor: OperationsIdentity, input:
 }
 export async function updateAgency(kv: DemoKv, actor: OperationsIdentity, id: string, input: Record<string, unknown>) {
   requirePlatform(actor)
-  const account = (await accounts(kv)).find(a => a.id === id)
+  const before = (await kv.hgetall(ACCOUNTS))[id]
+  const account = before ? JSON.parse(before) as Account : undefined
   if (!account) throw new DemoTrialError(404, '代理店が見つかりません')
   if (typeof input.active === 'boolean') { account.active = input.active; account.signingKey = randomBytes(32).toString('hex') }
   if (input.name !== undefined) account.name = field(input, 'name', 100, true)
   let password: string | undefined
   if (input.resetPassword === true) { password = randomPassword() + randomPassword().slice(0, 4); account.passwordHash = await hashPassword(password); account.signingKey = randomBytes(32).toString('hex') }
-  await kv.hset(ACCOUNTS, id, JSON.stringify(account))
+  if (!await kv.hashCompareAndSet(ACCOUNTS, id, before, JSON.stringify(account))) throw new DemoTrialError(409, '別の管理者が更新しました。最新の状態を確認してから再操作してください')
   return { account: publicAccount(account), ...(password ? { password } : {}) }
 }
 export async function validateAgency(kv: DemoKv, id: unknown): Promise<string | null> {
@@ -81,7 +82,16 @@ export async function saveCustomer(kv: DemoKv, actor: OperationsIdentity, input:
   if (id && !existing) throw new DemoTrialError(404, '顧客が見つかりません')
   const agencyId = actor.role === 'AGENCY' ? actor.id : await validateAgency(kv, input.agencyId === undefined ? existing?.agencyId : input.agencyId)
   const merged = { ...existing, ...input }
-  const customer: OperationsCustomer = { id: id ?? randomBytes(12).toString('hex'), name: field(merged, 'name', 100, true), hotelName: field(merged, 'hotelName'), email: field(merged, 'email'), note: field(merged, 'note', 2000), agencyId, createdAt: existing?.createdAt ?? new Date().toISOString() }
+  const trialIds = merged.trialIds ?? []
+  if (!Array.isArray(trialIds) || trialIds.length > 50 || trialIds.some(t => typeof t !== 'string')) throw new DemoTrialError(400, 'トライアルの選択を確認してください')
+  const { listTrials } = await import('./service')
+  const allowed = await listTrials(kv, Date.now(), actor)
+  if (trialIds.some(id => !allowed.some(t => t.id === id && (t.agencyId ?? null) === agencyId))) throw new DemoTrialError(400, '担当代理店が同じトライアルのみ関連付けできます。担当変更時は関連付けを解除してください')
+  const contractStatus = merged.contractStatus ?? 'UNCONFIRMED'
+  if (!['UNCONFIRMED','TRIAL','ACTIVE','ENDED'].includes(String(contractStatus))) throw new DemoTrialError(400, '契約状況を確認してください')
+  const activity = field(input, 'activity', 2000)
+  const history = [...(existing?.history ?? []), ...(activity ? [{ at: new Date().toISOString(), text: activity }] : [])].slice(-100)
+  const customer: OperationsCustomer = { trialIds: [...new Set(trialIds)], contractStatus: contractStatus as OperationsCustomer['contractStatus'], history, id: id ?? randomBytes(12).toString('hex'), name: field(merged, 'name', 100, true), hotelName: field(merged, 'hotelName'), email: field(merged, 'email'), note: field(merged, 'note', 2000), agencyId, createdAt: existing?.createdAt ?? new Date().toISOString() }
   if (actor.role === 'PLATFORM_ADMIN' && input.agencyId !== undefined) await kv.hset('operations:customer-owners', customer.id, agencyId ?? '')
   await kv.hset(CUSTOMERS, customer.id, JSON.stringify(customer))
   return customer

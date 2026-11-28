@@ -35,5 +35,5 @@ export async function recordUsage(kv: DemoKv, cookie: string | undefined, event:
 }
 export async function usageReport(kv: DemoKv, actor?: OperationsIdentity): Promise<UsageReport> {
   const trials = await listTrials(kv, Date.now(), actor)
-  return { source: 'trial', generatedAt: new Date().toISOString(), startedAt: await kv.get('usage:startedAt'), accounts: await Promise.all(trials.map(async t => ({ id: t.id, name: t.name, email: t.loginEmail, lastLoginAt: t.lastLoginAt, expiresAt: t.expiresAt, status: t.status, days: (JSON.parse(await kv.get(`usage:trial:${t.id}`) ?? '[]') as UsageDay[]).filter(d => d.day >= new Date(Date.now() - 89 * 86400000 + 9 * 3600000).toISOString().slice(0,10)) }))) }
+  return { source: 'trial', generatedAt: new Date().toISOString(), startedAt: await kv.get('usage:startedAt'), accounts: await Promise.all(trials.map(async t => ({ createdAt: t.createdAt, id: t.id, name: t.name, email: t.loginEmail, lastLoginAt: t.lastLoginAt, expiresAt: t.expiresAt, status: t.status, days: (JSON.parse(await kv.get(`usage:trial:${t.id}`) ?? '[]') as UsageDay[]).filter(d => d.day >= new Date(Date.now() - 89 * 86400000 + 9 * 3600000).toISOString().slice(0,10)) }))) }
 }

@@ -804,7 +804,7 @@ export interface ReviewScore {
   capturedAt: string
 }
 
-export type UsageEventType = 'view_dashboard' | 'view_pricing' | 'view_analysis' | 'view_reports' | 'view_ai-summary' | 'view_settings' | 'pricing_saved' | 'report_exported' | 'chat_completed'
+export type UsageEventType = 'view_dashboard' | 'view_pricing' | 'view_analysis' | 'view_reports' | 'view_ai-summary' | 'view_settings' | 'pricing_saved' | 'report_exported' | 'chat_completed' | 'chat_sent' | 'chat_failed' | 'chat_retried'
 export interface UsageDay { day: string; counts: Partial<Record<UsageEventType, number>>; lastAt: string; lastByEvent?: Partial<Record<UsageEventType, string>>; events?: Array<{ event: UsageEventType; at: string }> }
-export interface UsageAccount { id: string; name: string; days: UsageDay[]; email?: string | null; lastLoginAt?: string | null; expiresAt?: string; status?: TrialStatus }
+export interface UsageAccount { createdAt?: string; id: string; name: string; days: UsageDay[]; email?: string | null; lastLoginAt?: string | null; expiresAt?: string; status?: TrialStatus }
 export interface UsageReport { generatedAt?: string; startedAt: string | null; accounts: UsageAccount[]; source: 'trial' | 'customer' }

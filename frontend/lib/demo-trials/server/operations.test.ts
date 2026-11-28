@@ -11,8 +11,9 @@ import { POST as reset } from '@/app/api/demo/trials/[id]/reset-password/route'
 import { PUT as assign } from '@/app/api/demo/trials/[id]/assignment/route'
 import { GET as getUsage } from '@/app/api/demo/usage/route'
 import { GET as getAgencies } from '@/app/api/demo/operations/agencies/route'
+import { handle, ok } from './http'
 import { GET as getCustomers } from '@/app/api/demo/operations/customers/route'
-import { PUT as editCustomer } from '@/app/api/demo/operations/customers/[id]/route'
+import { GET as getCustomerDetail, PUT as editCustomer } from '@/app/api/demo/operations/customers/[id]/route'
 const owner=platformIdentity()
 async function setup() {
  await adminLogin(kv,'test-owner-password',null)
@@ -96,4 +97,51 @@ describe('operations agency isolation',()=>{
   expect(JSON.stringify(await listAgencies(kv,owner))).not.toMatch(/password|signingKey/)
   await expect(createAgency(kv,owner,{name:'Again',email:' A@example.test '})).rejects.toMatchObject({status:409})
  })
+ it('rejects stale concurrent agency writes instead of undoing suspension',async()=>{
+  const {a}=await setup()
+  const original=kv.hashCompareAndSet.bind(kv)
+  let release!:()=>void
+  const paused=new Promise<void>(resolve=>{release=resolve})
+  let reached!:()=>void
+  const ready=new Promise<void>(resolve=>{reached=resolve})
+  kv.hashCompareAndSet=async(key,field,before,value)=>{
+   if(JSON.parse(value).name==='Changed'){reached();await paused}
+   return original(key,field,before,value)
+  }
+  const pending=updateAgency(kv,owner,a.account.id,{name:'Changed'})
+  await ready
+  await updateAgency(kv,owner,a.account.id,{active:false})
+  release()
+  await expect(pending).rejects.toMatchObject({status:409})
+  expect((await listAgencies(kv,owner)).find(x=>x.id===a.account.id)?.active).toBe(false)
+ })
+ it('links only same-owner trials and preserves append-only contact history',async()=>{
+  const {aa,bb}=await setup()
+  const own=await createTrial(kv,{name:'Own',kind:'PROSPECT_HOTEL'},Date.now(),aa.identity)
+  const other=await createTrial(kv,{name:'Other',kind:'PROSPECT_HOTEL'},Date.now(),bb.identity)
+  await expect(saveCustomer(kv,aa.identity,{name:'Customer',trialIds:[other.trial.id]})).rejects.toMatchObject({status:400})
+  const c=await saveCustomer(kv,aa.identity,{name:'Customer',trialIds:[own.trial.id],activity:'First contact'})
+  const updated=await saveCustomer(kv,aa.identity,{activity:'Follow up',history:[]},c.id)
+  expect(updated.history?.map(h=>h.text)).toEqual(['First contact','Follow up'])
+  const req=(cookie:string)=>new NextRequest(`https://admin.example.test/api/demo/operations/customers/${c.id}`,{headers:{cookie:`demo_admin=${cookie}`}})
+  const params={params:Promise.resolve({id:c.id})}
+  expect((await getCustomerDetail(req(bb.cookie),params)).status).toBe(404)
+  expect((await (await getCustomerDetail(req(aa.cookie),params)).json()).data.trials).toHaveLength(1)
+  await assignTrial(kv,own.trial.id,bb.identity.id)
+  const after=(await (await getCustomerDetail(req(aa.cookie),params)).json()).data
+  expect(after.trials).toEqual([])
+  expect(after.report.accounts).toEqual([])
+ })
+
+ it('returns issued credentials when only audit persistence fails',async()=>{
+  const {aa}=await setup()
+  const original=kv.hset.bind(kv)
+  kv.hset=async(key,field,value)=>{if(key==='operations:audit')throw new Error('audit unavailable');return original(key,field,value)}
+  const req=new NextRequest('https://admin.example.test/api/demo/trials',{method:'POST',headers:{cookie:`demo_admin=${aa.cookie}`}})
+  const response=await handle(req,{admin:true},async(kv,actor)=>ok(await createTrial(kv,{name:'Issued once',kind:'PROSPECT_HOTEL'},Date.now(),actor)))
+  expect(response.status).toBe(200)
+  expect((await response.json()).data.password).toBeTruthy()
+  expect(await listTrials(kv,Date.now(),aa.identity)).toHaveLength(1)
+ })
+
 })

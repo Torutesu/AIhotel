@@ -63,9 +63,10 @@ function HotelChat({ isOpen, onClose, onRestoreFocus }: ChatInterfaceProps) {
     observer.observe(viewport)
   }, [])
 
-  const send = async (history: Message[]) => {
+  const send = async (history: Message[], retry = false) => {
     if (!hotelId || pendingRef.current) return
     pendingRef.current = true
+    void trackUsage(retry ? "chat_retried" : "chat_sent", hotelId)
     setIsTyping(true)
     setError(null)
     try {
@@ -74,6 +75,7 @@ function HotelChat({ isOpen, onClose, onRestoreFocus }: ChatInterfaceProps) {
       void trackUsage("chat_completed", hotelId)
       setMessages((prev) => [...prev, { id: `${Date.now()}-a`, role: "assistant", content: reply, timestamp: new Date() }])
     } catch (err) {
+      void trackUsage("chat_failed", hotelId)
       setError(err instanceof ApiClientError && err.message ? err.message : "回答を取得できませんでした。もう一度お試しください。")
     } finally {
       pendingRef.current = false
@@ -149,7 +151,7 @@ function HotelChat({ isOpen, onClose, onRestoreFocus }: ChatInterfaceProps) {
             ))}
           </div>
           {isTyping && <p role="status" className="mt-5 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" aria-hidden />回答を作成しています…</p>}
-          {error && <div role="alert" className="mt-5 space-y-3 border-l-2 border-destructive pl-3 text-sm"><p>{error}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => void send(messages)} disabled={isTyping}>もう一度送る</Button><Button size="sm" variant="ghost" onClick={editFailedQuestion}>質問を編集</Button></div></div>}
+          {error && <div role="alert" className="mt-5 space-y-3 border-l-2 border-destructive pl-3 text-sm"><p>{error}</p><div className="flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => void send(messages, true)} disabled={isTyping}>もう一度送る</Button><Button size="sm" variant="ghost" onClick={editFailedQuestion}>質問を編集</Button></div></div>}
         </div>
         <form onSubmit={(event) => { event.preventDefault(); handleSend() }} className="shrink-0 space-y-2 border-t bg-background px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))]">
           <label htmlFor="chat-question" className="sr-only">質問</label>

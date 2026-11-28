@@ -90,7 +90,7 @@ export async function handle(
     }
     const response = await run(kv, actor!)
     if (actor && response.status < 400 && (request.method !== "GET" || /^\/api\/demo\/trials\/[^/]+$/.test(request.nextUrl.pathname))) {
-      await kv.hset("operations:audit", randomUUID(), JSON.stringify({ actorId: actor.id, role: actor.role, method: request.method, path: request.nextUrl.pathname, at: new Date().toISOString() }))
+      await kv.hset("operations:audit", randomUUID(), JSON.stringify({ actorId: actor.id, role: actor.role, method: request.method, path: request.nextUrl.pathname, at: new Date().toISOString() })).catch(() => { console.error("[operations:audit] 保存済みの操作の監査記録に失敗しました") })
     }
     return response
   } catch (err) {

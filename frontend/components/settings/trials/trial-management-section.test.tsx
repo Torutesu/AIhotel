@@ -77,7 +77,7 @@ describe("TrialManagementSection", () => {
     await waitFor(() => expect(screen.getByText("○○販売店")).toBeTruthy())
     expect(screen.getByText("お客様")).toBeTruthy()
     expect(screen.getByText("期限切れ")).toBeTruthy()
-    expect(screen.getByText(/自動削除/)).toBeTruthy()
+    expect(screen.getByText(/に自動削除/)).toBeTruthy()
 
     const firstRow = screen.getByText("○○販売店").closest("tr") as HTMLElement
     fireEvent.click(within(firstRow).getByRole("button", { name: /30日延長/ }))

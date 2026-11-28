@@ -60,8 +60,9 @@ export const demoShared = {
   agencies: () => call<AgencyAccount[]>("/api/demo/operations/agencies"),
   createAgency: (input: { name: string; email: string }) => call<{ account: AgencyAccount; password: string }>("/api/demo/operations/agencies", { method: "POST", body: JSON.stringify(input) }),
   updateAgency: (id: string, input: { active?: boolean; resetPassword?: boolean }) => call<{ account: AgencyAccount; password?: string }>(`/api/demo/operations/agencies/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(input) }),
+  customerDetail: (id: string) => call<{ customer: OperationsCustomer; trials: TrialSummary[]; report: import('@shared/types').UsageReport }>(`/api/demo/operations/customers/${encodeURIComponent(id)}`),
   customers: () => call<OperationsCustomer[]>("/api/demo/operations/customers"),
-  saveCustomer: (input: Partial<OperationsCustomer>, id?: string) => call<OperationsCustomer>(`/api/demo/operations/customers${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
+  saveCustomer: (input: Partial<OperationsCustomer> & { activity?: string }, id?: string) => call<OperationsCustomer>(`/api/demo/operations/customers${id ? `/${encodeURIComponent(id)}` : ""}`, { method: id ? "PUT" : "POST", body: JSON.stringify(input) }),
   assignTrial: (id: string, agencyId: string | null) => call(`/api/demo/trials/${encodeURIComponent(id)}/assignment`, { method: "PUT", body: JSON.stringify({ agencyId }) }),
   adminLogin(email: string, password: string): Promise<{ loggedIn: boolean; identity: OperationsIdentity }> {
     return call("/api/demo/admin/session", { method: "POST", body: JSON.stringify({ email, password }) })

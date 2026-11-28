@@ -48,3 +48,12 @@ describe('usage analysis: measured data only',()=>{
   expect(a.timeline[0].at).toBe(a.lastByEvent.view_analysis)
  })
 })
+
+it('separates onboarding from dormant accounts and failures from completions',()=>{
+ const fresh={id:'new',name:'New',status:'ACTIVE' as const,createdAt:new Date(now-86400000).toISOString(),days:[]}
+ expect(usageAccount(fresh,30,now).needsFollowup).toBe(false)
+ expect(usageAccount({...fresh,createdAt:new Date(now-8*86400000).toISOString()},30,now).needsFollowup).toBe(true)
+ const failed=usageAccount({...fresh,days:[{day:'2026-11-25',counts:{chat_sent:1,chat_failed:1,chat_retried:1},lastAt:new Date(now).toISOString()}]},30,now)
+ expect(failed.actions).toBe(0)
+ expect(accountInsights(failed,'trial')[0].title).toContain('回答失敗')
+})

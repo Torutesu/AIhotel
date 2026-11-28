@@ -19,7 +19,7 @@ export function OperationsUsage({ scope = 'all' }: { scope?: 'all' | 'assigned' 
   if(!data) return null
   const now=data.generatedAt?Date.parse(data.generatedAt):Date.now()
   const model=usageOverview(data,period,now)
-  const filtered=model.accounts.filter(a=>`${a.name} ${a.email??''}`.toLowerCase().includes(query.trim().toLowerCase())&&(filter==='all'||(filter==='followup'?a.needsFollowup:filter==='readOnly'?a.views>0&&a.actions===0:filter==='active'?a.total>0:a.lastLoginAt===null)))
+  const filtered=model.accounts.filter(a=>`${a.name} ${a.email??''}`.toLowerCase().includes(query.trim().toLowerCase())&&(filter==='all'||(filter==='awaiting'?a.statusLabel==='利用開始待ち':filter==='followup'?a.needsFollowup:filter==='readOnly'?a.views>0&&a.actions===0:filter==='active'?a.total>0:a.lastLoginAt===null)))
     .sort((a,b)=>sort==='volume'?b.total-a.total:sort==='name'?a.name.localeCompare(b.name,'ja'):(b.last??'').localeCompare(a.last??''))
   const current=filtered.find(a=>a.id===selected)
   const selectClass='min-h-11 rounded-md border bg-background px-3 text-sm'
@@ -34,7 +34,7 @@ export function OperationsUsage({ scope = 'all' }: { scope?: 'all' | 'assigned' 
       {label:'期間内に利用',value:model.active,unit:`/ ${model.accounts.length}件`,note:'1回以上の閲覧・操作記録'},
       {label:'操作完了まで利用',value:model.completed,unit:'件',note:'保存・出力・チャット回答の完了'},
       {label:'画面閲覧',value:model.views,unit:'回',note:'対象アカウントの閲覧合計'},
-      {label:'フォロー候補',value:model.followup,unit:'件',note:'利用可能で7日以上記録なし・未記録'},
+      {label:'フォロー候補',value:model.followup,unit:'件',note:'7日以上記録なし・発行後7日以上未記録'},
     ].map(m=><div key={m.label} className="min-w-0 rounded-lg border p-4 sm:p-5"><p className="text-xs leading-5 text-muted-foreground">{m.label}</p><p className="mt-3 text-3xl font-semibold tabular-nums">{m.value.toLocaleString()}<span className="ml-2 text-xs font-normal text-muted-foreground">{m.unit}</span></p><p className="mt-3 text-xs leading-5 text-muted-foreground">{m.note}</p></div>)}</div>
     <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
       <section className="min-w-0 rounded-lg border p-4 sm:p-6"><UsageDailyChart days={model.daily}/></section>
@@ -48,7 +48,7 @@ export function OperationsUsage({ scope = 'all' }: { scope?: 'all' | 'assigned' 
       <div className="flex flex-wrap items-baseline justify-between gap-2"><h2 className="font-semibold">顧客別に確認</h2><p className="text-xs text-muted-foreground">{filtered.length}件を表示 · 選択すると詳細を表示</p></div>
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
         <Input aria-label="活用状況の顧客を検索" placeholder="顧客名・メールで検索" value={query} onChange={e=>setQuery(e.target.value)}/>
-        <select aria-label="利用状況で絞り込む" className={selectClass} value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">すべて</option><option value="followup">フォロー候補</option><option value="active">期間内に利用</option><option value="readOnly">期間内は閲覧のみ</option>{data.source==='trial'&&<option value="noLogin">未ログイン</option>}</select>
+        <select aria-label="利用状況で絞り込む" className={selectClass} value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">すべて</option><option value="awaiting">利用開始待ち</option><option value="followup">フォロー候補</option><option value="active">期間内に利用</option><option value="readOnly">期間内は閲覧のみ</option>{data.source==='trial'&&<option value="noLogin">未ログイン</option>}</select>
         <select aria-label="顧客の並び順" className={selectClass} value={sort} onChange={e=>setSort(e.target.value)}><option value="recent">最終操作が新しい順</option><option value="volume">閲覧・操作が多い順</option><option value="name">顧客名順</option></select>
       </div>
       <div className="divide-y rounded-lg border">{filtered.map(a=><button key={a.id} aria-haspopup="dialog" onClick={()=>setSelected(a.id)} className="group grid w-full gap-4 p-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 sm:grid-cols-[minmax(0,1fr)_220px_20px] sm:items-center sm:p-5">

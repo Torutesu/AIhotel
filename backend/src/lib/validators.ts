@@ -1075,6 +1075,6 @@ export type ChatInput = z.infer<typeof chatSchema>
 
 export const usageEventSchema = z.object({
   hotelId: z.string().min(1).max(200),
-  event: z.enum(['view_dashboard', 'view_pricing', 'view_analysis', 'view_reports', 'view_ai-summary', 'view_settings', 'pricing_saved', 'report_exported', 'chat_completed']),
+  event: z.enum(['view_dashboard', 'view_pricing', 'view_analysis', 'view_reports', 'view_ai-summary', 'view_settings', 'pricing_saved', 'report_exported', 'chat_completed', 'chat_sent', 'chat_failed', 'chat_retried']),
 })
 export type UsageEventInput = z.infer<typeof usageEventSchema>

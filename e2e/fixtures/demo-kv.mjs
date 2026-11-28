@@ -19,8 +19,13 @@ createServer(async (req, res) => {
       hashes.get(key).set(args[0], args[1]); result = 1
     } else if (cmd === 'HDEL') result = Number(hashes.get(key)?.delete(args[0]) ?? false)
     else if (cmd === 'EVAL' && args[0] === 1) {
+      if (key.includes('HGET')) {
+        const [redisKey, field, expected, value] = args.slice(1)
+        if (hashes.get(redisKey)?.get(field) === expected) { hashes.get(redisKey).set(field,value); result=1 } else result=0
+      } else {
       const [redisKey, expected, value] = args.slice(1)
       if (strings.get(redisKey) === expected) { strings.set(redisKey, value); result = 1 } else result = 0
+      }
     }
     else if (cmd === 'INCR') { result = Number(strings.get(key) ?? 0) + 1; strings.set(key, String(result)) }
     else if (cmd === 'EXPIRE') result = 1

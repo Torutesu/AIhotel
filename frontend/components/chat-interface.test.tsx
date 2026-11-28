@@ -6,6 +6,8 @@ import { ApiClientError } from "@/lib/api"
 
 // AI チャット（D-13 — POST /api/v1/chat。定型のサンプルの答えはデモモードだけ）
 
+const usage = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/api/usage', () => ({ trackUsage: usage }))
 const chat = vi.fn()
 const auth = vi.hoisted(() => ({ hotelId: "h1" }))
 vi.mock("@/components/auth-provider", () => ({ useAuth: () => auth }))
@@ -20,7 +22,7 @@ function ask(text: string) {
 }
 
 describe("ChatInterface", () => {
-  beforeEach(() => { chat.mockReset(); auth.hotelId = "h1" })
+  beforeEach(() => { chat.mockReset(); usage.mockReset(); auth.hotelId = "h1" })
 
   it("挨拶を除いた会話を送り、AI の答えを出す", async () => {
     chat.mockResolvedValueOnce({ reply: "今月の着地見込みは予算比 95.0% です。" }).mockResolvedValueOnce({ reply: "12/5（金）です。" })
@@ -46,6 +48,7 @@ describe("ChatInterface", () => {
     fireEvent.click(screen.getByText("もう一度送る"))
     expect(await screen.findByText("お答えします。")).toBeTruthy()
     expect(chat.mock.calls[1][1]).toEqual([{ role: "user", content: "予算は？" }])
+    expect(usage.mock.calls).toEqual([['chat_sent','h1'],['chat_failed','h1'],['chat_retried','h1'],['chat_completed','h1']])
   })
   it("質問例は送信せず、編集可能な入力欄に入れる", () => {
     render(<ChatInterface isOpen onClose={vi.fn()} />)
