@@ -4,6 +4,7 @@
 // content は {level, text} の配列の JSON）を出す。まだ作られていなければそう書く（固定文のサンプルは出さない）。
 
 import { Badge } from "@/components/ui/badge"
+import { ChartNoAxesCombined } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorState } from "@/components/error-state"
 import { PROPOSAL_LEVEL_STYLE } from "@/components/pricing/pricing-constants"
@@ -36,12 +37,10 @@ export function AiPricingProposals({ hotelId }: { hotelId: string | null }) {
   const query = useApiQuery<AiSummary | null>(hotelId ? () => api.aiSummary(hotelId, "pricing") : null, [hotelId], "AI の提案の取得に失敗しました")
   const proposals = parseProposals(query.data?.content)
   return (
-    <Card className="border-[color:var(--cyan-edge)]/40 bg-[color:var(--sky-wash)]/25" data-testid="ai-pricing-proposals">
+    <Card className="border-border bg-card" data-testid="ai-pricing-proposals">
       <CardHeader className="pb-1">
         <CardTitle className="flex flex-wrap items-center gap-2 text-base font-medium">
-          <span className="text-xl" aria-hidden>
-            🤖
-          </span>
+          <ChartNoAxesCombined className="h-5 w-5 shrink-0" aria-hidden="true" />
           AI価格最適化の提案
           {query.data && (
             <span className="text-xs font-normal text-muted-foreground">（{formatGeneratedAt(query.data.generatedAt)} に AI が作成）</span>

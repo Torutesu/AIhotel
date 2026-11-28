@@ -3,7 +3,7 @@
 // テナント管理（運営 = PLATFORM_ADMIN 専用 — #81）
 // テナントの一覧・作成・契約停止／再開と、テナントの最初の管理者（ADMIN）の作成。
 // 停止すると所属ユーザーは次のリクエストからログアウトされる（#78）。
-// 「新しいテナントの立ち上げ」（D-13）は、テナント・最初のホテル・管理者を1回で作る（tenant-provision-dialog.tsx）。
+// 「顧客を登録」（D-13）は、テナント・最初のホテル・管理者を1回で作る（tenant-provision-dialog.tsx）。
 
 import { useCallback, useEffect, useState } from "react"
 import { Loader2, Pause, Play, Plus, Rocket, ShieldOff, UserPlus } from "lucide-react"
@@ -42,6 +42,7 @@ const adminFormSchema = inviteFormSchema.pick({ name: true, email: true }).exten
 type AdminFormValues = z.infer<typeof adminFormSchema>
 
 export function TenantManagementSection() {
+  const [search, setSearch] = useState("")
   const [tenants, setTenants] = useState<TenantSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -137,18 +138,18 @@ export function TenantManagementSection() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
+      <CardHeader className="flex flex-col gap-4 space-y-0 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <CardTitle>テナント管理（運営）</CardTitle>
+          <CardTitle>顧客企業</CardTitle>
           <CardDescription>
-            顧客企業（テナント）の作成・契約停止と、最初の管理者の作成を行います。新しい顧客は「新しいテナントの立ち上げ」で、
+            顧客企業（テナント）の作成・契約停止と、最初の管理者の作成を行います。新しい顧客は「顧客を登録」で、
             テナント・最初のホテル・管理者をまとめて作れます。
           </CardDescription>
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <Button size="sm" className="gap-2" onClick={() => setProvisionOpen(true)}>
             <Rocket className="h-4 w-4" aria-hidden />
-            新しいテナントの立ち上げ
+            顧客を登録
           </Button>
           <Button size="sm" variant="outline" className="gap-2" onClick={() => setCreateOpen(true)}>
             <Plus className="h-4 w-4" aria-hidden />
@@ -157,6 +158,7 @@ export function TenantManagementSection() {
         </div>
       </CardHeader>
       <CardContent>
+        <Input aria-label="顧客を検索" placeholder="顧客名・コードで検索" value={search} onChange={e => setSearch(e.target.value)} className="mb-5 sm:max-w-sm" />
         {loading ? (
           <Skeleton className="h-24 w-full" />
         ) : error ? (
@@ -165,7 +167,8 @@ export function TenantManagementSection() {
           <p className="py-4 text-center text-sm text-muted-foreground">テナントはまだありません。</p>
         ) : (
           <ul className="space-y-2">
-            {tenants.map((tenant) => (
+            {tenants.length > 0 && !tenants.some(t => `${t.name} ${t.code}`.toLowerCase().includes(search.toLowerCase())) && <li className="py-6 text-sm text-muted-foreground">該当する顧客はありません。</li>}
+            {tenants.filter(t => `${t.name} ${t.code}`.toLowerCase().includes(search.toLowerCase())).map((tenant) => (
               <li key={tenant.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -178,7 +181,7 @@ export function TenantManagementSection() {
                     ホテル {tenant.hotelCount}件 ・ 有効なユーザー {tenant.userCount}人
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {tenant.ipRestrictionEnabled && (
                     <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setUnlockTarget(tenant)}>
                       <ShieldOff className="h-4 w-4" aria-hidden />

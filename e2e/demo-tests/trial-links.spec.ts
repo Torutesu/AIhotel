@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test"
 
 test("個別URL・自動ID発行・再表示・別トライアルへの切替", async ({ page, browser }) => {
   // テスト用ローカル環境だけで作る運営アカウント。本番アカウントにはアクセスしない。
-  await page.goto("/?tab=settings")
+  await page.goto("/operations?section=trials")
   await page.getByLabel("メールアドレス").fill("owner@example.test")
   await page.getByLabel("パスワード", { exact: true }).fill("local-e2e-owner-pass")
   await page.getByRole("button", { name: "パスワードを表示", exact: true }).click()
@@ -23,7 +23,7 @@ test("個別URL・自動ID発行・再表示・別トライアルへの切替", 
   await expect(dialog.locator("pre")).toContainText(issued.loginUrl)
   await dialog.getByRole("button", { name: "閉じる", exact: true }).click()
   await page.reload()
-  await page.getByRole("button", { name: "ログイン情報", exact: true }).click()
+  await page.getByRole("row").filter({ hasText: issued.trial.name }).getByRole("button", { name: "ログイン情報", exact: true }).click()
   await expect(dialog.locator("pre")).toContainText(issued.password)
   await expect(dialog.locator("pre")).toContainText(issued.loginUrl)
   await dialog.getByRole("button", { name: "閉じる", exact: true }).click()
@@ -34,7 +34,8 @@ test("個別URL・自動ID発行・再表示・別トライアルへの切替", 
   const visitor = await guest.newPage()
   const path = (value: string) => `http://localhost:3100/${new URL(value).search}`
   await visitor.goto(path(issued.loginUrl))
-  await expect(visitor.getByLabel("メールアドレス")).toHaveCount(0)
+  // This fixture shares the operations host; the public password-only form is verified separately.
+  await visitor.getByLabel("メールアドレス").fill(issued.trial.loginEmail)
   const forbidden = await visitor.request.get(`/api/demo/trials/${issued.trial.id}`)
   expect(forbidden.status()).toBe(401)
   await visitor.getByLabel("パスワード", { exact: true }).fill(issued.password)
@@ -42,11 +43,17 @@ test("個別URL・自動ID発行・再表示・別トライアルへの切替", 
   await expect(visitor.getByRole("button", { name: "ダッシュボード", exact: true }).first()).toBeVisible()
   await visitor.goto(path(second.loginUrl))
   await expect(visitor.getByRole("button", { name: "ログイン", exact: true })).toBeVisible()
+  await visitor.getByLabel("メールアドレス").fill(second.trial.loginEmail)
   await visitor.getByLabel("パスワード", { exact: true }).fill(issued.password)
   await visitor.getByRole("button", { name: "ログイン", exact: true }).click()
   await expect(visitor.getByText(/正しくありません/)).toBeVisible()
   await visitor.getByLabel("パスワード", { exact: true }).fill(second.password)
   await visitor.getByRole("button", { name: "ログイン", exact: true }).click()
   await expect(visitor.getByRole("button", { name: "ダッシュボード", exact: true }).first()).toBeVisible()
+  await expect.poll(async () => {
+    const response = await page.request.get("/api/demo/usage")
+    const report = (await response.json()).data
+    return report.accounts.find((account: { id: string }) => account.id === second.trial.id)?.days.length ?? 0
+  }).toBeGreaterThan(0)
   await guest.close()
 })

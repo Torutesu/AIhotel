@@ -19,6 +19,8 @@ import { eventsRouter } from './routes/events.js'
 import { newHotelsRouter } from './routes/newHotels.js'
 import { reportsRouter } from './routes/reports.js'
 import { usersRouter } from './routes/users.js'
+import { operationsUsageRouter } from './routes/operationsUsage.js'
+import { usageRouter } from './routes/usage.js'
 import { preferencesRouter } from './routes/preferences.js'
 import { platformRouter } from './routes/platform.js'
 import { importsRouter } from './routes/imports.js'
@@ -175,6 +177,8 @@ app.use('/api/v1/events', eventsRouter)
 app.use('/api/v1/new-hotels', newHotelsRouter)
 app.use('/api/v1/reports', reportsRouter)
 app.use('/api/v1/users', usersRouter)
+app.use('/api/v1/usage', usageRouter)
+app.use('/api/v1/operations-usage', operationsUsageRouter)
 app.use('/api/v1/preferences', preferencesRouter)
 app.use('/api/v1/platform', platformRouter)
 app.use('/api/v1/imports', importsRouter)

@@ -4,7 +4,7 @@
 
 import { useSearchParams } from "next/navigation"
 import { useState, type FormEvent } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { PasswordInput } from "@/components/ui/password-input"
 import { Label } from "@/components/ui/label"
@@ -12,12 +12,12 @@ import { Button } from "@/components/ui/button"
 import { Loader2, AlertCircle } from "lucide-react"
 import { useAuth } from "@/components/auth-provider"
 import { ApiClientError } from "@/lib/api"
-import { APP_NAME, APP_NAME_EN } from "@/lib/brand"
+import { BrandLogo } from "@/components/brand-logo"
 
-export function LoginForm() {
+export function LoginForm({ audience = "hotel" }: { audience?: "hotel" | "operations" }) {
   const { login } = useAuth()
   const params = useSearchParams()
-  const personalTrial = process.env.NEXT_PUBLIC_DEMO_MODE === "true" && params.has("trial")
+  const personalTrial = audience !== "operations" && process.env.NEXT_PUBLIC_DEMO_MODE === "true" && params.has("trial")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -40,20 +40,14 @@ export function LoginForm() {
 
   return (
     <div
-      className="flex min-h-screen items-center justify-center bg-background p-4"
+      className="flex min-h-dvh items-center justify-center bg-background p-4"
       data-demo-mode={process.env.NEXT_PUBLIC_DEMO_MODE === "true" ? "demo-mode-enabled" : undefined}
     >
-      <Card className="w-full max-w-sm">
+      <Card className="w-full max-w-md">
         <CardHeader>
-          <div className="mb-1 flex items-start gap-2">
-            {/* 印はカタカナの行にそろえる（英字名はその下の行） */}
-            <span className="mt-3 inline-block h-2 w-2 flex-shrink-0 rounded-full bg-primary" aria-hidden />
-            <div>
-              <CardTitle className="text-2xl font-semibold tracking-tight">{APP_NAME}</CardTitle>
-              <p className="text-xs text-muted-foreground">{APP_NAME_EN}</p>
-            </div>
-          </div>
-          <CardDescription>{personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
+          <BrandLogo className="mb-4" />
+          <h1 className="text-2xl font-semibold">ログイン</h1>
+          <CardDescription>{audience === "operations" ? "全体管理者または代理店のアカウントでログインしてください。ホテル向けアカウントでは利用できません。" : personalTrial ? "トライアル専用のログイン画面です。受け取ったパスワードを入力してください" : "ホテル収益管理システムにログインしてください"}</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={handleSubmit}>
@@ -82,7 +76,7 @@ export function LoginForm() {
             </div>
 
             {error && (
-              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
                 <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
                 <span>{error}</span>
               </div>

@@ -4,7 +4,7 @@
 // 実データ: GET /analysis/daily-performance。2つの見方を切り替える（PDF c分析01実績推移2）:
 //  - 実数と想定値で見る: 項目ごとに 実数（過去は実績、先の日は今の予約実数）・AI の想定・予算・予算差異を並べる
 //  - 差異で見る: 実績（先の日は予約実数）と、予算差異・AI想定差異・前年比
-// 稼働率の差は % 表記（PDF bダイナミックプライシング02「％表記の方が良いかも」）。
+// 稼働率の差は % 表記（PDF b料金設定02「％表記の方が良いかも」）。
 
 import { useState, type KeyboardEvent } from "react"
 
@@ -143,11 +143,11 @@ export function DailyVarianceTable({ days, totalRooms, month, selectedDate, onSe
   const dateCells = (date: string, day: number, dow: number, status: "actual" | "onHand" | "none") => (
     <>
       <td className="px-2 py-1.5 font-medium">
-        {/* 日付リンクはダイナミックプライシングの同じ日へ遷移する（行クリックとは別動作） */}
+        {/* 日付リンクは料金設定の同じ日へ遷移する（行クリックとは別動作） */}
         <button
           type="button"
           className="text-primary underline-offset-2 hover:underline"
-          title={`${month}/${day} のダイナミックプライシングを開く`}
+          title={`${month}/${day} の料金設定を開く`}
           onClick={(e) => {
             e.stopPropagation()
             const [y, m, d] = date.split("-").map(Number)

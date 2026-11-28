@@ -135,7 +135,7 @@ export function AISummaryTab() {
   const openedCategory = CATEGORIES.find((c) => c.key === openCategory && SIGNAL_CATEGORIES.has(c.key)) ?? null
 
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="app-page">
       {/* ヘッダー */}
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">

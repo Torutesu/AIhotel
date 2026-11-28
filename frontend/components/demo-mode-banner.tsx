@@ -21,11 +21,11 @@ export function DemoModeBanner() {
   return (
     <div
       role="status"
-      className="flex items-center justify-center gap-2 border-b border-border bg-muted px-4 py-2 text-xs text-muted-foreground"
+      className="flex items-center justify-center gap-2 border-b border-border bg-background px-4 py-2 text-xs text-muted-foreground"
     >
       <Info className="h-3.5 w-3.5 flex-shrink-0" aria-hidden />
       <span>
-        デモモードで表示しています。バックエンドに接続できないため、画面のデータはすべてサンプルです。
+        デモモード：売上・予約・需要予測などのホテル業務データはサンプルです。アカウントの期限と利用記録は実際の情報です。
       </span>
     </div>
   )

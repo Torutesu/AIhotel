@@ -4,10 +4,10 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* OpenAI Developers style reference — stark white laboratory */
+  /* 白い作業面と最小限の区切りを基本にする。 */
   --background: #ffffff; /* paper white canvas */
   --foreground: #282828; /* graphite — repeated body/UI text */
-  --card: #f9f9f9; /* fog white */
+  --card: #ffffff; /* content surfaces stay white */
   --card-foreground: #282828;
   --popover: #ffffff;
   --popover-foreground: #282828;
@@ -21,7 +21,7 @@
   --accent-foreground: #181818;
   --destructive: #dc2626;
   --destructive-foreground: #ffffff;
-  --border: #ededed; /* mist gray hairline */
+  --border: #e5e5e5; /* subtle separators on white */
   --input: #ededed;
   --ring: #0d0d0d; /* neutral ink — no chromatic accent on controls */
   /* グラフ/データ指標色は元のパレットに戻す */
@@ -54,7 +54,7 @@
 .dark {
   --background: #0d0d0d;
   --foreground: #ededed;
-  --card: #181818;
+  --card: #0d0d0d;
   --card-foreground: #ededed;
   --popover: #181818;
   --popover-foreground: #ededed;
@@ -95,8 +95,8 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-heading: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif; /* 単一書体、weightのみで階層を作る */
+  --font-sans: var(--font-noto), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-heading: var(--font-noto), ui-sans-serif, system-ui, -apple-system, sans-serif; /* 単一書体、weightのみで階層を作る */
   --font-mono: "Geist Mono", "Geist Mono Fallback";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -184,4 +184,22 @@
     padding: 2px 8px;
     font-weight: 500;
   }
+}
+
+/* Shared working-space rhythm: 16px mobile, 24–32px desktop. */
+.app-main { contain: inline-size; overflow-x: hidden; scroll-padding-block: 24px; }
+.app-page { width: 100%; min-width: 0; max-width: 1600px; margin-inline: auto; padding: clamp(16px, 2.4vw, 32px); padding-bottom: 104px; }
+.app-page > * + * { margin-top: 24px; }
+.app-page h1, .app-page h2, .app-page h3 { overflow-wrap: anywhere; }
+[data-slot="card-content"], [data-slot="tabs-content"] { min-width: 0; }
+[data-slot="table-container"] { overscroll-behavior-x: contain; }
+.skip-link { position: fixed; top: 12px; left: 12px; z-index: 200; background: var(--background); padding: 12px 16px; transform: translateY(-200%); }
+.skip-link:focus { transform: translateY(0); }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+@media (max-width: 639px) {
+  [data-slot="button"], [data-slot="select-trigger"] { min-height: 44px; min-width: 44px; }
+  input, textarea, select { font-size: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }

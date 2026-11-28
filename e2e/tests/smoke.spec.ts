@@ -6,7 +6,7 @@ import { ACCOUNTS, collectProblems, login } from "./helpers"
 
 const TABS: Array<{ tab: string; heading: RegExp }> = [
   { tab: "dashboard", heading: /KPI進捗状況/ },
-  { tab: "pricing", heading: /ダイナミックプライシング/ },
+  { tab: "pricing", heading: /料金設定/ },
   { tab: "analysis", heading: /分析/ },
   { tab: "reports", heading: /レポート/ },
   { tab: "ai-summary", heading: /外部需要動向/ },
@@ -30,7 +30,7 @@ for (const [role, email] of Object.entries(ACCOUNTS)) {
 test("オペレーターには変更系の操作が出ない", async ({ page }) => {
   await login(page, ACCOUNTS.operator)
   await page.goto("/?tab=pricing")
-  await expect(page.getByRole("heading", { name: /ダイナミックプライシング/ })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /料金設定/ })).toBeVisible()
   await expect(page.getByRole("button", { name: /AI予測値へリセット/ })).toHaveCount(0)
   await expect(page.locator('button[aria-label*="を編集"]')).toHaveCount(0)
 

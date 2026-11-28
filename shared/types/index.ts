@@ -39,6 +39,8 @@ export function canManage(role: UserRole | null | undefined): boolean {
 }
 
 export interface User {
+  /** Separate shared operations identity; never grants tenant API access. */
+  operationsAccess?: { id: string; role: "PLATFORM_ADMIN" | "AGENCY"; name: string; email: string }
   id: string
   tenantId: string | null
   email: string
@@ -659,6 +661,8 @@ export type TrialStatus = 'ACTIVE' | 'EXPIRED' | 'SUSPENDED'
 
 /** GET /api/v1/platform/trials の1行 */
 export interface TrialSummary {
+  /** Shared operations console owner; unassigned records are visible to the platform only. */
+  agencyId?: string | null
   id: string
   name: string
   kind: TrialKind
@@ -799,3 +803,10 @@ export interface ReviewScore {
   /** 取得日時（ISO 8601 文字列） */
   capturedAt: string
 }
+
+export type UsageEventType = 'view_dashboard' | 'view_pricing' | 'view_analysis' | 'view_reports' | 'view_ai-summary' | 'view_settings' | 'pricing_saved' | 'report_exported' | 'chat_completed' | 'chat_sent' | 'chat_failed' | 'chat_retried'
+export interface UsageDay { day: string; counts: Partial<Record<UsageEventType, number>>; lastAt: string; lastByEvent?: Partial<Record<UsageEventType, string>>; events?: Array<{ event: UsageEventType; at: string }> }
+export interface UsageAccount { userId?: string; userName?: string; userRole?: string; tenantId?: string; tenantName?: string; hotelId?: string; hotelName?: string; agencyId?: string | null; agencyName?: string; createdAt?: string; id: string; name: string; days: UsageDay[]; email?: string | null; lastLoginAt?: string | null; expiresAt?: string; status?: TrialStatus }
+export interface UsageReport { generatedAt?: string; startedAt: string | null; accounts: UsageAccount[]; source: 'trial' | 'customer' }
+
+export interface ProductionUsageTenant { id: string; name: string; isActive: boolean; agencyId?: string | null; agencyName?: string }

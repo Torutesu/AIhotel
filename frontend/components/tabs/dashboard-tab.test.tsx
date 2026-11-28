@@ -4,7 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import { DashboardTab } from "./dashboard-tab"
 
 // ダッシュボードの並び（2026-10-23 の画面修正 PDF a01）:
-// 上部 = ホテル名・客室数・アラート・AI解説（現在〜先々のお知らせ。対象年月に連動しない）
+// 上部 = ホテル名・アラート・AI解説（現在〜先々のお知らせ。対象年月に連動しない）
 // 下部 = 対象年月 → 稼働・ADR月間推移・月初比較・日付比較・KPI進捗・在庫表（対象年月に連動）
 
 const mocks = vi.hoisted(() => ({
@@ -89,7 +89,7 @@ describe("DashboardTab", () => {
     render(<DashboardTab />)
 
     const hotelName = screen.getByRole("heading", { name: "ホテルABCD" })
-    expect(screen.getByText("客室数")).toBeTruthy()
+    expect(screen.queryByText("客室数")).toBeNull()
     await waitFor(() => expect(screen.getAllByTestId("section")[0].textContent).toBe("アラート"))
     expect(mocks.dashboardKpi).toHaveBeenCalledWith("hotel-a", 2026, 11)
     // アラート・AI解説は対象年月を渡さずに取る（当月に加えて先々も出すため）

@@ -12,11 +12,11 @@ export function eventTypeLabel(type: string): string {
 export function impactBadgeClass(impact?: string | null): string {
   switch (impact) {
     case "high":
-      return "bg-negative text-white"
+      return "bg-negative text-white dark:text-black"
     case "medium":
-      return "bg-warning text-white"
+      return "bg-warning text-white dark:text-black"
     case "low":
-      return "bg-primary text-white"
+      return "bg-primary text-primary-foreground"
     default:
       return "bg-muted text-muted-foreground"
   }
@@ -59,17 +59,17 @@ export function eventsOnDate(events: HotelEvent[], date: string): HotelEvent[] {
 export const PRICE_RANK_COUNT = 40
 export function getRankBadgeColor(rank: number): string {
   const band = Math.ceil((rank / PRICE_RANK_COUNT) * 5)
-  if (band <= 1) return "bg-primary text-white"
+  if (band <= 1) return "bg-primary text-primary-foreground"
   if (band <= 2) return "bg-[color:var(--chart-2)] text-white"
   if (band <= 3) return "bg-[color:var(--chart-4)] text-white"
-  if (band <= 4) return "bg-warning text-white"
-  return "bg-negative text-white"
+  if (band <= 4) return "bg-warning text-white dark:text-black"
+  return "bg-negative text-white dark:text-black"
 }
 
 export function demandBadgeClass(demand: string | null): string {
   switch (demand) {
     case "A":
-      return "bg-primary text-white"
+      return "bg-primary text-primary-foreground"
     case "B":
       return "bg-[color:var(--cyan-edge)] text-white"
     case "C":
@@ -125,9 +125,9 @@ export function specialDayNameOf(date: Date): string | null {
 
 // AI価格最適化の提案の優先度の表示（提案そのものは日次バッチが Claude API で作る — D-13）
 export const PROPOSAL_LEVEL_STYLE: Record<string, { label: string; className: string }> = {
-  high: { label: "レベル高", className: "bg-negative text-white" },
-  medium: { label: "レベル中", className: "bg-warning text-white" },
-  low: { label: "レベル低", className: "bg-primary text-white" },
+  high: { label: "レベル高", className: "bg-negative text-white dark:text-black" },
+  medium: { label: "レベル中", className: "bg-warning text-white dark:text-black" },
+  low: { label: "レベル低", className: "bg-primary text-primary-foreground" },
 }
 
 /** 表示中の1か月分のカレンダー */

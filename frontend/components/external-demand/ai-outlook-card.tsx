@@ -3,7 +3,7 @@
 // AI総合予測コメント（D-13 で実データに）。日次バッチが Claude API で作る外部需要の総合コメント（AiComment の section = external-outlook）。
 // 【総合見通し】【注意事項】【推奨アクション】の段落を、見出しを太字にして出す。まだ作られていなければそう書く。
 
-import { Sparkles } from "lucide-react"
+import { FileText } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ErrorState } from "@/components/error-state"
@@ -26,10 +26,10 @@ export function splitSections(content: string): Array<{ heading: string | null; 
 export function AiOutlookCard({ hotelId }: { hotelId: string | null }) {
   const query = useApiQuery<AiSummary | null>(hotelId ? () => api.aiSummary(hotelId, "external-outlook") : null, [hotelId], "AI のコメントの取得に失敗しました")
   return (
-    <Card className="border-[color:var(--cyan-edge)]/40 bg-[color:var(--sky-wash)]/25" data-testid="ai-outlook">
+    <Card className="border-border bg-card" data-testid="ai-outlook">
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" aria-hidden />
+          <FileText className="h-5 w-5 text-primary" aria-hidden />
           AI総合予測コメント
           {query.data && (
             <span className="text-xs font-normal text-muted-foreground">（{formatGeneratedAt(query.data.generatedAt)} に AI が作成）</span>

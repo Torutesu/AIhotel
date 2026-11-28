@@ -46,7 +46,7 @@ describe("DailyVarianceTable", () => {
 
   it("日付ボタンでの Enter は行の選択にしない（ボタンのクリックで料金設定へ移る）", () => {
     const { onSelectDate, onNavigateToPricing } = renderTable()
-    const dateButton = screen.getByTitle("10/1 のダイナミックプライシングを開く")
+    const dateButton = screen.getByTitle("10/1 の料金設定を開く")
     const notPrevented = fireEvent.keyDown(dateButton, { key: "Enter" })
     expect(notPrevented).toBe(true)
     expect(onSelectDate).not.toHaveBeenCalled()

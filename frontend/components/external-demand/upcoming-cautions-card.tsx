@@ -30,7 +30,7 @@ export function UpcomingCautionsCard({ factors, events, hotels, today }: Upcomin
   const empty = headwinds.length === 0 && openings.length === 0 && bigEvents.length === 0
 
   return (
-    <Card className="border-warning/30 bg-warning/10" data-testid="upcoming-cautions">
+    <Card className="border-warning/30 bg-card" data-testid="upcoming-cautions">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-warning">
           <AlertTriangle className="h-5 w-5" aria-hidden />

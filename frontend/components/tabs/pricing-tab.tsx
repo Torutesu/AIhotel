@@ -1,6 +1,6 @@
 "use client"
 
-// ダイナミックプライシングタブ（U-15 で各セクションを components/pricing/* へ分割したコンテナ）
+// 料金設定タブ（U-15 で各セクションを components/pricing/* へ分割したコンテナ）
 //
 // 実データ: GET /pricing/calendar・GET/PUT /pricing/strategy・GET /pricing/simulation・
 //           POST /pricing/recompute・GET /events（登録・取り込みは外部需要動向 — 2026-10）
@@ -174,9 +174,9 @@ export function PricingTab({ focusDate, onFocusDateHandled }: PricingTabProps = 
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="app-page">
       <div>
-        <h2 className="text-balance text-2xl font-semibold">ダイナミックプライシング</h2>
+        <h1 className="text-balance text-2xl font-semibold">料金設定</h1>
         <p className="mt-1 text-sm text-muted-foreground">需要予測に基づく最適価格設定</p>
       </div>
 

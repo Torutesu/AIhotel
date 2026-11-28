@@ -75,7 +75,7 @@ async function resolveHotels(user: User & { hotel?: Hotel | null }): Promise<Hot
  * ホテル一覧は取らずに空にしておき、パスワードを変えたあとで取り直す
  */
 async function hotelsFor(user: User & { hotel?: Hotel | null }): Promise<Hotel[]> {
-  return user.mustChangePassword ? [] : resolveHotels(user)
+  return user.operationsAccess || user.mustChangePassword ? [] : resolveHotels(user)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

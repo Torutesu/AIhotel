@@ -154,7 +154,7 @@ function DayAnalysisContent({ day, onClose }: { day: PricingCalendarDay; onClose
           {insight && <SimilarDaysSection insight={insight} />}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <Card className="border-primary/50 bg-primary/5">
+            <Card className="border-border bg-card">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm font-medium text-primary">推奨価格 & 料金ランク</CardTitle>
               </CardHeader>

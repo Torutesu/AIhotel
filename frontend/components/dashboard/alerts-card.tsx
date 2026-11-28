@@ -48,14 +48,14 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
   const alertLevelStyles: Record<number, { border: string; bg: string; dot: string; label: string; text: string }> = {
     5: {
       border: "border-negative",
-      bg: "bg-negative/10",
+      bg: "bg-card",
       dot: "bg-negative",
       label: "Level 5 / すぐに修正する",
       text: "text-negative",
     },
     4: {
       border: "border-warning",
-      bg: "bg-warning/10",
+      bg: "bg-card",
       dot: "bg-warning",
       label: "Level 4 / 1週間内での経過観察が必要",
       text: "text-warning",
@@ -71,7 +71,7 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
     return (
       alertLevelStyles[level] ?? {
         border: "border-border",
-        bg: "bg-muted/50",
+        bg: "bg-card",
         dot: "bg-muted-foreground",
         label: `Level ${level}`,
         text: "text-muted-foreground",
@@ -82,9 +82,9 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
   return (
     <Card>
       <CardHeader className="pb-1">
-        <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex flex-col items-start gap-2">
           <CardTitle className="text-base font-medium">アラート</CardTitle>
-          <p className="text-xs text-muted-foreground">
+          <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">
             当月に加えて先々（翌月以降）の注意点も表示します。重要度5段階のうち Level 5・4 を表示（「解決済み」にすると一覧から外れます。「確認済み」は表示したまま）
           </p>
         </div>
@@ -100,17 +100,17 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
             現在、対応が必要なアラート（Level 5・4）はありません。
           </p>
         ) : (
-          <div className="space-y-3">
+          <div className="grid gap-3 xl:grid-cols-2">
             {alerts.map((alert) => {
               const style = alertStyleFor(alert)
               // 対象日・対象月の年月で遷移する（先々のアラートを今月の画面で開かない）
               const link = alertLinkFor(alert)
               const period = alertPeriodLabel(alert.targetDate)
               return (
-                <div key={alert.id} className={`border-l-4 ${style.border} ${style.bg} p-3 rounded-r`}>
+                <div key={alert.id} className={`border-l-2 ${style.border} ${style.bg} p-4`}>
                   <div className="flex items-start gap-2">
                     <div className={`w-3 h-3 rounded-full ${style.dot} mt-1 flex-shrink-0`}></div>
-                    <div className="flex-1">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className={`text-xs font-semibold ${style.text}`}>{style.label}</span>
                         {period && (
@@ -126,14 +126,14 @@ export function AlertsCard({ alerts, loading, onAlertNavigate, onAlertUpdated }:
                         {link && (
                           <button
                             onClick={() => onAlertNavigate?.(link)}
-                            className="text-xs text-primary hover:underline hover:text-[color:var(--cyan-edge)] transition-colors"
+                            className="min-h-11 text-left text-xs text-primary sm:min-h-0 hover:underline hover:text-[color:var(--cyan-edge)] transition-colors"
                           >
                             {alertDateLabel(alert)}
                             {` (${link.label})`}
                           </button>
                         )}
                       </div>
-                      <p className={`text-sm ${style.text}`}>
+                      <p className="text-sm leading-relaxed text-foreground">
                         {alert.title}: {alert.message}
                       </p>
                       {/* 確認済み・解決済みの操作（X-4） */}

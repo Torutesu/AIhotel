@@ -88,11 +88,11 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
   }
 
   return (
-    <div className="p-4 space-y-4">
+    <div className="app-page">
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-2xl font-semibold text-balance">分析</h2>
+          <h1 className="text-2xl font-semibold text-balance">分析</h1>
           <p className="text-sm text-muted-foreground mt-1">
             日次の実績から需要構成・予約動向・競合比較までを一画面で確認します
           </p>
@@ -117,7 +117,7 @@ export function AnalysisTab({ onNavigateToPricing }: AnalysisTabProps = {}) {
             {/* 主: 分析軸の切り替え。従: 対象期間のフィルタ */}
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div className="w-full min-w-0 overflow-x-auto lg:w-auto">
-                <TabsList className="h-9 inline-flex">
+                <TabsList>
                   {ANALYSIS_VIEWS.map((view) => (
                     <TabsTrigger
                       key={view.value}

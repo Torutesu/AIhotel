@@ -15,6 +15,7 @@ import { z } from 'zod'
 dotenv.config()
 
 const envSchema = z.object({
+  OPERATIONS_USAGE_KEY: z.preprocess(v => v === '' ? undefined : v, z.string().min(32).optional()),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3001),
   // CORS で許可するオリジン。カンマ区切りで複数指定できる（S-10）。

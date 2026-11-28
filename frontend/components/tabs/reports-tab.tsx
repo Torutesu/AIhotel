@@ -1,5 +1,7 @@
 "use client"
 
+import { trackUsage } from "@/lib/api/usage"
+
 // レポートタブ（U-4 / F-REP-01・F-REP-02）
 // GET /api/v1/reports/monthly?format=pdf|excel を呼び、返ってきたバイナリを
 // ブラウザのダウンロードとして保存する。架空の「最近のレポート」「定期レポート設定」
@@ -21,17 +23,6 @@ import { api, ApiClientError } from "@/lib/api"
 import { monthLabel } from "@/lib/date"
 
 type ReportFormat = "pdf" | "excel"
-
-/**
- * レポート種別。月次のみバックエンド（reportsService）が実装済みで、
- * それ以外は器も無いため「準備中」として選択できないようにする。
- */
-const REPORT_TYPES = [
-  { value: "monthly", label: "月次レポート", available: true },
-  { value: "quarterly", label: "四半期レポート", available: false },
-  { value: "annual", label: "年次レポート", available: false },
-  { value: "custom", label: "カスタムレポート", available: false },
-] as const
 
 const REPORT_FORMATS: Array<{ value: ReportFormat; label: string; extension: string }> = [
   { value: "pdf", label: "PDF", extension: "pdf" },
@@ -55,18 +46,17 @@ export function ReportsTab() {
   // 対象年月は全タブ共有（URL の ?year=&month= と同期 — U-8）
   const { year, month, periodMonth, setPeriodMonth } = usePeriod()
 
-  const [reportType, setReportType] = useState<string>("monthly")
   const [reportFormat, setReportFormat] = useState<ReportFormat>("pdf")
   const [downloading, setDownloading] = useState(false)
 
-  const selectedType = REPORT_TYPES.find((t) => t.value === reportType) ?? REPORT_TYPES[0]
-  const canDownload = hotelId != null && selectedType.available
+  const canDownload = hotelId != null
 
   const handleDownload = async () => {
-    if (!hotelId || !selectedType.available) return
+    if (!hotelId || downloading) return
     setDownloading(true)
     try {
       const { blob, filename } = await api.monthlyReport(hotelId, year, month, reportFormat)
+      void trackUsage("report_exported", hotelId)
       const extension =
         REPORT_FORMATS.find((f) => f.value === reportFormat)?.extension ?? reportFormat
       const fallbackName = `月次レポート_${hotel?.name ?? "hotel"}_${year}-${String(month).padStart(2, "0")}.${extension}`
@@ -84,10 +74,10 @@ export function ReportsTab() {
   }
 
   return (
-    <div className="p-4 space-y-3">
+    <div className="app-page">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-heading font-medium tracking-tight text-balance">レポート</h2>
+        <h1 className="text-2xl font-heading font-medium tracking-tight text-balance">レポート</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
           対象月の実績・予算・日別明細をPDFまたはExcelで出力します
         </p>
@@ -96,24 +86,7 @@ export function ReportsTab() {
       <Card>
         <CardContent className="py-3 px-4">
           <div className="flex items-end gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Label htmlFor="report-type" className="text-xs whitespace-nowrap">
-                レポートタイプ
-              </Label>
-              <Select value={reportType} onValueChange={setReportType}>
-                <SelectTrigger id="report-type" className="h-9 w-44 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {REPORT_TYPES.map((type) => (
-                    <SelectItem key={type.value} value={type.value} disabled={!type.available}>
-                      {type.label}
-                      {!type.available && "（準備中）"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <p className="self-center text-sm font-medium">月次レポート</p>
 
             <LabeledMonthPicker
               id="report-period"
@@ -122,7 +95,7 @@ export function ReportsTab() {
               onChange={setPeriodMonth}
             />
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
               <Label htmlFor="report-format" className="text-xs whitespace-nowrap">
                 出力形式
               </Label>
@@ -130,7 +103,7 @@ export function ReportsTab() {
                 value={reportFormat}
                 onValueChange={(value: ReportFormat) => setReportFormat(value)}
               >
-                <SelectTrigger id="report-format" className="h-9 w-32 text-sm">
+                <SelectTrigger id="report-format" className="h-11 w-32 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -155,11 +128,6 @@ export function ReportsTab() {
             </div>
           </div>
 
-          {!selectedType.available && (
-            <p className="mt-2 border-t pt-2 text-xs text-muted-foreground">
-              {selectedType.label}は準備中です。現在出力できるのは月次レポートのみです。
-            </p>
-          )}
         </CardContent>
       </Card>
 

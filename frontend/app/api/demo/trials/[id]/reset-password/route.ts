@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic"
 export const runtime = "nodejs"
 
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
-  return handle(request, { admin: true }, async (kv) => {
+  return handle(request, { admin: true }, async (kv, actor) => {
     const { id } = await context.params
-    return ok(await resetTrialPassword(kv, id))
+    return ok(await resetTrialPassword(kv, id, Date.now(), actor))
   })
 }

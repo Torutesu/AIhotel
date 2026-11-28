@@ -68,7 +68,7 @@ export function summarize(record: DemoTrialRecord, now = Date.now()): TrialSumma
     ...rest,
     status: !isActive ? "SUSPENDED" : expired ? "EXPIRED" : "ACTIVE",
     daysLeft: expired ? 0 : Math.ceil((expiresAt - now) / DAY_MS),
-    purgeAt: expired ? new Date(expiresAt + 30 * DAY_MS).toISOString() : null,
+    purgeAt: null,
   }
 }
 

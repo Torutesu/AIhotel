@@ -205,8 +205,8 @@ export function InventoryTableCard({ totalRooms, year, month }: InventoryTableCa
 
   return (
     <Card>
-      <CardHeader className="pb-1">
-        <div className="flex flex-wrap items-center justify-between gap-2">
+      <CardHeader className="min-w-0 pb-1">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div>
             <CardTitle className="text-base font-medium">在庫表（{INVENTORY_DAYS}日間・タイプ別残室）</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -215,8 +215,8 @@ export function InventoryTableCard({ totalRooms, year, month }: InventoryTableCa
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1">
-              <Label htmlFor="inventory-start" className="whitespace-nowrap text-xs">
+            <div className="flex min-w-0 flex-wrap items-center gap-1">
+              <Label htmlFor="inventory-start" className="w-full whitespace-nowrap text-xs sm:w-auto">
                 対象日
               </Label>
               <Button variant="outline" size="icon" className="h-8 w-8" aria-label="前の14日" onClick={() => shift(-INVENTORY_DAYS)}>
@@ -238,7 +238,7 @@ export function InventoryTableCard({ totalRooms, year, month }: InventoryTableCa
             </div>
             <div className="flex items-center gap-1.5">
               <Switch id="inventory-segment" checked={bySegment} onCheckedChange={setBySegment} />
-              <Label htmlFor="inventory-segment" className="whitespace-nowrap text-xs">
+              <Label htmlFor="inventory-segment" className="min-h-11 cursor-pointer whitespace-nowrap text-xs sm:min-h-0">
                 団体をセグメント別に表示
               </Label>
             </div>

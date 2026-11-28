@@ -4,6 +4,7 @@
 // GET /dashboard/ai-summary の実データ（現在は seed の AiComment）。
 // 当月だけでなく先々（翌月以降）の見通しも知らせる（PDF a01）。本文の行頭の【当月】【先々】は見出しとして表示する。
 
+import { MessageSquareText } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { AiSummary } from "@/lib/api"
@@ -27,12 +28,10 @@ interface AiSummaryCardProps {
 
 export function AiSummaryCard({ summary, loading }: AiSummaryCardProps) {
   return (
-    <Card className="border-[color:var(--cyan-edge)]/40 bg-[color:var(--sky-wash)]/25">
+    <Card className="border-border bg-card">
       <CardHeader className="pb-1">
         <CardTitle className="flex items-center gap-2 text-base font-medium">
-          <span className="text-xl" aria-hidden>
-            🤖
-          </span>
+          <MessageSquareText className="h-5 w-5 shrink-0" aria-hidden="true" />
           AI解説
         </CardTitle>
       </CardHeader>

@@ -1,5 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="レブスト">
-  <rect width="32" height="32" rx="7" fill="#282828"/>
-  <path d="M9 23.5V8.5h5.5a3.75 3.75 0 0 1 0 7.5H9M13.5 16l5 7.5" stroke="#ffffff" stroke-width="2.6" stroke-linecap="square" fill="none"/>
-  <circle cx="23" cy="10.5" r="2.2" fill="#ffffff"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="レブスト">
+<rect width="64" height="64" rx="14" fill="#1c1c1c"/>
+<g fill="#ffffff" transform="translate(16 14) scale(.8)">
+<path d="M10 12H15Q17 12 17 14V34A10 10 0 0 1 7 44H2Q0 44 0 42V22A10 10 0 0 1 10 12Z"/>
+<path d="M33 0H38Q40 0 40 2V22A10 10 0 0 1 30 32H25Q23 32 23 30V10A10 10 0 0 1 33 0Z"/>
+</g></svg>

@@ -36,8 +36,6 @@ import { CompetitorFetchStatusSection } from "@/components/settings/competitor-f
 import { UserManagementSection } from "@/components/settings/user-management-section"
 import { HotelManagementSection } from "@/components/settings/hotel-management-section"
 import { RoomTypeSection } from "@/components/settings/room-type-section"
-import { TenantManagementSection } from "@/components/settings/tenant-management-section"
-import { TrialManagementSection } from "@/components/settings/trials/trial-management-section"
 import { DailyDataImportSection } from "@/components/settings/daily-data-import-section"
 import {
   BookingCurveImportSection,
@@ -136,7 +134,7 @@ export function SettingsTab() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-6">
+    <div className="app-page">
       <div>
         <h1 className="font-heading text-2xl font-medium tracking-tight">設定</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -207,12 +205,6 @@ export function SettingsTab() {
       {/* パスワード変更・全端末ログアウト（全ロール — #89） */}
       <AccountSecurityCard />
 
-      {/* テナントの作成・契約停止（運営のみ — #81） */}
-      {user?.role === "PLATFORM_ADMIN" && <TenantManagementSection />}
-
-      {/* トライアル（デモ）アカウントの管理（運営のみ） */}
-      {user?.role === "PLATFORM_ADMIN" && <TrialManagementSection />}
-
       {/* 外観（テーマ）— next-themes が localStorage に保存し、即座に反映される */}
       <Card>
         <CardHeader>
@@ -249,7 +241,9 @@ export function SettingsTab() {
         <CardHeader>
           <CardTitle>ダッシュボード表示設定</CardTitle>
           <CardDescription>
-            ダッシュボードに表示するセクションとKPI項目を選びます。利用者ごとに保存され、別の端末でも同じ表示になります。
+            {process.env.NEXT_PUBLIC_DEMO_MODE === "true"
+              ? "ダッシュボードに表示する項目を試せます。デモでの変更は画面内のみの反映で、再読み込みすると元に戻ります。別の端末には共有されません。"
+              : "ダッシュボードに表示するセクションとKPI項目を選びます。利用者ごとに保存され、別の端末でも同じ表示になります。"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -285,7 +279,7 @@ export function SettingsTab() {
                     checked={dashboardKpiItems.includes(item.key)}
                     onCheckedChange={(checked) => toggleDashboardKpiItem(item.key, checked === true)}
                   />
-                  <Label htmlFor={`dashboard-kpi-${item.key}`} className="font-normal">
+                  <Label htmlFor={`dashboard-kpi-${item.key}`} className="min-h-11 flex-1 cursor-pointer sm:min-h-0 font-normal">
                     {item.label}
                   </Label>
                 </div>

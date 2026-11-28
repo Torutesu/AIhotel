@@ -5,7 +5,7 @@
 // 行が無い月は画面側で平均を捏造せず、生成元（再計算／日次バッチ）を案内する空状態を出す。
 
 import { useMemo, useState } from "react"
-import { Loader2, RefreshCw, Sparkles } from "lucide-react"
+import { Loader2, RefreshCw, ChartNoAxesCombined } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -114,7 +114,7 @@ export function LandingForecastSummary({
             {recomputing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
             ) : (
-              <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              <ChartNoAxesCombined className="h-3.5 w-3.5" aria-hidden />
             )}
             AI予測値へリセット
           </Button>
